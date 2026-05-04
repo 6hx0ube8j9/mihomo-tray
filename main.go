@@ -47,6 +47,7 @@ func checkAndStartCore() {
 	if err != nil {
 		exePath, _ := os.Executable()
 		corePath := filepath.Join(filepath.Dir(exePath), "mihomo-run.exe")
+		// 拉起守护进程
 		cmd := exec.Command("cmd", "/c", "start", "", corePath)
 		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 		cmd.Start()
@@ -59,7 +60,7 @@ func onReady() {
 	mWeb := systray.AddMenuItem("打开控制面板", "")
 	systray.AddSeparator()
 
-	// 排序：代理和网卡在上方
+	// 菜单排序：代理和网卡置于模式之上
 	mProxy := systray.AddMenuItemCheckbox("系统代理", "", false)
 	mTun := systray.AddMenuItemCheckbox("虚拟网卡 (TUN)", "", false)
 	systray.AddSeparator()
@@ -76,7 +77,7 @@ func onReady() {
 
 	client := resty.New().SetTimeout(1 * time.Second)
 
-	// 持续同步状态
+	// 状态同步
 	go func() {
 		for {
 			syncLogic(client, mProxy, mTun, mGlobal, mRule, mDirect)
@@ -90,7 +91,6 @@ func onReady() {
 			case <-mProxy.ClickedCh:
 				toggleProxy(!mProxy.Checked())
 			case <-mTun.ClickedCh:
-				// 用户手动切换：此时必须增删 Lock
 				if mTun.Checked() {
 					os.Remove(LOCK_FILE)
 					client.R().SetBody(`{"tun": {"enable": false}}`).Patch(API_URL + "/configs")
@@ -107,16 +107,18 @@ func onReady() {
 			case <-mWeb.ClickedCh:
 				exec.Command("rundll32", "url.dll,FileProtocolHandler", API_URL+"/ui").Start()
 			case <-mService.ClickedCh:
+				// 弹出即关闭：使用 start 开启脚本，主 CMD 进程立刻退出
 				exePath, _ := os.Executable()
 				serviceBat := filepath.Join(filepath.Dir(exePath), "mihomo-service", "mihomo-service.bat")
-				cmd := exec.Command("cmd", "/c", "start", "", serviceBat)
+				cmd := exec.Command("cmd", "/c", "start", "/b", "", "cmd", "/c", serviceBat)
 				cmd.Dir = filepath.Dir(serviceBat)
+				cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 				cmd.Start()
 			case <-mRestart.ClickedCh:
-				// 对应 mihomo-run 逻辑：只杀进程，不删锁
+				// 只杀内核，由守护进程拉起
 				exec.Command("taskkill", "/f", "/t", "/im", "mihomo.exe").Run()
-				time.Sleep(1 * time.Second)
-				checkAndStartCore() // 确保守护进程没挂
+				time.Sleep(500 * time.Millisecond)
+				checkAndStartCore()
 			case <-mExit.ClickedCh:
 				systray.Quit()
 			}
@@ -125,7 +127,6 @@ func onReady() {
 }
 
 func syncLogic(c *resty.Client, mProxy, mTun, mG, mR, mD *systray.MenuItem) {
-	// 系统代理
 	isProxyOn := false
 	k, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Internet Settings`, registry.QUERY_VALUE)
 	if err == nil {
@@ -134,7 +135,7 @@ func syncLogic(c *resty.Client, mProxy, mTun, mG, mR, mD *systray.MenuItem) {
 		if regVal == 1 { mProxy.Check(); isProxyOn = true } else { mProxy.Uncheck() }
 	}
 
-	// 物理网卡
+	// 物理网卡检测 (复刻脚本灵魂)
 	isPhysicalUp := false
 	ifaces, _ := net.Interfaces()
 	for _, i := range ifaces {
@@ -144,7 +145,6 @@ func syncLogic(c *resty.Client, mProxy, mTun, mG, mR, mD *systray.MenuItem) {
 		}
 	}
 
-	// API
 	resp, err := c.R().Get(API_URL + "/configs")
 	if err != nil {
 		systray.SetIcon(getIcon("tray_stop.ico"))
@@ -153,7 +153,6 @@ func syncLogic(c *resty.Client, mProxy, mTun, mG, mR, mD *systray.MenuItem) {
 	res := resp.String()
 	isTunApi := strings.Contains(res, `"tun":{"enable":true`)
 
-	// 状态反馈：图标与勾选
 	if isTunApi && isPhysicalUp {
 		mTun.Check()
 		systray.SetIcon(getIcon("tray_tun.ico"))
@@ -166,7 +165,6 @@ func syncLogic(c *resty.Client, mProxy, mTun, mG, mR, mD *systray.MenuItem) {
 		}
 	}
 
-	// 模式同步
 	if strings.Contains(res, `"mode":"global"`) { mG.Check(); mR.Uncheck(); mD.Uncheck() }
 	if strings.Contains(res, `"mode":"rule"`) { mG.Uncheck(); mR.Check(); mD.Uncheck() }
 	if strings.Contains(res, `"mode":"direct"`) { mG.Uncheck(); mR.Uncheck(); mD.Check() }
