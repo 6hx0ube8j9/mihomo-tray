@@ -8,9 +8,6 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # 解决 Node.js 20 弃用警告
-
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
@@ -18,34 +15,31 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.22' # 升级到更稳的版本
-        cache: false      # 先关掉缓存，因为你还没生成 go.sum
+        go-version: '1.22'
+        cache: false
 
-    - name: Initialize Go Module and Dependencies
+    - name: Build Execution
+      shell: pwsh
       run: |
-        # 强制创建 mod 文件
-        go mod init github.com/${{ github.repository }}
-        # 安装你代码里用到的所有依赖
+        # 1. 初始化模块
+        if (Test-Path "go.mod") { Remove-Item "go.mod" }
+        go mod init mihomo-tray
+        
+        # 2. 强行拉取必要依赖
         go get github.com/getlantern/systray
         go get github.com/go-resty/resty/v2
         go get github.com/shirou/gopsutil/v3/net
         go get github.com/shirou/gopsutil/v3/process
         go get golang.org/x/sys/windows/registry
-        # 整理依赖
         go mod tidy
 
-    - name: Install Build Tools
-      run: go install github.com/tc-hib/go-winres@latest
+        # 3. 处理图标资源 (报错也不中断)
+        go install github.com/tc-hib/go-winres@latest
+        try { go-winres make } catch { Write-Host "Winres failed, skipping icons..." }
 
-    - name: Compile Resources
-      run: |
-        # 如果没有 syso，尝试生成它
-        go-winres make
-
-    - name: Build Binary
-      run: |
-        # 编译参数：-s -w 压缩，-H windowsgui 隐藏黑窗口
-        go build -ldflags "-s -w -H windowsgui" -o mihomo-tray.exe main.go
+        # 4. 最终编译
+        # 使用 -ldflags 注入参数，确保没有黑窗口
+        go build -ldflags="-s -w -H windowsgui" -o mihomo-tray.exe main.go
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
