@@ -2,7 +2,6 @@ package main
 
 import (
 	"embed"
-	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -47,7 +46,6 @@ func checkAndStartCore() {
 	if err != nil {
 		exePath, _ := os.Executable()
 		corePath := filepath.Join(filepath.Dir(exePath), "mihomo-run.exe")
-		// 拉起守护进程
 		cmd := exec.Command("cmd", "/c", "start", "", corePath)
 		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 		cmd.Start()
@@ -60,7 +58,6 @@ func onReady() {
 	mWeb := systray.AddMenuItem("打开控制面板", "")
 	systray.AddSeparator()
 
-	// 菜单排序：代理和网卡置于模式之上
 	mProxy := systray.AddMenuItemCheckbox("系统代理", "", false)
 	mTun := systray.AddMenuItemCheckbox("虚拟网卡 (TUN)", "", false)
 	systray.AddSeparator()
@@ -77,7 +74,6 @@ func onReady() {
 
 	client := resty.New().SetTimeout(1 * time.Second)
 
-	// 状态同步
 	go func() {
 		for {
 			syncLogic(client, mProxy, mTun, mGlobal, mRule, mDirect)
@@ -107,15 +103,14 @@ func onReady() {
 			case <-mWeb.ClickedCh:
 				exec.Command("rundll32", "url.dll,FileProtocolHandler", API_URL+"/ui").Start()
 			case <-mService.ClickedCh:
-				// 弹出即关闭：使用 start 开启脚本，主 CMD 进程立刻退出
 				exePath, _ := os.Executable()
 				serviceBat := filepath.Join(filepath.Dir(exePath), "mihomo-service", "mihomo-service.bat")
+				// 弹出提权窗口并立即关闭原始发起窗口的写法
 				cmd := exec.Command("cmd", "/c", "start", "/b", "", "cmd", "/c", serviceBat)
 				cmd.Dir = filepath.Dir(serviceBat)
 				cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 				cmd.Start()
 			case <-mRestart.ClickedCh:
-				// 只杀内核，由守护进程拉起
 				exec.Command("taskkill", "/f", "/t", "/im", "mihomo.exe").Run()
 				time.Sleep(500 * time.Millisecond)
 				checkAndStartCore()
@@ -135,7 +130,6 @@ func syncLogic(c *resty.Client, mProxy, mTun, mG, mR, mD *systray.MenuItem) {
 		if regVal == 1 { mProxy.Check(); isProxyOn = true } else { mProxy.Uncheck() }
 	}
 
-	// 物理网卡检测 (复刻脚本灵魂)
 	isPhysicalUp := false
 	ifaces, _ := net.Interfaces()
 	for _, i := range ifaces {
