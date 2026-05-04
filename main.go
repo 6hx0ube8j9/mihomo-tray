@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/getlantern/systray"
-	"github.com/go-resty/resty/v2"
+	"[github.com/getlantern/systray](https://github.com/getlantern/systray)"
+	"[github.com/go-resty/resty/v2](https://github.com/go-resty/resty/v2)"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
@@ -20,7 +20,7 @@ import (
 var iconFs embed.FS
 
 const (
-	API_URL    = "http://127.0.0.1:9090"
+	API_URL    = "[http://127.0.0.1:9090](http://127.0.0.1:9090)"
 	PROXY_ADDR = "127.0.0.1:7890"
 	LOCK_FILE  = "tun_on.lock"
 	TUN_NAME   = "Mihomo"
@@ -34,7 +34,9 @@ func getIcon(name string) []byte {
 func main() {
 	mutexName, _ := windows.UTF16PtrFromString("Global\\MihomoTrayMutex")
 	_, err := windows.CreateMutex(nil, false, mutexName)
-	if err != nil { os.Exit(0) }
+	if err != nil {
+		os.Exit(0)
+	}
 
 	checkAndStartCore()
 	systray.Run(onReady, onExit)
@@ -91,7 +93,10 @@ func onReady() {
 					os.Remove(LOCK_FILE)
 					client.R().SetBody(`{"tun": {"enable": false}}`).Patch(API_URL + "/configs")
 				} else {
-					os.Create(LOCK_FILE)
+					f, _ := os.Create(LOCK_FILE)
+					if f != nil {
+						f.Close()
+					}
 					client.R().SetBody(`{"tun": {"enable": true}}`).Patch(API_URL + "/configs")
 				}
 			case <-mGlobal.ClickedCh:
@@ -105,14 +110,13 @@ func onReady() {
 			case <-mService.ClickedCh:
 				exePath, _ := os.Executable()
 				serviceBat := filepath.Join(filepath.Dir(exePath), "mihomo-service", "mihomo-service.bat")
-				// 弹出提权窗口并立即关闭原始发起窗口的写法
-				cmd := exec.Command("cmd", "/c", "start", "/b", "", "cmd", "/c", serviceBat)
+				cmd := exec.Command("cmd", "/c", "start", "", "cmd", "/c", serviceBat)
 				cmd.Dir = filepath.Dir(serviceBat)
 				cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 				cmd.Start()
 			case <-mRestart.ClickedCh:
 				exec.Command("taskkill", "/f", "/t", "/im", "mihomo.exe").Run()
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(1 * time.Second)
 				checkAndStartCore()
 			case <-mExit.ClickedCh:
 				systray.Quit()
@@ -127,7 +131,12 @@ func syncLogic(c *resty.Client, mProxy, mTun, mG, mR, mD *systray.MenuItem) {
 	if err == nil {
 		regVal, _, _ := k.GetIntegerValue("ProxyEnable")
 		k.Close()
-		if regVal == 1 { mProxy.Check(); isProxyOn = true } else { mProxy.Uncheck() }
+		if regVal == 1 {
+			mProxy.Check()
+			isProxyOn = true
+		} else {
+			mProxy.Uncheck()
+		}
 	}
 
 	isPhysicalUp := false
@@ -147,6 +156,13 @@ func syncLogic(c *resty.Client, mProxy, mTun, mG, mR, mD *systray.MenuItem) {
 	res := resp.String()
 	isTunApi := strings.Contains(res, `"tun":{"enable":true`)
 
+	if _, err := os.Stat(LOCK_FILE); os.IsNotExist(err) {
+		if isTunApi {
+			c.R().SetBody(`{"tun": {"enable": false}}`).Patch(API_URL + "/configs")
+			isTunApi = false
+		}
+	}
+
 	if isTunApi && isPhysicalUp {
 		mTun.Check()
 		systray.SetIcon(getIcon("tray_tun.ico"))
@@ -159,9 +175,21 @@ func syncLogic(c *resty.Client, mProxy, mTun, mG, mR, mD *systray.MenuItem) {
 		}
 	}
 
-	if strings.Contains(res, `"mode":"global"`) { mG.Check(); mR.Uncheck(); mD.Uncheck() }
-	if strings.Contains(res, `"mode":"rule"`) { mG.Uncheck(); mR.Check(); mD.Uncheck() }
-	if strings.Contains(res, `"mode":"direct"`) { mG.Uncheck(); mR.Uncheck(); mD.Check() }
+	if strings.Contains(res, `"mode":"global"`) {
+		mG.Check()
+		mR.Uncheck()
+		mD.Uncheck()
+	}
+	if strings.Contains(res, `"mode":"rule"`) {
+		mG.Uncheck()
+		mR.Check()
+		mD.Uncheck()
+	}
+	if strings.Contains(res, `"mode":"direct"`) {
+		mG.Uncheck()
+		mR.Uncheck()
+		mD.Check()
+	}
 }
 
 func toggleProxy(enable bool) {
