@@ -23,35 +23,25 @@ jobs:
         go-version: '1.22'
         cache: false
 
-    - name: Clean and Init
+    - name: Init and Dependencies
       shell: pwsh
       run: |
-        # 彻底清理旧的依赖描述
         if (Test-Path "go.mod") { Remove-Item "go.mod" }
         if (Test-Path "go.sum") { Remove-Item "go.sum" }
-        
         go mod init mihomo-tray
-        
-        # 强制拉取 windows 专属包
         go get golang.org/x/sys/windows
         go get github.com/getlantern/systray
         go get github.com/go-resty/resty/v2
-        
         go mod tidy
 
     - name: Build EXE
       shell: pwsh
       run: |
-        # 生成资源文件（图标）
         go install github.com/tc-hib/go-winres@latest
         go-winres make
-        
-        # 编译参数
-        # -s -w 压缩体积
-        # -H windowsgui 禁用命令行黑窗口
         go build -ldflags="-s -w -H windowsgui" -o mihomo-tray.exe main.go
 
-    - name: Upload
+    - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: mihomo-tray
