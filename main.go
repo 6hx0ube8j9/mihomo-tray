@@ -6,12 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"syscall"
 	"time"
-	"unsafe"
 
 	"github.com/getlantern/systray"
 	"github.com/go-resty/resty/v2"
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -19,16 +18,9 @@ import (
 var iconFs embed.FS
 
 const (
-	API_URL      = "http://127.0.0.1:9090"
-	PROXY_ADDR   = "127.0.0.1:7890"
-	LOCK_FILE    = "../tun_on.lock"
-	WINDOW_TITLE = "MihomoTrayInstance"
-)
-
-// WinAPI 用于刷新系统设置
-var (
-	user32           = syscall.NewLazyDLL("user32.dll")
-	updateParameters = user32.NewProc("UpdatePerUserSystemParameters")
+	API_URL    = "http://127.0.0.1:9090"
+	PROXY_ADDR = "127.0.0.1:7890"
+	LOCK_FILE  = "../tun_on.lock"
 )
 
 func getIcon(name string) []byte {
@@ -37,9 +29,11 @@ func getIcon(name string) []byte {
 }
 
 func main() {
-	// --- 防止多开逻辑 ---
-	_, err := syscall.CreateMutex(nil, false, syscall.StringToUTF16Ptr("Global\\MihomoTrayMutex"))
+	// --- 防止多开 (使用更现代的 windows 包) ---
+	mutexName, _ := windows.UTF16PtrFromString("Global\\MihomoTrayMutex")
+	_, err := windows.CreateMutex(nil, false, mutexName)
 	if err != nil {
+		// 如果互斥锁已存在，直接退出
 		os.Exit(0)
 	}
 
@@ -48,8 +42,8 @@ func main() {
 
 func onReady() {
 	systray.SetIcon(getIcon("tray_default.ico"))
-	
-	// 菜单项
+	systray.SetTooltip("Mihomo Tray")
+
 	mProxy := systray.AddMenuItemCheckbox("系统代理", "", false)
 	mTun := systray.AddMenuItemCheckbox("虚拟网卡 (TUN)", "", false)
 	systray.AddSeparator()
@@ -73,7 +67,7 @@ func onReady() {
 		}
 	}()
 
-	// 动作处理
+	// 菜单点击监听
 	go func() {
 		for {
 			select {
@@ -99,33 +93,35 @@ func onReady() {
 }
 
 func syncLogic(c *resty.Client, mProxy, mTun, mG, mR, mD *systray.MenuItem) {
-	resp, err := c.R().Get(API_URL + "/configs")
-	
 	// 系统代理注册表检查
-	k, _ := registry.OpenKey(registry.HKEY_CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Internet Settings`, registry.QUERY_VALUE)
-	regVal, _, _ := k.GetIntegerValue("ProxyEnable")
-	k.Close()
-	if regVal == 1 { mProxy.Check() } else { mProxy.Uncheck() }
+	k, err := registry.OpenKey(registry.HKEY_CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Internet Settings`, registry.QUERY_VALUE)
+	if err == nil {
+		regVal, _, _ := k.GetIntegerValue("ProxyEnable")
+		k.Close()
+		if regVal == 1 { mProxy.Check() } else { mProxy.Uncheck() }
+	}
 
+	// API 状态检查
+	resp, err := c.R().Get(API_URL + "/configs")
 	if err != nil {
 		systray.SetIcon(getIcon("tray_stop.ico"))
 		return
 	}
 
 	res := resp.String()
-	// TUN 状态对齐与 Lock 文件 (复刻脚本逻辑)
+	// TUN 状态与 Lock 文件
 	isTun := strings.Contains(res, `"tun":{"enable":true`)
 	if isTun {
 		mTun.Check()
-		os.WriteFile(LOCK_FILE, []byte("ON"), 0644)
+		_ = os.WriteFile(LOCK_FILE, []byte("ON"), 0644)
 		systray.SetIcon(getIcon("tray_tun.ico"))
 	} else {
 		mTun.Uncheck()
-		os.Remove(LOCK_FILE)
+		_ = os.Remove(LOCK_FILE)
 		systray.SetIcon(getIcon("tray_default.ico"))
 	}
 
-	// 模式对齐
+	// 模式同步
 	if strings.Contains(res, `"mode":"global"`) { mG.Check(); mR.Uncheck(); mD.Uncheck() }
 	if strings.Contains(res, `"mode":"rule"`) { mG.Uncheck(); mR.Check(); mD.Uncheck() }
 	if strings.Contains(res, `"mode":"direct"`) { mG.Uncheck(); mR.Uncheck(); mD.Check() }
@@ -133,23 +129,25 @@ func syncLogic(c *resty.Client, mProxy, mTun, mG, mR, mD *systray.MenuItem) {
 
 func toggleProxy(enable bool) {
 	k, _, _ := registry.CreateKey(registry.HKEY_CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Internet Settings`, registry.ALL_ACCESS)
-	defer k.Close()
 	if enable {
-		k.SetDWordValue("ProxyEnable", 1)
-		k.SetStringValue("ProxyServer", PROXY_ADDR)
+		_ = k.SetDWordValue("ProxyEnable", 1)
+		_ = k.SetStringValue("ProxyServer", PROXY_ADDR)
 	} else {
-		k.SetDWordValue("ProxyEnable", 0)
+		_ = k.SetDWordValue("ProxyEnable", 0)
 	}
-	// 关键：通知系统刷新代理设置
-	updateParameters.Call(0, 0, 0, 0)
+	k.Close()
+
+	// 强制通知系统刷新配置 (使用 Windows API)
+	user32 := windows.NewLazySystemDLL("user32.dll")
+	update := user32.NewProc("UpdatePerUserSystemParameters")
+	update.Call(0, 0, 0, 0)
 }
 
 func restartMihomo() {
-	exec.Command("taskkill", "/f", "/t", "/im", "mihomo-run.exe").Run()
-	exec.Command("taskkill", "/f", "/t", "/im", "mihomo.exe").Run()
+	_ = exec.Command("taskkill", "/f", "/t", "/im", "mihomo-run.exe").Run()
+	_ = exec.Command("taskkill", "/f", "/t", "/im", "mihomo.exe").Run()
 	time.Sleep(1 * time.Second)
-	// 调用你上层目录的服务管理
-	exec.Command("cmd", "/c", "start", "", "..\\mihomo-service.exe", "restart").Start()
+	_ = exec.Command("cmd", "/c", "start", "", "..\\mihomo-service.exe", "restart").Start()
 }
 
 func onExit() {}
