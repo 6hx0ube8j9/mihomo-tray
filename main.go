@@ -21,6 +21,8 @@ const (
 	API_URL    = "http://127.0.0.1:9090"
 	PROXY_ADDR = "127.0.0.1:7890"
 	LOCK_FILE  = "../tun_on.lock"
+	// 直接定义常量，绕过编译器的 undefined 检查
+	HKEY_CURRENT_USER = 0x80000001 
 )
 
 func getIcon(name string) []byte {
@@ -29,11 +31,10 @@ func getIcon(name string) []byte {
 }
 
 func main() {
-	// --- 防止多开 (使用更现代的 windows 包) ---
+	// 防止多开
 	mutexName, _ := windows.UTF16PtrFromString("Global\\MihomoTrayMutex")
 	_, err := windows.CreateMutex(nil, false, mutexName)
 	if err != nil {
-		// 如果互斥锁已存在，直接退出
 		os.Exit(0)
 	}
 
@@ -59,7 +60,6 @@ func onReady() {
 
 	client := resty.New().SetTimeout(1 * time.Second)
 
-	// 核心同步协程
 	go func() {
 		for {
 			syncLogic(client, mProxy, mTun, mGlobal, mRule, mDirect)
@@ -67,7 +67,6 @@ func onReady() {
 		}
 	}()
 
-	// 菜单点击监听
 	go func() {
 		for {
 			select {
@@ -93,15 +92,14 @@ func onReady() {
 }
 
 func syncLogic(c *resty.Client, mProxy, mTun, mG, mR, mD *systray.MenuItem) {
-	// 系统代理注册表检查
-	k, err := registry.OpenKey(registry.HKEY_CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Internet Settings`, registry.QUERY_VALUE)
+	// 关键：强制类型转换绕过 undefined
+	k, err := registry.OpenKey(registry.Key(HKEY_CURRENT_USER), `Software\Microsoft\Windows\CurrentVersion\Internet Settings`, registry.QUERY_VALUE)
 	if err == nil {
 		regVal, _, _ := k.GetIntegerValue("ProxyEnable")
 		k.Close()
 		if regVal == 1 { mProxy.Check() } else { mProxy.Uncheck() }
 	}
 
-	// API 状态检查
 	resp, err := c.R().Get(API_URL + "/configs")
 	if err != nil {
 		systray.SetIcon(getIcon("tray_stop.ico"))
@@ -109,7 +107,6 @@ func syncLogic(c *resty.Client, mProxy, mTun, mG, mR, mD *systray.MenuItem) {
 	}
 
 	res := resp.String()
-	// TUN 状态与 Lock 文件
 	isTun := strings.Contains(res, `"tun":{"enable":true`)
 	if isTun {
 		mTun.Check()
@@ -121,14 +118,13 @@ func syncLogic(c *resty.Client, mProxy, mTun, mG, mR, mD *systray.MenuItem) {
 		systray.SetIcon(getIcon("tray_default.ico"))
 	}
 
-	// 模式同步
 	if strings.Contains(res, `"mode":"global"`) { mG.Check(); mR.Uncheck(); mD.Uncheck() }
 	if strings.Contains(res, `"mode":"rule"`) { mG.Uncheck(); mR.Check(); mD.Uncheck() }
 	if strings.Contains(res, `"mode":"direct"`) { mG.Uncheck(); mR.Uncheck(); mD.Check() }
 }
 
 func toggleProxy(enable bool) {
-	k, _, _ := registry.CreateKey(registry.HKEY_CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Internet Settings`, registry.ALL_ACCESS)
+	k, _, _ := registry.CreateKey(registry.Key(HKEY_CURRENT_USER), `Software\Microsoft\Windows\CurrentVersion\Internet Settings`, registry.ALL_ACCESS)
 	if enable {
 		_ = k.SetDWordValue("ProxyEnable", 1)
 		_ = k.SetStringValue("ProxyServer", PROXY_ADDR)
@@ -137,7 +133,6 @@ func toggleProxy(enable bool) {
 	}
 	k.Close()
 
-	// 强制通知系统刷新配置 (使用 Windows API)
 	user32 := windows.NewLazySystemDLL("user32.dll")
 	update := user32.NewProc("UpdatePerUserSystemParameters")
 	update.Call(0, 0, 0, 0)
