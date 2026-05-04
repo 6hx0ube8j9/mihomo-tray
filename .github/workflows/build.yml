@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
@@ -16,25 +18,24 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
+        cache: false # 解决没有 go.sum 时的报错
 
-    - name: Install Dependencies
+    - name: Build
+      shell: pwsh
       run: |
+        if (Test-Path "go.mod") { Remove-Item "go.mod" }
         go mod init mihomo-tray
         go get golang.org/x/sys/windows
         go get github.com/getlantern/systray
         go get github.com/go-resty/resty/v2
         go mod tidy
-
-    - name: Prepare Resources
-      run: |
+        
+        # 强制链接图标资源
         go install github.com/tc-hib/go-winres@latest
-        # 确保 icons 目录存在且包含 tray_default.ico
         go-winres make
-
-    - name: Build EXE
-      run: |
-        # 核心：-ldflags 加上图标资源，并确保编译器能看到同目录下的 .syso
-        go build -ldflags="-s -w -H windowsgui" -o mihomo-tray.exe .
+        
+        # 编译并生成图标链接
+        go build -ldflags "-s -w -H windowsgui" -o mihomo-tray.exe .
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
