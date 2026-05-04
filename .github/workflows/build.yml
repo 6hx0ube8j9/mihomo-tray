@@ -17,17 +17,23 @@ jobs:
       with:
         go-version: '1.22'
 
-    - name: Build EXE
-      shell: bash
+    - name: Build
+      shell: pwsh
       run: |
-        # 强制初始化环境
-        [ -f go.mod ] && rm go.mod
+        # 初始化
+        if (Test-Path "go.mod") { Remove-Item "go.mod" }
         go mod init mihomo-tray
-        go get github.com/getlantern/systray
-        go get github.com/go-resty/resty/v2
         go mod tidy
         
-        # 编译 (不使用 winres 以免路径报错，先保证程序能出来)
+        # 1. 安装并运行 winres (生成图标资源文件)
+        go install github.com/tc-hib/go-winres@latest
+        go-winres make
+        
+        # 2. 检查生成的 syso 文件是否存在 (调试用)
+        ls *.syso
+        
+        # 3. 编译
+        # 注意：Go 会自动链接当前目录下的 .syso 文件到 EXE
         go build -ldflags "-s -w -H windowsgui" -o mihomo-tray.exe main.go
 
     - name: Upload Artifact
