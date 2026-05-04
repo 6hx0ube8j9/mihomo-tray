@@ -8,6 +8,10 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      GOOS: windows
+      GOARCH: amd64
+
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
@@ -16,25 +20,27 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
+        cache: false # 禁用缓存防止 go.sum 错误
 
-    - name: Build
+    - name: Init and Dependencies
       shell: pwsh
       run: |
-        # 初始化
         if (Test-Path "go.mod") { Remove-Item "go.mod" }
         go mod init mihomo-tray
+        # 显式拉取 Windows 系统包
+        go get golang.org/x/sys/windows
+        go get github.com/getlantern/systray
+        go get github.com/go-resty/resty/v2
         go mod tidy
-        
-        # 1. 安装并运行 winres (生成图标资源文件)
+
+    - name: Build with Icon
+      shell: pwsh
+      run: |
         go install github.com/tc-hib/go-winres@latest
+        # 执行 winres 生成 syso 资源
         go-winres make
-        
-        # 2. 检查生成的 syso 文件是否存在 (调试用)
-        ls *.syso
-        
-        # 3. 编译
-        # 注意：Go 会自动链接当前目录下的 .syso 文件到 EXE
-        go build -ldflags "-s -w -H windowsgui" -o mihomo-tray.exe main.go
+        # 编译：-ldflags 移除调试信息并隐藏控制台
+        go build -ldflags="-s -w -H windowsgui" -o mihomo-tray.exe main.go
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
