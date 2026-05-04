@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"[github.com/getlantern/systray](https://github.com/getlantern/systray)"
-	"[github.com/go-resty/resty/v2](https://github.com/go-resty/resty/v2)"
+	"github.com/getlantern/systray"
+	"github.com/go-resty/resty/v2"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
@@ -20,7 +20,7 @@ import (
 var iconFs embed.FS
 
 const (
-	API_URL    = "[http://127.0.0.1:9090](http://127.0.0.1:9090)"
+	API_URL    = "http://127.0.0.1:9090"
 	PROXY_ADDR = "127.0.0.1:7890"
 	LOCK_FILE  = "tun_on.lock"
 	TUN_NAME   = "Mihomo"
@@ -37,7 +37,6 @@ func main() {
 	if err != nil {
 		os.Exit(0)
 	}
-
 	checkAndStartCore()
 	systray.Run(onReady, onExit)
 }
@@ -56,33 +55,26 @@ func checkAndStartCore() {
 
 func onReady() {
 	systray.SetIcon(getIcon("tray_default.ico"))
-
 	mWeb := systray.AddMenuItem("打开控制面板", "")
 	systray.AddSeparator()
-
 	mProxy := systray.AddMenuItemCheckbox("系统代理", "", false)
 	mTun := systray.AddMenuItemCheckbox("虚拟网卡 (TUN)", "", false)
 	systray.AddSeparator()
-
 	mGlobal := systray.AddMenuItemCheckbox("全局模式", "", false)
 	mRule := systray.AddMenuItemCheckbox("分流模式", "", false)
 	mDirect := systray.AddMenuItemCheckbox("直连模式", "", false)
 	systray.AddSeparator()
-
 	mService := systray.AddMenuItem("管理服务", "")
 	mRestart := systray.AddMenuItem("重启内核", "")
 	systray.AddSeparator()
 	mExit := systray.AddMenuItem("退出托盘", "")
-
 	client := resty.New().SetTimeout(1 * time.Second)
-
 	go func() {
 		for {
 			syncLogic(client, mProxy, mTun, mGlobal, mRule, mDirect)
 			time.Sleep(3 * time.Second)
 		}
 	}()
-
 	go func() {
 		for {
 			select {
@@ -138,7 +130,6 @@ func syncLogic(c *resty.Client, mProxy, mTun, mG, mR, mD *systray.MenuItem) {
 			mProxy.Uncheck()
 		}
 	}
-
 	isPhysicalUp := false
 	ifaces, _ := net.Interfaces()
 	for _, i := range ifaces {
@@ -147,7 +138,6 @@ func syncLogic(c *resty.Client, mProxy, mTun, mG, mR, mD *systray.MenuItem) {
 			break
 		}
 	}
-
 	resp, err := c.R().Get(API_URL + "/configs")
 	if err != nil {
 		systray.SetIcon(getIcon("tray_stop.ico"))
@@ -155,14 +145,12 @@ func syncLogic(c *resty.Client, mProxy, mTun, mG, mR, mD *systray.MenuItem) {
 	}
 	res := resp.String()
 	isTunApi := strings.Contains(res, `"tun":{"enable":true`)
-
 	if _, err := os.Stat(LOCK_FILE); os.IsNotExist(err) {
 		if isTunApi {
 			c.R().SetBody(`{"tun": {"enable": false}}`).Patch(API_URL + "/configs")
 			isTunApi = false
 		}
 	}
-
 	if isTunApi && isPhysicalUp {
 		mTun.Check()
 		systray.SetIcon(getIcon("tray_tun.ico"))
@@ -174,7 +162,6 @@ func syncLogic(c *resty.Client, mProxy, mTun, mG, mR, mD *systray.MenuItem) {
 			systray.SetIcon(getIcon("tray_default.ico"))
 		}
 	}
-
 	if strings.Contains(res, `"mode":"global"`) {
 		mG.Check()
 		mR.Uncheck()
