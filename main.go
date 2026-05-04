@@ -9,13 +9,15 @@ import (
 
 	"github.com/getlantern/systray"
 	"github.com/go-resty/resty/v2"
-	"github.com/shirou/gopsutil/v3/net"
-	"github.com/shirou/gopsutil/v3/process"
-	"golang.org/x/sys/windows/registry"
 )
 
 //go:embed icons/*.ico
 var iconFs embed.FS
+
+const (
+	API_URL   = "http://127.0.0.1:9090"
+	LOCK_FILE = "tun_on.lock"
+)
 
 func getIcon(name string) []byte {
 	data, _ := iconFs.ReadFile("icons/" + name)
@@ -27,7 +29,6 @@ func main() {
 }
 
 func onReady() {
-	// 初始化图标
 	systray.SetIcon(getIcon("tray_default.ico"))
 	systray.SetTooltip("Mihomo Tray")
 
@@ -37,30 +38,24 @@ func onReady() {
 	mService := systray.AddMenuItem("服务管理", "")
 	mRestart := systray.AddMenuItem("重启内核", "")
 	systray.AddSeparator()
-	mQuit := systray.AddMenuItem("退出托盘", "")
+	mQuit := systray.AddMenuItem("退出", "")
 
 	client := resty.New().SetTimeout(2 * time.Second)
 
-	// 逻辑循环
+	// 核心轮询：纠偏与图标切换
 	go func() {
 		for {
-			// 这里根据你的逻辑调用接口和检测网卡
-			// 示例：简单切换图标测试
-			resp, err := client.R().Get("http://127.0.0.1:9090/configs")
-			if err != nil {
-				systray.SetIcon(getIcon("tray_stop.ico"))
-			} else if strings.Contains(resp.String(), "true") {
-				systray.SetIcon(getIcon("tray_tun.ico"))
-			}
-			time.Sleep(5 * time.Second)
+			syncStatus(client, mProxy, mTun)
+			time.Sleep(3 * time.Second)
 		}
 	}()
 
+	// 菜单点击
 	go func() {
 		for {
 			select {
 			case <-mProxy.ClickedCh:
-				// 处理代理逻辑
+				// 切换逻辑...
 			case <-mService.ClickedCh:
 				exec.Command("cmd", "/c", "start", "mihomo\\mihomo-service\\mihomo-service.bat").Start()
 			case <-mRestart.ClickedCh:
@@ -69,7 +64,37 @@ func onReady() {
 				systray.Quit()
 			}
 		}
-	}()
+	} ()
+}
+
+func syncStatus(c *resty.Client, mProxy, mTun *systray.MenuItem) {
+	resp, err := c.R().Get(API_URL + "/configs")
+	
+	// 1. 内核离线
+	if err != nil {
+		systray.SetIcon(getIcon("tray_stop.ico"))
+		return
+	}
+
+	// 2. 简易解析判断 (你可以根据需要解析 JSON)
+	isTun := strings.Contains(resp.String(), `"tun":{"enable":true`)
+	
+	// 3. Lock 文件纠偏
+	_, lockErr := os.Stat(LOCK_FILE)
+	hasLock := !os.IsNotExist(lockErr)
+
+	if isTun && !hasLock {
+		os.Create(LOCK_FILE)
+	} else if !isTun && hasLock {
+		os.Remove(LOCK_FILE)
+	}
+
+	// 4. 更新图标颜色
+	if isTun {
+		systray.SetIcon(getIcon("tray_tun.ico"))
+	} else {
+		systray.SetIcon(getIcon("tray_default.ico"))
+	}
 }
 
 func onExit() {}
