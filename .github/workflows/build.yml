@@ -11,6 +11,7 @@ jobs:
     env:
       GOOS: windows
       GOARCH: amd64
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
     - name: Checkout Code
@@ -20,29 +21,37 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
-        cache: false # 禁用缓存防止 go.sum 错误
+        cache: false
 
-    - name: Init and Dependencies
+    - name: Clean and Init
       shell: pwsh
       run: |
+        # 彻底清理旧的依赖描述
         if (Test-Path "go.mod") { Remove-Item "go.mod" }
+        if (Test-Path "go.sum") { Remove-Item "go.sum" }
+        
         go mod init mihomo-tray
-        # 显式拉取 Windows 系统包
+        
+        # 强制拉取 windows 专属包
         go get golang.org/x/sys/windows
         go get github.com/getlantern/systray
         go get github.com/go-resty/resty/v2
+        
         go mod tidy
 
-    - name: Build with Icon
+    - name: Build EXE
       shell: pwsh
       run: |
+        # 生成资源文件（图标）
         go install github.com/tc-hib/go-winres@latest
-        # 执行 winres 生成 syso 资源
         go-winres make
-        # 编译：-ldflags 移除调试信息并隐藏控制台
+        
+        # 编译参数
+        # -s -w 压缩体积
+        # -H windowsgui 禁用命令行黑窗口
         go build -ldflags="-s -w -H windowsgui" -o mihomo-tray.exe main.go
 
-    - name: Upload Artifact
+    - name: Upload
       uses: actions/upload-artifact@v4
       with:
         name: mihomo-tray
