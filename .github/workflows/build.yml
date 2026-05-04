@@ -1,0 +1,60 @@
+name: Build Mihomo Tray
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch: # 支持手动触发
+
+jobs:
+  build:
+    runs-on: windows-latest # 必须在 Windows 环境编译以处理注册表库和图标
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+        cache: true
+
+    - name: Install Dependencies
+      run: |
+        go mod init mihomo-tray || echo "gomod already exists"
+        go get github.com/getlantern/systray
+        go get github.com/go-resty/resty/v2
+        go get github.com/shirou/gopsutil/v3/net
+        go get github.com/shirou/gopsutil/v3/process
+        go get golang.org/x/sys/windows/registry
+        go mod tidy
+
+    - name: Install go-winres
+      run: go install github.com/tc-hib/go-winres@latest
+
+    - name: Process Resources (Icons)
+      run: |
+        # 这步会将图标编译成 syso 文件，Go 编译器会自动识别并嵌入
+        go-winres make
+
+    - name: Build EXE
+      run: |
+        # -H windowsgui: 隐藏控制台黑窗口
+        # -s -w: 压缩体积，移除调试信息
+        go build -ldflags "-H windowsgui -s -w" -o mihomo-tray.exe main.go
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: mihomo-tray-exe
+        path: mihomo-tray.exe
+
+    - name: Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: mihomo-tray.exe
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
