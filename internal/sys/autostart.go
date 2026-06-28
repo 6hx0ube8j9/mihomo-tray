@@ -37,7 +37,7 @@ func ToggleAutoStart(exePath, baseDir string, enable bool) bool {
 		return cmd.Run() == nil
 	}
 
-	cmd := exec.Command("schtasks", "/Delete", "/TN", "\\"+taskName, "/F")
+	cmd := exec.Command("schtasks", "/Delete", "/TN", taskName, "/F")
 	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 	
 	if err := cmd.Run(); err == nil {
