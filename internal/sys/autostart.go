@@ -1,10 +1,12 @@
 package sys
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"os/exec"
 	"strings"
+	"syscall"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
@@ -49,6 +51,39 @@ func CheckAutoStartStatus() bool {
 	cmd := exec.Command("schtasks", "/Query", "/TN", taskName)
 	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 	return cmd.Run() == nil
+}
+
+func IsTaskPathValid(currentExePath string) bool {
+	cmd := exec.Command("schtasks", "/Query", "/TN", taskName, "/XML")
+	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+
+	utf8Out := out
+	if len(out) >= 2 && out[0] == 0xFF && out[1] == 0xFE {
+		utf16Vals := make([]uint16, (len(out)-2)/2)
+		for i := 0; i < len(utf16Vals); i++ {
+			utf16Vals[i] = uint16(out[2+i*2]) | (uint16(out[2+i*2+1]) << 8)
+		}
+		utf8Out = []byte(string(windows.UTF16ToString(utf16Vals)))
+	}
+
+	startTag := []byte("<Command>")
+	endTag := []byte("</Command>")
+	
+	startIdx := bytes.Index(utf8Out, startTag)
+	endIdx := bytes.Index(utf8Out, endTag)
+	
+	if startIdx == -1 || endIdx == -1 || startIdx >= endIdx {
+		return false
+	}
+
+	registeredPath := string(bytes.TrimSpace(utf8Out[startIdx+len(startTag) : endIdx]))
+	registeredPath = strings.Trim(registeredPath, `"`)
+	currentExePath = strings.Trim(currentExePath, `"`)
+	return strings.EqualFold(registeredPath, currentExePath)
 }
 
 func encodeUTF16Base64(s string) string {
