@@ -56,10 +56,24 @@ func NewApplication(cm *fsm.Manager) *Application {
 
 func (a *Application) Bootstrap(ctx context.Context) {
 	a.Cfg.EnsureDefault()
-	osActualStatus := sys.CheckAutoStartStatus()
+	
+	osTaskExists := sys.CheckAutoStartStatus()
 	cfgMemoryStatus := a.Cfg.Get("autostart") == "true"
-	if osActualStatus != cfgMemoryStatus {
-		a.Cfg.Set("autostart", strconv.FormatBool(osActualStatus))
+
+	if osTaskExists {
+		if !sys.IsTaskPathValid(a.Cfg.ExePath()) {
+			if cfgMemoryStatus {
+				sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), true)
+				osTaskExists = true
+			} else {
+				sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), false)
+				osTaskExists = false
+			}
+		}
+	}
+
+	if osTaskExists != cfgMemoryStatus {
+		a.Cfg.Set("autostart", strconv.FormatBool(osTaskExists))
 	}
 
 	a.Cfg.SyncWithYAML()
@@ -74,7 +88,6 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	go a.Kernel.RunDaemon(ctx, a.kernelEventCh)
 	go sys.WatchNetworkInterfaces(ctx, a.tunEventCh)
 	go a.watchProxyAdapter(ctx)
-
 	go a.eventLoop(ctx)
 }
 
