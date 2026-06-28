@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"syscall"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
