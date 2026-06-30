@@ -77,7 +77,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		}
 
 		localPid := atomic.LoadUint32(&km.currentPid)
-		if localPid != 0 && sys.IsPidRunning(localPid, "mihomo.exe") {	
+		if localPid != 0 && sys.IsPidRunning(localPid, "mihomo.exe") {    
 			time.Sleep(2 * time.Second)
 			continue
 		}
@@ -89,11 +89,13 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		sys.KillOtherProcessesByName("mihomo.exe", 0)
 		time.Sleep(300 * time.Millisecond)
 
+		var errBuf bytes.Buffer
+
 		cmd := exec.CommandContext(ctx, target, "-d", ".")
 		cmd.Dir = absBaseDir
 		cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 		cmd.Stdout = io.Discard
-		cmd.Stderr = io.Discard
+		cmd.Stderr = &errBuf
 
 		if err := cmd.Start(); err != nil {
 			time.Sleep(2 * time.Second)
@@ -118,6 +120,11 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		}
 
 		_ = cmd.Wait()
+
+		if errBuf.Len() > 0 {
+			logPath := filepath.Join(km.cm.BaseDir(), "error.log")
+			_ = os.WriteFile(logPath, errBuf.Bytes(), 0644)
+		}
 
 		km.mu.Lock()
 		km.activeProc = nil
