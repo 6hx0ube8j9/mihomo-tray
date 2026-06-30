@@ -95,7 +95,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		cmd := exec.CommandContext(ctx, target, "-d", ".")
 		cmd.Dir = absBaseDir
 		cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
-		cmd.Stdout = io.Discard
+		cmd.Stdout = &errBuf
 		cmd.Stderr = &errBuf
 
 		if err := cmd.Start(); err != nil {
@@ -120,11 +120,12 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		default:
 		}
 
-		_ = cmd.Wait()
+		waitErr := cmd.Wait()
 
-		if errBuf.Len() > 0 {
-			logPath := filepath.Join(km.cm.BaseDir(), "error.log")
-			_ = os.WriteFile(logPath, errBuf.Bytes(), 0644)
+		if waitErr != nil || errBuf.Len() > 0 {
+			logPath := filepath.Join(absBaseDir, "error.log")
+			finalLog := fmt.Sprintf("Kernel Exit Status: %v\nKernel Output:\n%s", waitErr, errBuf.String())
+			_ = os.WriteFile(logPath, []byte(finalLog), 0644)
 		}
 
 		km.mu.Lock()
