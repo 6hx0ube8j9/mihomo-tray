@@ -78,7 +78,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		}
 
 		localPid := atomic.LoadUint32(&km.currentPid)
-		if localPid != 0 && sys.IsPidRunning(localPid, "mihomo.exe") {    
+		if localPid != 0 && sys.IsPidRunning(localPid, "mihomo.exe") {
 			time.Sleep(2 * time.Second)
 			continue
 		}
@@ -89,14 +89,13 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 
 		sys.KillOtherProcessesByName("mihomo.exe", 0)
 		time.Sleep(300 * time.Millisecond)
-
-		var errBuf bytes.Buffer
+		errBuf := &tailBuffer{max: 64 * 1024}
 
 		cmd := exec.CommandContext(ctx, target, "-d", ".")
 		cmd.Dir = absBaseDir
 		cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
-		cmd.Stdout = &errBuf
-		cmd.Stderr = &errBuf
+		cmd.Stdout = errBuf
+		cmd.Stderr = errBuf
 
 		if err := cmd.Start(); err != nil {
 			time.Sleep(2 * time.Second)
@@ -122,9 +121,11 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 
 		waitErr := cmd.Wait()
 
-		if waitErr != nil || errBuf.Len() > 0 {
+		finalOutput := errBuf.String()
+		
+		if waitErr != nil && finalOutput != "" {
 			logPath := filepath.Join(absBaseDir, "error.log")
-			finalLog := fmt.Sprintf("Kernel Exit Status: %v\nKernel Output:\n%s", waitErr, errBuf.String())
+			finalLog := fmt.Sprintf("Kernel Exit Status: %v\nKernel Output:\n%s", waitErr, finalOutput)
 			_ = os.WriteFile(logPath, []byte(finalLog), 0644)
 		}
 
@@ -140,6 +141,34 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 
 		time.Sleep(1 * time.Second)
 	}
+}
+
+type tailBuffer struct {
+	mu  sync.Mutex
+	buf []byte
+	max int
+}
+
+func (t *tailBuffer) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.buf = append(t.buf, p...)
+	if len(t.buf) > t.max {
+		t.buf = t.buf[len(t.buf)-t.max:]
+	}
+	return len(p), nil
+}
+
+func (t *tailBuffer) String() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return string(t.buf)
+}
+
+func (t *tailBuffer) Len() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return len(t.buf)
 }
 
 func (km *KernelManager) KillCurrent() {
