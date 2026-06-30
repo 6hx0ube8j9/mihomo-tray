@@ -3,7 +3,7 @@ package core
 import (
 	"bytes"
 	"context"
-	"io"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
