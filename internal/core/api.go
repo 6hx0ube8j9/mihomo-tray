@@ -116,6 +116,10 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if method == http.MethodPut && strings.Contains(path, "/configs") {
+			logPath := filepath.Join(c.cm.BaseDir(), "error.log")
+			_ = os.WriteFile(logPath, body, 0644)
+		}
 		return body, fmt.Errorf("API Error: %d, Response: %s", resp.StatusCode, string(body))
 	}
 
