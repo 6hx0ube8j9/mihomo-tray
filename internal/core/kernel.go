@@ -119,10 +119,13 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		}
 
 		waitErr := cmd.Wait()
+		km.mu.Lock()
+		isKilledByUs := (km.activeProc == nil)
+		km.mu.Unlock()
 
 		finalOutput := errBuf.String()
-		
-		if waitErr != nil && finalOutput != "" {
+
+		if waitErr != nil && !isKilledByUs && finalOutput != "" {
 			logPath := filepath.Join(absBaseDir, "error.log")
 			finalLog := fmt.Sprintf("Kernel Exit Status: %v\nKernel Output:\n%s", waitErr, finalOutput)
 			_ = os.WriteFile(logPath, []byte(finalLog), 0644)
