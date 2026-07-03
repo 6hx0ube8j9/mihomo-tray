@@ -64,17 +64,19 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	
-	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-		<-sigCh
-		systray.Quit()
-	}()
 
 	cfgMgr := fsm.NewManager(baseDir, exePath)
 	application := app.NewApplication(cfgMgr)
 	trayMenu := ui.NewTrayMenu(ctx, cancel, application.UICommandCh, application.UIStateCh)
+
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		<-sigCh
+		cancel()
+		cfgMgr.State.ForceExitPhase()
+		systray.Quit()
+	}()
 
 	if hShowUIEvent != 0 {
 		go func() {
