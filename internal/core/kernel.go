@@ -118,17 +118,18 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		default:
 		}
 
-		waitErr := cmd.Wait()
+		waitErr := cmd.Wait()	
+		
 		km.mu.Lock()
 		isKilledByUs := (km.activeProc == nil)
 		km.mu.Unlock()
 		
+		finalOutput := errBuf.String()
+
 		isAppExiting := false
 		if ctx.Err() != nil || km.cm.State.IsExiting() {
 			isAppExiting = true
-		}	
-
-		finalOutput := errBuf.String()
+		}
 
 		if waitErr != nil && !isKilledByUs && !isAppExiting && finalOutput != "" {
 			logPath := filepath.Join(absBaseDir, "error.log")
