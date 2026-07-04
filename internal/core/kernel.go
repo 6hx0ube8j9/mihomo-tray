@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"strings"
 	"time"
 	"unsafe"
 
@@ -119,22 +120,25 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		}
 
 		waitErr := cmd.Wait()	
-		
+
 		km.mu.Lock()
 		isKilledByUs := (km.activeProc == nil)
 		km.mu.Unlock()
-		
-		finalOutput := errBuf.String()
 
 		isAppExiting := false
 		if ctx.Err() != nil || km.cm.State.IsExiting() {
 			isAppExiting = true
 		}
 
+		finalOutput := errBuf.String()
+
 		if waitErr != nil && !isKilledByUs && !isAppExiting && finalOutput != "" {
-			logPath := filepath.Join(absBaseDir, "error.log")
-			finalLog := fmt.Sprintf("Kernel Exit Status: %v\nKernel Output:\n%s", waitErr, finalOutput)
-			_ = os.WriteFile(logPath, []byte(finalLog), 0644)
+			upperOut := strings.ToUpper(finalOutput)
+			if strings.Contains(upperOut, "FATA") || strings.Contains(upperOut, "PANIC") {
+				logPath := filepath.Join(absBaseDir, "error.log")
+				finalLog := fmt.Sprintf("Kernel Exit Status: %v\nKernel Output:\n%s", waitErr, finalOutput)
+				_ = os.WriteFile(logPath, []byte(finalLog), 0644)
+			}
 		}
 
 		km.mu.Lock()
