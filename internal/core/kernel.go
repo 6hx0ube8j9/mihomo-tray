@@ -65,6 +65,7 @@ func (km *KernelManager) Close() {
 	}
 }
 
+
 func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEvent) {
 	target := filepath.Join(km.cm.BaseDir(), "mihomo.exe")
 	absBaseDir, _ := filepath.Abs(km.cm.BaseDir())
@@ -93,22 +94,18 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 
 		cmd := exec.CommandContext(ctx, target, "-d", ".")
 		cmd.Dir = absBaseDir
-
+		
 		const CREATE_DEFAULT_ERROR_MODE = 0x04000000
 		cmd.SysProcAttr = &windows.SysProcAttr{
 			HideWindow:    true,
 			CreationFlags: windows.CREATE_NO_WINDOW | CREATE_DEFAULT_ERROR_MODE,
 		}
-
 		cmd.Stdout = errBuf
 		cmd.Stderr = errBuf
 		startTime := time.Now()
 
 		if err := cmd.Start(); err != nil {
-			logPath := filepath.Join(absBaseDir, "error.log")
-			finalLog := fmt.Sprintf("[%s] Process Start Failed: %v\n", time.Now().Format("2006-01-02 15:04:05"), err)
-			_ = os.WriteFile(logPath, []byte(finalLog), 0644)
-
+			km.writeErrorLog(absBaseDir, "Process Start Failed: %v\n", err)
 			time.Sleep(5 * time.Second)
 			continue
 		}
@@ -118,12 +115,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		atomic.StoreUint32(&km.currentPid, uint32(cmd.Process.Pid))
 		km.mu.Unlock()
 
-		if km.hJob != 0 {
-			if hp, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(cmd.Process.Pid)); err == nil {
-				_ = windows.AssignProcessToJobObject(km.hJob, hp)
-				windows.CloseHandle(hp)
-			}
-		}
+		km.assignToJob(cmd.Process.Pid)
 
 		select {
 		case eventCh <- EventKernelReady:
@@ -136,31 +128,18 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		isKilledByUs := (km.activeProc == nil)
 		km.mu.Unlock()
 
-		isAppExiting := false
-		if ctx.Err() != nil || km.cm.State.IsExiting() {
-			isAppExiting = true
-		}
-
-		finalOutput := errBuf.String()
+		isAppExiting := ctx.Err() != nil || km.cm.State.IsExiting()
 		runDuration := time.Since(startTime)
 
 		if waitErr != nil && !isKilledByUs && !isAppExiting {
-			shouldLog := false
-
-			if runDuration < 5*time.Second {
-				shouldLog = true
-			} else {
-				upperOut := strings.ToUpper(finalOutput)
-				if strings.Contains(upperOut, "FATA") || strings.Contains(upperOut, "PANIC") {
-					shouldLog = true
-				}
+			shouldLog := runDuration < 5*time.Second
+			if !shouldLog {
+				upperOut := strings.ToUpper(errBuf.String())
+				shouldLog = strings.Contains(upperOut, "FATA") || strings.Contains(upperOut, "PANIC")
 			}
 
 			if shouldLog {
-				logPath := filepath.Join(absBaseDir, "error.log")
-				finalLog := fmt.Sprintf("[%s] Kernel Exit Status: %v\nKernel Output:\n%s", 
-					time.Now().Format("2006-01-02 15:04:05"), waitErr, finalOutput)
-				_ = os.WriteFile(logPath, []byte(finalLog), 0644)
+				km.writeErrorLog(absBaseDir, "Kernel Exit Status: %v\nKernel Output:\n%s", waitErr, errBuf.String())
 			}
 		}
 
@@ -180,6 +159,22 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			time.Sleep(1 * time.Second)
 		}
 	}
+}
+
+func (km *KernelManager) assignToJob(pid int) {
+	if km.hJob == 0 {
+		return
+	}
+	if hp, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(pid)); err == nil {
+		_ = windows.AssignProcessToJobObject(km.hJob, hp)
+		windows.CloseHandle(hp)
+	}
+}
+
+func (km *KernelManager) writeErrorLog(absBaseDir, format string, args ...any) {
+	logPath := filepath.Join(absBaseDir, "error.log")
+	finalLog := fmt.Sprintf("[%s] ", time.Now().Format("2006-01-02 15:04:05")) + fmt.Sprintf(format, args...)
+	_ = os.WriteFile(logPath, []byte(finalLog), 0644)
 }
 
 type tailBuffer struct {
