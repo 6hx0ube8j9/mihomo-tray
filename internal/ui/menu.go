@@ -3,33 +3,36 @@ package ui
 import (
 	"context"
 	"embed"
+	"runtime"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/energye/systray"
-	
 )
 
 //go:embed icons/*.ico
 var iconFs embed.FS
 
 type UICommand struct {
-    Action  string
-    Payload string
+	Action  string
+	Payload string
 }
 
 type UIState struct {
-    IconState int
-    IsTun     bool
-    IsProxy   bool
-    Mode      string
-    AutoStart bool
+	IconState int
+	IsTun     bool
+	IsProxy   bool
+	Mode      string
+	AutoStart bool
+	ErrorMsg  string
 }
 
 type TrayMenu struct {
-	ctx    context.Context
-	cancel context.CancelFunc
+	ctx       context.Context
+	cancel    context.CancelFunc
 	commandCh chan<- UICommand
 	stateCh   <-chan UIState
 
@@ -41,16 +44,18 @@ type TrayMenu struct {
 
 	lastClick time.Time
 	clickMu   sync.Mutex
+
+	wasPanic bool
 }
 
 func NewTrayMenu(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- UICommand, stCh <-chan UIState) *TrayMenu {
-    return &TrayMenu{
-        ctx:       ctx,
-        cancel:    cancel,
-        commandCh: cmdCh, 
-        stateCh:   stCh, 
-        mModes:    make(map[string]*systray.MenuItem),
-    }
+	return &TrayMenu{
+		ctx:       ctx,
+		cancel:    cancel,
+		commandCh: cmdCh,
+		stateCh:   stCh,
+		mModes:    make(map[string]*systray.MenuItem),
+	}
 }
 
 func (tm *TrayMenu) sendCommand(action, payload string) {
@@ -64,7 +69,6 @@ func (tm *TrayMenu) sendCommand(action, payload string) {
 	select {
 	case tm.commandCh <- UICommand{Action: action, Payload: payload}:
 	default:
-
 	}
 }
 
@@ -104,9 +108,9 @@ func (tm *TrayMenu) Setup() {
 	setupMode("global", "全局")
 	systray.AddSeparator()
 
-    mDir := systray.AddMenuItem("打开程序目录", "")
-	mDir.Click(func() { 
-		tm.sendCommand("OpenBaseDir", "") 
+	mDir := systray.AddMenuItem("打开程序目录", "")
+	mDir.Click(func() {
+		tm.sendCommand("OpenBaseDir", "")
 	})
 	mMoreRoot := systray.AddMenuItem("更多", "")
 	tm.mAuto = mMoreRoot.AddSubMenuItemCheckbox("开机启动", "", false)
@@ -148,6 +152,15 @@ func (tm *TrayMenu) render(state UIState) {
 	files := []string{"stop.ico", "error.ico", "tun.ico", "proxy.ico", "default.ico"}
 	if state.IconState >= 0 && state.IconState < len(files) {
 		tm.UpdateIcon(files[state.IconState])
+	}
+
+	if state.IconState == 1 {
+		if !tm.wasPanic {
+			tm.wasPanic = true
+			go showWindowsAlert("内核异常提示", state.ErrorMsg)
+		}
+	} else {
+		tm.wasPanic = false
 	}
 
 	if state.IsProxy && !tm.mProxy.Checked() {
@@ -193,5 +206,16 @@ func (tm *TrayMenu) render(state UIState) {
 func (tm *TrayMenu) UpdateIcon(filename string) {
 	if b, err := iconFs.ReadFile("icons/" + filename); err == nil {
 		systray.SetIcon(b)
+	}
+}
+
+func showWindowsAlert(title, message string) {
+	if runtime.GOOS == "windows" {
+		user32 := syscall.NewLazyDLL("user32.dll")
+		messageBoxW := user32.NewProc("MessageBoxW")
+
+		lpText, _ := syscall.UTF16PtrFromString(message)
+		lpCaption, _ := syscall.UTF16PtrFromString(title)
+		_, _, _ = messageBoxW.Call(0, uintptr(unsafe.Pointer(lpText)), uintptr(unsafe.Pointer(lpCaption)), 0x00040030)
 	}
 }
