@@ -146,7 +146,9 @@ func (a *Application) eventLoop(ctx context.Context) {
 					}
 				}()
 			} else if event == core.EventKernelExit {
-				a.Cfg.State.SetPhase(fsm.PhaseInitializing)
+				if a.Cfg.State.GetPhase() != fsm.PhaseKernelPanic {
+					a.Cfg.State.SetPhase(fsm.PhaseInitializing)
+				}
 			}
 			a.pushUIState()
 
@@ -240,6 +242,7 @@ func (a *Application) calculateUIState() ui.UIState {
 		IsProxy:   a.Cfg.Get("proxy") == "true",
 		Mode:      a.Cfg.Get("mode"),
 		AutoStart: a.Cfg.Get("autostart") == "true", 
+		ErrorMsg:  a.Cfg.State.GetKernelError(),
 	}
 
 	if a.Cfg.State.GetPhase() != fsm.PhaseRunning || a.Cfg.State.IsRestarting() {
@@ -343,6 +346,12 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 }
 
 func (a *Application) RestartKernel() {
+	a.Kernel.ResetCrashCounter()
+	a.Cfg.State.SetKernelError("")
+	if a.Cfg.State.GetPhase() == fsm.PhaseKernelPanic {
+		a.Cfg.State.SetPhase(fsm.PhaseInitializing)
+	}
+
 	a.Cfg.State.SetRestarting(true)
 	a.Cfg.State.SetReloading(false)
 	a.Cfg.State.MuteAPIWatcher(5 * time.Second)
