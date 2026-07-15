@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/energye/systray"
 	"golang.org/x/sys/windows"
@@ -72,10 +73,16 @@ func main() {
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-		<-sigCh
-		cancel()
-		cfgMgr.State.ForceExitPhase()
-		systray.Quit()
+		defer signal.Stop(sigCh)
+
+		select {
+		case <-sigCh:
+			cancel()
+			cfgMgr.State.ForceExitPhase()
+			systray.Quit()
+		case <-ctx.Done():
+			return
+		}
 	}()
 
 	if hShowUIEvent != 0 {
@@ -85,10 +92,15 @@ func main() {
 				case <-ctx.Done():
 					return
 				default:
-					s, _ := windows.WaitForSingleObject(hShowUIEvent, 500)
+					s, err := windows.WaitForSingleObject(hShowUIEvent, 500)
+					if err != nil {
+						time.Sleep(500 * time.Millisecond)
+						continue
+					}
 					if s == windows.WAIT_OBJECT_0 {
 						select {
 						case application.UICommandCh <- ui.UICommand{Action: "OpenWebUI"}:
+							time.Sleep(200 * time.Millisecond) 
 						default:
 						}
 					}
