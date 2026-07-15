@@ -94,6 +94,7 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 
 	if buf != nil {
 		if buf.Cap() <= 65536 {
+			buf.Reset()
 			bufPool.Put(buf)
 		}
 	}
@@ -101,10 +102,12 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}()
 
 	if resp.StatusCode == http.StatusNoContent || resp.ContentLength == 0 {
-		_, _ = io.Copy(io.Discard, resp.Body)
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return nil, nil
 		}
