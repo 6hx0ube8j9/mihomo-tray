@@ -41,8 +41,17 @@ func NewRuntimeState() *RuntimeState {
 	return rs
 }
 
-func (r *RuntimeState) SetKernelError(errStr string) { r.kernelErr.Store(errStr) }
-func (r *RuntimeState) GetKernelError() string       { return r.kernelErr.Load().(string) }
+func (r *RuntimeState) SetKernelError(errStr string) {
+	r.kernelErr.Store(errStr)
+}
+
+func (r *RuntimeState) GetKernelError() string {
+	val := r.kernelErr.Load()
+	if val == nil {
+		return ""
+	}
+	return val.(string)
+}
 
 func (r *RuntimeState) SetRestarting(b bool) { r.isRestarting.Store(b) }
 func (r *RuntimeState) IsRestarting() bool   { return r.isRestarting.Load() }
