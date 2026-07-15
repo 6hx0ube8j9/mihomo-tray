@@ -6,9 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
-	"strings"
 	"time"
 	"unsafe"
 
@@ -93,12 +93,22 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 
 		cmd := exec.CommandContext(ctx, target, "-d", ".")
 		cmd.Dir = absBaseDir
-		cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+
+		const CREATE_DEFAULT_ERROR_MODE = 0x04000000
+		cmd.SysProcAttr = &windows.SysProcAttr{
+			HideWindow:    true,
+			CreationFlags: windows.CREATE_NO_WINDOW | CREATE_DEFAULT_ERROR_MODE,
+		}
+
 		cmd.Stdout = errBuf
 		cmd.Stderr = errBuf
 		startTime := time.Now()
 
 		if err := cmd.Start(); err != nil {
+			logPath := filepath.Join(absBaseDir, "error.log")
+			finalLog := fmt.Sprintf("[%s] Process Start Failed: %v\n", time.Now().Format("2006-01-02 15:04:05"), err)
+			_ = os.WriteFile(logPath, []byte(finalLog), 0644)
+
 			time.Sleep(5 * time.Second)
 			continue
 		}
@@ -120,7 +130,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		default:
 		}
 
-		waitErr := cmd.Wait()	
+		waitErr := cmd.Wait()
 
 		km.mu.Lock()
 		isKilledByUs := (km.activeProc == nil)
@@ -132,12 +142,24 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		}
 
 		finalOutput := errBuf.String()
+		runDuration := time.Since(startTime)
 
-		if waitErr != nil && !isKilledByUs && !isAppExiting && finalOutput != "" {
-			upperOut := strings.ToUpper(finalOutput)
-			if strings.Contains(upperOut, "FATA") || strings.Contains(upperOut, "PANIC") {
+		if waitErr != nil && !isKilledByUs && !isAppExiting {
+			shouldLog := false
+
+			if runDuration < 5*time.Second {
+				shouldLog = true
+			} else {
+				upperOut := strings.ToUpper(finalOutput)
+				if strings.Contains(upperOut, "FATA") || strings.Contains(upperOut, "PANIC") {
+					shouldLog = true
+				}
+			}
+
+			if shouldLog {
 				logPath := filepath.Join(absBaseDir, "error.log")
-				finalLog := fmt.Sprintf("Kernel Exit Status: %v\nKernel Output:\n%s", waitErr, finalOutput)
+				finalLog := fmt.Sprintf("[%s] Kernel Exit Status: %v\nKernel Output:\n%s", 
+					time.Now().Format("2006-01-02 15:04:05"), waitErr, finalOutput)
 				_ = os.WriteFile(logPath, []byte(finalLog), 0644)
 			}
 		}
@@ -151,8 +173,6 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		case eventCh <- EventKernelExit:
 		default:
 		}
-
-		runDuration := time.Since(startTime)
 
 		if !isKilledByUs && !isAppExiting && runDuration < 5*time.Second {
 			time.Sleep(8 * time.Second)
