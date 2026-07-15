@@ -154,13 +154,13 @@ func (tm *TrayMenu) render(state UIState) {
 		tm.UpdateIcon(files[state.IconState])
 	}
 
-	if state.IconState == 1 {
+	if state.IconState == 0 && state.ErrorMsg != "" { 
 		if !tm.wasPanic {
 			tm.wasPanic = true
 			go showWindowsAlert("内核异常提示", state.ErrorMsg)
 		}
 	} else {
-		tm.wasPanic = false
+		tm.wasPanic = false 
 	}
 
 	if state.IsProxy && !tm.mProxy.Checked() {
