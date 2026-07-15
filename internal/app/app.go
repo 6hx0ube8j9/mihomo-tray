@@ -374,7 +374,11 @@ func (a *Application) handleTunChange(ctx context.Context) {
 					time.Sleep(100 * time.Millisecond)
 				}
 				a.Cfg.State.SetTunAlive(alive)
-				a.apiPollCh <- struct{}{}
+				
+				select {
+				case a.apiPollCh <- struct{}{}:
+				default:
+				}
 			}()
 		} else {
 			a.Cfg.State.SetTunAlive(alive)
@@ -384,11 +388,13 @@ func (a *Application) handleTunChange(ctx context.Context) {
 }
 
 func (a *Application) watchProxyAdapter(ctx context.Context) {
+	send := func(v bool) { select { case a.proxyEventCh <- v: default: } }
+
 	sys.WatchProxyRegistry(ctx,
 		func() bool { return a.Cfg.Get("proxy") == "true" },
 		func() string { return a.Cfg.Get("port") },
-		func() { a.proxyEventCh <- false },
-		func() { a.proxyEventCh <- true },
+		func() { send(false) },
+		func() { send(true) },
 	)
 }
 
