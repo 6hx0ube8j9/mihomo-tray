@@ -299,20 +299,23 @@ func (m *Manager) lockedSave() {
 		return
 	}
 	tmpName := tmpFile.Name()
-
 	writeSuccess := false
-	defer func() {
-		_ = tmpFile.Close()
-		if !writeSuccess {
-			_ = os.Remove(tmpName)
-		}
+
+	func() {
+		defer func() {
+			_ = tmpFile.Close()
+			if !writeSuccess {
+				_ = os.Remove(tmpName)
+			}
+		}()
+		if _, err := tmpFile.Write(b); err != nil { return }
+		if err := tmpFile.Sync(); err != nil { return }
+		writeSuccess = true
 	}()
 
-	if _, err := tmpFile.Write(b); err != nil { return }
-	if err := tmpFile.Sync(); err != nil { return }
-	writeSuccess = true
-	_ = tmpFile.Close()
-	_ = os.Rename(tmpName, cfgPath)
+	if writeSuccess {
+		_ = os.Rename(tmpName, cfgPath)
+	}
 }
 
 func (m *Manager) BaseDir() string { return m.baseDir }
