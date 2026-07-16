@@ -119,8 +119,8 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		startTime := time.Now()
 
 		if err := cmd.Start(); err != nil {
-			errMsg := fmt.Sprintf("进程启动失败: %v", err)
-			km.checkAndWriteLog(absBaseDir, "系统限制", errMsg)
+			errMsg := fmt.Sprintf("启动错误: %v", err)
+			km.checkAndWriteLog(absBaseDir, "ERROR", errMsg)
 			currentDelay = km.calculateBackoff(currentDelay, maxDelay)
 			select {
 			case <-ctx.Done():
@@ -160,8 +160,8 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 
 			if shouldLog {
 				rawErr := strings.TrimSpace(errBuf.String())
-				errMsg := fmt.Sprintf("退出状态码: %v | 核心原因: %s", waitErr, rawErr)
-				km.checkAndWriteLog(absBaseDir, "内核崩溃", errMsg)
+				errMsg := fmt.Sprintf("内核崩溃 | %v | %s", waitErr, rawErr)
+				km.checkAndWriteLog(absBaseDir, "ERROR", errMsg)
 			}
 		}
 
@@ -237,7 +237,7 @@ func (km *KernelManager) checkAndWriteLog(absBaseDir, errType, rawMsg string) {
 			}
 		}
 
-		notice := fmt.Sprintf("[%s] [System] 日志大小已超过上限，只保留最新部分日志。\n...\n", timestamp)
+		notice := fmt.Sprintf("[%s] --- 日志大小已超限，仅保留最新部分 ---\n...\n", timestamp)
 		combined := append(append([]byte(notice), keepData...), []byte(finalLog)...)
 		_ = os.WriteFile(logPath, combined, 0644)
 		return
