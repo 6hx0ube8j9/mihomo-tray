@@ -65,7 +65,6 @@ func (km *KernelManager) Close() {
 	}
 }
 
-
 func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEvent) {
 	target := filepath.Join(km.cm.BaseDir(), "mihomo.exe")
 	absBaseDir, _ := filepath.Abs(km.cm.BaseDir())
@@ -80,8 +79,13 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 
 		localPid := atomic.LoadUint32(&km.currentPid)
 		if localPid != 0 && sys.IsPidRunning(localPid, "mihomo.exe") {
-			time.Sleep(2 * time.Second)
-			continue
+			select {
+			case <-ctx.Done():
+				km.KillCurrent()
+				return
+			case <-time.After(2 * time.Second):
+				continue
+			}
 		}
 
 		if km.cm.State.IsExiting() {
@@ -89,12 +93,18 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		}
 
 		sys.KillOtherProcessesByName("mihomo.exe", 0)
-		time.Sleep(300 * time.Millisecond)
+		
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(300 * time.Millisecond):
+		}
+
 		errBuf := &tailBuffer{max: 64 * 1024}
 
 		cmd := exec.CommandContext(ctx, target, "-d", ".")
 		cmd.Dir = absBaseDir
-		
+
 		const CREATE_DEFAULT_ERROR_MODE = 0x04000000
 		cmd.SysProcAttr = &windows.SysProcAttr{
 			HideWindow:    true,
@@ -106,8 +116,12 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 
 		if err := cmd.Start(); err != nil {
 			km.writeErrorLog(absBaseDir, "Process Start Failed: %v\n", err)
-			time.Sleep(5 * time.Second)
-			continue
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
+				continue
+			}
 		}
 
 		km.mu.Lock()
@@ -139,7 +153,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			}
 
 			if shouldLog {
-				km.writeErrorLog(absBaseDir, "Kernel Exit Status: %v\nKernel Output:\n%s", waitErr, errBuf.String())
+				km.writeErrorLog(absBaseDir, "Kernel Exit Status: %v\nKernel Output:\n%s\n", waitErr, errBuf.String())
 			}
 		}
 
@@ -152,11 +166,15 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		case eventCh <- EventKernelExit:
 		default:
 		}
-
+		sleepDuration := 1 * time.Second
 		if !isKilledByUs && !isAppExiting && runDuration < 5*time.Second {
-			time.Sleep(8 * time.Second)
-		} else {
-			time.Sleep(1 * time.Second)
+			sleepDuration = 8 * time.Second
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(sleepDuration):
 		}
 	}
 }
@@ -174,7 +192,13 @@ func (km *KernelManager) assignToJob(pid int) {
 func (km *KernelManager) writeErrorLog(absBaseDir, format string, args ...any) {
 	logPath := filepath.Join(absBaseDir, "error.log")
 	finalLog := fmt.Sprintf("[%s] ", time.Now().Format("2006-01-02 15:04:05")) + fmt.Sprintf(format, args...)
-	_ = os.WriteFile(logPath, []byte(finalLog), 0644)
+	
+	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.WriteString(finalLog + "\n----------------------------------------\n")
 }
 
 type tailBuffer struct {
@@ -214,5 +238,6 @@ func (km *KernelManager) KillCurrent() {
 	atomic.StoreUint32(&km.currentPid, 0)
 	km.mu.Unlock()
 	sys.KillOtherProcessesByName("mihomo.exe", 0)
+	
 	time.Sleep(300 * time.Millisecond)
 }
