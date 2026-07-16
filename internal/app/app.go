@@ -96,7 +96,10 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	if cancel != nil {
 		cancel()
 	}
-	_ = sys.DisableSystemProxy()
+	
+	if a.Cfg.Get("proxy") == "true" {
+		_ = sys.DisableSystemProxy()
+	}	
 	a.Kernel.Close()
 }
 
