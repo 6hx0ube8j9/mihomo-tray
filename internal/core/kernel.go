@@ -31,6 +31,7 @@ type KernelManager struct {
 	currentPid uint32
 	activeProc *os.Process
 	mu         sync.Mutex
+	lastError  string
 }
 
 func NewKernelManager(cm *fsm.Manager) *KernelManager {
@@ -68,6 +69,8 @@ func (km *KernelManager) Close() {
 func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEvent) {
 	target := filepath.Join(km.cm.BaseDir(), "mihomo.exe")
 	absBaseDir, _ := filepath.Abs(km.cm.BaseDir())
+	currentDelay := 2 * time.Second
+	const maxDelay = 30 * time.Second
 
 	for {
 		select {
@@ -93,7 +96,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		}
 
 		sys.KillOtherProcessesByName("mihomo.exe", 0)
-		
+
 		select {
 		case <-ctx.Done():
 			return
@@ -115,11 +118,13 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		startTime := time.Now()
 
 		if err := cmd.Start(); err != nil {
-			km.writeErrorLog(absBaseDir, "Process Start Failed: %v\n", err)
+			errMsg := fmt.Sprintf("进程启动失败: %v", err)
+			km.checkAndWriteLog(absBaseDir, "系统限制", errMsg)
+			currentDelay = km.calculateBackoff(currentDelay, maxDelay)
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(5 * time.Second):
+			case <-time.After(currentDelay):
 				continue
 			}
 		}
@@ -153,7 +158,9 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			}
 
 			if shouldLog {
-				km.writeErrorLog(absBaseDir, "Kernel Exit Status: %v\nKernel Output:\n%s\n", waitErr, errBuf.String())
+				rawErr := strings.TrimSpace(errBuf.String())
+				errMsg := fmt.Sprintf("退出状态码: %v | 核心原因: %s", waitErr, rawErr)
+				km.checkAndWriteLog(absBaseDir, "内核崩溃", errMsg)
 			}
 		}
 
@@ -166,15 +173,17 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		case eventCh <- EventKernelExit:
 		default:
 		}
-		sleepDuration := 1 * time.Second
-		if !isKilledByUs && !isAppExiting && runDuration < 5*time.Second {
-			sleepDuration = 8 * time.Second
+
+		if runDuration >= 5*time.Second {
+			currentDelay = 2 * time.Second
+		} else {
+			currentDelay = km.calculateBackoff(currentDelay, maxDelay)
 		}
 
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(sleepDuration):
+		case <-time.After(currentDelay):
 		}
 	}
 }
@@ -189,16 +198,64 @@ func (km *KernelManager) assignToJob(pid int) {
 	}
 }
 
-func (km *KernelManager) writeErrorLog(absBaseDir, format string, args ...any) {
+func (km *KernelManager) checkAndWriteLog(absBaseDir, errType, rawMsg string) {
+	cleanedMsg := rawMsg
+	if idx := strings.Index(rawMsg, "level="); idx != -1 {
+		cleanedMsg = rawMsg[idx:]
+	}
+
+	km.mu.Lock()
+	if km.lastError == cleanedMsg {
+		km.mu.Unlock()
+		return
+	}
+	km.lastError = cleanedMsg
+	km.mu.Unlock()
+
 	logPath := filepath.Join(absBaseDir, "error.log")
-	finalLog := fmt.Sprintf("[%s] ", time.Now().Format("2006-01-02 15:04:05")) + fmt.Sprintf(format, args...)
-	
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	finalLog := fmt.Sprintf("[%s] [%s] %s\n----------------------------------------\n", timestamp, errType, rawMsg)
+
+	fi, err := os.Stat(logPath)
+	if err == nil && fi.Size()+int64(len(finalLog)) > 25*1024 {
+		var keepData []byte
+		f, err := os.Open(logPath)
+		if err == nil {
+			offset := fi.Size() - 5*1024
+			if offset < 0 {
+				offset = 0
+			}
+			keepData = make([]byte, fi.Size()-offset)
+			_, _ = f.ReadAt(keepData, offset)
+			f.Close()
+			
+			if offset > 0 {
+				if idx := bytes.IndexByte(keepData, '\n'); idx != -1 {
+					keepData = keepData[idx+1:]
+				}
+			}
+		}
+
+		notice := fmt.Sprintf("[%s] [System] 日志大小已超过上限，只保留最新部分日志。\n...\n", timestamp)
+		combined := append(append([]byte(notice), keepData...), []byte(finalLog)...)
+		_ = os.WriteFile(logPath, combined, 0644)
+		return
+	}
+
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return
 	}
 	defer f.Close()
-	_, _ = f.WriteString(finalLog + "\n----------------------------------------\n")
+	_, _ = f.WriteString(finalLog)
+}
+
+func (km *KernelManager) calculateBackoff(current, max time.Duration) time.Duration {
+	next := current * 2
+	if next > max {
+		return max
+	}
+	return next
 }
 
 type tailBuffer struct {
@@ -238,6 +295,5 @@ func (km *KernelManager) KillCurrent() {
 	atomic.StoreUint32(&km.currentPid, 0)
 	km.mu.Unlock()
 	sys.KillOtherProcessesByName("mihomo.exe", 0)
-	
 	time.Sleep(300 * time.Millisecond)
 }
