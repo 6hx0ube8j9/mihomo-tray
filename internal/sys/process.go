@@ -9,17 +9,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-var (
-	modUser32            = windows.NewLazySystemDLL("user32.dll")
-	procGetSystemMetrics = modUser32.NewProc("GetSystemMetrics")
-)
-
-func IsSystemShuttingDown() bool {
-	const SM_SHUTTINGDOWN = 0x2000
-	r, _, _ := procGetSystemMetrics.Call(SM_SHUTTINGDOWN)
-	return r != 0
-}
-
 func KillOtherProcessesByName(name string, excludePid uint32) {
 	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil || snapshot == windows.InvalidHandle {
