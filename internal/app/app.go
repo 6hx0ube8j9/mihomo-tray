@@ -353,49 +353,56 @@ func (a *Application) RestartKernel() {
 }
 
 func (a *Application) handleTunChange(ctx context.Context) {
-	if a.Cfg.State.IsExiting() {
-		return
-	}
-	alive := sys.IsTunActive(a.Cfg.Get("tun_device"))
+    if a.Cfg.State.IsExiting() {
+        return
+    }
+    alive := sys.IsTunActive(a.Cfg.Get("tun_device"))
 
-	if a.Cfg.State.IsTunAlive() != alive {
-		if !alive {
-			a.Cfg.State.SetTunLostTime(time.Now())
-		}
-		if !alive && !a.Cfg.State.IsAPIWatcherMuted() {
-			go func() {
-				for i := 0; i < 3; i++ {
-					pollCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
-					success := a.pollKernelAPI(pollCtx)
-					cancel()
-					if success {
-						break
-					}
-					time.Sleep(100 * time.Millisecond)
-				}
-				a.Cfg.State.SetTunAlive(alive)
-				
-				select {
-				case a.apiPollCh <- struct{}{}:
-				default:
-				}
-			}()
-		} else {
-			a.Cfg.State.SetTunAlive(alive)
-			a.pushUIState()
-		}
-	}
+    if a.Cfg.State.IsTunAlive() != alive {
+        if !alive {
+            a.Cfg.State.SetTunLostTime(time.Now())
+        }
+        if !alive && !a.Cfg.State.IsAPIWatcherMuted() {
+            go func() {
+                for i := 0; i < 3; i++ {
+                    pollCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+                    success := a.pollKernelAPI(pollCtx)
+                    cancel()
+                    if success {
+                        break
+                    }
+                    time.Sleep(100 * time.Millisecond)
+                }
+                a.Cfg.State.SetTunAlive(alive)
+                select {
+                case a.apiPollCh <- struct{}{}:
+                default:
+                }
+            }()
+        } else {
+            a.Cfg.State.SetTunAlive(alive)
+            a.pushUIState()
+        }
+    }
 }
 
 func (a *Application) watchProxyAdapter(ctx context.Context) {
-	send := func(v bool) { select { case a.proxyEventCh <- v: default: } }
-
-	sys.WatchProxyRegistry(ctx,
-		func() bool { return a.Cfg.Get("proxy") == "true" },
-		func() string { return a.Cfg.Get("port") },
-		func() { send(false) },
-		func() { send(true) },
-	)
+    sys.WatchProxyRegistry(ctx,
+        func() bool { return a.Cfg.Get("proxy") == "true" },
+        func() string { return a.Cfg.Get("port") },
+        func() {
+            select {
+            case a.proxyEventCh <- false:
+            case <-ctx.Done():
+            }
+        },
+        func() {
+            select {
+            case a.proxyEventCh <- true:
+            case <-ctx.Done():
+            }
+        },
+    )
 }
 
 func (a *Application) syncAllConfig(ctx context.Context) {
