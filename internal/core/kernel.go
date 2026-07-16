@@ -148,7 +148,8 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		isKilledByUs := (km.activeProc == nil)
 		km.mu.Unlock()
 
-		isAppExiting := ctx.Err() != nil || km.cm.State.IsExiting()
+		isShutdown := sys.IsSystemShuttingDown()
+		isAppExiting := ctx.Err() != nil || km.cm.State.IsExiting() || isShutdown
 		runDuration := time.Since(startTime)
 
 		if waitErr != nil && !isKilledByUs && !isAppExiting {
@@ -165,6 +166,10 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			}
 		}
 
+        if isShutdown {
+            return 
+        }
+		
 		km.mu.Lock()
 		km.activeProc = nil
 		atomic.StoreUint32(&km.currentPid, 0)
