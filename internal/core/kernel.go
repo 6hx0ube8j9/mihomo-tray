@@ -70,7 +70,7 @@ func (km *KernelManager) Close() {
 func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEvent) {
 	target := filepath.Join(km.cm.BaseDir(), "mihomo.exe")
 	absBaseDir, _ := filepath.Abs(km.cm.BaseDir())
-	currentDelay := 2 * time.Second
+	currentDelay := 50 * time.Millisecond
 	const maxDelay = 30 * time.Second
 
 	for {
@@ -169,29 +169,29 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
         if isShutdown {
             return 
         }
-		
-		km.mu.Lock()
-		km.activeProc = nil
-		atomic.StoreUint32(&km.currentPid, 0)
-		km.mu.Unlock()
+        
+        km.mu.Lock()
+        km.activeProc = nil
+        atomic.StoreUint32(&km.currentPid, 0)
+        km.mu.Unlock()
 
-		select {
-		case eventCh <- EventKernelExit:
-		default:
-		}
+        select {
+        case eventCh <- EventKernelExit:
+        default:
+        }
 
-		if runDuration >= 5*time.Second {
-			currentDelay = 2 * time.Second
-		} else {
-			currentDelay = km.calculateBackoff(currentDelay, maxDelay)
-		}
+        if runDuration >= 5*time.Second || isKilledByUs {
+            currentDelay = 50 * time.Millisecond 
+        } else {
+            currentDelay = km.calculateBackoff(currentDelay, maxDelay)
+        }
 
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(currentDelay):
-		}
-	}
+        select {
+        case <-ctx.Done():
+            return
+        case <-time.After(currentDelay):
+        }
+    }
 }
 
 func (km *KernelManager) assignToJob(pid int) {
