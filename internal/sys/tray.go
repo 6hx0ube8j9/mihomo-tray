@@ -8,6 +8,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+type HICON uintptr
+
 type MenuItem struct {
 	ID           uint32
 	Text         string
@@ -24,16 +26,19 @@ type TrayHost struct {
 	onRightClick    func()
 	onMenuItemClick func(id uint32)
 
-	iconCache map[int]windows.HICON
+	iconCache map[int]HICON
 	iconMu    sync.RWMutex
-	currIcon  windows.HICON
+	currIcon  HICON
 
 	isStopped bool
 }
 
 var (
+	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
 	user32   = windows.NewLazySystemDLL("user32.dll")
 	shell32  = windows.NewLazySystemDLL("shell32.dll")
+
+	pGetModuleHandleW       = kernel32.NewProc("GetModuleHandleW")
 
 	pRegisterClassExW       = user32.NewProc("RegisterClassExW")
 	pCreateWindowExW        = user32.NewProc("CreateWindowExW")
@@ -88,7 +93,7 @@ type NOTIFYICONDATAW struct {
 	UID              uint32
 	UFlags           uint32
 	UCallbackMessage uint32
-	HIcon            windows.HICON
+	HIcon            HICON
 	SzTip            [128]uint16
 	DwState          uint32
 	DwStateMask      uint32
@@ -97,7 +102,7 @@ type NOTIFYICONDATAW struct {
 	SzInfoTitle      [64]uint16
 	DwInfoFlags      uint32
 	GuidItem         windows.GUID
-	HBalloonIcon     windows.HICON
+	HBalloonIcon     HICON
 }
 
 type POINT struct {
@@ -112,12 +117,12 @@ type WNDCLASSEXW struct {
 	CbClsExtra    int32
 	CbWndExtra    int32
 	HInstance     windows.Handle
-	HIcon         windows.HICON
+	HIcon         HICON
 	HCursor       windows.Handle
 	HbrBackground windows.Handle
 	LpszMenuName  *uint16
 	LpszClassName *uint16
-	HIconSm       windows.HICON
+	HIconSm       HICON
 }
 
 var trayInstances sync.Map
@@ -156,7 +161,7 @@ func NewTrayHost(tooltip string, onLeftClick, onRightClick func(), onMenuItemCli
 		onLeftClick:     onLeftClick,
 		onRightClick:    onRightClick,
 		onMenuItemClick: onMenuItemClick,
-		iconCache:       make(map[int]windows.HICON),
+		iconCache:       make(map[int]HICON),
 	}
 	th.createWindow()
 	return th
@@ -164,12 +169,12 @@ func NewTrayHost(tooltip string, onLeftClick, onRightClick func(), onMenuItemCli
 
 func (th *TrayHost) createWindow() {
 	className, _ := windows.UTF16PtrFromString("MihomoTrayWindowClass")
-	hInstance, _ := windows.GetModuleHandle(nil)
+	hInstance, _, _ := pGetModuleHandleW.Call(0)
 
 	var wc WNDCLASSEXW
 	wc.CbSize = uint32(unsafe.Sizeof(wc))
 	wc.LpfnWndProc = syscall.NewCallback(wndProc)
-	wc.HInstance = hInstance
+	wc.HInstance = windows.Handle(hInstance)
 	wc.LpszClassName = className
 
 	pRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
@@ -180,7 +185,7 @@ func (th *TrayHost) createWindow() {
 		uintptr(unsafe.Pointer(className)),
 		0, 0, 0, 0, 0,
 		0, 0,
-		uintptr(hInstance),
+		hInstance,
 		0,
 	)
 
@@ -343,7 +348,7 @@ func (th *TrayHost) removeNotifyIcon() {
 	pShell_NotifyIconW.Call(NIM_DELETE, uintptr(unsafe.Pointer(&nid)))
 }
 
-func bytesToHIcon(data []byte) windows.HICON {
+func bytesToHIcon(data []byte) HICON {
 	if len(data) < 6 {
 		return 0
 	}
@@ -387,5 +392,5 @@ func bytesToHIcon(data []byte) windows.HICON {
 		0,
 	)
 
-	return windows.HICON(r1)
+	return HICON(r1)
 }
