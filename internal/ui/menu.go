@@ -3,134 +3,95 @@ package ui
 import (
 	"context"
 	"embed"
+	"fmt"
 	"strconv"
 	"sync"
 	"time"
 
-	"github.com/energye/systray"
-	
+	"mihomo-tray/internal/sys"
 )
 
 //go:embed icons/*.ico
 var iconFs embed.FS
 
+const (
+	IDOpenWebUI uint32 = 1000 + iota
+	IDToggleProxy
+	IDToggleTun
+	IDModeRule
+	IDModeDirect
+	IDModeGlobal
+	IDOpenBaseDir
+	IDToggleAutoStart
+	IDReloadConfig
+	IDRestartKernel
+	IDOpenConfigFile
+	IDExitApp
+)
+
 type UICommand struct {
-    Action  string
-    Payload string
+	Action  string
+	Payload string
 }
 
 type UIState struct {
-    IconState int
-    IsTun     bool
-    IsProxy   bool
-    Mode      string
-    AutoStart bool
+	IconState int
+	IsTun     bool
+	IsProxy   bool
+	Mode      string
+	AutoStart bool
 }
 
 type TrayMenu struct {
-	ctx    context.Context
-	cancel context.CancelFunc
+	ctx       context.Context
+	cancel    context.CancelFunc
 	commandCh chan<- UICommand
 	stateCh   <-chan UIState
 
-	mTun      *systray.MenuItem
-	mProxy    *systray.MenuItem
-	mModeRoot *systray.MenuItem
-	mModes    map[string]*systray.MenuItem
-	mAuto     *systray.MenuItem
+	trayHost  *sys.TrayHost
+	currState UIState
+	stateMu   sync.RWMutex
 
 	lastClick time.Time
 	clickMu   sync.Mutex
 }
 
 func NewTrayMenu(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- UICommand, stCh <-chan UIState) *TrayMenu {
-    return &TrayMenu{
-        ctx:       ctx,
-        cancel:    cancel,
-        commandCh: cmdCh, 
-        stateCh:   stCh, 
-        mModes:    make(map[string]*systray.MenuItem),
-    }
-}
-
-func (tm *TrayMenu) sendCommand(action, payload string) {
-	tm.clickMu.Lock()
-	if time.Since(tm.lastClick) < 300*time.Millisecond {
-		tm.clickMu.Unlock()
-		return
-	}
-	tm.lastClick = time.Now()
-	tm.clickMu.Unlock()
-	select {
-	case tm.commandCh <- UICommand{Action: action, Payload: payload}:
-	default:
-
+	return &TrayMenu{
+		ctx:       ctx,
+		cancel:    cancel,
+		commandCh: cmdCh,
+		stateCh:   stCh,
 	}
 }
 
-func (tm *TrayMenu) Setup() {
-	tm.UpdateIcon("stop.ico")
-	systray.SetTooltip("MihomoTray")
-	systray.SetOnClick(func(_ systray.IMenu) {
-		tm.sendCommand("OpenWebUI", "")
-	})
+func (tm *TrayMenu) Init() {
+	tm.trayHost = sys.NewTrayHost(
+		"MihomoTray",
+		tm.onLeftClick,
+		tm.onRightClick,
+		tm.onMenuItemClick,
+	)
 
-	mWeb := systray.AddMenuItem("进入 Web 面板", "")
-	mWeb.Click(func() { tm.sendCommand("OpenWebUI", "") })
-	systray.AddSeparator()
-
-	tm.mProxy = systray.AddMenuItemCheckbox("系统代理", "", false)
-	tm.mProxy.Click(func() {
-		tm.sendCommand("ToggleProxy", strconv.FormatBool(!tm.mProxy.Checked()))
-	})
-
-	tm.mTun = systray.AddMenuItemCheckbox("虚拟网卡 (TUN)", "", false)
-	tm.mTun.Click(func() {
-		tm.sendCommand("ToggleTun", strconv.FormatBool(!tm.mTun.Checked()))
-	})
-	systray.AddSeparator()
-
-	tm.mModeRoot = systray.AddMenuItem("当前模式: 规则 ", "")
-
-	setupMode := func(key, label string) {
-		tm.mModes[key] = tm.mModeRoot.AddSubMenuItemCheckbox(label, "", false)
-		tm.mModes[key].Click(func() {
-			tm.sendCommand("SwitchMode", key)
-		})
+	iconFiles := []string{"stop.ico", "error.ico", "tun.ico", "proxy.ico", "default.ico"}
+	for id, name := range iconFiles {
+		if b, err := iconFs.ReadFile("icons/" + name); err == nil {
+			tm.trayHost.CacheIcon(id, b)
+		}
 	}
 
-	setupMode("rule", "规则")
-	setupMode("direct", "直连")
-	setupMode("global", "全局")
-	systray.AddSeparator()
+	tm.trayHost.SetIcon(0)
+}
 
-    mDir := systray.AddMenuItem("打开程序目录", "")
-	mDir.Click(func() { 
-		tm.sendCommand("OpenBaseDir", "") 
-	})
-	mMoreRoot := systray.AddMenuItem("更多", "")
-	tm.mAuto = mMoreRoot.AddSubMenuItemCheckbox("开机启动", "", false)
-	tm.mAuto.Click(func() {
-		tm.sendCommand("ToggleAutoStart", strconv.FormatBool(!tm.mAuto.Checked()))
-	})
-
-	mReload := mMoreRoot.AddSubMenuItem("重载配置文件", "")
-	mReload.Click(func() { tm.sendCommand("ReloadConfig", "") })
-
-	mRestart := mMoreRoot.AddSubMenuItem("重启核心", "")
-	mRestart.Click(func() { tm.sendCommand("RestartKernel", "") })
-
-	mEdit := mMoreRoot.AddSubMenuItem("编辑 config.yaml", "")
-	mEdit.Click(func() { tm.sendCommand("OpenConfigFile", "") })
-
-	systray.AddSeparator()
-	mExit := systray.AddMenuItem("退出程序", "")
-	mExit.Click(func() {
-		tm.sendCommand("ExitApp", "")
-		systray.Quit()
-	})
-
+func (tm *TrayMenu) Run() {
 	go tm.ListenUIState()
+	tm.trayHost.RunMessageLoop()
+}
+
+func (tm *TrayMenu) Stop() {
+	if tm.trayHost != nil {
+		tm.trayHost.Stop()
+	}
 }
 
 func (tm *TrayMenu) ListenUIState() {
@@ -139,59 +100,121 @@ func (tm *TrayMenu) ListenUIState() {
 		case <-tm.ctx.Done():
 			return
 		case state := <-tm.stateCh:
-			tm.render(state)
+			tm.stateMu.Lock()
+			tm.currState = state
+			tm.stateMu.Unlock()
+
+			if state.IconState >= 0 && state.IconState < 5 {
+				tm.trayHost.SetIcon(state.IconState)
+			}
 		}
 	}
 }
 
-func (tm *TrayMenu) render(state UIState) {
-	files := []string{"stop.ico", "error.ico", "tun.ico", "proxy.ico", "default.ico"}
-	if state.IconState >= 0 && state.IconState < len(files) {
-		tm.UpdateIcon(files[state.IconState])
+func (tm *TrayMenu) sendCommand(action, payload string) {
+	select {
+	case tm.commandCh <- UICommand{Action: action, Payload: payload}:
+	default:
 	}
+}
 
-	if state.IsProxy && !tm.mProxy.Checked() {
-		tm.mProxy.Check()
-	} else if !state.IsProxy && tm.mProxy.Checked() {
-		tm.mProxy.Uncheck()
+func (tm *TrayMenu) onLeftClick() {
+	tm.clickMu.Lock()
+	if time.Since(tm.lastClick) < 300*time.Millisecond {
+		tm.clickMu.Unlock()
+		return
 	}
+	tm.lastClick = time.Now()
+	tm.clickMu.Unlock()
 
-	if state.IsTun && !tm.mTun.Checked() {
-		tm.mTun.Check()
-	} else if !state.IsTun && tm.mTun.Checked() {
-		tm.mTun.Uncheck()
-	}
+	tm.sendCommand("OpenWebUI", "")
+}
 
-	if state.AutoStart && !tm.mAuto.Checked() {
-		tm.mAuto.Check()
-	} else if !state.AutoStart && tm.mAuto.Checked() {
-		tm.mAuto.Uncheck()
-	}
+func (tm *TrayMenu) onRightClick() {
+	tm.stateMu.RLock()
+	st := tm.currState
+	tm.stateMu.RUnlock()
 
 	modeNames := map[string]string{
 		"rule":   "规则",
 		"direct": "直连",
 		"global": "全局",
 	}
-	if name, exists := modeNames[state.Mode]; exists {
-		tm.mModeRoot.SetTitle("当前模式: " + name + " ")
+	currModeName := modeNames[st.Mode]
+	if currModeName == "" {
+		currModeName = "未知"
 	}
 
-	for k, m := range tm.mModes {
-		if k == state.Mode {
-			if !m.Checked() {
-				m.Check()
-			}
-		} else {
-			if m.Checked() {
-				m.Uncheck()
-			}
-		}
+	items := []sys.MenuItem{
+		{ID: IDOpenWebUI, Text: "进入 Web 面板"},
+		{IsSeparator: true},
+		{
+			ID:      IDToggleProxy,
+			Text:    "系统代理",
+			Checked: st.IsProxy,
+		},
+		{
+			ID:      IDToggleTun,
+			Text:    "虚拟网卡 (TUN)",
+			Checked: st.IsTun,
+		},
+		{IsSeparator: true},
+		{
+			Text: fmt.Sprintf("当前模式: %s", currModeName),
+			SubMenuItems: []sys.MenuItem{
+				{ID: IDModeRule, Text: "规则", Checked: st.Mode == "rule"},
+				{ID: IDModeDirect, Text: "直连", Checked: st.Mode == "direct"},
+				{ID: IDModeGlobal, Text: "全局", Checked: st.Mode == "global"},
+			},
+		},
+		{IsSeparator: true},
+		{ID: IDOpenBaseDir, Text: "打开程序目录"},
+		{
+			Text: "更多",
+			SubMenuItems: []sys.MenuItem{
+				{ID: IDToggleAutoStart, Text: "开机启动", Checked: st.AutoStart},
+				{ID: IDReloadConfig, Text: "重载配置文件"},
+				{ID: IDRestartKernel, Text: "重启核心"},
+				{ID: IDOpenConfigFile, Text: "编辑 config.yaml"},
+			},
+		},
+		{IsSeparator: true},
+		{ID: IDExitApp, Text: "退出程序"},
 	}
+
+	tm.trayHost.ShowContextMenu(items)
 }
 
-func (tm *TrayMenu) UpdateIcon(filename string) {
-	if b, err := iconFs.ReadFile("icons/" + filename); err == nil {
-		systray.SetIcon(b)
+func (tm *TrayMenu) onMenuItemClick(id uint32) {
+	tm.stateMu.RLock()
+	st := tm.currState
+	tm.stateMu.RUnlock()
+
+	switch id {
+	case IDOpenWebUI:
+		tm.sendCommand("OpenWebUI", "")
+	case IDToggleProxy:
+		tm.sendCommand("ToggleProxy", strconv.FormatBool(!st.IsProxy))
+	case IDToggleTun:
+		tm.sendCommand("ToggleTun", strconv.FormatBool(!st.IsTun))
+	case IDModeRule:
+		tm.sendCommand("SwitchMode", "rule")
+	case IDModeDirect:
+		tm.sendCommand("SwitchMode", "direct")
+	case IDModeGlobal:
+		tm.sendCommand("SwitchMode", "global")
+	case IDOpenBaseDir:
+		tm.sendCommand("OpenBaseDir", "")
+	case IDToggleAutoStart:
+		tm.sendCommand("ToggleAutoStart", strconv.FormatBool(!st.AutoStart))
+	case IDReloadConfig:
+		tm.sendCommand("ReloadConfig", "")
+	case IDRestartKernel:
+		tm.sendCommand("RestartKernel", "")
+	case IDOpenConfigFile:
+		tm.sendCommand("OpenConfigFile", "")
+	case IDExitApp:
+		tm.sendCommand("ExitApp", "")
+		tm.trayHost.Stop()
 	}
 }
