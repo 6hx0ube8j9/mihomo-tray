@@ -5,10 +5,10 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
-	"github.com/energye/systray"
 	"golang.org/x/sys/windows"
 
 	"mihomo-tray/internal/app"
@@ -22,6 +22,8 @@ const (
 )
 
 func main() {
+	runtime.LockOSThread()
+
 	exePath, err := os.Executable()
 	if err != nil {
 		return
@@ -35,6 +37,7 @@ func main() {
 		if hM != 0 {
 			windows.CloseHandle(hM)
 		}
+		
 		eName, _ := windows.UTF16PtrFromString(ShowUIEvent)
 		hEvent, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName)
 		if err == nil && hEvent != 0 {
@@ -70,6 +73,8 @@ func main() {
 	application := app.NewApplication(cfgMgr)
 	trayMenu := ui.NewTrayMenu(ctx, cancel, application.UICommandCh, application.UIStateCh)
 
+	trayMenu.Init()
+	
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -77,9 +82,7 @@ func main() {
 
 		select {
 		case <-sigCh:
-			cancel()
-			cfgMgr.State.ForceExitPhase()
-			systray.Quit()
+			trayMenu.Stop()
 		case <-ctx.Done():
 			return
 		}
@@ -100,7 +103,7 @@ func main() {
 					if s == windows.WAIT_OBJECT_0 {
 						select {
 						case application.UICommandCh <- ui.UICommand{Action: "OpenWebUI"}:
-							time.Sleep(200 * time.Millisecond) 
+							time.Sleep(200 * time.Millisecond)
 						default:
 						}
 					}
@@ -109,15 +112,11 @@ func main() {
 		}()
 	}
 
-	systray.Run(
-		func() {
-			trayMenu.Setup() 
-			application.Bootstrap(ctx)
-		},
-		func() {
-			application.SafeShutdown(cancel)
-		},
-	)
+	go application.Bootstrap(ctx)
+	trayMenu.Run()
+	cancel()
+	cfgMgr.State.ForceExitPhase()
+	application.SafeShutdown(cancel)
 }
 
 func isAdmin() bool {
