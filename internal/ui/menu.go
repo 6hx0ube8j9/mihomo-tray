@@ -21,9 +21,6 @@ const (
 	IDModeRule
 	IDModeDirect
 	IDModeGlobal
-	IDThemeAuto
-	IDThemeLight
-	IDThemeDark
 	IDOpenBaseDir
 	IDToggleAutoStart
 	IDReloadConfig
@@ -43,7 +40,6 @@ type UIState struct {
 	IsProxy   bool
 	Mode      string
 	AutoStart bool
-	ThemeMode int
 }
 
 type TrayMenu struct {
@@ -149,18 +145,6 @@ func (tm *TrayMenu) onRightClick() {
 		currModeName = "未知"
 	}
 
-	// 解析主题显示文本
-	themeMode := st.ThemeMode
-	themeNames := map[int]string{
-		sys.AppModeAuto:       "跟随系统",
-		sys.AppModeForceLight: "浅色",
-		sys.AppModeForceDark:  "深色",
-	}
-	currThemeName := themeNames[themeMode]
-	if currThemeName == "" {
-		currThemeName = "跟随系统"
-	}
-
 	items := []sys.MenuItem{
 		{ID: IDOpenWebUI, Text: "进入 Web 面板"},
 		{IsSeparator: true},
@@ -194,14 +178,6 @@ func (tm *TrayMenu) onRightClick() {
 				{ID: IDOpenConfigFile, Text: "编辑 config.yaml"},
 			},
 		},
-		{
-			Text: fmt.Sprintf("主题模式: %s", currThemeName),
-			SubMenuItems: []sys.MenuItem{
-				{ID: IDThemeAuto, Text: "跟随系统", Checked: themeMode == sys.AppModeAuto},
-				{ID: IDThemeLight, Text: "浅色", Checked: themeMode == sys.AppModeForceLight},
-				{ID: IDThemeDark, Text: "深色", Checked: themeMode == sys.AppModeForceDark},
-			},
-		},
 		{IsSeparator: true},
 		{ID: IDExitApp, Text: "退出程序"},
 	}
@@ -227,27 +203,6 @@ func (tm *TrayMenu) onMenuItemClick(id uint32) {
 		tm.sendCommand("SwitchMode", "direct")
 	case IDModeGlobal:
 		tm.sendCommand("SwitchMode", "global")
-	case IDThemeAuto:
-		sys.SetMenuTheme(sys.AppModeAuto)
-		tm.stateMu.Lock()
-		tm.currState.ThemeMode = sys.AppModeAuto
-		tm.stateMu.Unlock()
-		tm.sendCommand("SetThemeMode", strconv.Itoa(sys.AppModeAuto))
-
-	case IDThemeLight:
-		sys.SetMenuTheme(sys.AppModeForceLight)
-		tm.stateMu.Lock()
-		tm.currState.ThemeMode = sys.AppModeForceLight
-		tm.stateMu.Unlock()
-		tm.sendCommand("SetThemeMode", strconv.Itoa(sys.AppModeForceLight))
-
-	case IDThemeDark:
-		sys.SetMenuTheme(sys.AppModeForceDark)
-		tm.stateMu.Lock()
-		tm.currState.ThemeMode = sys.AppModeForceDark
-		tm.stateMu.Unlock()
-		tm.sendCommand("SetThemeMode", strconv.Itoa(sys.AppModeForceDark))
-
 	case IDOpenBaseDir:
 		tm.sendCommand("OpenBaseDir", "")
 	case IDToggleAutoStart:
