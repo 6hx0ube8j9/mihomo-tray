@@ -2,7 +2,6 @@ package sys
 
 import (
 	"encoding/binary"
-	"errors"
 	"runtime"
 	"sync"
 	"syscall"
@@ -42,36 +41,36 @@ var (
 	user32   = windows.NewLazySystemDLL("user32.dll")
 	shell32  = windows.NewLazySystemDLL("shell32.dll")
 
-	pGetModuleHandleW          = kernel32.NewProc("GetModuleHandleW")
-	pRegisterClassExW          = user32.NewProc("RegisterClassExW")
-	pCreateWindowExW           = user32.NewProc("CreateWindowExW")
-	pDestroyWindow             = user32.NewProc("DestroyWindow")
-	pDefWindowProcW            = user32.NewProc("DefWindowProcW")
-	pGetMessageW               = user32.NewProc("GetMessageW")
-	pTranslateMessage          = user32.NewProc("TranslateMessage")
-	pDispatchMessageW          = user32.NewProc("DispatchMessageW")
-	pPostQuitMessage           = user32.NewProc("PostQuitMessage")
-	pPostMessageW              = user32.NewProc("PostMessageW")
-	pRegisterWindowMessageW    = user32.NewProc("RegisterWindowMessageW")
-	pGetSystemMetrics          = user32.NewProc("GetSystemMetrics")
-	pCreatePopupMenu           = user32.NewProc("CreatePopupMenu")
-	pAppendMenuW               = user32.NewProc("AppendMenuW")
-	pDestroyMenu               = user32.NewProc("DestroyMenu")
-	pTrackPopupMenu            = user32.NewProc("TrackPopupMenu")
-	pSetForegroundWindow       = user32.NewProc("SetForegroundWindow")
-	pGetCursorPos              = user32.NewProc("GetCursorPos")
-	pDestroyIcon               = user32.NewProc("DestroyIcon")
-	pCreateIconFromResourceEx  = user32.NewProc("CreateIconFromResourceEx")
+	pGetModuleHandleW         = kernel32.NewProc("GetModuleHandleW")
+	pRegisterClassExW         = user32.NewProc("RegisterClassExW")
+	pCreateWindowExW          = user32.NewProc("CreateWindowExW")
+	pDestroyWindow            = user32.NewProc("DestroyWindow")
+	pDefWindowProcW           = user32.NewProc("DefWindowProcW")
+	pGetMessageW              = user32.NewProc("GetMessageW")
+	pTranslateMessage         = user32.NewProc("TranslateMessage")
+	pDispatchMessageW         = user32.NewProc("DispatchMessageW")
+	pPostQuitMessage          = user32.NewProc("PostQuitMessage")
+	pPostMessageW             = user32.NewProc("PostMessageW")
+	pRegisterWindowMessageW   = user32.NewProc("RegisterWindowMessageW")
+	pGetSystemMetrics         = user32.NewProc("GetSystemMetrics")
+	pCreatePopupMenu          = user32.NewProc("CreatePopupMenu")
+	pAppendMenuW              = user32.NewProc("AppendMenuW")
+	pDestroyMenu              = user32.NewProc("DestroyMenu")
+	pTrackPopupMenu           = user32.NewProc("TrackPopupMenu")
+	pSetForegroundWindow      = user32.NewProc("SetForegroundWindow")
+	pGetCursorPos             = user32.NewProc("GetCursorPos")
+	pDestroyIcon              = user32.NewProc("DestroyIcon")
+	pCreateIconFromResourceEx = user32.NewProc("CreateIconFromResourceEx")
 
 	pShell_NotifyIconW = shell32.NewProc("Shell_NotifyIconW")
 )
 
 const (
-	WM_USER          = 0x0400
-	WM_TRAYICON      = WM_USER + 1
-	WM_LBUTTONUP     = 0x0202
-	WM_RBUTTONUP     = 0x0205
-	WM_DESTROY       = 0x0002
+	WM_USER      = 0x0400
+	WM_TRAYICON  = WM_USER + 1
+	WM_LBUTTONUP = 0x0202
+	WM_RBUTTONUP = 0x0205
+	WM_DESTROY   = 0x0002
 
 	NIM_ADD    = 0x00000000
 	NIM_MODIFY = 0x00000001
@@ -97,21 +96,21 @@ const (
 )
 
 type NOTIFYICONDATAW struct {
-	CbSize           uint32
-	HWnd             windows.HWND
-	UID              uint32
-	UFlags           uint32
-	UCallbackMessage uint32
-	HIcon            HICON
-	SzTip            [128]uint16
-	DwState          uint32
-	DwStateMask      uint32
-	SzInfo           [256]uint16
+	CbSize            uint32
+	HWnd              windows.HWND
+	UID               uint32
+	UFlags            uint32
+	UCallbackMessage  uint32
+	HIcon             HICON
+	SzTip             [128]uint16
+	DwState           uint32
+	DwStateMask       uint32
+	SzInfo            [256]uint16
 	UTimeoutOrVersion uint32
-	SzInfoTitle      [64]uint16
-	DwInfoFlags      uint32
-	GuidItem         windows.GUID
-	HBalloonIcon     HICON
+	SzInfoTitle       [64]uint16
+	DwInfoFlags       uint32
+	GuidItem          windows.GUID
+	HBalloonIcon      HICON
 }
 
 type POINT struct {
@@ -169,6 +168,13 @@ func wndProc(hwnd windows.HWND, msg uint32, wParam uintptr, lParam uintptr) uint
 		return 0
 
 	case WM_DESTROY:
+		if host, ok := trayInstances.Load(hwnd); ok {
+			th := host.(*TrayHost)
+			th.removeNotifyIcon()
+			th.freeIcons()
+			trayInstances.Delete(hwnd)
+		}
+		pDestroyWindow.Call(uintptr(hwnd))
 		pPostQuitMessage.Call(0)
 		return 0
 	}
@@ -182,15 +188,13 @@ func NewTrayHost(tooltip string, onLeftClick, onRightClick func(), onMenuItemCli
 	msgId, _, _ := pRegisterWindowMessageW.Call(uintptr(unsafe.Pointer(taskbarStrPtr)))
 	wmTaskbarCreated = uint32(msgId)
 
-	th := &TrayHost{
+	return &TrayHost{
 		tooltip:         tooltip,
 		onLeftClick:     onLeftClick,
 		onRightClick:    onRightClick,
 		onMenuItemClick: onMenuItemClick,
 		iconCache:       make(map[int]HICON),
 	}
-	th.createWindow()
-	return th
 }
 
 func (th *TrayHost) createWindow() {
@@ -224,6 +228,8 @@ func (th *TrayHost) RunMessageLoop() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
+	th.createWindow()
+
 	var msg struct {
 		HWnd    windows.HWND
 		Message uint32
@@ -244,8 +250,8 @@ func (th *TrayHost) RunMessageLoop() {
 }
 
 func (th *TrayHost) CacheIcon(id int, icoBytes []byte) {
-	hIcon, err := loadBestFitIcon(icoBytes)
-	if err != nil {
+	hIcon := loadBestFitIcon(icoBytes)
+	if hIcon == 0 {
 		return
 	}
 
@@ -339,6 +345,16 @@ func (th *TrayHost) Stop() {
 		return
 	}
 	th.isStopped = true
+	th.iconMu.Unlock()
+
+	if th.hwnd != 0 {
+		pPostMessageW.Call(uintptr(th.hwnd), WM_DESTROY, 0, 0)
+	}
+}
+
+func (th *TrayHost) freeIcons() {
+	th.iconMu.Lock()
+	defer th.iconMu.Unlock()
 
 	for id, hIcon := range th.iconCache {
 		if hIcon != 0 {
@@ -347,15 +363,6 @@ func (th *TrayHost) Stop() {
 		delete(th.iconCache, id)
 	}
 	th.currIcon = 0
-	th.iconMu.Unlock()
-
-	th.removeNotifyIcon()
-
-	if th.hwnd != 0 {
-		trayInstances.Delete(th.hwnd)
-		pDestroyWindow.Call(uintptr(th.hwnd))
-		th.hwnd = 0
-	}
 }
 
 func (th *TrayHost) addNotifyIcon() {
@@ -368,6 +375,7 @@ func (th *TrayHost) addNotifyIcon() {
 
 	tip, _ := windows.UTF16FromString(th.tooltip)
 	copy(th.nid.SzTip[:], tip)
+	th.nid.SzTip[len(th.nid.SzTip)-1] = 0
 
 	pShell_NotifyIconW.Call(NIM_ADD, uintptr(unsafe.Pointer(&th.nid)))
 }
@@ -391,9 +399,9 @@ func (th *TrayHost) removeNotifyIcon() {
 	pShell_NotifyIconW.Call(NIM_DELETE, uintptr(unsafe.Pointer(&nid)))
 }
 
-func loadBestFitIcon(data []byte) (HICON, error) {
+func loadBestFitIcon(data []byte) HICON {
 	if len(data) < 6 {
-		return 0, errors.New("ICO 数据长度不足")
+		return 0
 	}
 
 	reserved := binary.LittleEndian.Uint16(data[0:2])
@@ -401,7 +409,7 @@ func loadBestFitIcon(data []byte) (HICON, error) {
 	count := binary.LittleEndian.Uint16(data[4:6])
 
 	if reserved != 0 || icoType != 1 || count == 0 {
-		return 0, errors.New("非法的 ICO 格式头")
+		return 0
 	}
 
 	targetW, _, _ := pGetSystemMetrics.Call(SM_CXSMICON)
@@ -419,7 +427,7 @@ func loadBestFitIcon(data []byte) (HICON, error) {
 	for i := 0; i < int(count); i++ {
 		entryOffset := 6 + i*16
 		if entryOffset+16 > len(data) {
-			return 0, errors.New("ICO 目录项数据越界")
+			return 0
 		}
 
 		w := int32(data[entryOffset])
@@ -439,7 +447,7 @@ func loadBestFitIcon(data []byte) (HICON, error) {
 	}
 
 	if bestIndex == -1 {
-		return 0, errors.New("未找到匹配的图标帧")
+		return 0
 	}
 
 	entryOffset := 6 + bestIndex*16
@@ -447,10 +455,13 @@ func loadBestFitIcon(data []byte) (HICON, error) {
 	imageOffset := binary.LittleEndian.Uint32(data[entryOffset+12 : entryOffset+16])
 
 	if uint64(imageOffset)+uint64(bytesInRes) > uint64(len(data)) {
-		return 0, errors.New("ICO 图像偏移数据越界")
+		return 0
 	}
 
 	imageData := data[imageOffset : imageOffset+bytesInRes]
+	if len(imageData) == 0 {
+		return 0
+	}
 
 	hIcon, _, _ := pCreateIconFromResourceEx.Call(
 		uintptr(unsafe.Pointer(&imageData[0])),
@@ -462,11 +473,7 @@ func loadBestFitIcon(data []byte) (HICON, error) {
 		0,
 	)
 
-	if hIcon == 0 {
-		return 0, errors.New("CreateIconFromResourceEx 构建图标句柄失败")
-	}
-
-	return HICON(hIcon), nil
+	return HICON(hIcon)
 }
 
 func abs32(n int32) int32 {
