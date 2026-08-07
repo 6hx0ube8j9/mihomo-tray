@@ -21,11 +21,11 @@ const (
 	IDModeRule
 	IDModeDirect
 	IDModeGlobal
+	IDThemeAuto
+	IDThemeLight
+	IDThemeDark
 	IDOpenBaseDir
 	IDToggleAutoStart
-	IDThemeAuto  // 跟随系统
-	IDThemeLight // 浅色主题
-	IDThemeDark  // 深色主题
 	IDReloadConfig
 	IDRestartKernel
 	IDOpenConfigFile
@@ -43,7 +43,7 @@ type UIState struct {
 	IsProxy   bool
 	Mode      string
 	AutoStart bool
-	Theme     string // "auto", "light", "dark"
+	ThemeMode int
 }
 
 type TrayMenu struct {
@@ -85,18 +85,6 @@ func (tm *TrayMenu) Init() {
 	}
 
 	tm.trayHost.SetIcon(0)
-
-	// 注册 Windows 系统主题（深色/浅色模式）实时切换回调
-	tm.trayHost.SetOnThemeChange(func(isDark bool) {
-		tm.stateMu.RLock()
-		currentTheme := tm.currState.Theme
-		tm.stateMu.RUnlock()
-
-		// 仅在“跟随系统”(auto 或为空)时动态根据 Windows 系统主题刷新界面
-		if currentTheme == "" || currentTheme == "auto" {
-			// 如果你的图标需要根据暗色/亮色更改，可在此处触发刷新逻辑
-		}
-	})
 }
 
 func (tm *TrayMenu) Run() {
@@ -161,10 +149,19 @@ func (tm *TrayMenu) onRightClick() {
 		currModeName = "未知"
 	}
 
-	// 确定主题选中的默认状态（若未指定则默认为跟随系统 auto）
-	currTheme := st.Theme
-	if currTheme == "" {
-		currTheme = "auto"
+	themeMode := st.ThemeMode
+	if themeMode == 0 {
+		themeMode = sys.AppModeAuto
+	}
+
+	themeNames := map[int]string{
+		sys.AppModeAuto:       "跟随系统",
+		sys.AppModeForceLight: "浅色",
+		sys.AppModeForceDark:  "深色",
+	}
+	currThemeName := themeNames[themeMode]
+	if currThemeName == "" {
+		currThemeName = "跟随系统"
 	}
 
 	items := []sys.MenuItem{
@@ -195,17 +192,17 @@ func (tm *TrayMenu) onRightClick() {
 			Text: "更多",
 			SubMenuItems: []sys.MenuItem{
 				{ID: IDToggleAutoStart, Text: "开机启动", Checked: st.AutoStart},
-				{
-					Text: "主题模式",
-					SubMenuItems: []sys.MenuItem{
-						{ID: IDThemeAuto, Text: "跟随系统", Checked: currTheme == "auto"},
-						{ID: IDThemeLight, Text: "浅色主题", Checked: currTheme == "light"},
-						{ID: IDThemeDark, Text: "深色主题", Checked: currTheme == "dark"},
-					},
-				},
 				{ID: IDReloadConfig, Text: "重载配置文件"},
 				{ID: IDRestartKernel, Text: "重启核心"},
 				{ID: IDOpenConfigFile, Text: "编辑 config.yaml"},
+			},
+		},
+		{
+			Text: fmt.Sprintf("主题模式: %s", currThemeName),
+			SubMenuItems: []sys.MenuItem{
+				{ID: IDThemeAuto, Text: "跟随系统", Checked: themeMode == sys.AppModeAuto},
+				{ID: IDThemeLight, Text: "浅色", Checked: themeMode == sys.AppModeForceLight},
+				{ID: IDThemeDark, Text: "深色", Checked: themeMode == sys.AppModeForceDark},
 			},
 		},
 		{IsSeparator: true},
@@ -233,16 +230,19 @@ func (tm *TrayMenu) onMenuItemClick(id uint32) {
 		tm.sendCommand("SwitchMode", "direct")
 	case IDModeGlobal:
 		tm.sendCommand("SwitchMode", "global")
+	case IDThemeAuto:
+		sys.SetMenuTheme(sys.AppModeAuto)
+		tm.sendCommand("SetThemeMode", strconv.Itoa(sys.AppModeAuto))
+	case IDThemeLight:
+		sys.SetMenuTheme(sys.AppModeForceLight)
+		tm.sendCommand("SetThemeMode", strconv.Itoa(sys.AppModeForceLight))
+	case IDThemeDark:
+		sys.SetMenuTheme(sys.AppModeForceDark)
+		tm.sendCommand("SetThemeMode", strconv.Itoa(sys.AppModeForceDark))
 	case IDOpenBaseDir:
 		tm.sendCommand("OpenBaseDir", "")
 	case IDToggleAutoStart:
 		tm.sendCommand("ToggleAutoStart", strconv.FormatBool(!st.AutoStart))
-	case IDThemeAuto:
-		tm.sendCommand("SetTheme", "auto")
-	case IDThemeLight:
-		tm.sendCommand("SetTheme", "light")
-	case IDThemeDark:
-		tm.sendCommand("SetTheme", "dark")
 	case IDReloadConfig:
 		tm.sendCommand("ReloadConfig", "")
 	case IDRestartKernel:
