@@ -38,9 +38,7 @@ type TrayHost struct {
 }
 
 const (
-	AppModeAuto       = -1
-	AppModeDefault    = 0
-	AppModeAllowDark  = 1
+	AppModeAuto       = 0
 	AppModeForceDark  = 2
 	AppModeForceLight = 3
 )
@@ -80,8 +78,8 @@ var (
 	pRegQueryValueExW = advapi32.NewProc("RegQueryValueExW")
 	pRegCloseKey      = advapi32.NewProc("RegCloseKey")
 
-	procFlushMenuThemes         *windows.LazyProc
 	procSetPreferredAppModeAddr uintptr
+	procFlushMenuThemesAddr     uintptr
 
 	isWin101903OrGreater bool
 	currentMenuAppMode   int = AppModeAuto
@@ -91,11 +89,13 @@ func init() {
 	maj, _, build := windows.RtlGetNtVersionNumbers()
 	if maj > 10 || (maj == 10 && build >= 18362) {
 		isWin101903OrGreater = true
-		procFlushMenuThemes = uxtheme.NewProc("FlushMenuThemes")
 
 		if hUxTheme := uxtheme.Handle(); hUxTheme != 0 {
-			addr, _, _ := pGetProcAddress.Call(hUxTheme, 135)
-			procSetPreferredAppModeAddr = addr
+			addr135, _, _ := pGetProcAddress.Call(hUxTheme, 135)
+			procSetPreferredAppModeAddr = addr135
+
+			addr136, _, _ := pGetProcAddress.Call(hUxTheme, 136)
+			procFlushMenuThemesAddr = addr136
 		}
 	}
 }
@@ -178,6 +178,7 @@ var (
 	msgTaskbarCreated uint32
 )
 
+// SetMenuTheme 设置右键菜单的主题风格
 func SetMenuTheme(mode int) {
 	currentMenuAppMode = mode
 	applyMenuTheme(mode)
@@ -200,11 +201,12 @@ func applyMenuTheme(mode int) {
 	if procSetPreferredAppModeAddr != 0 {
 		syscall.Syscall(procSetPreferredAppModeAddr, 1, uintptr(targetMode), 0, 0)
 	}
-	if procFlushMenuThemes != nil && procFlushMenuThemes.Find() == nil {
-		procFlushMenuThemes.Call()
+	if procFlushMenuThemesAddr != 0 {
+		syscall.Syscall(procFlushMenuThemesAddr, 0, 0, 0, 0)
 	}
 }
 
+// IsDarkTheme 安全查询当前系统是否为深色主题
 func IsDarkTheme() bool {
 	if !isWin101903OrGreater {
 		return false
@@ -226,7 +228,7 @@ func IsDarkTheme() bool {
 
 	var value uint32
 	var valType uint32
-	var bufSize = uint32(unsafe.Sizeof(value))
+	var bufSize = uint32(4)
 	valName, _ := windows.UTF16PtrFromString("SystemUsesLightTheme")
 
 	r, _, _ = pRegQueryValueExW.Call(
@@ -239,6 +241,7 @@ func IsDarkTheme() bool {
 	)
 
 	if r != 0 {
+		bufSize = 4
 		valNameApps, _ := windows.UTF16PtrFromString("AppsUseLightTheme")
 		r, _, _ = pRegQueryValueExW.Call(
 			hKey,
@@ -281,6 +284,10 @@ func wndProc(hwnd windows.HWND, msg uint32, wParam uintptr, lParam uintptr) uint
 			if str == "ImmersiveColorSet" {
 				if host, ok := trayInstances.Load(hwnd); ok {
 					th := host.(*TrayHost)
+					// 当处于“跟随系统”时，系统改了主题后实时刷新菜单样式
+					if currentMenuAppMode == AppModeAuto {
+						applyMenuTheme(AppModeAuto)
+					}
 					isDark := IsDarkTheme()
 					if th.onThemeChange != nil {
 						th.onThemeChange(isDark)
