@@ -3,6 +3,7 @@ package sys
 import (
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -25,6 +26,7 @@ type TrayHost struct {
 	onLeftClick     func()
 	onRightClick    func()
 	onMenuItemClick func(id uint32)
+	onThemeChange   func(isDark bool)
 
 	iconCache map[int]HICON
 	iconMu    sync.RWMutex
@@ -37,72 +39,68 @@ var (
 	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
 	user32   = windows.NewLazySystemDLL("user32.dll")
 	shell32  = windows.NewLazySystemDLL("shell32.dll")
+	advapi32 = windows.NewLazySystemDLL("advapi32.dll")
 
-	pGetModuleHandleW       = kernel32.NewProc("GetModuleHandleW")
+	pGetModuleHandleW = kernel32.NewProc("GetModuleHandleW")
 
-	pRegisterClassExW       = user32.NewProc("RegisterClassExW")
-	pCreateWindowExW        = user32.NewProc("CreateWindowExW")
-	pDestroyWindow          = user32.NewProc("DestroyWindow")
-	pDefWindowProcW         = user32.NewProc("DefWindowProcW")
-	pGetMessageW            = user32.NewProc("GetMessageW")
-	pTranslateMessage       = user32.NewProc("TranslateMessage")
-	pDispatchMessageW       = user32.NewProc("DispatchMessageW")
-	pPostQuitMessage        = user32.NewProc("PostQuitMessage")
-	pPostMessageW           = user32.NewProc("PostMessageW")
-	pCreatePopupMenu        = user32.NewProc("CreatePopupMenu")
-	pAppendMenuW            = user32.NewProc("AppendMenuW")
-	pDestroyMenu            = user32.NewProc("DestroyMenu")
-	pTrackPopupMenu         = user32.NewProc("TrackPopupMenu")
-	pSetForegroundWindow    = user32.NewProc("SetForegroundWindow")
-	pGetCursorPos           = user32.NewProc("GetCursorPos")
-	pCreateIconFromResource = user32.NewProc("CreateIconFromResourceEx")
+	pRegisterClassExW        = user32.NewProc("RegisterClassExW")
+	pCreateWindowExW         = user32.NewProc("CreateWindowExW")
+	pDestroyWindow           = user32.NewProc("DestroyWindow")
+	pDefWindowProcW          = user32.NewProc("DefWindowProcW")
+	pGetMessageW             = user32.NewProc("GetMessageW")
+	pTranslateMessage        = user32.NewProc("TranslateMessage")
+	pDispatchMessageW        = user32.NewProc("DispatchMessageW")
+	pPostQuitMessage         = user32.NewProc("PostQuitMessage")
+	pPostMessageW            = user32.NewProc("PostMessageW")
+	pCreatePopupMenu         = user32.NewProc("CreatePopupMenu")
+	pAppendMenuW             = user32.NewProc("AppendMenuW")
+	pDestroyMenu             = user32.NewProc("DestroyMenu")
+	pTrackPopupMenu          = user32.NewProc("TrackPopupMenu")
+	pSetForegroundWindow     = user32.NewProc("SetForegroundWindow")
+	pGetCursorPos            = user32.NewProc("GetCursorPos")
+	pCreateIconFromResource  = user32.NewProc("CreateIconFromResourceEx")
+	pRegisterWindowMessageW = user32.NewProc("RegisterWindowMessageW")
+	pGetSystemMetrics        = user32.NewProc("GetSystemMetrics")
 
-	pShell_NotifyIconW      = shell32.NewProc("Shell_NotifyIconW")
+	pShell_NotifyIconW = shell32.NewProc("Shell_NotifyIconW")
+
+	pRegOpenKeyExW    = advapi32.NewProc("RegOpenKeyExW")
+	pRegQueryValueExW = advapi32.NewProc("RegQueryValueExW")
+	pRegCloseKey      = advapi32.NewProc("RegCloseKey")
 )
 
 const (
-	WM_USER            = 0x0400
-	WM_TRAYICON        = WM_USER + 1
-	WM_LBUTTONUP       = 0x0202
-	WM_RBUTTONUP       = 0x0205
-	WM_DESTROY         = 0x0002
+	WM_USER           = 0x0400
+	WM_TRAYICON       = WM_USER + 1
+	WM_LBUTTONUP      = 0x0202
+	WM_RBUTTONUP      = 0x0205
+	WM_DESTROY        = 0x0002
+	WM_SETTINGCHANGE  = 0x001A
+	WM_POWERBROADCAST = 0x0218
 
-	NIM_ADD        = 0x00000000
-	NIM_MODIFY     = 0x00000001
-	NIM_DELETE     = 0x00000002
+	PBT_APMRESUMEAUTOMATIC = 0x0012
+	SM_CXSMICON            = 49
 
-	NIF_MESSAGE    = 0x00000001
-	NIF_ICON       = 0x00000002
-	NIF_TIP        = 0x00000004
-
-	MF_STRING      = 0x00000000
-	MF_GRAYED      = 0x00000001
-	MF_CHECKED     = 0x00000008
-	MF_POPUP       = 0x00000010
-	MF_SEPARATOR   = 0x00000800
-
-	TPM_LEFTALIGN   = 0x0000
-	TPM_RIGHTBUTTON = 0x0002
-	TPM_RETURNCMD   = 0x0100
-	TPM_NONOTIFY    = 0x0080
+	HKEY_CURRENT_USER = 0x80000001
+	KEY_READ          = 0x20019
 )
 
 type NOTIFYICONDATAW struct {
-	CbSize           uint32
-	HWnd             windows.HWND
-	UID              uint32
-	UFlags           uint32
-	UCallbackMessage uint32
-	HIcon            HICON
-	SzTip            [128]uint16
-	DwState          uint32
-	DwStateMask      uint32
-	SzInfo           [256]uint16
+	CbSize            uint32
+	HWnd              windows.HWND
+	UID               uint32
+	UFlags            uint32
+	UCallbackMessage  uint32
+	HIcon             HICON
+	SzTip             [128]uint16
+	DwState           uint32
+	DwStateMask       uint32
+	SzInfo            [256]uint16
 	UTimeoutOrVersion uint32
-	SzInfoTitle      [64]uint16
-	DwInfoFlags      uint32
-	GuidItem         windows.GUID
-	HBalloonIcon     HICON
+	SzInfoTitle       [64]uint16
+	DwInfoFlags       uint32
+	GuidItem          windows.GUID
+	HBalloonIcon      HICON
 }
 
 type POINT struct {
@@ -125,10 +123,105 @@ type WNDCLASSEXW struct {
 	HIconSm       HICON
 }
 
-var trayInstances sync.Map
+var (
+	trayInstances     sync.Map
+	msgTaskbarCreated uint32
+)
+
+func IsDarkTheme() bool {
+	var hKey uintptr
+	subKey, _ := windows.UTF16PtrFromString(`Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`)
+	r, _, _ := pRegOpenKeyExW.Call(
+		HKEY_CURRENT_USER,
+		uintptr(unsafe.Pointer(subKey)),
+		0,
+		KEY_READ,
+		uintptr(unsafe.Pointer(&hKey)),
+	)
+	if r != 0 {
+		return true
+	}
+	defer pRegCloseKey.Call(hKey)
+
+	var value uint32
+	var valType uint32
+	var bufSize = uint32(unsafe.Sizeof(value))
+	valName, _ := windows.UTF16PtrFromString("SystemUsesLightTheme")
+
+	r, _, _ = pRegQueryValueExW.Call(
+		hKey,
+		uintptr(unsafe.Pointer(valName)),
+		0,
+		uintptr(unsafe.Pointer(&valType)),
+		uintptr(unsafe.Pointer(&value)),
+		uintptr(unsafe.Pointer(&bufSize)),
+	)
+
+	if r != 0 {
+		valNameApps, _ := windows.UTF16PtrFromString("AppsUseLightTheme")
+		r, _, _ = pRegQueryValueExW.Call(
+			hKey,
+			uintptr(unsafe.Pointer(valNameApps)),
+			0,
+			uintptr(unsafe.Pointer(&valType)),
+			uintptr(unsafe.Pointer(&value)),
+			uintptr(unsafe.Pointer(&bufSize)),
+		)
+		if r != 0 {
+			return true
+		}
+	}
+
+	return value == 0
+}
+
+func initTaskbarMessage() {
+	if msgTaskbarCreated == 0 {
+		taskbarStr, _ := windows.UTF16PtrFromString("TaskbarCreated")
+		r, _, _ := pRegisterWindowMessageW.Call(uintptr(unsafe.Pointer(taskbarStr)))
+		msgTaskbarCreated = uint32(r)
+	}
+}
 
 func wndProc(hwnd windows.HWND, msg uint32, wParam uintptr, lParam uintptr) uintptr {
+	if msgTaskbarCreated != 0 && msg == msgTaskbarCreated {
+		if host, ok := trayInstances.Load(hwnd); ok {
+			th := host.(*TrayHost)
+			th.addNotifyIcon()
+		}
+		return 0
+	}
+
 	switch msg {
+	case WM_SETTINGCHANGE:
+		if lParam != 0 {
+			ptr := (*uint16)(unsafe.Pointer(lParam))
+			str := windows.UTF16PtrToString(ptr)
+			if str == "ImmersiveColorSet" {
+				if host, ok := trayInstances.Load(hwnd); ok {
+					th := host.(*TrayHost)
+					isDark := IsDarkTheme()
+					if th.onThemeChange != nil {
+						th.onThemeChange(isDark)
+					}
+					th.updateNotifyIcon()
+				}
+			}
+		}
+		return 0
+
+	case WM_POWERBROADCAST:
+		if wParam == PBT_APMRESUMEAUTOMATIC {
+			if host, ok := trayInstances.Load(hwnd); ok {
+				th := host.(*TrayHost)
+				go func() {
+					time.Sleep(1 * time.Second)
+					th.addNotifyIcon()
+				}()
+			}
+		}
+		return 0
+
 	case WM_TRAYICON:
 		switch uint32(lParam) {
 		case WM_LBUTTONUP:
@@ -147,10 +240,12 @@ func wndProc(hwnd windows.HWND, msg uint32, wParam uintptr, lParam uintptr) uint
 			}
 		}
 		return 0
+
 	case WM_DESTROY:
 		pPostQuitMessage.Call(0)
 		return 0
 	}
+
 	r, _, _ := pDefWindowProcW.Call(uintptr(hwnd), uintptr(msg), wParam, lParam)
 	return r
 }
@@ -167,7 +262,13 @@ func NewTrayHost(tooltip string, onLeftClick, onRightClick func(), onMenuItemCli
 	return th
 }
 
+func (th *TrayHost) SetOnThemeChange(f func(isDark bool)) {
+	th.onThemeChange = f
+}
+
 func (th *TrayHost) createWindow() {
+	initTaskbarMessage()
+
 	className, _ := windows.UTF16PtrFromString("MihomoTrayWindowClass")
 	hInstance, _, _ := pGetModuleHandleW.Call(0)
 
@@ -336,7 +437,10 @@ func (th *TrayHost) updateNotifyIcon() {
 	nid.UFlags = NIF_ICON
 	nid.HIcon = th.currIcon
 
-	pShell_NotifyIconW.Call(NIM_MODIFY, uintptr(unsafe.Pointer(&nid)))
+	r, _, _ := pShell_NotifyIconW.Call(NIM_MODIFY, uintptr(unsafe.Pointer(&nid)))
+	if r == 0 {
+		th.addNotifyIcon()
+	}
 }
 
 func (th *TrayHost) removeNotifyIcon() {
@@ -359,21 +463,49 @@ func bytesToHIcon(data []byte) HICON {
 		return 0
 	}
 
+	targetSize := uint32(16)
+	if r, _, _ := pGetSystemMetrics.Call(SM_CXSMICON); r != 0 {
+		targetSize = uint32(r)
+	}
+
 	var bestOffset uint32
 	var bestSize uint32
+	var bestWidth uint32
 
+	// 遍历 ICO 文件内的所有图片帧，寻找最契合 targetSize 的最高清帧
 	for i := 0; i < int(idCount); i++ {
 		entryOffset := 6 + i*16
 		if entryOffset+16 > len(data) {
 			break
 		}
+
+		w := uint32(data[entryOffset])
+		if w == 0 {
+			w = 256
+		}
+
 		dwBytesInRes := *(*uint32)(unsafe.Pointer(&data[entryOffset+8]))
 		dwImageOffset := *(*uint32)(unsafe.Pointer(&data[entryOffset+12]))
 
 		if int(dwImageOffset+dwBytesInRes) <= len(data) {
-			bestOffset = dwImageOffset
-			bestSize = dwBytesInRes
-			break
+			if bestSize == 0 {
+				bestOffset = dwImageOffset
+				bestSize = dwBytesInRes
+				bestWidth = w
+				continue
+			}
+
+			if w >= targetSize {
+				if bestWidth < targetSize || w < bestWidth {
+					bestOffset = dwImageOffset
+					bestSize = dwBytesInRes
+					bestWidth = w
+				}
+			} else if bestWidth < targetSize && w > bestWidth {
+				bestOffset = dwImageOffset
+				bestSize = dwBytesInRes
+				bestWidth = w
+			}
 		}
 	}
 
