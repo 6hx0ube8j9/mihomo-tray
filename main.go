@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 
@@ -19,6 +21,11 @@ import (
 const (
 	AppMutex    = "Mihomo_Tray_Mutex"
 	ShowUIEvent = "Mihomo_Tray_Mutex_ShowUI"
+)
+
+var (
+	shell32        = windows.NewLazySystemDLL("shell32.dll")
+	pShellExecuteW = shell32.NewProc("ShellExecuteW")
 )
 
 func main() {
@@ -33,11 +40,11 @@ func main() {
 
 	mName, _ := windows.UTF16PtrFromString(AppMutex)
 	hM, err := windows.CreateMutex(nil, false, mName)
-	if err != nil || windows.GetLastError() == windows.ERROR_ALREADY_EXISTS {
+	if errors.Is(err, windows.ERROR_ALREADY_EXISTS) || err == windows.ERROR_ALREADY_EXISTS {
 		if hM != 0 {
 			windows.CloseHandle(hM)
 		}
-		
+
 		eName, _ := windows.UTF16PtrFromString(ShowUIEvent)
 		hEvent, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName)
 		if err == nil && hEvent != 0 {
@@ -46,7 +53,9 @@ func main() {
 		}
 		return
 	}
-	defer windows.CloseHandle(hM)
+	if hM != 0 {
+		defer windows.CloseHandle(hM)
+	}
 
 	eName, _ := windows.UTF16PtrFromString(ShowUIEvent)
 	hShowUIEvent, _ := windows.CreateEvent(nil, 0, 0, eName)
@@ -74,7 +83,7 @@ func main() {
 	trayMenu := ui.NewTrayMenu(ctx, cancel, application.UICommandCh, application.UIStateCh)
 
 	trayMenu.Init()
-	
+
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -91,15 +100,11 @@ func main() {
 	if hShowUIEvent != 0 {
 		go func() {
 			for {
+				s, _ := windows.WaitForSingleObject(hShowUIEvent, windows.INFINITE)
 				select {
 				case <-ctx.Done():
 					return
 				default:
-					s, err := windows.WaitForSingleObject(hShowUIEvent, 500)
-					if err != nil {
-						time.Sleep(500 * time.Millisecond)
-						continue
-					}
 					if s == windows.WAIT_OBJECT_0 {
 						select {
 						case application.UICommandCh <- ui.UICommand{Action: "OpenWebUI"}:
@@ -114,7 +119,11 @@ func main() {
 
 	go application.Bootstrap(ctx)
 	trayMenu.Run()
+
 	cancel()
+	if hShowUIEvent != 0 {
+		windows.SetEvent(hShowUIEvent)
+	}
 	cfgMgr.State.ForceExitPhase()
 	application.SafeShutdown(cancel)
 }
@@ -130,8 +139,15 @@ func isAdmin() bool {
 }
 
 func runAsAdmin(exe, dir string) {
-	verb, _ := syscall.UTF16PtrFromString("runas")
-	exePtr, _ := syscall.UTF16PtrFromString(exe)
-	cwdPtr, _ := syscall.UTF16PtrFromString(dir)
-	_ = windows.ShellExecute(0, verb, exePtr, nil, cwdPtr, windows.SW_SHOWNORMAL)
+	verb, _ := windows.UTF16PtrFromString("runas")
+	exePtr, _ := windows.UTF16PtrFromString(exe)
+	cwdPtr, _ := windows.UTF16PtrFromString(dir)
+	pShellExecuteW.Call(
+		0,
+		uintptr(unsafe.Pointer(verb)),
+		uintptr(unsafe.Pointer(exePtr)),
+		0,
+		uintptr(unsafe.Pointer(cwdPtr)),
+		windows.SW_SHOWNORMAL,
+	)
 }
