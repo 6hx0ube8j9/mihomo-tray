@@ -9,7 +9,6 @@ import (
 	"runtime"
 	"syscall"
 	"time"
-	"unsafe"
 
 	"golang.org/x/sys/windows"
 
@@ -21,11 +20,6 @@ import (
 const (
 	AppMutex    = "Mihomo_Tray_Mutex"
 	ShowUIEvent = "Mihomo_Tray_Mutex_ShowUI"
-)
-
-var (
-	shell32        = windows.NewLazySystemDLL("shell32.dll")
-	pShellExecuteW = shell32.NewProc("ShellExecuteW")
 )
 
 func main() {
@@ -65,7 +59,7 @@ func main() {
 
 	isAutostart := false
 	for _, arg := range os.Args {
-		if arg == "---autostart" {
+		if arg == "---autostart" || arg == "--autostart" {
 			isAutostart = true
 			break
 		}
@@ -101,17 +95,19 @@ func main() {
 		go func() {
 			for {
 				s, _ := windows.WaitForSingleObject(hShowUIEvent, windows.INFINITE)
+				if s != windows.WAIT_OBJECT_0 {
+					return
+				}
+
+				if ctx.Err() != nil {
+					return
+				}
+				
 				select {
+				case application.UICommandCh <- ui.UICommand{Action: "OpenWebUI"}:
+					time.Sleep(200 * time.Millisecond)
 				case <-ctx.Done():
 					return
-				default:
-					if s == windows.WAIT_OBJECT_0 {
-						select {
-						case application.UICommandCh <- ui.UICommand{Action: "OpenWebUI"}:
-							time.Sleep(200 * time.Millisecond)
-						default:
-						}
-					}
 				}
 			}
 		}()
@@ -121,9 +117,11 @@ func main() {
 	trayMenu.Run()
 
 	cancel()
+
 	if hShowUIEvent != 0 {
 		windows.SetEvent(hShowUIEvent)
 	}
+
 	cfgMgr.State.ForceExitPhase()
 	application.SafeShutdown(cancel)
 }
@@ -142,12 +140,5 @@ func runAsAdmin(exe, dir string) {
 	verb, _ := windows.UTF16PtrFromString("runas")
 	exePtr, _ := windows.UTF16PtrFromString(exe)
 	cwdPtr, _ := windows.UTF16PtrFromString(dir)
-	pShellExecuteW.Call(
-		0,
-		uintptr(unsafe.Pointer(verb)),
-		uintptr(unsafe.Pointer(exePtr)),
-		0,
-		uintptr(unsafe.Pointer(cwdPtr)),
-		windows.SW_SHOWNORMAL,
-	)
+	_ = windows.ShellExecute(0, verb, exePtr, nil, cwdPtr, windows.SW_SHOWNORMAL)
 }
