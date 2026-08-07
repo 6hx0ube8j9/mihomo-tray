@@ -50,12 +50,10 @@ var (
 	user32   = windows.NewLazySystemDLL("user32.dll")
 	shell32  = windows.NewLazySystemDLL("shell32.dll")
 	advapi32 = windows.NewLazySystemDLL("advapi32.dll")
-
-	modUxTheme              = syscall.NewLazyDLL("uxtheme.dll")
-	procSetPreferredAppMode *syscall.LazyProc
-	procFlushMenuThemes     *syscall.LazyProc
+	uxtheme  = windows.NewLazySystemDLL("uxtheme.dll")
 
 	pGetModuleHandleW = kernel32.NewProc("GetModuleHandleW")
+	pGetProcAddress   = kernel32.NewProc("GetProcAddress")
 
 	pRegisterClassExW       = user32.NewProc("RegisterClassExW")
 	pCreateWindowExW        = user32.NewProc("CreateWindowExW")
@@ -82,6 +80,9 @@ var (
 	pRegQueryValueExW = advapi32.NewProc("RegQueryValueExW")
 	pRegCloseKey      = advapi32.NewProc("RegCloseKey")
 
+	procFlushMenuThemes         *windows.LazyProc
+	procSetPreferredAppModeAddr uintptr
+
 	isWin101903OrGreater bool
 	currentMenuAppMode   int = AppModeAuto
 )
@@ -90,8 +91,12 @@ func init() {
 	maj, _, build := windows.RtlGetNtVersionNumbers()
 	if maj > 10 || (maj == 10 && build >= 18362) {
 		isWin101903OrGreater = true
-		procSetPreferredAppMode = modUxTheme.NewProcByOrdinal(135)
-		procFlushMenuThemes = modUxTheme.NewProc("FlushMenuThemes")
+		procFlushMenuThemes = uxtheme.NewProc("FlushMenuThemes")
+
+		if hUxTheme := uxtheme.Handle(); hUxTheme != 0 {
+			addr, _, _ := pGetProcAddress.Call(hUxTheme, 135)
+			procSetPreferredAppModeAddr = addr
+		}
 	}
 }
 
@@ -192,8 +197,8 @@ func applyMenuTheme(mode int) {
 		}
 	}
 
-	if procSetPreferredAppMode != nil && procSetPreferredAppMode.Find() == nil {
-		procSetPreferredAppMode.Call(uintptr(targetMode))
+	if procSetPreferredAppModeAddr != 0 {
+		syscall.Syscall(procSetPreferredAppModeAddr, 1, uintptr(targetMode), 0, 0)
 	}
 	if procFlushMenuThemes != nil && procFlushMenuThemes.Find() == nil {
 		procFlushMenuThemes.Call()
