@@ -1,3 +1,5 @@
+//go:build windows
+
 package sys
 
 import (
@@ -80,6 +82,25 @@ const (
 
 	PBT_APMRESUMEAUTOMATIC = 0x0012
 	SM_CXSMICON            = 49
+
+	NIM_ADD    = 0x00000000
+	NIM_MODIFY = 0x00000001
+	NIM_DELETE = 0x00000002
+
+	NIF_MESSAGE = 0x00000001
+	NIF_ICON    = 0x00000002
+	NIF_TIP     = 0x00000004
+
+	MF_STRING    = 0x00000000
+	MF_GRAYED    = 0x00000001
+	MF_CHECKED   = 0x00000008
+	MF_POPUP     = 0x00000010
+	MF_SEPARATOR = 0x00000800
+
+	TPM_LEFTALIGN   = 0x0000
+	TPM_RIGHTBUTTON = 0x0002
+	TPM_RETURNCMD   = 0x0100
+	TPM_NONOTIFY    = 0x0080
 
 	HKEY_CURRENT_USER = 0x80000001
 	KEY_READ          = 0x20019
@@ -472,7 +493,6 @@ func bytesToHIcon(data []byte) HICON {
 	var bestSize uint32
 	var bestWidth uint32
 
-	// 遍历 ICO 文件内的所有图片帧，寻找最契合 targetSize 的最高清帧
 	for i := 0; i < int(idCount); i++ {
 		entryOffset := 6 + i*16
 		if entryOffset+16 > len(data) {
