@@ -149,11 +149,8 @@ func (tm *TrayMenu) onRightClick() {
 		currModeName = "未知"
 	}
 
+	// 解析主题显示文本
 	themeMode := st.ThemeMode
-	if themeMode == 0 {
-		themeMode = sys.AppModeAuto
-	}
-
 	themeNames := map[int]string{
 		sys.AppModeAuto:       "跟随系统",
 		sys.AppModeForceLight: "浅色",
@@ -232,13 +229,25 @@ func (tm *TrayMenu) onMenuItemClick(id uint32) {
 		tm.sendCommand("SwitchMode", "global")
 	case IDThemeAuto:
 		sys.SetMenuTheme(sys.AppModeAuto)
+		tm.stateMu.Lock()
+		tm.currState.ThemeMode = sys.AppModeAuto
+		tm.stateMu.Unlock()
 		tm.sendCommand("SetThemeMode", strconv.Itoa(sys.AppModeAuto))
+
 	case IDThemeLight:
 		sys.SetMenuTheme(sys.AppModeForceLight)
+		tm.stateMu.Lock()
+		tm.currState.ThemeMode = sys.AppModeForceLight
+		tm.stateMu.Unlock()
 		tm.sendCommand("SetThemeMode", strconv.Itoa(sys.AppModeForceLight))
+
 	case IDThemeDark:
 		sys.SetMenuTheme(sys.AppModeForceDark)
+		tm.stateMu.Lock()
+		tm.currState.ThemeMode = sys.AppModeForceDark
+		tm.stateMu.Unlock()
 		tm.sendCommand("SetThemeMode", strconv.Itoa(sys.AppModeForceDark))
+
 	case IDOpenBaseDir:
 		tm.sendCommand("OpenBaseDir", "")
 	case IDToggleAutoStart:
