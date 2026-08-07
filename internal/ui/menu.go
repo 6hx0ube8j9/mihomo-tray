@@ -99,7 +99,10 @@ func (tm *TrayMenu) ListenUIState() {
 		select {
 		case <-tm.ctx.Done():
 			return
-		case state := <-tm.stateCh:
+		case state, ok := <-tm.stateCh:
+			if !ok {
+				return
+			}
 			tm.stateMu.Lock()
 			tm.currState = state
 			tm.stateMu.Unlock()
@@ -114,7 +117,7 @@ func (tm *TrayMenu) ListenUIState() {
 func (tm *TrayMenu) sendCommand(action, payload string) {
 	select {
 	case tm.commandCh <- UICommand{Action: action, Payload: payload}:
-	default:
+	case <-tm.ctx.Done():
 	}
 }
 
