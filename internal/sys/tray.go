@@ -37,39 +37,63 @@ type TrayHost struct {
 	isStopped bool
 }
 
+const (
+	AppModeAuto       = -1
+	AppModeDefault    = 0
+	AppModeAllowDark  = 1
+	AppModeForceDark  = 2
+	AppModeForceLight = 3
+)
+
 var (
 	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
 	user32   = windows.NewLazySystemDLL("user32.dll")
 	shell32  = windows.NewLazySystemDLL("shell32.dll")
 	advapi32 = windows.NewLazySystemDLL("advapi32.dll")
 
+	modUxTheme              = syscall.NewLazyDLL("uxtheme.dll")
+	procSetPreferredAppMode *syscall.LazyProc
+	procFlushMenuThemes     *syscall.LazyProc
+
 	pGetModuleHandleW = kernel32.NewProc("GetModuleHandleW")
 
-	pRegisterClassExW        = user32.NewProc("RegisterClassExW")
-	pCreateWindowExW         = user32.NewProc("CreateWindowExW")
-	pDestroyWindow           = user32.NewProc("DestroyWindow")
-	pDefWindowProcW          = user32.NewProc("DefWindowProcW")
-	pGetMessageW             = user32.NewProc("GetMessageW")
-	pTranslateMessage        = user32.NewProc("TranslateMessage")
-	pDispatchMessageW        = user32.NewProc("DispatchMessageW")
-	pPostQuitMessage         = user32.NewProc("PostQuitMessage")
-	pPostMessageW            = user32.NewProc("PostMessageW")
-	pCreatePopupMenu         = user32.NewProc("CreatePopupMenu")
-	pAppendMenuW             = user32.NewProc("AppendMenuW")
-	pDestroyMenu             = user32.NewProc("DestroyMenu")
-	pTrackPopupMenu          = user32.NewProc("TrackPopupMenu")
-	pSetForegroundWindow     = user32.NewProc("SetForegroundWindow")
-	pGetCursorPos            = user32.NewProc("GetCursorPos")
-	pCreateIconFromResource  = user32.NewProc("CreateIconFromResourceEx")
+	pRegisterClassExW       = user32.NewProc("RegisterClassExW")
+	pCreateWindowExW        = user32.NewProc("CreateWindowExW")
+	pDestroyWindow          = user32.NewProc("DestroyWindow")
+	pDefWindowProcW         = user32.NewProc("DefWindowProcW")
+	pGetMessageW            = user32.NewProc("GetMessageW")
+	pTranslateMessage       = user32.NewProc("TranslateMessage")
+	pDispatchMessageW       = user32.NewProc("DispatchMessageW")
+	pPostQuitMessage        = user32.NewProc("PostQuitMessage")
+	pPostMessageW           = user32.NewProc("PostMessageW")
+	pCreatePopupMenu        = user32.NewProc("CreatePopupMenu")
+	pAppendMenuW            = user32.NewProc("AppendMenuW")
+	pDestroyMenu            = user32.NewProc("DestroyMenu")
+	pTrackPopupMenu         = user32.NewProc("TrackPopupMenu")
+	pSetForegroundWindow    = user32.NewProc("SetForegroundWindow")
+	pGetCursorPos           = user32.NewProc("GetCursorPos")
+	pCreateIconFromResource = user32.NewProc("CreateIconFromResourceEx")
 	pRegisterWindowMessageW = user32.NewProc("RegisterWindowMessageW")
-	pGetSystemMetrics        = user32.NewProc("GetSystemMetrics")
+	pGetSystemMetrics       = user32.NewProc("GetSystemMetrics")
 
 	pShell_NotifyIconW = shell32.NewProc("Shell_NotifyIconW")
 
 	pRegOpenKeyExW    = advapi32.NewProc("RegOpenKeyExW")
 	pRegQueryValueExW = advapi32.NewProc("RegQueryValueExW")
 	pRegCloseKey      = advapi32.NewProc("RegCloseKey")
+
+	isWin101903OrGreater bool
+	currentMenuAppMode   int = AppModeAuto
 )
+
+func init() {
+	maj, _, build := windows.RtlGetNtVersionNumbers()
+	if maj > 10 || (maj == 10 && build >= 18362) {
+		isWin101903OrGreater = true
+		procSetPreferredAppMode = modUxTheme.NewProcByOrdinal(135)
+		procFlushMenuThemes = modUxTheme.NewProc("FlushMenuThemes")
+	}
+}
 
 const (
 	WM_USER           = 0x0400
@@ -149,7 +173,38 @@ var (
 	msgTaskbarCreated uint32
 )
 
+func SetMenuTheme(mode int) {
+	currentMenuAppMode = mode
+	applyMenuTheme(mode)
+}
+
+func applyMenuTheme(mode int) {
+	if !isWin101903OrGreater {
+		return
+	}
+
+	targetMode := mode
+	if targetMode == AppModeAuto {
+		if IsDarkTheme() {
+			targetMode = AppModeForceDark
+		} else {
+			targetMode = AppModeForceLight
+		}
+	}
+
+	if procSetPreferredAppMode != nil && procSetPreferredAppMode.Find() == nil {
+		procSetPreferredAppMode.Call(uintptr(targetMode))
+	}
+	if procFlushMenuThemes != nil && procFlushMenuThemes.Find() == nil {
+		procFlushMenuThemes.Call()
+	}
+}
+
 func IsDarkTheme() bool {
+	if !isWin101903OrGreater {
+		return false
+	}
+
 	var hKey uintptr
 	subKey, _ := windows.UTF16PtrFromString(`Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`)
 	r, _, _ := pRegOpenKeyExW.Call(
@@ -160,7 +215,7 @@ func IsDarkTheme() bool {
 		uintptr(unsafe.Pointer(&hKey)),
 	)
 	if r != 0 {
-		return true
+		return false
 	}
 	defer pRegCloseKey.Call(hKey)
 
@@ -189,7 +244,7 @@ func IsDarkTheme() bool {
 			uintptr(unsafe.Pointer(&bufSize)),
 		)
 		if r != 0 {
-			return true
+			return false
 		}
 	}
 
@@ -357,6 +412,8 @@ func (th *TrayHost) SetIcon(id int) {
 }
 
 func (th *TrayHost) ShowContextMenu(items []MenuItem) {
+	applyMenuTheme(currentMenuAppMode)
+
 	hMenu, _, _ := pCreatePopupMenu.Call()
 	if hMenu == 0 {
 		return
