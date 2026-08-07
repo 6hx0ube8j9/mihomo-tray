@@ -32,8 +32,8 @@ type TrayHost struct {
 	iconMu    sync.RWMutex
 	currIcon  HICON
 
-	nid       NOTIFYICONDATAW
 	isStopped bool
+	ready     chan struct{}
 }
 
 var (
@@ -71,6 +71,7 @@ const (
 	WM_LBUTTONUP = 0x0202
 	WM_RBUTTONUP = 0x0205
 	WM_DESTROY   = 0x0002
+	WM_CLOSE     = 0x0010
 
 	NIM_ADD    = 0x00000000
 	NIM_MODIFY = 0x00000001
@@ -134,9 +135,15 @@ type WNDCLASSEXW struct {
 }
 
 var (
-	trayInstances    sync.Map
-	wmTaskbarCreated uint32
+	trayInstances      sync.Map
+	wmTaskbarCreated   uint32
+	wndProcCallbackPtr uintptr
+	registerClassOnce  sync.Once
 )
+
+func init() {
+	wndProcCallbackPtr = syscall.NewCallback(wndProc)
+}
 
 func wndProc(hwnd windows.HWND, msg uint32, wParam uintptr, lParam uintptr) uintptr {
 	if wmTaskbarCreated != 0 && msg == wmTaskbarCreated {
@@ -174,7 +181,6 @@ func wndProc(hwnd windows.HWND, msg uint32, wParam uintptr, lParam uintptr) uint
 			th.freeIcons()
 			trayInstances.Delete(hwnd)
 		}
-		pDestroyWindow.Call(uintptr(hwnd))
 		pPostQuitMessage.Call(0)
 		return 0
 	}
@@ -194,6 +200,7 @@ func NewTrayHost(tooltip string, onLeftClick, onRightClick func(), onMenuItemCli
 		onRightClick:    onRightClick,
 		onMenuItemClick: onMenuItemClick,
 		iconCache:       make(map[int]HICON),
+		ready:           make(chan struct{}),
 	}
 }
 
@@ -201,13 +208,14 @@ func (th *TrayHost) createWindow() {
 	className, _ := windows.UTF16PtrFromString("MihomoTrayWindowClass")
 	hInstance, _, _ := pGetModuleHandleW.Call(0)
 
-	var wc WNDCLASSEXW
-	wc.CbSize = uint32(unsafe.Sizeof(wc))
-	wc.LpfnWndProc = syscall.NewCallback(wndProc)
-	wc.HInstance = windows.Handle(hInstance)
-	wc.LpszClassName = className
-
-	pRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
+	registerClassOnce.Do(func() {
+		var wc WNDCLASSEXW
+		wc.CbSize = uint32(unsafe.Sizeof(wc))
+		wc.LpfnWndProc = wndProcCallbackPtr
+		wc.HInstance = windows.Handle(hInstance)
+		wc.LpszClassName = className
+		pRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
+	})
 
 	hwnd, _, _ := pCreateWindowExW.Call(
 		0,
@@ -222,6 +230,7 @@ func (th *TrayHost) createWindow() {
 	th.hwnd = windows.HWND(hwnd)
 	trayInstances.Store(th.hwnd, th)
 	th.addNotifyIcon()
+	close(th.ready)
 }
 
 func (th *TrayHost) RunMessageLoop() {
@@ -255,28 +264,44 @@ func (th *TrayHost) CacheIcon(id int, icoBytes []byte) {
 		return
 	}
 
-	th.iconMu.Lock()
-	defer th.iconMu.Unlock()
+	var oldIcon HICON
+	needUpdate := false
 
-	if oldIcon, exists := th.iconCache[id]; exists && oldIcon != 0 {
+	th.iconMu.Lock()
+	if old, exists := th.iconCache[id]; exists && old != 0 {
+		oldIcon = old
+		if oldIcon == th.currIcon {
+			th.currIcon = hIcon
+			needUpdate = true
+		}
+	}
+	th.iconCache[id] = hIcon
+	th.iconMu.Unlock()
+
+	if needUpdate {
+		th.updateNotifyIcon()
+	}
+	if oldIcon != 0 {
 		pDestroyIcon.Call(uintptr(oldIcon))
 	}
-
-	th.iconCache[id] = hIcon
 }
 
 func (th *TrayHost) SetIcon(id int) {
-	th.iconMu.RLock()
+	th.iconMu.Lock()
 	hIcon, exists := th.iconCache[id]
-	th.iconMu.RUnlock()
-
-	if exists && hIcon != th.currIcon {
-		th.currIcon = hIcon
-		th.updateNotifyIcon()
+	if !exists || hIcon == th.currIcon {
+		th.iconMu.Unlock()
+		return
 	}
+	th.currIcon = hIcon
+	th.iconMu.Unlock()
+
+	th.updateNotifyIcon()
 }
 
 func (th *TrayHost) ShowContextMenu(items []MenuItem) {
+	<-th.ready
+
 	hMenu, _, _ := pCreatePopupMenu.Call()
 	if hMenu == 0 {
 		return
@@ -347,8 +372,9 @@ func (th *TrayHost) Stop() {
 	th.isStopped = true
 	th.iconMu.Unlock()
 
+	<-th.ready
 	if th.hwnd != 0 {
-		pPostMessageW.Call(uintptr(th.hwnd), WM_DESTROY, 0, 0)
+		pPostMessageW.Call(uintptr(th.hwnd), WM_CLOSE, 0, 0)
 	}
 }
 
@@ -366,28 +392,38 @@ func (th *TrayHost) freeIcons() {
 }
 
 func (th *TrayHost) addNotifyIcon() {
-	th.nid.CbSize = uint32(unsafe.Sizeof(th.nid))
-	th.nid.HWnd = th.hwnd
-	th.nid.UID = 1
-	th.nid.UFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP
-	th.nid.UCallbackMessage = WM_TRAYICON
-	th.nid.HIcon = th.currIcon
+	th.iconMu.RLock()
+	currIcon := th.currIcon
+	th.iconMu.RUnlock()
+
+	var nid NOTIFYICONDATAW
+	nid.CbSize = uint32(unsafe.Sizeof(nid))
+	nid.HWnd = th.hwnd
+	nid.UID = 1
+	nid.UFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP
+	nid.UCallbackMessage = WM_TRAYICON
+	nid.HIcon = currIcon
 
 	tip, _ := windows.UTF16FromString(th.tooltip)
-	copy(th.nid.SzTip[:], tip)
-	th.nid.SzTip[len(th.nid.SzTip)-1] = 0
+	copy(nid.SzTip[:], tip)
+	nid.SzTip[len(nid.SzTip)-1] = 0
 
-	pShell_NotifyIconW.Call(NIM_ADD, uintptr(unsafe.Pointer(&th.nid)))
+	pShell_NotifyIconW.Call(NIM_ADD, uintptr(unsafe.Pointer(&nid)))
 }
 
 func (th *TrayHost) updateNotifyIcon() {
-	th.nid.CbSize = uint32(unsafe.Sizeof(th.nid))
-	th.nid.HWnd = th.hwnd
-	th.nid.UID = 1
-	th.nid.UFlags = NIF_ICON
-	th.nid.HIcon = th.currIcon
+	th.iconMu.RLock()
+	currIcon := th.currIcon
+	th.iconMu.RUnlock()
 
-	pShell_NotifyIconW.Call(NIM_MODIFY, uintptr(unsafe.Pointer(&th.nid)))
+	var nid NOTIFYICONDATAW
+	nid.CbSize = uint32(unsafe.Sizeof(nid))
+	nid.HWnd = th.hwnd
+	nid.UID = 1
+	nid.UFlags = NIF_ICON
+	nid.HIcon = currIcon
+
+	pShell_NotifyIconW.Call(NIM_MODIFY, uintptr(unsafe.Pointer(&nid)))
 }
 
 func (th *TrayHost) removeNotifyIcon() {
