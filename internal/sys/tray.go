@@ -146,47 +146,46 @@ func init() {
 }
 
 func wndProc(hwnd windows.HWND, msg uint32, wParam uintptr, lParam uintptr) uintptr {
-	if wmTaskbarCreated != 0 && msg == wmTaskbarCreated {
-		if host, ok := trayInstances.Load(hwnd); ok {
-			th := host.(*TrayHost)
-			th.addNotifyIcon()
-		}
-		return 0
-	}
+    var th *TrayHost
+    if host, ok := trayInstances.Load(hwnd); ok {
+        th = host.(*TrayHost)
+    }
 
-	switch msg {
-	case WM_TRAYICON:
-		switch uint32(lParam) {
-		case WM_LBUTTONUP:
-			if host, ok := trayInstances.Load(hwnd); ok {
-				th := host.(*TrayHost)
-				if th.onLeftClick != nil {
-					th.onLeftClick()
-				}
-			}
-		case WM_RBUTTONUP:
-			if host, ok := trayInstances.Load(hwnd); ok {
-				th := host.(*TrayHost)
-				if th.onRightClick != nil {
-					th.onRightClick()
-				}
-			}
-		}
-		return 0
+    if wmTaskbarCreated != 0 && msg == wmTaskbarCreated {
+        if th != nil {
+            th.addNotifyIcon()
+        }
+        return 0
+    }
 
-	case WM_DESTROY:
-		if host, ok := trayInstances.Load(hwnd); ok {
-			th := host.(*TrayHost)
-			th.removeNotifyIcon()
-			th.freeIcons()
-			trayInstances.Delete(hwnd)
-		}
-		pPostQuitMessage.Call(0)
-		return 0
-	}
+    switch msg {
+    case WM_TRAYICON:
+        if th != nil {
+            switch uint32(lParam) {
+            case WM_LBUTTONUP:
+                if th.onLeftClick != nil {
+                    th.onLeftClick()
+                }
+            case WM_RBUTTONUP:
+                if th.onRightClick != nil {
+                    th.onRightClick()
+                }
+            }
+        }
+        return 0
 
-	r, _, _ := pDefWindowProcW.Call(uintptr(hwnd), uintptr(msg), wParam, lParam)
-	return r
+    case WM_DESTROY:
+        if th != nil {
+            th.removeNotifyIcon()
+            th.freeIcons()
+            trayInstances.Delete(hwnd)
+        }
+        pPostQuitMessage.Call(0)
+        return 0
+    }
+
+    r, _, _ := pDefWindowProcW.Call(uintptr(hwnd), uintptr(msg), wParam, lParam)
+    return r
 }
 
 func NewTrayHost(tooltip string, onLeftClick, onRightClick func(), onMenuItemClick func(id uint32)) *TrayHost {
