@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"path/filepath"
 	"strconv"
 	"time"
