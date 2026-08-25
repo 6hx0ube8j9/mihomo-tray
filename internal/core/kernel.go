@@ -301,5 +301,5 @@ func (km *KernelManager) KillCurrent() {
 	atomic.StoreUint32(&km.currentPid, 0)
 	km.mu.Unlock()
 	sys.KillOtherProcessesByName("mihomo.exe", 0)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(250 * time.Millisecond)
 }
