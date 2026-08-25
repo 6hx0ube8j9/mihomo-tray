@@ -132,7 +132,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 		case event := <-a.kernelEventCh:
 			if event == core.EventKernelReady {
 				a.Cfg.State.SetPhase(fsm.PhaseRunning)
-				a.Cfg.State.MuteAPIWatcher(5 * time.Second)
+				a.Cfg.State.MuteAPIWatcher(8 * time.Second)
 				if a.Cfg.Get("tun") == "true" {
 					a.Cfg.State.SetTunRequestedTime(time.Now())
 				}
@@ -145,10 +145,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 						cancel()
 						if err == nil {
 							a.syncAllConfig(ctx)
-
-							if a.pollKernelAPI(ctx) {
-								a.pushUIState()
-							}
+        					a.pushUIState()
 
 							select {
 							case a.apiPollCh <- struct{}{}:
