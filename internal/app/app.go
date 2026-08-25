@@ -208,14 +208,19 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		} else {
 			_ = sys.DisableSystemProxy()
 		}
-	case "ToggleTun":
+    case "ToggleTun":
 		enable := cmd.Payload == "true"
 		a.Cfg.Set("tun", strconv.FormatBool(enable))
 		if enable {
 			a.Cfg.State.SetTunRequestedTime(time.Now())
 		}
 		a.Cfg.State.MuteAPIWatcher(3 * time.Second)
-		go a.API.SyncConfigToKernel(ctx, map[string]interface{}{"tun": map[string]bool{"enable": enable}})
+
+		tunMap := map[string]interface{}{"enable": enable}
+		if dev := a.Cfg.Get("tun_device"); dev != "" {
+			tunMap["device"] = dev
+		}
+		go a.API.SyncConfigToKernel(ctx, map[string]interface{}{"tun": tunMap})
 	case "SwitchMode":
 		a.Cfg.Set("mode", cmd.Payload)
 		a.Cfg.State.MuteAPIWatcher(2 * time.Second)
@@ -417,8 +422,15 @@ func (a *Application) syncAllConfig(ctx context.Context) {
 	if a.Cfg.State.GetPhase() != fsm.PhaseRunning {
 		return
 	}
+	tunMap := map[string]interface{}{
+		"enable": a.Cfg.Get("tun") == "true",
+	}
+	if dev := a.Cfg.Get("tun_device"); dev != "" {
+		tunMap["device"] = dev
+	}
+
 	payload := map[string]interface{}{
-		"tun":  map[string]bool{"enable": a.Cfg.Get("tun") == "true"},
+		"tun":  tunMap,
 		"mode": a.Cfg.Get("mode"),
 	}
 	_ = a.API.SyncConfigToKernel(ctx, payload)
@@ -437,7 +449,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		Mode string `json:"mode"`
 		Tun  struct {
 			Enable bool   `json:"enable"`
-			Device string `json:"device"`
+			Device string `json:"device"`  
 		} `json:"tun"`
 	}
 	if json.Unmarshal(body, &resp) == nil {
