@@ -275,7 +275,9 @@ func (t *tailBuffer) Write(p []byte) (int, error) {
 	defer t.mu.Unlock()
 	t.buf = append(t.buf, p...)
 	if len(t.buf) > t.max {
-		t.buf = t.buf[len(t.buf)-t.max:]
+		newBuf := make([]byte, t.max)
+		copy(newBuf, t.buf[len(t.buf)-t.max:])
+		t.buf = newBuf
 	}
 	return len(p), nil
 }
