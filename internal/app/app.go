@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -76,7 +77,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	}
 
 	a.Cfg.SyncWithYAML()
-	a.Cfg.State.MuteAPIWatcher(10 * time.Second)
+	a.Cfg.State.MuteAPIWatcher(5 * time.Second)
 
 	if a.Cfg.Get("proxy") == "true" {
 		_ = sys.EnableSystemProxy(a.Cfg.Get("port"))
@@ -105,13 +106,6 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	a.Kernel.Close()
 }
 
-func (a *Application) getTunPayload(enable bool) map[string]interface{} {
-	return map[string]interface{}{
-		"enable": enable,
-		"device": a.Cfg.Get("tun_device"),
-	}
-}
-
 func (a *Application) eventLoop(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -138,7 +132,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 		case event := <-a.kernelEventCh:
 			if event == core.EventKernelReady {
 				a.Cfg.State.SetPhase(fsm.PhaseRunning)
-				a.Cfg.State.MuteAPIWatcher(10 * time.Second)
+				a.Cfg.State.MuteAPIWatcher(5 * time.Second)
 				if a.Cfg.Get("tun") == "true" {
 					a.Cfg.State.SetTunRequestedTime(time.Now())
 				}
@@ -151,7 +145,10 @@ func (a *Application) eventLoop(ctx context.Context) {
 						cancel()
 						if err == nil {
 							a.syncAllConfig(ctx)
-							a.pushUIState()
+
+							if a.pollKernelAPI(ctx) {
+								a.pushUIState()
+							}
 
 							select {
 							case a.apiPollCh <- struct{}{}:
@@ -217,10 +214,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		if enable {
 			a.Cfg.State.SetTunRequestedTime(time.Now())
 		}
-		a.Cfg.State.MuteAPIWatcher(5 * time.Second)
-		go a.API.SyncConfigToKernel(ctx, map[string]interface{}{
-			"tun": a.getTunPayload(enable),
-		})
+		a.Cfg.State.MuteAPIWatcher(3 * time.Second)
+		go a.API.SyncConfigToKernel(ctx, map[string]interface{}{"tun": map[string]bool{"enable": enable}})
 	case "SwitchMode":
 		a.Cfg.Set("mode", cmd.Payload)
 		a.Cfg.State.MuteAPIWatcher(2 * time.Second)
@@ -423,17 +418,13 @@ func (a *Application) syncAllConfig(ctx context.Context) {
 		return
 	}
 	payload := map[string]interface{}{
-		"tun":  a.getTunPayload(a.Cfg.Get("tun") == "true"),
+		"tun":  map[string]bool{"enable": a.Cfg.Get("tun") == "true"},
 		"mode": a.Cfg.Get("mode"),
 	}
 	_ = a.API.SyncConfigToKernel(ctx, payload)
 }
 
 func (a *Application) pollKernelAPI(ctx context.Context) bool {
-	if a.Cfg.State.IsAPIWatcherMuted() {
-		return false
-	}
-
 	queryCtx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
 	defer cancel()
 
@@ -455,7 +446,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 			changed = true
 		}
 		if resp.Tun.Enable != (a.Cfg.Get("tun") == "true") {
-			a.Cfg.Set("tun", strconv.FormatBool(resp.Tun.Enable))
+			a.Cfg.Set("tun", fmt.Sprintf("%t", resp.Tun.Enable))
 			changed = true
 		}
 		return changed
@@ -472,7 +463,7 @@ func (a *Application) gracefulStopTUN() {
 	defer cancel()
 
 	payload := map[string]interface{}{
-		"tun": a.getTunPayload(false),
+		"tun": map[string]bool{"enable": false},
 	}
 	_ = a.API.SyncConfigToKernel(stopCtx, payload)
 
