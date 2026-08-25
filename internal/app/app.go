@@ -228,7 +228,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 	case "ReloadConfig":
 		a.ReloadConfig(ctx)
 	case "RestartKernel":
-		a.RestartKernel(ctx)
+		a.RestartKernel()
 	case "OpenConfigFile":
 		configPath := filepath.Join(a.Cfg.BaseDir(), "config.yaml")
 		_ = sys.ExecuteSystemCommand(configPath)
@@ -350,7 +350,7 @@ func (a *Application) RestartKernel() {
 	a.Cfg.State.SetReloading(false)
 	a.Cfg.State.MuteAPIWatcher(5 * time.Second)
 	a.Cfg.SyncWithYAML()
-	a.gracefulStopTUN(ctx)
+	a.gracefulStopTUN()
 
 	a.Kernel.KillCurrent()
 	a.pushUIState()
@@ -450,12 +450,12 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 	return false
 }
 
-func (a *Application) gracefulStopTUN(ctx context.Context) {
+func (a *Application) gracefulStopTUN() {
 	if a.Cfg.Get("tun") != "true" {
 		return
 	}
 
-	stopCtx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+	stopCtx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 
 	payload := map[string]interface{}{
@@ -463,6 +463,5 @@ func (a *Application) gracefulStopTUN(ctx context.Context) {
 	}
 
 	_ = a.API.SyncConfigToKernel(stopCtx, payload)
-
 	time.Sleep(100 * time.Millisecond)
 }
