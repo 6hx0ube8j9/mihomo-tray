@@ -417,11 +417,39 @@ func (a *Application) syncAllConfig(ctx context.Context) {
 	if a.Cfg.State.GetPhase() != fsm.PhaseRunning {
 		return
 	}
-	payload := map[string]interface{}{
-		"tun":  map[string]bool{"enable": a.Cfg.Get("tun") == "true"},
-		"mode": a.Cfg.Get("mode"),
+
+	targetTun := a.Cfg.Get("tun") == "true"
+	targetMode := a.Cfg.Get("mode")
+
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	body, err := a.API.DoRequest(queryCtx, "GET", "/configs", nil)
+	cancel()
+
+	payload := make(map[string]interface{})
+
+	if err == nil {
+		var current struct {
+			Mode string `json:"mode"`
+			Tun  struct {
+				Enable bool `json:"enable"`
+			} `json:"tun"`
+		}
+		if json.Unmarshal(body, &current) == nil {
+			if current.Tun.Enable != targetTun {
+				payload["tun"] = map[string]bool{"enable": targetTun}
+			}
+			if current.Mode != targetMode {
+				payload["mode"] = targetMode
+			}
+		}
+	} else {
+		payload["tun"] = map[string]bool{"enable": targetTun}
+		payload["mode"] = targetMode
 	}
-	_ = a.API.SyncConfigToKernel(ctx, payload)
+
+	if len(payload) > 0 {
+		_ = a.API.SyncConfigToKernel(ctx, payload)
+	}
 }
 
 func (a *Application) pollKernelAPI(ctx context.Context) bool {
@@ -477,6 +505,7 @@ func (a *Application) gracefulStopTUN() {
 		select {
 		case <-ticker.C:
 			if !sys.IsTunActive(tunDevice) {
+				time.Sleep(200 * time.Millisecond)
 				return
 			}
 		case <-timeout:
