@@ -4,8 +4,6 @@ on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
-  schedule:
-    - cron: '0 4 */3 * *'
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -13,60 +11,15 @@ env:
 jobs:
   build:
     runs-on: windows-2022
-    
     strategy:
       matrix:
-        goarch: [amd64]
-        amd_version: [v2, v3]
-        is_arm: [false]
-        # include:
-        #   - goarch: arm64
-        #     amd_version: ""
-        #     is_arm: true
-
+        goarch:
+          - amd64
+          # - arm64
+    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Download Specific Mihomo Kernel
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          Write-Host "Fetching latest upstream kernel version..."
-          
-          $Headers = if ("${{ secrets.GITHUB_TOKEN }}") { @{ Authorization = "Bearer ${{ secrets.GITHUB_TOKEN }}" } } else { @{} }
-          $ReleaseInfo = Invoke-RestMethod -Uri "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest" -Headers $Headers
-          $VERSION = $ReleaseInfo.tag_name
-          echo "KERNEL_VERSION=$VERSION" >> $env:GITHUB_ENV
-          
-          $TargetAsset = $null
-          $DETECTED_GO = ""
-          
-          if ('${{ matrix.is_arm }}' -eq 'true') {
-              $TargetAsset = $ReleaseInfo.assets | ? name -match "mihomo-windows-arm64-$VERSION\.zip" | Select -First 1
-          } else {
-              $AMD_VER = "${{ matrix.amd_version }}"
-              $GoAssets = $ReleaseInfo.assets | ? name -match "mihomo-windows-amd64-$AMD_VER-go(\d+)-$VERSION\.zip"
-              
-              if ($GoAssets) {
-                  $TargetAsset = $GoAssets | Sort { if ($_.name -match "go(\d+)") { [int]$Matches[1] } else { 0 } } -Desc | Select -First 1
-                  if ($TargetAsset.name -match "(go\d+)") { $DETECTED_GO = $Matches[1] }
-              } else {
-                  $TargetAsset = $ReleaseInfo.assets | ? name -match "mihomo-windows-amd64-$AMD_VER-$VERSION\.zip" | Select -First 1
-              }
-          }
-          
-          if (!$TargetAsset) { throw "Could not find matching zip for ${{ matrix.goarch }} in $VERSION" }
-          
-          echo "UPSTREAM_GO=$DETECTED_GO" >> $env:GITHUB_ENV
-          Invoke-WebRequest -Uri $TargetAsset.browser_download_url -OutFile "kernel.zip"
-          Expand-Archive -Path "kernel.zip" -DestinationPath "./temp_kernel" -Force
-          
-          $EXE_FILE = Get-ChildItem -Path "./temp_kernel" -Filter "*.exe" | Select -First 1
-          if (!$EXE_FILE) { throw "No executable found in the downloaded archive." }
-          
-          Move-Item -Path $EXE_FILE.FullName -Destination "./mihomo.exe" -Force
-          Remove-Item -Path "kernel.zip", "./temp_kernel" -Recurse -Force
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -76,45 +29,32 @@ jobs:
 
       - name: Install dependencies
         shell: pwsh
-        run: go mod tidy
+        run: |
+          go mod tidy
 
-      - name: Compile Resources
+      - name: Install and Run rsrc (Resource Compiler)
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
           go install github.com/akavel/rsrc@latest
-          
-          if (!(Test-Path "internal/ui/icons/app.ico")) { throw "app.ico not found!" }
-          & "$(go env GOPATH)\bin\rsrc.exe" -arch ${{ matrix.goarch }} -manifest main.manifest -ico internal/ui/icons/app.ico -o rsrc.syso
+          $GOBIN = "$(go env GOPATH)\bin"
+          if (Test-Path "internal/ui/icons/app.ico") {
+            & "$GOBIN\rsrc.exe" -arch ${{ matrix.goarch }} -manifest main.manifest -ico internal/ui/icons/app.ico -o rsrc.syso
+          } else {
+            Write-Error "Icon file not found at internal/ui/icons/app.ico"
+            exit 1
+          }
 
       - name: Build EXE
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
           $env:CGO_ENABLED="0"
-          $env:GOARCH="${{ matrix.goarch }}"
-          
-          if ('${{ matrix.is_arm }}' -ne 'true') {
-              $env:GOAMD64="${{ matrix.amd_version }}"
-          }
-          
+          $env:GOARCH="${{ matrix.goarch }}"          
+          go env GOOS GOARCH CGO_ENABLED 
           New-Item -ItemType Directory -Force -Path "release/mihomo-tray"
-          
           go build -ldflags="-s -w -H=windowsgui" -o "release/mihomo-tray/mihomo-tray.exe" .
 
-          if (Test-Path "mihomo.exe") {
-              Move-Item -Path "mihomo.exe" -Destination "release/mihomo-tray/mihomo.exe" -Force
-          } else {
-              Write-Warning "mihomo.exe not found in root, skipping move."
-          }
-
-      - name: Upload Distribute Artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: >-
-            ${{ matrix.is_arm == true 
-              && format('mihomo-tray-arm64-{0}', env.KERNEL_VERSION) 
-              || (env.UPSTREAM_GO != '' 
-                  && format('mihomo-tray-amd64-{0}-{1}-{2}', matrix.amd_version, env.UPSTREAM_GO, env.KERNEL_VERSION) 
-                  || format('mihomo-tray-amd64-{0}-{1}', matrix.amd_version, env.KERNEL_VERSION)) }}
+          name: mihomo-tray-${{ matrix.goarch }}
           path: release/
