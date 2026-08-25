@@ -56,7 +56,7 @@ func NewApplication(cm *fsm.Manager) *Application {
 
 func (a *Application) Bootstrap(ctx context.Context) {
 	a.Cfg.EnsureDefault()
-	
+
 	osTaskExists := sys.CheckAutoStartStatus()
 	cfgMemoryStatus := a.Cfg.Get("autostart") == "true"
 
@@ -93,20 +93,30 @@ func (a *Application) Bootstrap(ctx context.Context) {
 
 func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	a.Cfg.State.ForceExitPhase()
+
 	a.gracefulStopTUN()
+
 	if cancel != nil {
 		cancel()
 	}
-	
+
 	if a.Cfg.Get("proxy") == "true" {
 		_ = sys.DisableSystemProxy()
-	}	
+	}
 	a.Kernel.Close()
 }
 
 func (a *Application) eventLoop(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
+
+	tryPollAPI := func() {
+		if a.Cfg.State.GetPhase() == fsm.PhaseRunning && !a.Cfg.State.IsAPIWatcherMuted() {
+			if a.pollKernelAPI(ctx) {
+				a.pushUIState()
+			}
+		}
+	}
 
 	for {
 		select {
@@ -127,7 +137,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 					a.Cfg.State.SetTunRequestedTime(time.Now())
 				}
 
-                go func() {
+				go func() {
 					defer a.Cfg.State.SetRestarting(false)
 					for i := 0; i < 20; i++ {
 						pollCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
@@ -135,11 +145,11 @@ func (a *Application) eventLoop(ctx context.Context) {
 						cancel()
 						if err == nil {
 							a.syncAllConfig(ctx)
-						
+
 							if a.pollKernelAPI(ctx) {
 								a.pushUIState()
 							}
-							
+
 							select {
 							case a.apiPollCh <- struct{}{}:
 							default:
@@ -166,19 +176,11 @@ func (a *Application) eventLoop(ctx context.Context) {
 			a.pushUIState()
 
 		case <-ticker.C:
-			if a.Cfg.State.GetPhase() == fsm.PhaseRunning && !a.Cfg.State.IsAPIWatcherMuted() {
-				if a.pollKernelAPI(ctx) {
-					a.pushUIState()
-				}
-			}
+			tryPollAPI()
 			a.pushUIState()
 
 		case <-a.apiPollCh:
-			if a.Cfg.State.GetPhase() == fsm.PhaseRunning && !a.Cfg.State.IsAPIWatcherMuted() {
-				if a.pollKernelAPI(ctx) {
-					a.pushUIState()
-				}
-			}
+			tryPollAPI()
 		}
 	}
 }
@@ -234,7 +236,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		configPath := filepath.Join(a.Cfg.BaseDir(), "config.yaml")
 		_ = sys.ExecuteSystemCommand(configPath)
 	}
-	
+
 	a.pushUIState()
 }
 
@@ -243,7 +245,7 @@ func (a *Application) calculateUIState() ui.UIState {
 		IsTun:     a.Cfg.Get("tun") == "true",
 		IsProxy:   a.Cfg.Get("proxy") == "true",
 		Mode:      a.Cfg.Get("mode"),
-		AutoStart: a.Cfg.Get("autostart") == "true", 
+		AutoStart: a.Cfg.Get("autostart") == "true",
 	}
 
 	if a.Cfg.State.GetPhase() != fsm.PhaseRunning || a.Cfg.State.IsRestarting() {
@@ -351,6 +353,7 @@ func (a *Application) RestartKernel() {
 	a.Cfg.State.SetReloading(false)
 	a.Cfg.State.MuteAPIWatcher(5 * time.Second)
 	a.Cfg.SyncWithYAML()
+
 	a.gracefulStopTUN()
 
 	a.Kernel.KillCurrent()
@@ -358,56 +361,56 @@ func (a *Application) RestartKernel() {
 }
 
 func (a *Application) handleTunChange(ctx context.Context) {
-    if a.Cfg.State.IsExiting() {
-        return
-    }
-    alive := sys.IsTunActive(a.Cfg.Get("tun_device"))
+	if a.Cfg.State.IsExiting() {
+		return
+	}
+	alive := sys.IsTunActive(a.Cfg.Get("tun_device"))
 
-    if a.Cfg.State.IsTunAlive() != alive {
-        if !alive {
-            a.Cfg.State.SetTunLostTime(time.Now())
-        }
-        if !alive && !a.Cfg.State.IsAPIWatcherMuted() {
-            go func() {
-                for i := 0; i < 3; i++ {
-                    pollCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
-                    success := a.pollKernelAPI(pollCtx)
-                    cancel()
-                    if success {
-                        break
-                    }
-                    time.Sleep(100 * time.Millisecond)
-                }
-                a.Cfg.State.SetTunAlive(alive)
-                select {
-                case a.apiPollCh <- struct{}{}:
-                default:
-                }
-            }()
-        } else {
-            a.Cfg.State.SetTunAlive(alive)
-            a.pushUIState()
-        }
-    }
+	if a.Cfg.State.IsTunAlive() != alive {
+		if !alive {
+			a.Cfg.State.SetTunLostTime(time.Now())
+		}
+		if !alive && !a.Cfg.State.IsAPIWatcherMuted() {
+			go func() {
+				for i := 0; i < 3; i++ {
+					pollCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+					success := a.pollKernelAPI(pollCtx)
+					cancel()
+					if success {
+						break
+					}
+					time.Sleep(100 * time.Millisecond)
+				}
+				a.Cfg.State.SetTunAlive(alive)
+				select {
+				case a.apiPollCh <- struct{}{}:
+				default:
+				}
+			}()
+		} else {
+			a.Cfg.State.SetTunAlive(alive)
+			a.pushUIState()
+		}
+	}
 }
 
 func (a *Application) watchProxyAdapter(ctx context.Context) {
-    sys.WatchProxyRegistry(ctx,
-        func() bool { return a.Cfg.Get("proxy") == "true" },
-        func() string { return a.Cfg.Get("port") },
-        func() {
-            select {
-            case a.proxyEventCh <- false:
-            case <-ctx.Done():
-            }
-        },
-        func() {
-            select {
-            case a.proxyEventCh <- true:
-            case <-ctx.Done():
-            }
-        },
-    )
+	sys.WatchProxyRegistry(ctx,
+		func() bool { return a.Cfg.Get("proxy") == "true" },
+		func() string { return a.Cfg.Get("port") },
+		func() {
+			select {
+			case a.proxyEventCh <- false:
+			case <-ctx.Done():
+			}
+		},
+		func() {
+			select {
+			case a.proxyEventCh <- true:
+			case <-ctx.Done():
+			}
+		},
+	)
 }
 
 func (a *Application) syncAllConfig(ctx context.Context) {
@@ -456,13 +459,28 @@ func (a *Application) gracefulStopTUN() {
 		return
 	}
 
-	stopCtx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	stopCtx, cancel := context.WithTimeout(context.Background(), 1000*time.Millisecond)
 	defer cancel()
 
 	payload := map[string]interface{}{
 		"tun": map[string]bool{"enable": false},
 	}
-
 	_ = a.API.SyncConfigToKernel(stopCtx, payload)
-	time.Sleep(100 * time.Millisecond)
+
+	tunDevice := a.Cfg.Get("tun_device")
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	timeout := time.After(2000 * time.Millisecond)
+
+	for {
+		select {
+		case <-ticker.C:
+			if !sys.IsTunActive(tunDevice) {
+				return
+			}
+		case <-timeout:
+			return
+		}
+	}
 }
