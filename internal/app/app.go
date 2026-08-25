@@ -93,7 +93,6 @@ func (a *Application) Bootstrap(ctx context.Context) {
 
 func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	a.Cfg.State.ForceExitPhase()
-
 	a.gracefulStopTUN()
 
 	if cancel != nil {
@@ -208,7 +207,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		} else {
 			_ = sys.DisableSystemProxy()
 		}
-    case "ToggleTun":
+	case "ToggleTun":
 		enable := cmd.Payload == "true"
 		a.Cfg.Set("tun", strconv.FormatBool(enable))
 		if enable {
@@ -425,6 +424,7 @@ func (a *Application) syncAllConfig(ctx context.Context) {
 		return
 	}
 	payload := map[string]interface{}{
+		"tun":  map[string]bool{"enable": a.Cfg.Get("tun") == "true"},
 		"mode": a.Cfg.Get("mode"),
 	}
 	_ = a.API.SyncConfigToKernel(ctx, payload)
@@ -442,8 +442,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 	var resp struct {
 		Mode string `json:"mode"`
 		Tun  struct {
-			Enable bool   `json:"enable"`
-			Device string `json:"device"`
+			Enable bool `json:"enable"`
 		} `json:"tun"`
 	}
 	if json.Unmarshal(body, &resp) == nil {
@@ -454,10 +453,6 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		}
 		if resp.Tun.Enable != (a.Cfg.Get("tun") == "true") {
 			a.Cfg.Set("tun", fmt.Sprintf("%t", resp.Tun.Enable))
-			changed = true
-		}
-		if resp.Tun.Device != "" && resp.Tun.Device != a.Cfg.Get("tun_device") {
-			a.Cfg.Set("tun_device", resp.Tun.Device)
 			changed = true
 		}
 		return changed
