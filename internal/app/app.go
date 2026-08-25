@@ -132,7 +132,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 		case event := <-a.kernelEventCh:
 			if event == core.EventKernelReady {
 				a.Cfg.State.SetPhase(fsm.PhaseRunning)
-				a.Cfg.State.MuteAPIWatcher(8 * time.Second)
+				a.Cfg.State.MuteAPIWatcher(5 * time.Second)
 				if a.Cfg.Get("tun") == "true" {
 					a.Cfg.State.SetTunRequestedTime(time.Now())
 				}
@@ -145,7 +145,10 @@ func (a *Application) eventLoop(ctx context.Context) {
 						cancel()
 						if err == nil {
 							a.syncAllConfig(ctx)
-        					a.pushUIState()
+
+							if a.pollKernelAPI(ctx) {
+								a.pushUIState()
+							}
 
 							select {
 							case a.apiPollCh <- struct{}{}:
@@ -213,10 +216,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		}
 		a.Cfg.State.MuteAPIWatcher(3 * time.Second)
 		go a.API.SyncConfigToKernel(ctx, map[string]interface{}{
-			"tun": map[string]interface{}{
-				"enable": enable,
-				"device": a.Cfg.Get("tun_device"),
-			},
+			"tun": map[string]bool{"enable": enable},
 		})
 	case "SwitchMode":
 		a.Cfg.Set("mode", cmd.Payload)
@@ -420,10 +420,7 @@ func (a *Application) syncAllConfig(ctx context.Context) {
 		return
 	}
 	payload := map[string]interface{}{
-		"tun": map[string]interface{}{
-			"enable": a.Cfg.Get("tun") == "true",
-			"device": a.Cfg.Get("tun_device"),
-		},
+		"tun":  map[string]bool{"enable": a.Cfg.Get("tun") == "true"},
 		"mode": a.Cfg.Get("mode"),
 	}
 	_ = a.API.SyncConfigToKernel(ctx, payload)
