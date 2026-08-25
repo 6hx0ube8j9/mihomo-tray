@@ -93,6 +93,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 
 func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	a.Cfg.State.ForceExitPhase()
+	a.gracefulStopTUN()
 	if cancel != nil {
 		cancel()
 	}
