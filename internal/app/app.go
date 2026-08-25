@@ -144,11 +144,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 						_, err := a.API.DoRequest(pollCtx, "GET", "/configs", nil)
 						cancel()
 						if err == nil {
-							a.syncAllConfig(ctx)
-
-							if a.pollKernelAPI(ctx) {
-								a.pushUIState()
-							}
+							a.pushUIState()
 
 							select {
 							case a.apiPollCh <- struct{}{}:
@@ -453,6 +449,10 @@ func (a *Application) syncAllConfig(ctx context.Context) {
 }
 
 func (a *Application) pollKernelAPI(ctx context.Context) bool {
+	if a.Cfg.State.IsAPIWatcherMuted() {
+		return false
+	}
+	
 	queryCtx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
 	defer cancel()
 
