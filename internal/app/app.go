@@ -93,6 +93,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 
 func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	a.Cfg.State.ForceExitPhase()
+
 	a.gracefulStopTUN()
 
 	if cancel != nil {
@@ -214,14 +215,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			a.Cfg.State.SetTunRequestedTime(time.Now())
 		}
 		a.Cfg.State.MuteAPIWatcher(3 * time.Second)
-
-		tunMap := map[string]interface{}{
-			"enable": enable,
-		}
-		if dev := a.Cfg.Get("tun_device"); dev != "" {
-			tunMap["device"] = dev
-		}
-		go a.API.SyncConfigToKernel(ctx, map[string]interface{}{"tun": tunMap})
+		go a.API.SyncConfigToKernel(ctx, map[string]interface{}{"tun": map[string]bool{"enable": enable}})
 	case "SwitchMode":
 		a.Cfg.Set("mode", cmd.Payload)
 		a.Cfg.State.MuteAPIWatcher(2 * time.Second)
@@ -460,6 +454,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 	return false
 }
 
+
 func (a *Application) gracefulStopTUN() {
 	if a.Cfg.Get("tun") != "true" {
 		return
@@ -477,7 +472,7 @@ func (a *Application) gracefulStopTUN() {
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 
-	timeout := time.After(2000 * time.Millisecond)
+	timeout := time.After(2000 * time.Millisecond) 
 
 	for {
 		select {
