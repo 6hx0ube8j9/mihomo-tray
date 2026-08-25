@@ -216,7 +216,9 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		}
 		a.Cfg.State.MuteAPIWatcher(3 * time.Second)
 
-		tunMap := map[string]interface{}{"enable": enable}
+		tunMap := map[string]interface{}{
+			"enable": enable,
+		}
 		if dev := a.Cfg.Get("tun_device"); dev != "" {
 			tunMap["device"] = dev
 		}
@@ -422,15 +424,7 @@ func (a *Application) syncAllConfig(ctx context.Context) {
 	if a.Cfg.State.GetPhase() != fsm.PhaseRunning {
 		return
 	}
-	tunMap := map[string]interface{}{
-		"enable": a.Cfg.Get("tun") == "true",
-	}
-	if dev := a.Cfg.Get("tun_device"); dev != "" {
-		tunMap["device"] = dev
-	}
-
 	payload := map[string]interface{}{
-		"tun":  tunMap,
 		"mode": a.Cfg.Get("mode"),
 	}
 	_ = a.API.SyncConfigToKernel(ctx, payload)
@@ -449,7 +443,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		Mode string `json:"mode"`
 		Tun  struct {
 			Enable bool   `json:"enable"`
-			Device string `json:"device"`  
+			Device string `json:"device"`
 		} `json:"tun"`
 	}
 	if json.Unmarshal(body, &resp) == nil {
