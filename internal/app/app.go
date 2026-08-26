@@ -181,12 +181,8 @@ func (a *Application) eventLoop(ctx context.Context) {
 						_, err := a.API.DoRequest(pollCtx, "GET", "/configs", nil)
 						cancel()
 						if err == nil {
-							log.Printf("[INFO] 内核 API 连接成功 (重试第 %d 次)，同步最新运行参数...", i+1)
-							a.syncAllConfig(ctx)
-
-							if a.pollKernelAPI(ctx) {
-								a.pushUIState()
-							}
+							log.Printf("[INFO] 内核 API 连接成功 (重试第 %d 次)", i+1)
+							a.pushUIState()
 
 							select {
 							case a.apiPollCh <- struct{}{}:
