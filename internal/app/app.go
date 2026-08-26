@@ -590,14 +590,16 @@ func (a *Application) ensureYAMLStateForBoot() {
 		return
 	}
 
-	lines := strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n")
+	rawStr := strings.TrimPrefix(string(content), "\xef\xbb\xbf")
+	lines := strings.Split(strings.ReplaceAll(rawStr, "\r\n", "\n"), "\n")
+
 	inTunBlock := false
 	modified := false
 
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") {
 			continue
 		}
 
@@ -614,24 +616,32 @@ func (a *Application) ensureYAMLStateForBoot() {
 
 		if indent == 0 {
 			inTunBlock = strings.HasPrefix(trimmed, "tun:")
+		}
 
-			if strings.HasPrefix(trimmed, "mode:") && wantMode != "" {
-				targetLine := fmt.Sprintf("mode: %s", wantMode)
-				if lines[i] != targetLine {
-					lines[i] = targetLine
-					modified = true
-				}
+		if strings.HasPrefix(trimmed, "mode:") && wantMode != "" {
+			comment := ""
+			if idx := strings.Index(line, "#"); idx != -1 {
+				comment = " " + strings.TrimSpace(line[idx:])
+			}
+
+			targetLine := fmt.Sprintf("%smode: %s%s", line[:indent], wantMode, comment)
+			if lines[i] != targetLine {
+				lines[i] = targetLine
+				modified = true
 			}
 			continue
 		}
 
-		if inTunBlock && indent > 0 {
-			if strings.HasPrefix(trimmed, "enable:") {
-				targetLine := fmt.Sprintf("%senable: %t", line[:indent], wantTun)
-				if lines[i] != targetLine {
-					lines[i] = targetLine
-					modified = true
-				}
+		if inTunBlock && indent > 0 && strings.HasPrefix(trimmed, "enable:") {
+			comment := ""
+			if idx := strings.Index(line, "#"); idx != -1 {
+				comment = " " + strings.TrimSpace(line[idx:])
+			}
+
+			targetLine := fmt.Sprintf("%senable: %t%s", line[:indent], wantTun, comment)
+			if lines[i] != targetLine {
+				lines[i] = targetLine
+				modified = true
 			}
 		}
 	}
