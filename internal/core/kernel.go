@@ -48,7 +48,7 @@ func (km *KernelManager) initJobObject() {
 	}
 	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
 		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
-			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK,
+			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 		},
 	}
 	_, _ = windows.SetInformationJobObject(
@@ -62,7 +62,7 @@ func (km *KernelManager) initJobObject() {
 
 func (km *KernelManager) Close() {
 	if km.hJob != 0 {
-		_ = windows.CloseHandle(km.hJob)
+		windows.CloseHandle(km.hJob)
 		km.hJob = 0
 	}
 }
@@ -106,18 +106,18 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 
 		errBuf := &tailBuffer{max: 64 * 1024}
 
-		cmd := exec.Command(target, "-d", ".")
+		cmd := exec.CommandContext(ctx, target, "-d", ".")
 		cmd.Dir = absBaseDir
 
 		const CREATE_DEFAULT_ERROR_MODE = 0x04000000
-
+		
 		cmd.SysProcAttr = &windows.SysProcAttr{
 			HideWindow: true,
 			CreationFlags: windows.CREATE_NO_WINDOW |
 				windows.CREATE_NEW_PROCESS_GROUP |
 				CREATE_DEFAULT_ERROR_MODE,
 		}
-
+		
 		cmd.Stdout = errBuf
 		cmd.Stderr = errBuf
 		startTime := time.Now()
@@ -171,9 +171,9 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		}
 
 		if isShutdown {
-			return
+			return 
 		}
-
+		
 		km.mu.Lock()
 		km.activeProc = nil
 		atomic.StoreUint32(&km.currentPid, 0)
@@ -185,7 +185,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		}
 
 		if runDuration >= 5*time.Second || isKilledByUs {
-			currentDelay = 50 * time.Millisecond
+			currentDelay = 50 * time.Millisecond 
 		} else {
 			currentDelay = km.calculateBackoff(currentDelay, maxDelay)
 		}
@@ -204,7 +204,7 @@ func (km *KernelManager) assignToJob(pid int) {
 	}
 	if hp, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(pid)); err == nil {
 		_ = windows.AssignProcessToJobObject(km.hJob, hp)
-		_ = windows.CloseHandle(hp)
+		windows.CloseHandle(hp)
 	}
 }
 
@@ -237,8 +237,8 @@ func (km *KernelManager) checkAndWriteLog(absBaseDir, errType, rawMsg string) {
 			}
 			keepData = make([]byte, fi.Size()-offset)
 			_, _ = f.ReadAt(keepData, offset)
-			_ = f.Close()
-
+			f.Close()
+			
 			if offset > 0 {
 				if idx := bytes.IndexByte(keepData, '\n'); idx != -1 {
 					keepData = keepData[idx+1:]
@@ -298,39 +298,18 @@ func (t *tailBuffer) Len() int {
 	return len(t.buf)
 }
 
-func sendConsoleSignal(pid uint32) error {
-	_ = windows.SetConsoleCtrlHandler(nil, true)
-	defer func() {
-		_ = windows.SetConsoleCtrlHandler(nil, false)
-	}()
-	
-	if err := windows.AttachConsole(pid); err != nil {
-		return fmt.Errorf("AttachConsole 失败: %w", err)
-	}
-	defer func() {
-		_ = windows.FreeConsole()
-	}()
-
-	if err := windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid); err != nil {
-		return fmt.Errorf("GenerateConsoleCtrlEvent 失败: %w", err)
-	}
-
-	return nil
-}
-
-
 func (km *KernelManager) KillCurrent() {
 	km.mu.Lock()
 	proc := km.activeProc
 	pid := atomic.LoadUint32(&km.currentPid)
-
+	
 	km.activeProc = nil
 	atomic.StoreUint32(&km.currentPid, 0)
 	km.mu.Unlock()
 
 	if proc != nil && pid != 0 {
-		err := sendConsoleSignal(pid)
-
+		err := windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
+		
 		if err == nil {
 			exited := false
 			for i := 0; i < 50; i++ {
@@ -340,18 +319,15 @@ func (km *KernelManager) KillCurrent() {
 				}
 				time.Sleep(100 * time.Millisecond)
 			}
-
+			
 			if !exited {
 				_ = proc.Kill()
-				sys.KillOtherProcessesByName("mihomo.exe", 0)
 			}
 		} else {
 			_ = proc.Kill()
-			sys.KillOtherProcessesByName("mihomo.exe", 0)
 		}
-	} else {
-		sys.KillOtherProcessesByName("mihomo.exe", 0)
 	}
 
+	sys.KillOtherProcessesByName("mihomo.exe", 0)
 	time.Sleep(250 * time.Millisecond)
 }
