@@ -35,8 +35,8 @@ type Application struct {
 	proxyEventCh  chan bool
 	apiPollCh     chan struct{}
 
-	UIStateCh   chan ui.UIState
-	UICommandCh chan ui.UICommand
+	UIStateCh    chan ui.UIState
+	UICommandCh  chan ui.UICommand
 	webuiEventCh chan ui.Event
 
 	lastUIState ui.UIState
@@ -58,47 +58,57 @@ func NewApplication(cm *fsm.Manager) *Application {
 }
 
 func (a *Application) Bootstrap(ctx context.Context) {
-    log.Println("[INFO] 正在启动应用 Bootstrap...")
+	log.Println("[INFO] 正在启动应用 Bootstrap...")
 
-    a.Cfg.EnsureDefault()
+	a.Cfg.EnsureDefault()
 
-    osTaskExists := sys.CheckAutoStartStatus()
-    cfgMemoryStatus := a.Cfg.Get("autostart") == "true"
-    log.Printf("[INFO] 自启动状态检查: 系统任务存在=%v, 配置项记录=%v", osTaskExists, cfgMemoryStatus)
+	osTaskExists := sys.CheckAutoStartStatus()
+	cfgMemoryStatus := a.Cfg.Get("autostart") == "true"
+	log.Printf("[INFO] 自启动状态检查: 系统任务存在=%v, 配置项记录=%v", osTaskExists, cfgMemoryStatus)
 
-    if osTaskExists {
-        if !sys.IsTaskPathValid(a.Cfg.ExePath()) {
-            log.Println("[WARN] 检测到开机自启动任务路径无效，正在尝试修复...")
-            if cfgMemoryStatus {
-                sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), true)
-                osTaskExists = true
-                log.Println("[INFO] 开机自启动任务已更正为当前程序路径")
-            } else {
-                sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), false)
-                osTaskExists = false
-                log.Println("[INFO] 清除无效的开机自启动任务")
-            }
-        }
-    }
+	if osTaskExists {
+		if !sys.IsTaskPathValid(a.Cfg.ExePath()) {
+			log.Println("[WARN] 检测到开机自启动任务路径无效，正在尝试修复...")
+			if cfgMemoryStatus {
+				sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), true)
+				osTaskExists = true
+				log.Println("[INFO] 开机自启动任务已更正为当前程序路径")
+			} else {
+				sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), false)
+				osTaskExists = false
+				log.Println("[INFO] 清除无效的开机自启动任务")
+			}
+		}
+	}
 
-    if osTaskExists != cfgMemoryStatus {
-        log.Printf("[INFO] 更新内存配置项 autostart=%v", osTaskExists)
-        a.Cfg.Set("autostart", strconv.FormatBool(osTaskExists))
-    }
+	if osTaskExists != cfgMemoryStatus {
+		log.Printf("[INFO] 更新内存配置项 autostart=%v", osTaskExists)
+		a.Cfg.Set("autostart", strconv.FormatBool(osTaskExists))
+	}
 
-    a.Cfg.SyncWithYAML()
-    a.ensureYAMLStateForBoot()
-    log.Println("[INFO] 配置文件同步与 TUN/Mode 开机状态校准完成")
+	a.Cfg.SyncWithYAML()
+	a.ensureYAMLStateForBoot()
+	log.Println("[INFO] 配置文件同步与 TUN/Mode 开机状态校准完成")
 
-    // 【修改点 1】此处删除了 EnableSystemProxy 调用！不要在内核准备好之前开启系统代理！
+	a.Cfg.State.MuteAPIWatcher(5 * time.Second)
 
-    a.pushUIState()
+	if a.Cfg.Get("proxy") == "true" {
+		port := a.Cfg.Get("port")
+		log.Printf("[INFO] 检测到 Proxy 选项开启，正在启用系统代理 (端口: %s)...", port)
+		if err := sys.EnableSystemProxy(port); err != nil {
+			log.Printf("[ERROR] 启用系统代理失败: %v", err)
+		} else {
+			log.Println("[INFO] 系统代理启用成功")
+		}
+	}
 
-    log.Println("[INFO] 启动核心守护协程 (Daemon)...")
-    go a.Kernel.RunDaemon(ctx, a.kernelEventCh)
-    go sys.WatchNetworkInterfaces(ctx, a.tunEventCh)
-    go a.watchProxyAdapter(ctx)
-    go a.eventLoop(ctx)
+	a.pushUIState()
+
+	log.Println("[INFO] 启动核心守护协程 (Daemon)...")
+	go a.Kernel.RunDaemon(ctx, a.kernelEventCh)
+	go sys.WatchNetworkInterfaces(ctx, a.tunEventCh)
+	go a.watchProxyAdapter(ctx)
+	go a.eventLoop(ctx)
 }
 
 func (a *Application) SafeShutdown(cancel context.CancelFunc) {
@@ -125,104 +135,96 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 }
 
 func (a *Application) eventLoop(ctx context.Context) {
-    log.Println("[INFO] 主事件循环 (eventLoop) 已开启")
-    ticker := time.NewTicker(1 * time.Second)
-    defer ticker.Stop()
+	log.Println("[INFO] 主事件循环 (eventLoop) 已开启")
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
 
-    tryPollAPI := func() {
-        if a.Cfg.State.GetPhase() == fsm.PhaseRunning && !a.Cfg.State.IsAPIWatcherMuted() {
-            if a.pollKernelAPI(ctx) {
-                log.Println("[DEBUG] 轮询内核 API 触发状态更新，推送 UI State")
-                a.pushUIState()
-            }
-        }
-    }
+	tryPollAPI := func() {
+		if a.Cfg.State.GetPhase() == fsm.PhaseRunning && !a.Cfg.State.IsAPIWatcherMuted() {
+			if a.pollKernelAPI(ctx) {
+				log.Println("[DEBUG] 轮询内核 API 触发状态更新，推送 UI State")
+				a.pushUIState()
+			}
+		}
+	}
 
-    for {
-        select {
-        case event := <-a.webuiEventCh:
-            log.Printf("[WARN] 收到 WebUI 事件: %v", event)
-            if event == ui.EventError {
-                log.Println("[ERROR] WebUI 发生错误事件")
-            }
-        case <-ctx.Done():
-            log.Println("[INFO] 上下文 Context 取消，退出事件循环")
-            return
+	for {
+		select {
+		case event := <-a.webuiEventCh:
+			log.Printf("[WARN] 收到 WebUI 事件: %v", event)
+			if event == ui.EventError {
+				log.Println("[ERROR] WebUI 发生错误事件")
+			}
+		case <-ctx.Done():
+			log.Println("[INFO] 上下文 Context 取消，退出事件循环")
+			return
 
-        case cmd := <-a.UICommandCh:
-            log.Printf("[INFO] 收到 UI 指令: Action=%s, Payload=%s", cmd.Action, cmd.Payload)
-            a.handleUICommand(ctx, cmd)
+		case cmd := <-a.UICommandCh:
+			log.Printf("[INFO] 收到 UI 指令: Action=%s, Payload=%s", cmd.Action, cmd.Payload)
+			a.handleUICommand(ctx, cmd)
 
-        case event := <-a.kernelEventCh:
-            log.Printf("[INFO] 收到内核事件: %v", event)
-            if event == core.EventKernelReady {
-                log.Println("[INFO] 内核就绪 (EventKernelReady)，设置阶段为 Running")
-                a.Cfg.State.SetPhase(fsm.PhaseRunning)
-                a.Cfg.State.MuteAPIWatcher(8 * time.Second)
-                
-                if a.Cfg.Get("tun") == "true" {
-                    a.Cfg.State.SetTunRequestedTime(time.Now())
-                }
+		case event := <-a.kernelEventCh:
+			log.Printf("[INFO] 收到内核事件: %v", event)
+			if event == core.EventKernelReady {
+				log.Println("[INFO] 内核就绪 (EventKernelReady)，设置阶段为 Running")
+				a.Cfg.State.SetPhase(fsm.PhaseRunning)
+				a.Cfg.State.MuteAPIWatcher(5 * time.Second)
+				if a.Cfg.Get("tun") == "true" {
+					a.Cfg.State.SetTunRequestedTime(time.Now())
+				}
 
-                go func() {
-                    defer a.Cfg.State.SetRestarting(false)
-                    log.Println("[INFO] 开始轮询内核 API 校验可连接性...")
-                    for i := 0; i < 20; i++ {
-                        pollCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
-                        _, err := a.API.DoRequest(pollCtx, "GET", "/configs", nil)
-                        cancel()
-                        if err == nil {
-                            log.Printf("[INFO] 内核 API 连接成功 (重试第 %d 次)...", i+1)
-                            if a.Cfg.Get("proxy") == "true" && a.Cfg.Get("tun") != "true" {
-                                log.Println("[INFO] 非 TUN 模式，安全启用系统代理...")
-                                _ = sys.EnableSystemProxy(a.Cfg.Get("port"))
-                            }
+				go func() {
+					defer a.Cfg.State.SetRestarting(false)
+					log.Println("[INFO] 开始轮询内核 API 校验可连接性...")
+					for i := 0; i < 20; i++ {
+						pollCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+						_, err := a.API.DoRequest(pollCtx, "GET", "/configs", nil)
+						cancel()
+						if err == nil {
+							log.Printf("[INFO] 内核 API 连接成功 (重试第 %d 次)，同步最新运行参数...", i+1)
 
-                            if a.pollKernelAPI(ctx) {
-                                a.pushUIState()
-                            }
+							if a.pollKernelAPI(ctx) {
+								a.pushUIState()
+							}
 
-                            select {
-                            case a.apiPollCh <- struct{}{}:
-                            default:
-                            }
-                            return
-                        }
-                        time.Sleep(250 * time.Millisecond)
-                    }
-                    log.Println("[ERROR] 内核 API 校验超时 (尝试 20 次未连通)")
-                }()
-            } else if event == core.EventKernelExit {
-                log.Println("[WARN] 内核异常退出 (EventKernelExit)，重置阶段为 Initializing")
-                a.Cfg.State.SetPhase(fsm.PhaseInitializing)
-            }
-            a.pushUIState()
+							select {
+							case a.apiPollCh <- struct{}{}:
+							default:
+							}
+							return
+						}
+						time.Sleep(250 * time.Millisecond)
+					}
+					log.Println("[ERROR] 内核 API 校验超时 (尝试 20 次未连通)")
+				}()
+			} else if event == core.EventKernelExit {
+				log.Println("[WARN] 内核异常退出 (EventKernelExit)，重置阶段为 Initializing")
+				a.Cfg.State.SetPhase(fsm.PhaseInitializing)
+			}
+			a.pushUIState()
 
-        case <-a.tunEventCh:
-            log.Println("[DEBUG] 网络接口变更通知 (tunEventCh)")
-            a.handleTunChange(ctx)
+		case <-a.tunEventCh:
+			log.Println("[DEBUG] 网络接口变更通知 (tunEventCh)")
+			a.handleTunChange(ctx)
 
-        case isProxyActive := <-a.proxyEventCh:
-            if a.Cfg.State.GetPhase() == fsm.PhaseRunning && !a.Cfg.State.IsAPIWatcherMuted() {
-                log.Printf("[INFO] 系统代理状态变更通知: active=%v", isProxyActive)
-                if !isProxyActive {
-                    a.Cfg.Set("proxy", "false")
-                } else if a.Cfg.Get("proxy") == "true" {
-                    _ = sys.EnableSystemProxy(a.Cfg.Get("port"))
-                }
-                a.pushUIState()
-            } else {
-                log.Printf("[DEBUG] 忽略系统代理变更通知 (当前处于启动/静音保护期): active=%v", isProxyActive)
-            }
+		case isProxyActive := <-a.proxyEventCh:
+			log.Printf("[INFO] 系统代理状态变更通知: active=%v", isProxyActive)
+			if !isProxyActive {
+				a.Cfg.Set("proxy", "false")
+			} else {
+				_ = sys.EnableSystemProxy(a.Cfg.Get("port"))
+			}
+			a.pushUIState()
 
-        case <-ticker.C:
-            tryPollAPI()
-            a.pushUIState()
+		case <-ticker.C:
+			tryPollAPI()
+			a.pushUIState()
 
-        case <-a.apiPollCh:
-            tryPollAPI()
-        }
-    }
+		case <-a.apiPollCh:
+			tryPollAPI()
+			a.pushUIState()
+		}
+	}
 }
 
 func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
@@ -252,29 +254,20 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		} else {
 			_ = sys.DisableSystemProxy()
 		}
-	case "ToggleTun": 
+	case "ToggleTun":
 		enable := cmd.Payload == "true"
 		log.Printf("[INFO] 切换 TUN 模式开关: %v (设备: %s)", enable, a.Cfg.Get("tun_device"))
 		a.Cfg.Set("tun", strconv.FormatBool(enable))
 		if enable {
 			a.Cfg.State.SetTunRequestedTime(time.Now())
 		}
-		a.Cfg.State.MuteAPIWatcher(20 * time.Second)
-
-		go func() {
-			tunCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			defer cancel()
-
-			err := a.API.SyncConfigToKernel(tunCtx, map[string]interface{}{
-				"tun": map[string]interface{}{
-					"enable": enable,
-					"device": a.Cfg.Get("tun_device"),
-				},
-			})
-			if err != nil {
-				log.Printf("[ERROR] 切换 TUN 状态失败: %v", err)
-			}
-		}()
+		a.Cfg.State.MuteAPIWatcher(3 * time.Second)
+		go a.API.SyncConfigToKernel(ctx, map[string]interface{}{
+			"tun": map[string]interface{}{
+				"enable": enable,
+				"device": a.Cfg.Get("tun_device"),
+			},
+		})
 	case "SwitchMode":
 		log.Printf("[INFO] 切换运行模式: %s", cmd.Payload)
 		a.Cfg.Set("mode", cmd.Payload)
@@ -426,7 +419,7 @@ func (a *Application) RestartKernel() {
 	a.Cfg.State.SetRestarting(true)
 	a.Cfg.State.SetReloading(false)
 	a.Cfg.State.MuteAPIWatcher(5 * time.Second)
-	
+
 	a.Cfg.SyncWithYAML()
 	a.ensureYAMLStateForBoot()
 
@@ -438,48 +431,41 @@ func (a *Application) RestartKernel() {
 }
 
 func (a *Application) handleTunChange(ctx context.Context) {
-    if a.Cfg.State.IsExiting() {
-        return
-    }
-    tunDev := a.Cfg.Get("tun_device")
-    alive := sys.IsTunActive(tunDev)
+	if a.Cfg.State.IsExiting() {
+		return
+	}
+	tunDev := a.Cfg.Get("tun_device")
+	alive := sys.IsTunActive(tunDev)
 
-    if a.Cfg.State.IsTunAlive() != alive {
-        log.Printf("[INFO] TUN 虚拟网卡状态发生变更: 设备=%s, 活跃状态=%v", tunDev, alive)
-        if !alive {
-            a.Cfg.State.SetTunLostTime(time.Now())
-        }
-        if !alive && !a.Cfg.State.IsAPIWatcherMuted() {
-            go func() {
-                log.Println("[DEBUG] 检测到 TUN 断开，开始尝试快速轮询确认...")
-                for i := 0; i < 3; i++ {
-                    pollCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
-                    success := a.pollKernelAPI(pollCtx)
-                    cancel()
-                    if success {
-                        log.Println("[DEBUG] TUN 断开检查中重连成功")
-                        break
-                    }
-                    time.Sleep(100 * time.Millisecond)
-                }
-                a.Cfg.State.SetTunAlive(alive)
-                select {
-                case a.apiPollCh <- struct{}{}:
-                default:
-                }
-            }()
-        } else {
-            a.Cfg.State.SetTunAlive(alive)
-            
-            // 【核心修改】：TUN 网卡成功拉起变为 active 后，再补启系统代理
-            if alive && a.Cfg.Get("proxy") == "true" {
-                log.Println("[INFO] TUN 网卡已激活，同步开启系统代理...")
-                _ = sys.EnableSystemProxy(a.Cfg.Get("port"))
-            }
-
-            a.pushUIState()
-        }
-    }
+	if a.Cfg.State.IsTunAlive() != alive {
+		log.Printf("[INFO] TUN 虚拟网卡状态发生变更: 设备=%s, 活跃状态=%v", tunDev, alive)
+		if !alive {
+			a.Cfg.State.SetTunLostTime(time.Now())
+		}
+		if !alive && !a.Cfg.State.IsAPIWatcherMuted() {
+			go func() {
+				log.Println("[DEBUG] 检测到 TUN 断开，开始尝试快速轮询确认...")
+				for i := 0; i < 3; i++ {
+					pollCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+					success := a.pollKernelAPI(pollCtx)
+					cancel()
+					if success {
+						log.Println("[DEBUG] TUN 断开检查中重连成功")
+						break
+					}
+					time.Sleep(100 * time.Millisecond)
+				}
+				a.Cfg.State.SetTunAlive(alive)
+				select {
+				case a.apiPollCh <- struct{}{}:
+				default:
+				}
+			}()
+		} else {
+			a.Cfg.State.SetTunAlive(alive)
+			a.pushUIState()
+		}
+	}
 }
 
 func (a *Application) watchProxyAdapter(ctx context.Context) {
@@ -505,106 +491,95 @@ func (a *Application) watchProxyAdapter(ctx context.Context) {
 }
 
 func (a *Application) syncAllConfig(ctx context.Context) {
-    if a.Cfg.State.GetPhase() != fsm.PhaseRunning {
-        return
-    }
-    payload := map[string]interface{}{
-        "tun": map[string]interface{}{
-            "enable": a.Cfg.Get("tun") == "true",
-            "device": a.Cfg.Get("tun_device"),  
-        },
-        "mode": a.Cfg.Get("mode"),
-    }
-    log.Printf("[DEBUG] 向内核同步运行参数: tun.enable=%v, tun.device=%s, mode=%s", 
-        payload["tun"].(map[string]interface{})["enable"], a.Cfg.Get("tun_device"), payload["mode"])
-        
-    syncCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-    defer cancel()
-
-    if err := a.API.SyncConfigToKernel(syncCtx, payload); err != nil {
-        log.Printf("[ERROR] 同步参数到内核失败: %v", err)
-    }
+	if a.Cfg.State.GetPhase() != fsm.PhaseRunning {
+		return
+	}
+	payload := map[string]interface{}{
+		"tun": map[string]interface{}{
+			"enable": a.Cfg.Get("tun") == "true",
+			"device": a.Cfg.Get("tun_device"),
+		},
+		"mode": a.Cfg.Get("mode"),
+	}
+	log.Printf("[DEBUG] 向内核同步运行参数: tun.enable=%v, tun.device=%s, mode=%s",
+		payload["tun"].(map[string]interface{})["enable"], a.Cfg.Get("tun_device"), payload["mode"])
+	if err := a.API.SyncConfigToKernel(ctx, payload); err != nil {
+		log.Printf("[ERROR] 同步参数到内核失败: %v", err)
+	}
 }
 
 func (a *Application) pollKernelAPI(ctx context.Context) bool {
-    queryCtx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
-    defer cancel()
+	queryCtx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+	defer cancel()
 
-    body, err := a.API.DoRequest(queryCtx, "GET", "/configs", nil)
-    if err != nil {
-        return false
-    }
+	body, err := a.API.DoRequest(queryCtx, "GET", "/configs", nil)
+	if err != nil {
+		return false
+	}
 
-    var resp struct {
-        Mode string `json:"mode"`
-        Tun  struct {
-            Enable bool   `json:"enable"`
-            Device string `json:"device"`
-        } `json:"tun"`
-    }
-    
-    if json.Unmarshal(body, &resp) == nil {
-        changed := false
-        if resp.Mode != "" && resp.Mode != a.Cfg.Get("mode") {
-            log.Printf("[INFO] 内核返回 Mode 变更: %s -> %s", a.Cfg.Get("mode"), resp.Mode)
-            a.Cfg.Set("mode", resp.Mode)
-            changed = true
-        }
+	var resp struct {
+		Mode string `json:"mode"`
+		Tun  struct {
+			Enable bool   `json:"enable"`
+			Device string `json:"device"` // 1. 增加 Device 字段解析
+		} `json:"tun"`
+	}
 
-        wantTun := a.Cfg.Get("tun") == "true"
-        if resp.Tun.Enable != wantTun {
-            if wantTun && !resp.Tun.Enable {
-                log.Println("[DEBUG] 内核 API 返回 Tun.Enable=false（网卡初始化中），保持本地期望 tun=true")
-            } else {
-                log.Printf("[INFO] 内核返回 Tun.Enable 变更: %v -> %v", wantTun, resp.Tun.Enable)
-                a.Cfg.Set("tun", fmt.Sprintf("%t", resp.Tun.Enable))
-                changed = true
-            }
-        }
-
-        if resp.Tun.Device != "" && resp.Tun.Device != a.Cfg.Get("tun_device") {
-            log.Printf("[INFO] 内核返回 Tun.Device 变更: %s -> %s", a.Cfg.Get("tun_device"), resp.Tun.Device)
-            a.Cfg.Set("tun_device", resp.Tun.Device)
-            changed = true
-        }
-        return changed
-    }
-    return false
+	if json.Unmarshal(body, &resp) == nil {
+		changed := false
+		if resp.Mode != "" && resp.Mode != a.Cfg.Get("mode") {
+			log.Printf("[INFO] 内核返回 Mode 变更: %s -> %s", a.Cfg.Get("mode"), resp.Mode)
+			a.Cfg.Set("mode", resp.Mode)
+			changed = true
+		}
+		if resp.Tun.Enable != (a.Cfg.Get("tun") == "true") {
+			log.Printf("[INFO] 内核返回 Tun.Enable 变更: %v -> %v", a.Cfg.Get("tun") == "true", resp.Tun.Enable)
+			a.Cfg.Set("tun", fmt.Sprintf("%t", resp.Tun.Enable))
+			changed = true
+		}
+		// 2. 比对并更新 tun_device 缓存
+		if resp.Tun.Device != "" && resp.Tun.Device != a.Cfg.Get("tun_device") {
+			log.Printf("[INFO] 内核返回 Tun.Device 变更: %s -> %s", a.Cfg.Get("tun_device"), resp.Tun.Device)
+			a.Cfg.Set("tun_device", resp.Tun.Device)
+			changed = true
+		}
+		return changed
+	}
+	return false
 }
 
 func (a *Application) gracefulStopTUN() {
-    if a.Cfg.Get("tun") != "true" {
-        return
-    }
+	if a.Cfg.Get("tun") != "true" {
+		return
+	}
 
-    log.Println("[INFO] 开始平滑关闭 TUN 网卡...")
-    stopCtx, cancel := context.WithTimeout(context.Background(), 1000*time.Millisecond)
-    defer cancel()
+	log.Println("[INFO] 开始平滑关闭 TUN 网卡...")
+	stopCtx, cancel := context.WithTimeout(context.Background(), 1000*time.Millisecond)
+	defer cancel()
 
-    payload := map[string]interface{}{
-        "tun": map[string]bool{"enable": false},
-    }
-    _ = a.API.SyncConfigToKernel(stopCtx, payload)
+	payload := map[string]interface{}{
+		"tun": map[string]bool{"enable": false},
+	}
+	_ = a.API.SyncConfigToKernel(stopCtx, payload)
 
-    tunDevice := a.Cfg.Get("tun_device")
-    ticker := time.NewTicker(50 * time.Millisecond)
-    defer ticker.Stop()
+	tunDevice := a.Cfg.Get("tun_device")
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
 
-    timeout := time.After(2000 * time.Millisecond)
+	timeout := time.After(2000 * time.Millisecond)
 
-    for {
-        select {
-        case <-ticker.C:
-            if !sys.IsTunActive(tunDevice) {
-                time.Sleep(300 * time.Millisecond)
-                log.Println("[INFO] TUN 网卡及底层驱动句柄成功安全解绑关闭")
-                return
-            }
-        case <-timeout:
-            log.Println("[WARN] 等待 TUN 网卡关闭超时，强制继续操作")
-            return
-        }
-    }
+	for {
+		select {
+		case <-ticker.C:
+			if !sys.IsTunActive(tunDevice) {
+				log.Println("[INFO] TUN 网卡成功安全解绑关闭")
+				return
+			}
+		case <-timeout:
+			log.Println("[WARN] 等待 TUN 网卡关闭超时，强制继续操作")
+			return
+		}
+	}
 }
 
 func (a *Application) ensureYAMLStateForBoot() {
@@ -624,7 +599,7 @@ func (a *Application) ensureYAMLStateForBoot() {
 
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		
+
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
