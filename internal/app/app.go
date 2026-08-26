@@ -573,37 +573,38 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 }
 
 func (a *Application) gracefulStopTUN() {
-	if a.Cfg.Get("tun") != "true" {
-		return
-	}
+    if a.Cfg.Get("tun") != "true" {
+        return
+    }
 
-	log.Println("[INFO] 开始平滑关闭 TUN 网卡...")
-	stopCtx, cancel := context.WithTimeout(context.Background(), 1000*time.Millisecond)
-	defer cancel()
+    log.Println("[INFO] 开始平滑关闭 TUN 网卡...")
+    stopCtx, cancel := context.WithTimeout(context.Background(), 1000*time.Millisecond)
+    defer cancel()
 
-	payload := map[string]interface{}{
-		"tun": map[string]bool{"enable": false},
-	}
-	_ = a.API.SyncConfigToKernel(stopCtx, payload)
+    payload := map[string]interface{}{
+        "tun": map[string]bool{"enable": false},
+    }
+    _ = a.API.SyncConfigToKernel(stopCtx, payload)
 
-	tunDevice := a.Cfg.Get("tun_device")
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
+    tunDevice := a.Cfg.Get("tun_device")
+    ticker := time.NewTicker(50 * time.Millisecond)
+    defer ticker.Stop()
 
-	timeout := time.After(2000 * time.Millisecond)
+    timeout := time.After(2000 * time.Millisecond)
 
-	for {
-		select {
-		case <-ticker.C:
-			if !sys.IsTunActive(tunDevice) {
-				log.Println("[INFO] TUN 网卡成功安全解绑关闭")
-				return
-			}
-		case <-timeout:
-			log.Println("[WARN] 等待 TUN 网卡关闭超时，强制继续操作")
-			return
-		}
-	}
+    for {
+        select {
+        case <-ticker.C:
+            if !sys.IsTunActive(tunDevice) {
+                time.Sleep(300 * time.Millisecond)
+                log.Println("[INFO] TUN 网卡及底层驱动句柄成功安全解绑关闭")
+                return
+            }
+        case <-timeout:
+            log.Println("[WARN] 等待 TUN 网卡关闭超时，强制继续操作")
+            return
+        }
+    }
 }
 
 func (a *Application) ensureYAMLStateForBoot() {
