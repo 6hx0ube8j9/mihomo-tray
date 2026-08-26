@@ -182,6 +182,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 						cancel()
 						if err == nil {
 							log.Printf("[INFO] 内核 API 连接成功 (重试第 %d 次)，同步最新运行参数...", i+1)
+							a.syncAllConfig(ctx)
 
 							if a.pollKernelAPI(ctx) {
 								a.pushUIState()
