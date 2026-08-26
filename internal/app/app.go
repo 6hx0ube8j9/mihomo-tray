@@ -584,12 +584,20 @@ func (a *Application) ensureYAMLStateForBoot() {
 	wantMode := a.Cfg.Get("mode")
 	configPath := filepath.Join(a.Cfg.BaseDir(), "config.yaml")
 
+	// 🔍 日志 1：检查内存中读到的目标值是否为空
+	log.Printf("[DEBUG] 校验 YAML 预置状态: wantTun=%v, wantMode=%q (配置路径: %s)", wantTun, wantMode, configPath)
+
+	if wantMode == "" {
+		log.Printf("[WARN] wantMode 为空，跳过 mode 校验 (请检查 JSON 配置是否已正确加载)")
+	}
+
 	content, err := os.ReadFile(configPath)
 	if err != nil || len(content) == 0 {
-		log.Printf("[WARN] 读取 config.yaml 校验开机预置状态失败: %v", err)
+		log.Printf("[WARN] 读取 config.yaml 失败: %v", err)
 		return
 	}
 
+	// 剥离 UTF-8 BOM
 	rawStr := strings.TrimPrefix(string(content), "\xef\xbb\xbf")
 	lines := strings.Split(strings.ReplaceAll(rawStr, "\r\n", "\n"), "\n")
 
@@ -603,6 +611,7 @@ func (a *Application) ensureYAMLStateForBoot() {
 			continue
 		}
 
+		// 计算缩进
 		indent := 0
 		for _, c := range line {
 			if c == ' ' {
@@ -614,24 +623,36 @@ func (a *Application) ensureYAMLStateForBoot() {
 			}
 		}
 
+		// 记录 tun 块
 		if indent == 0 {
 			inTunBlock = strings.HasPrefix(trimmed, "tun:")
 		}
 
-		if strings.HasPrefix(trimmed, "mode:") && wantMode != "" {
-			comment := ""
-			if idx := strings.Index(line, "#"); idx != -1 {
-				comment = " " + strings.TrimSpace(line[idx:])
-			}
+		// 🔍 匹配 mode 字段（取消 indent == 0 的限制，防止 YAML 中 mode 前有误留的空格）
+		if strings.HasPrefix(trimmed, "mode:") {
+			log.Printf("[DEBUG] 找到 YAML 中的 mode 行 (第 %d 行): %q, 当前想要的值 wantMode=%q", i+1, line, wantMode)
 
-			targetLine := fmt.Sprintf("%smode: %s%s", line[:indent], wantMode, comment)
-			if lines[i] != targetLine {
-				lines[i] = targetLine
-				modified = true
+			if wantMode != "" {
+				comment := ""
+				if idx := strings.Index(line, "#"); idx != -1 {
+					comment = " " + strings.TrimSpace(line[idx:])
+				}
+
+				// 构造替换后的新行
+				targetLine := fmt.Sprintf("%smode: %s%s", line[:indent], wantMode, comment)
+
+				if lines[i] != targetLine {
+					log.Printf("[INFO] 修改 mode: %q -> %q", lines[i], targetLine)
+					lines[i] = targetLine
+					modified = true
+				} else {
+					log.Printf("[DEBUG] mode 内容一致，无需修改")
+				}
 			}
 			continue
 		}
 
+		// 匹配 tun 下的 enable 字段
 		if inTunBlock && indent > 0 && strings.HasPrefix(trimmed, "enable:") {
 			comment := ""
 			if idx := strings.Index(line, "#"); idx != -1 {
@@ -640,6 +661,7 @@ func (a *Application) ensureYAMLStateForBoot() {
 
 			targetLine := fmt.Sprintf("%senable: %t%s", line[:indent], wantTun, comment)
 			if lines[i] != targetLine {
+				log.Printf("[INFO] 修改 tun.enable: %q -> %q", lines[i], targetLine)
 				lines[i] = targetLine
 				modified = true
 			}
@@ -651,7 +673,9 @@ func (a *Application) ensureYAMLStateForBoot() {
 		if err := os.WriteFile(configPath, []byte(newContent), 0644); err != nil {
 			log.Printf("[ERROR] 写入 config.yaml 预置状态失败: %v", err)
 		} else {
-			log.Printf("[INFO] 成功校准 config.yaml 预置状态 (tun.enable=%v, mode=%s)", wantTun, wantMode)
+			log.Printf("[INFO] 成功校准 config.yaml 预置状态")
 		}
+	} else {
+		log.Printf("[DEBUG] YAML 配置与内存目标状态一致，未触发重写")
 	}
 }
