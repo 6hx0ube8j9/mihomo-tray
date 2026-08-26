@@ -85,7 +85,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	}
 
 	a.Cfg.SyncWithYAML()
-	a.Cfg.EnsureTUNStateForBoot()
+	a.Cfg.EnsureStateForBoot()
 	log.Println("[INFO] 配置文件同步与 TUN 防闪烁校准完成")
 	
 	a.Cfg.State.MuteAPIWatcher(5 * time.Second)
@@ -419,7 +419,7 @@ func (a *Application) RestartKernel() {
 	a.Cfg.State.MuteAPIWatcher(5 * time.Second)
 	
 	a.Cfg.SyncWithYAML()
-	a.Cfg.EnsureTUNStateForBoot()
+	a.Cfg.EnsureStateForBoot()
 
 	a.gracefulStopTUN()
 
