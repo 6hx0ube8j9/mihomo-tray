@@ -90,7 +90,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	a.ensureYAMLStateForBoot()
 	log.Println("[INFO] 配置文件同步与 TUN/Mode 开机状态校准完成")
 	
-	a.Cfg.State.MuteAPIWatcher(10 * time.Second)
+	a.Cfg.State.MuteAPIWatcher(8 * time.Second)
 
 	if a.Cfg.Get("proxy") == "true" {
 		port := a.Cfg.Get("port")
@@ -182,7 +182,6 @@ func (a *Application) eventLoop(ctx context.Context) {
 						cancel()
 						if err == nil {
 							log.Printf("[INFO] 内核 API 连接成功 (重试第 %d 次)，同步最新运行参数...", i+1)
-							a.syncAllConfig(ctx)
 
 							if a.pollKernelAPI(ctx) {
 								a.pushUIState()
@@ -254,20 +253,29 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		} else {
 			_ = sys.DisableSystemProxy()
 		}
-	case "ToggleTun":
+	case "ToggleTun": 
 		enable := cmd.Payload == "true"
 		log.Printf("[INFO] 切换 TUN 模式开关: %v (设备: %s)", enable, a.Cfg.Get("tun_device"))
 		a.Cfg.Set("tun", strconv.FormatBool(enable))
 		if enable {
 			a.Cfg.State.SetTunRequestedTime(time.Now())
 		}
-		a.Cfg.State.MuteAPIWatcher(3 * time.Second)
-		go a.API.SyncConfigToKernel(ctx, map[string]interface{}{
-			"tun": map[string]interface{}{
-				"enable": enable,
-				"device": a.Cfg.Get("tun_device"),
-			},
-		})	
+		a.Cfg.State.MuteAPIWatcher(20 * time.Second)
+
+		go func() {
+			tunCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+
+			err := a.API.SyncConfigToKernel(tunCtx, map[string]interface{}{
+				"tun": map[string]interface{}{
+					"enable": enable,
+					"device": a.Cfg.Get("tun_device"),
+				},
+			})
+			if err != nil {
+				log.Printf("[ERROR] 切换 TUN 状态失败: %v", err)
+			}
+		}()
 	case "SwitchMode":
 		log.Printf("[INFO] 切换运行模式: %s", cmd.Payload)
 		a.Cfg.Set("mode", cmd.Payload)
@@ -503,57 +511,60 @@ func (a *Application) syncAllConfig(ctx context.Context) {
     }
     log.Printf("[DEBUG] 向内核同步运行参数: tun.enable=%v, tun.device=%s, mode=%s", 
         payload["tun"].(map[string]interface{})["enable"], a.Cfg.Get("tun_device"), payload["mode"])
-    if err := a.API.SyncConfigToKernel(ctx, payload); err != nil {
+        
+    syncCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+    defer cancel()
+
+    if err := a.API.SyncConfigToKernel(syncCtx, payload); err != nil {
         log.Printf("[ERROR] 同步参数到内核失败: %v", err)
     }
 }
 
 func (a *Application) pollKernelAPI(ctx context.Context) bool {
-	queryCtx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
-	defer cancel()
+    queryCtx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+    defer cancel()
 
-	body, err := a.API.DoRequest(queryCtx, "GET", "/configs", nil)
-	if err != nil {
-		return false
-	}
+    body, err := a.API.DoRequest(queryCtx, "GET", "/configs", nil)
+    if err != nil {
+        return false
+    }
 
-	var resp struct {
-		Mode string `json:"mode"`
-		Tun  struct {
-			Enable bool   `json:"enable"`
-			Device string `json:"device"`
-		} `json:"tun"`
-	}
+    var resp struct {
+        Mode string `json:"mode"`
+        Tun  struct {
+            Enable bool   `json:"enable"`
+            Device string `json:"device"`
+        } `json:"tun"`
+    }
+    
+    if json.Unmarshal(body, &resp) == nil {
+        changed := false
+        if resp.Mode != "" && resp.Mode != a.Cfg.Get("mode") {
+            log.Printf("[INFO] 内核返回 Mode 变更: %s -> %s", a.Cfg.Get("mode"), resp.Mode)
+            a.Cfg.Set("mode", resp.Mode)
+            changed = true
+        }
 
-	if json.Unmarshal(body, &resp) == nil {
-		changed := false
-		if resp.Mode != "" && resp.Mode != a.Cfg.Get("mode") {
-			log.Printf("[INFO] 内核返回 Mode 变更: %s -> %s", a.Cfg.Get("mode"), resp.Mode)
-			a.Cfg.Set("mode", resp.Mode)
-			changed = true
-		}
+        wantTun := a.Cfg.Get("tun") == "true"
+        if resp.Tun.Enable != wantTun {
+            // 如果本地想开 TUN，但内核返回 false，且当前还在 API 保护期内，则忽略此 false 状态
+            if wantTun && !resp.Tun.Enable && a.Cfg.State.IsAPIWatcherMuted() {
+                log.Println("[DEBUG] 内核返回 Tun.Enable=false，但处于 API 保护期内，忽略本次覆盖")
+            } else {
+                log.Printf("[INFO] 内核返回 Tun.Enable 变更: %v -> %v", wantTun, resp.Tun.Enable)
+                a.Cfg.Set("tun", fmt.Sprintf("%t", resp.Tun.Enable))
+                changed = true
+            }
+        }
 
-		// 【关键修复】：防误判 TUN 变更
-		currentTun := a.Cfg.Get("tun") == "true"
-		if resp.Tun.Enable != currentTun {
-			if a.Cfg.State.IsAPIWatcherMuted() && currentTun && !resp.Tun.Enable {
-				log.Printf("[DEBUG] 处于 API 静默保护期内，忽略内核 Wintun 挂载暂态 (false)")
-			} else {
-				log.Printf("[INFO] 内核返回 Tun.Enable 变更: %v -> %v", currentTun, resp.Tun.Enable)
-				a.Cfg.Set("tun", fmt.Sprintf("%t", resp.Tun.Enable))
-				changed = true
-			}
-		}
-
-		// 比对并更新 tun_device 缓存
-		if resp.Tun.Device != "" && resp.Tun.Device != a.Cfg.Get("tun_device") {
-			log.Printf("[INFO] 内核返回 Tun.Device 变更: %s -> %s", a.Cfg.Get("tun_device"), resp.Tun.Device)
-			a.Cfg.Set("tun_device", resp.Tun.Device)
-			changed = true
-		}
-		return changed
-	}
-	return false
+        if resp.Tun.Device != "" && resp.Tun.Device != a.Cfg.Get("tun_device") {
+            log.Printf("[INFO] 内核返回 Tun.Device 变更: %s -> %s", a.Cfg.Get("tun_device"), resp.Tun.Device)
+            a.Cfg.Set("tun_device", resp.Tun.Device)
+            changed = true
+        }
+        return changed
+    }
+    return false
 }
 
 func (a *Application) gracefulStopTUN() {
