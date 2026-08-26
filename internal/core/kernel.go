@@ -61,7 +61,6 @@ func (km *KernelManager) initJobObject() {
 }
 
 func (km *KernelManager) Close() {
-	km.StopGracefully(context.Background())
 	if km.hJob != 0 {
 		windows.CloseHandle(km.hJob)
 		km.hJob = 0
@@ -77,7 +76,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 	for {
 		select {
 		case <-ctx.Done():
-			km.StopGracefully(context.Background())
+			km.KillCurrent()
 			return
 		default:
 		}
@@ -86,7 +85,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		if localPid != 0 && sys.IsPidRunning(localPid, "mihomo.exe") {
 			select {
 			case <-ctx.Done():
-				km.StopGracefully(context.Background())
+				km.KillCurrent()
 				return
 			case <-time.After(2 * time.Second):
 				continue
@@ -97,7 +96,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			return
 		}
 
-		sys.KillOtherProcessesByName("mihomo.exe", localPid)
+		sys.KillOtherProcessesByName("mihomo.exe", 0)
 
 		select {
 		case <-ctx.Done():
@@ -167,72 +166,32 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			}
 		}
 
-		if isShutdown {
-			return
-		}
+        if isShutdown {
+            return 
+        }
+        
+        km.mu.Lock()
+        km.activeProc = nil
+        atomic.StoreUint32(&km.currentPid, 0)
+        km.mu.Unlock()
 
-		km.mu.Lock()
-		km.activeProc = nil
-		atomic.StoreUint32(&km.currentPid, 0)
-		km.mu.Unlock()
+        select {
+        case eventCh <- EventKernelExit:
+        default:
+        }
 
-		select {
-		case eventCh <- EventKernelExit:
-		default:
-		}
+        if runDuration >= 5*time.Second || isKilledByUs {
+            currentDelay = 50 * time.Millisecond 
+        } else {
+            currentDelay = km.calculateBackoff(currentDelay, maxDelay)
+        }
 
-		if runDuration >= 5*time.Second || isKilledByUs {
-			currentDelay = 50 * time.Millisecond
-		} else {
-			currentDelay = km.calculateBackoff(currentDelay, maxDelay)
-		}
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(currentDelay):
-		}
-	}
-}
-
-func (km *KernelManager) StopGracefully(timeoutCtx context.Context) {
-	km.mu.Lock()
-	proc := km.activeProc
-	pid := atomic.LoadUint32(&km.currentPid)
-	km.mu.Unlock()
-
-	if proc == nil || pid == 0 {
-		return
-	}
-
-	_ = proc.Signal(os.Interrupt)
-
-	done := make(chan struct{})
-	go func() {
-		if p, err := os.FindProcess(int(pid)); err == nil {
-			_, _ = p.Wait()
-		}
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		time.Sleep(200 * time.Millisecond)
-	case <-time.After(1500 * time.Millisecond):
-		_ = proc.Kill()
-		time.Sleep(300 * time.Millisecond)
-	case <-timeoutCtx.Done():
-		_ = proc.Kill()
-	}
-
-	km.mu.Lock()
-	km.activeProc = nil
-	atomic.StoreUint32(&km.currentPid, 0)
-	km.mu.Unlock()
-}
-
-func (km *KernelManager) KillCurrent() {
-	km.StopGracefully(context.Background())
+        select {
+        case <-ctx.Done():
+            return
+        case <-time.After(currentDelay):
+        }
+    }
 }
 
 func (km *KernelManager) assignToJob(pid int) {
@@ -275,7 +234,7 @@ func (km *KernelManager) checkAndWriteLog(absBaseDir, errType, rawMsg string) {
 			keepData = make([]byte, fi.Size()-offset)
 			_, _ = f.ReadAt(keepData, offset)
 			f.Close()
-
+			
 			if offset > 0 {
 				if idx := bytes.IndexByte(keepData, '\n'); idx != -1 {
 					keepData = keepData[idx+1:]
@@ -333,4 +292,16 @@ func (t *tailBuffer) Len() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return len(t.buf)
+}
+
+func (km *KernelManager) KillCurrent() {
+	km.mu.Lock()
+	if km.activeProc != nil {
+		_ = km.activeProc.Kill()
+		km.activeProc = nil
+	}
+	atomic.StoreUint32(&km.currentPid, 0)
+	km.mu.Unlock()
+	sys.KillOtherProcessesByName("mihomo.exe", 0)
+	time.Sleep(250 * time.Millisecond)
 }
