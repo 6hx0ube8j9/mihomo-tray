@@ -68,8 +68,8 @@ func (a *Application) initLogger() {
 	}
 	a.logFile = file
 
-	// 同时写入标准输出与日志文件
-	multiWriter := io.MultiWriter(os.Stdout, file)
+	// 保证日志优先写入 file，并将 os.Stdout 放在容错包装里
+	multiWriter := io.MultiWriter(file, safeWriter{w: os.Stdout})
 	log.SetOutput(multiWriter)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 
