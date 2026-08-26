@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
+	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -22,6 +24,20 @@ const (
 	ShowUIEvent = "Mihomo_Tray_Mutex_ShowUI"
 )
 
+// initEarlyLogger 在进程最早期初始化全局日志输出（保存至程序目录 app.log）
+func initEarlyLogger(baseDir string) *os.File {
+	logPath := filepath.Join(baseDir, "app.log")
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		return nil
+	}
+	// 同时打印到终端与日志文件
+	multiWriter := io.MultiWriter(os.Stdout, file)
+	log.SetOutput(multiWriter)
+	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
+	return file
+}
+
 func main() {
 	runtime.LockOSThread()
 
@@ -32,9 +48,20 @@ func main() {
 	baseDir := filepath.Dir(exePath)
 	_ = os.Chdir(baseDir)
 
+	// 1. 最优先初始化日志，捕获提权与互斥锁事件
+	logFile := initEarlyLogger(baseDir)
+	if logFile != nil {
+		defer logFile.Close()
+	}
+
+	log.Println("[INFO] -------------------- Mihomo Tray 进程启动 --------------------")
+	log.Printf("[INFO] 进程 PID: %d, 可执行文件路径: %s", os.Getpid(), exePath)
+
+	// 2. 检查单实例互斥锁
 	mName, _ := windows.UTF16PtrFromString(AppMutex)
 	hM, err := windows.CreateMutex(nil, false, mName)
 	if errors.Is(err, windows.ERROR_ALREADY_EXISTS) || err == windows.ERROR_ALREADY_EXISTS {
+		log.Println("[WARN] 检测到应用已有实例在运行，尝试唤醒已有实例并退出当前进程...")
 		if hM != 0 {
 			windows.CloseHandle(hM)
 		}
@@ -44,6 +71,9 @@ func main() {
 		if err == nil && hEvent != 0 {
 			windows.SetEvent(hEvent)
 			windows.CloseHandle(hEvent)
+			log.Println("[INFO] 成功触发已存在实例的唤醒事件 (ShowUIEvent)")
+		} else {
+			log.Printf("[ERROR] 无法打开或触发唤醒事件: %v", err)
 		}
 		return
 	}
@@ -57,6 +87,7 @@ func main() {
 		defer windows.CloseHandle(hShowUIEvent)
 	}
 
+	// 3. 命令行参数与权限检查
 	isAutostart := false
 	for _, arg := range os.Args {
 		if arg == "---autostart" || arg == "--autostart" {
@@ -64,8 +95,12 @@ func main() {
 			break
 		}
 	}
+	log.Printf("[INFO] 参数检查: autostart=%v, isAdmin=%v", isAutostart, isAdmin())
+
 	if !isAdmin() && !isAutostart {
+		log.Println("[WARN] 当前进程无管理员权限，准备请求 UAC 提权重新启动...")
 		runAsAdmin(exePath, baseDir)
+		log.Println("[INFO] UAC 提权指令已发送，当前普通权限进程退出")
 		return
 	}
 
@@ -76,23 +111,28 @@ func main() {
 	application := app.NewApplication(cfgMgr)
 	trayMenu := ui.NewTrayMenu(ctx, cancel, application.UICommandCh, application.UIStateCh)
 
+	log.Println("[INFO] 初始化系统托盘 UI...")
 	trayMenu.Init()
 
+	// 4. 系统信号监听
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		defer signal.Stop(sigCh)
 
 		select {
-		case <-sigCh:
+		case sig := <-sigCh:
+			log.Printf("[WARN] 接收到系统终止信号 (%v)，正在通知托盘退出...", sig)
 			trayMenu.Stop()
 		case <-ctx.Done():
 			return
 		}
 	}()
 
+	// 5. 监听重复启动时的唤醒事件
 	if hShowUIEvent != 0 {
 		go func() {
+			log.Println("[INFO] 唤醒事件监听协程已就绪")
 			for {
 				s, _ := windows.WaitForSingleObject(hShowUIEvent, windows.INFINITE)
 				if s != windows.WAIT_OBJECT_0 {
@@ -102,7 +142,8 @@ func main() {
 				if ctx.Err() != nil {
 					return
 				}
-				
+
+				log.Println("[INFO] 收到外部唤醒信号，正在触发 OpenWebUI 指令")
 				select {
 				case application.UICommandCh <- ui.UICommand{Action: "OpenWebUI"}:
 					time.Sleep(200 * time.Millisecond)
@@ -113,9 +154,13 @@ func main() {
 		}()
 	}
 
+	log.Println("[INFO] 启动应用程序后台主循环 (Bootstrap)...")
 	go application.Bootstrap(ctx)
+
+	log.Println("[INFO] 运行托盘界面事件循环...")
 	trayMenu.Run()
 
+	log.Println("[INFO] 托盘循环结束，开始执行退出清理程序...")
 	cancel()
 
 	if hShowUIEvent != 0 {
@@ -124,12 +169,14 @@ func main() {
 
 	cfgMgr.State.ForceExitPhase()
 	application.SafeShutdown(cancel)
+	log.Println("[INFO] -------------------- Mihomo Tray 进程安全退出 --------------------")
 }
 
 func isAdmin() bool {
 	var token windows.Token
 	err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &token)
 	if err != nil {
+		log.Printf("[ERROR] 查询进程 Token 失败: %v", err)
 		return false
 	}
 	defer token.Close()
@@ -140,5 +187,8 @@ func runAsAdmin(exe, dir string) {
 	verb, _ := windows.UTF16PtrFromString("runas")
 	exePtr, _ := windows.UTF16PtrFromString(exe)
 	cwdPtr, _ := windows.UTF16PtrFromString(dir)
-	_ = windows.ShellExecute(0, verb, exePtr, nil, cwdPtr, windows.SW_SHOWNORMAL)
+	err := windows.ShellExecute(0, verb, exePtr, nil, cwdPtr, windows.SW_SHOWNORMAL)
+	if err != nil {
+		log.Printf("[ERROR] 触发 UAC 提权失败 (ShellExecute): %v", err)
+	}
 }
