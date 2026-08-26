@@ -3,6 +3,7 @@ package fsm
 import (
 	"encoding/json"
 	"os"
+	"fsm"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -285,6 +286,114 @@ func (m *Manager) SyncWithYAML() {
 	
 	m.yamlMu.Unlock() 
 	m.UpdateBatch(extracted)
+}
+
+func (m *Manager) EnsureYAMLStateForBoot(wantMode string, wantTun bool) (bool, error) {
+	m.yamlMu.Lock()
+	defer m.yamlMu.Unlock()
+
+	configPath := filepath.Join(m.baseDir, "config.yaml")
+	content, err := os.ReadFile(configPath)
+	if err != nil || len(content) == 0 {
+		return false, err
+	}
+
+	rawStr := strings.TrimPrefix(string(content), "\xef\xbb\xbf")
+	lines := strings.Split(strings.ReplaceAll(rawStr, "\r\n", "\n"), "\n")
+
+	inTunBlock := false
+	modified := false
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+
+		indent := 0
+		for _, c := range line {
+			if c == ' ' {
+				indent++
+			} else if c == '\t' {
+				indent += 4
+			} else {
+				break
+			}
+		}
+
+		if indent == 0 {
+			inTunBlock = strings.HasPrefix(trimmed, "tun:")
+		}
+
+		if strings.HasPrefix(trimmed, "mode:") {
+			if wantMode != "" {
+				comment := ""
+				if idx := strings.Index(line, "#"); idx != -1 {
+					comment = " " + strings.TrimSpace(line[idx:])
+				}
+
+				targetLine := fmt.Sprintf("%smode: %s%s", line[:indent], wantMode, comment)
+
+				if lines[i] != targetLine {
+					lines[i] = targetLine
+					modified = true
+				}
+			}
+			continue
+		}
+
+		if inTunBlock && indent > 0 && strings.HasPrefix(trimmed, "enable:") {
+			comment := ""
+			if idx := strings.Index(line, "#"); idx != -1 {
+				comment = " " + strings.TrimSpace(line[idx:])
+			}
+
+			targetLine := fmt.Sprintf("%senable: %t%s", line[:indent], wantTun, comment)
+			if lines[i] != targetLine {
+				lines[i] = targetLine
+				modified = true
+			}
+		}
+	}
+
+	if !modified {
+		return false, nil
+	}
+
+	newContent := strings.Join(lines, "\n")
+	tmpFile, err := os.CreateTemp(m.baseDir, "config.yaml.*.tmp")
+	if err != nil {
+		return false, err
+	}
+	tmpName := tmpFile.Name()
+	writeSuccess := false
+
+	func() {
+		defer func() {
+			_ = tmpFile.Close()
+			if !writeSuccess {
+				_ = os.Remove(tmpName)
+			}
+		}()
+		if _, err := tmpFile.Write([]byte(newContent)); err != nil {
+			return
+		}
+		if err := tmpFile.Sync(); err != nil {
+			return
+		}
+		writeSuccess = true
+	}()
+
+	if !writeSuccess {
+		return false, os.ErrInvalid
+	}
+
+	if err := os.Rename(tmpName, configPath); err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 func (m *Manager) lockedSave() {
