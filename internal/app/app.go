@@ -5,10 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"mihomo-tray/internal/core"
