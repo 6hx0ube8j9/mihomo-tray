@@ -85,7 +85,9 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	}
 
 	a.Cfg.SyncWithYAML()
-	log.Println("[INFO] 配置文件同步 (SyncWithYAML) 完成")
+	a.Cfg.EnsureTUNStateForBoot()
+	log.Println("[INFO] 配置文件同步与 TUN 防闪烁校准完成")
+	
 	a.Cfg.State.MuteAPIWatcher(5 * time.Second)
 
 	if a.Cfg.Get("proxy") == "true" {
@@ -177,7 +179,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 						_, err := a.API.DoRequest(pollCtx, "GET", "/configs", nil)
 						cancel()
 						if err == nil {
-							log.Printf("[INFO] 内核 API 连接成功 (重试第 %d 次)，同步配置...", i+1)
+							log.Printf("[INFO] 内核 API 连接成功 (重试第 %d 次)，同步最新运行参数...", i+1)
 							a.syncAllConfig(ctx)
 
 							if a.pollKernelAPI(ctx) {
@@ -415,7 +417,9 @@ func (a *Application) RestartKernel() {
 	a.Cfg.State.SetRestarting(true)
 	a.Cfg.State.SetReloading(false)
 	a.Cfg.State.MuteAPIWatcher(5 * time.Second)
+	
 	a.Cfg.SyncWithYAML()
+	a.Cfg.EnsureTUNStateForBoot()
 
 	a.gracefulStopTUN()
 
