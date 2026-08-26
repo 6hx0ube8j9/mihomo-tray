@@ -58,57 +58,47 @@ func NewApplication(cm *fsm.Manager) *Application {
 }
 
 func (a *Application) Bootstrap(ctx context.Context) {
-	log.Println("[INFO] 正在启动应用 Bootstrap...")
+    log.Println("[INFO] 正在启动应用 Bootstrap...")
 
-	a.Cfg.EnsureDefault()
+    a.Cfg.EnsureDefault()
 
-	osTaskExists := sys.CheckAutoStartStatus()
-	cfgMemoryStatus := a.Cfg.Get("autostart") == "true"
-	log.Printf("[INFO] 自启动状态检查: 系统任务存在=%v, 配置项记录=%v", osTaskExists, cfgMemoryStatus)
+    osTaskExists := sys.CheckAutoStartStatus()
+    cfgMemoryStatus := a.Cfg.Get("autostart") == "true"
+    log.Printf("[INFO] 自启动状态检查: 系统任务存在=%v, 配置项记录=%v", osTaskExists, cfgMemoryStatus)
 
-	if osTaskExists {
-		if !sys.IsTaskPathValid(a.Cfg.ExePath()) {
-			log.Println("[WARN] 检测到开机自启动任务路径无效，正在尝试修复...")
-			if cfgMemoryStatus {
-				sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), true)
-				osTaskExists = true
-				log.Println("[INFO] 开机自启动任务已更正为当前程序路径")
-			} else {
-				sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), false)
-				osTaskExists = false
-				log.Println("[INFO] 清除无效的开机自启动任务")
-			}
-		}
-	}
+    if osTaskExists {
+        if !sys.IsTaskPathValid(a.Cfg.ExePath()) {
+            log.Println("[WARN] 检测到开机自启动任务路径无效，正在尝试修复...")
+            if cfgMemoryStatus {
+                sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), true)
+                osTaskExists = true
+                log.Println("[INFO] 开机自启动任务已更正为当前程序路径")
+            } else {
+                sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), false)
+                osTaskExists = false
+                log.Println("[INFO] 清除无效的开机自启动任务")
+            }
+        }
+    }
 
-	if osTaskExists != cfgMemoryStatus {
-		log.Printf("[INFO] 更新内存配置项 autostart=%v", osTaskExists)
-		a.Cfg.Set("autostart", strconv.FormatBool(osTaskExists))
-	}
+    if osTaskExists != cfgMemoryStatus {
+        log.Printf("[INFO] 更新内存配置项 autostart=%v", osTaskExists)
+        a.Cfg.Set("autostart", strconv.FormatBool(osTaskExists))
+    }
 
-	a.Cfg.SyncWithYAML()
-	a.ensureYAMLStateForBoot()
-	log.Println("[INFO] 配置文件同步与 TUN/Mode 开机状态校准完成")
-	
-	a.Cfg.State.MuteAPIWatcher(8 * time.Second)
+    a.Cfg.SyncWithYAML()
+    a.ensureYAMLStateForBoot()
+    log.Println("[INFO] 配置文件同步与 TUN/Mode 开机状态校准完成")
 
-	if a.Cfg.Get("proxy") == "true" {
-		port := a.Cfg.Get("port")
-		log.Printf("[INFO] 检测到 Proxy 选项开启，正在启用系统代理 (端口: %s)...", port)
-		if err := sys.EnableSystemProxy(port); err != nil {
-			log.Printf("[ERROR] 启用系统代理失败: %v", err)
-		} else {
-			log.Println("[INFO] 系统代理启用成功")
-		}
-	}
+    // 【修改点 1】此处删除了 EnableSystemProxy 调用！不要在内核准备好之前开启系统代理！
 
-	a.pushUIState()
+    a.pushUIState()
 
-	log.Println("[INFO] 启动核心守护协程 (Daemon)...")
-	go a.Kernel.RunDaemon(ctx, a.kernelEventCh)
-	go sys.WatchNetworkInterfaces(ctx, a.tunEventCh)
-	go a.watchProxyAdapter(ctx)
-	go a.eventLoop(ctx)
+    log.Println("[INFO] 启动核心守护协程 (Daemon)...")
+    go a.Kernel.RunDaemon(ctx, a.kernelEventCh)
+    go sys.WatchNetworkInterfaces(ctx, a.tunEventCh)
+    go a.watchProxyAdapter(ctx)
+    go a.eventLoop(ctx)
 }
 
 func (a *Application) SafeShutdown(cancel context.CancelFunc) {
@@ -135,95 +125,104 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 }
 
 func (a *Application) eventLoop(ctx context.Context) {
-	log.Println("[INFO] 主事件循环 (eventLoop) 已开启")
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
+    log.Println("[INFO] 主事件循环 (eventLoop) 已开启")
+    ticker := time.NewTicker(1 * time.Second)
+    defer ticker.Stop()
 
-	tryPollAPI := func() {
-		if a.Cfg.State.GetPhase() == fsm.PhaseRunning && !a.Cfg.State.IsAPIWatcherMuted() {
-			if a.pollKernelAPI(ctx) {
-				log.Println("[DEBUG] 轮询内核 API 触发状态更新，推送 UI State")
-				a.pushUIState()
-			}
-		}
-	}
+    tryPollAPI := func() {
+        if a.Cfg.State.GetPhase() == fsm.PhaseRunning && !a.Cfg.State.IsAPIWatcherMuted() {
+            if a.pollKernelAPI(ctx) {
+                log.Println("[DEBUG] 轮询内核 API 触发状态更新，推送 UI State")
+                a.pushUIState()
+            }
+        }
+    }
 
-	for {
-		select {
-		case event := <-a.webuiEventCh:
-			log.Printf("[WARN] 收到 WebUI 事件: %v", event)
-			if event == ui.EventError {
-				log.Println("[ERROR] WebUI 发生错误事件")
-			}
-		case <-ctx.Done():
-			log.Println("[INFO] 上下文 Context 取消，退出事件循环")
-			return
+    for {
+        select {
+        case event := <-a.webuiEventCh:
+            log.Printf("[WARN] 收到 WebUI 事件: %v", event)
+            if event == ui.EventError {
+                log.Println("[ERROR] WebUI 发生错误事件")
+            }
+        case <-ctx.Done():
+            log.Println("[INFO] 上下文 Context 取消，退出事件循环")
+            return
 
-		case cmd := <-a.UICommandCh:
-			log.Printf("[INFO] 收到 UI 指令: Action=%s, Payload=%s", cmd.Action, cmd.Payload)
-			a.handleUICommand(ctx, cmd)
+        case cmd := <-a.UICommandCh:
+            log.Printf("[INFO] 收到 UI 指令: Action=%s, Payload=%s", cmd.Action, cmd.Payload)
+            a.handleUICommand(ctx, cmd)
 
-		case event := <-a.kernelEventCh:
-			log.Printf("[INFO] 收到内核事件: %v", event)
-			if event == core.EventKernelReady {
-				log.Println("[INFO] 内核就绪 (EventKernelReady)，设置阶段为 Running")
-				a.Cfg.State.SetPhase(fsm.PhaseRunning)
-				a.Cfg.State.MuteAPIWatcher(5 * time.Second)
-				if a.Cfg.Get("tun") == "true" {
-					a.Cfg.State.SetTunRequestedTime(time.Now())
-				}
+        case event := <-a.kernelEventCh:
+            log.Printf("[INFO] 收到内核事件: %v", event)
+            if event == core.EventKernelReady {
+                log.Println("[INFO] 内核就绪 (EventKernelReady)，设置阶段为 Running")
+                a.Cfg.State.SetPhase(fsm.PhaseRunning)
+                a.Cfg.State.MuteAPIWatcher(8 * time.Second)
+                
+                if a.Cfg.Get("tun") == "true" {
+                    a.Cfg.State.SetTunRequestedTime(time.Now())
+                }
 
-				go func() {
-					defer a.Cfg.State.SetRestarting(false)
-					log.Println("[INFO] 开始轮询内核 API 校验可连接性...")
-					for i := 0; i < 20; i++ {
-						pollCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
-						_, err := a.API.DoRequest(pollCtx, "GET", "/configs", nil)
-						cancel()
-						if err == nil {
-							log.Printf("[INFO] 内核 API 连接成功 (重试第 %d 次)，同步最新运行参数...", i+1)
+                go func() {
+                    defer a.Cfg.State.SetRestarting(false)
+                    log.Println("[INFO] 开始轮询内核 API 校验可连接性...")
+                    for i := 0; i < 20; i++ {
+                        pollCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+                        _, err := a.API.DoRequest(pollCtx, "GET", "/configs", nil)
+                        cancel()
+                        if err == nil {
+                            log.Printf("[INFO] 内核 API 连接成功 (重试第 %d 次)，初始化系统代理与状态...", i+1)
+                            if a.Cfg.Get("proxy") == "true" {
+                                log.Println("[INFO] 安全启用系统代理...")
+                                _ = sys.EnableSystemProxy(a.Cfg.Get("port"))
+                            }
 
-							if a.pollKernelAPI(ctx) {
-								a.pushUIState()
-							}
+                            if a.pollKernelAPI(ctx) {
+                                a.pushUIState()
+                            }
 
-							select {
-							case a.apiPollCh <- struct{}{}:
-							default:
-							}
-							return
-						}
-						time.Sleep(250 * time.Millisecond)
-					}
-					log.Println("[ERROR] 内核 API 校验超时 (尝试 20 次未连通)")
-				}()
-			} else if event == core.EventKernelExit {
-				log.Println("[WARN] 内核异常退出 (EventKernelExit)，重置阶段为 Initializing")
-				a.Cfg.State.SetPhase(fsm.PhaseInitializing)
-			}
-			a.pushUIState()
+                            select {
+                            case a.apiPollCh <- struct{}{}:
+                            default:
+                            }
+                            return
+                        }
+                        time.Sleep(250 * time.Millisecond)
+                    }
+                    log.Println("[ERROR] 内核 API 校验超时 (尝试 20 次未连通)")
+                }()
+            } else if event == core.EventKernelExit {
+                log.Println("[WARN] 内核异常退出 (EventKernelExit)，重置阶段为 Initializing")
+                a.Cfg.State.SetPhase(fsm.PhaseInitializing)
+            }
+            a.pushUIState()
 
-		case <-a.tunEventCh:
-			log.Println("[DEBUG] 网络接口变更通知 (tunEventCh)")
-			a.handleTunChange(ctx)
+        case <-a.tunEventCh:
+            log.Println("[DEBUG] 网络接口变更通知 (tunEventCh)")
+            a.handleTunChange(ctx)
 
-		case isProxyActive := <-a.proxyEventCh:
-			log.Printf("[INFO] 系统代理状态变更通知: active=%v", isProxyActive)
-			if !isProxyActive {
-				a.Cfg.Set("proxy", "false")
-			} else {
-				_ = sys.EnableSystemProxy(a.Cfg.Get("port"))
-			}
-			a.pushUIState()
+        case isProxyActive := <-a.proxyEventCh:
+            if a.Cfg.State.GetPhase() == fsm.PhaseRunning && !a.Cfg.State.IsAPIWatcherMuted() {
+                log.Printf("[INFO] 系统代理状态变更通知: active=%v", isProxyActive)
+                if !isProxyActive {
+                    a.Cfg.Set("proxy", "false")
+                } else if a.Cfg.Get("proxy") == "true" {
+                    _ = sys.EnableSystemProxy(a.Cfg.Get("port"))
+                }
+                a.pushUIState()
+            } else {
+                log.Printf("[DEBUG] 忽略系统代理变更通知 (当前处于启动/静音保护期): active=%v", isProxyActive)
+            }
 
-		case <-ticker.C:
-			tryPollAPI()
-			a.pushUIState()
+        case <-ticker.C:
+            tryPollAPI()
+            a.pushUIState()
 
-		case <-a.apiPollCh:
-			tryPollAPI()
-		}
-	}
+        case <-a.apiPollCh:
+            tryPollAPI()
+        }
+    }
 }
 
 func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
