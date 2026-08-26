@@ -287,6 +287,31 @@ func (m *Manager) SyncWithYAML() {
 	m.UpdateBatch(extracted)
 }
 
+func (m *Manager) EnsureTUNStateForBoot() {
+	m.mu.RLock()
+	wantTunOff := (m.data.Tun != "true")
+	m.mu.RUnlock()
+
+	if !wantTunOff {
+		return
+	}
+
+	m.yamlMu.Lock()
+	defer m.yamlMu.Unlock()
+
+	configPath := filepath.Join(m.baseDir, "config.yaml")
+	content, err := os.ReadFile(configPath)
+	if err != nil || len(content) == 0 {
+		return
+	}
+
+	text := string(content)
+	if strings.Contains(text, "enable: true") {
+		newText := strings.Replace(text, "enable: true", "enable: false", 1)
+		_ = os.WriteFile(configPath, []byte(newText), 0644)
+	}
+}
+
 func (m *Manager) lockedSave() {
 	b, err := json.MarshalIndent(m.data, "", "  ")
 	if err != nil {
