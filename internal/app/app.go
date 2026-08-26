@@ -591,90 +591,14 @@ func (a *Application) ensureYAMLStateForBoot() {
 		log.Printf("[WARN] wantMode 为空，跳过 mode 校验 (请检查 JSON 配置是否已正确加载)")
 	}
 
-	content, err := os.ReadFile(configPath)
-	if err != nil || len(content) == 0 {
-		log.Printf("[WARN] 读取 config.yaml 失败: %v", err)
+	modified, err := a.Cfg.EnsureYAMLStateForBoot(wantMode, wantTun)
+	if err != nil {
+		log.Printf("[ERROR] 写入 config.yaml 预置状态失败: %v", err)
 		return
 	}
 
-	// 剥离 UTF-8 BOM
-	rawStr := strings.TrimPrefix(string(content), "\xef\xbb\xbf")
-	lines := strings.Split(strings.ReplaceAll(rawStr, "\r\n", "\n"), "\n")
-
-	inTunBlock := false
-	modified := false
-
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") {
-			continue
-		}
-
-		// 计算缩进
-		indent := 0
-		for _, c := range line {
-			if c == ' ' {
-				indent++
-			} else if c == '\t' {
-				indent += 4
-			} else {
-				break
-			}
-		}
-
-		// 记录 tun 块
-		if indent == 0 {
-			inTunBlock = strings.HasPrefix(trimmed, "tun:")
-		}
-
-		// 匹配 mode 字段
-		if strings.HasPrefix(trimmed, "mode:") {
-			log.Printf("[DEBUG] 找到 YAML 中的 mode 行 (第 %d 行): %q, 当前想要的值 wantMode=%q", i+1, line, wantMode)
-
-			if wantMode != "" {
-				comment := ""
-				if idx := strings.Index(line, "#"); idx != -1 {
-					comment = " " + strings.TrimSpace(line[idx:])
-				}
-
-				// 构造替换后的新行
-				targetLine := fmt.Sprintf("%smode: %s%s", line[:indent], wantMode, comment)
-
-				if lines[i] != targetLine {
-					log.Printf("[INFO] 修改 mode: %q -> %q", lines[i], targetLine)
-					lines[i] = targetLine
-					modified = true
-				} else {
-					log.Printf("[DEBUG] mode 内容一致，无需修改")
-				}
-			}
-			continue
-		}
-
-		// 匹配 tun 下的 enable 字段
-		if inTunBlock && indent > 0 && strings.HasPrefix(trimmed, "enable:") {
-			comment := ""
-			if idx := strings.Index(line, "#"); idx != -1 {
-				comment = " " + strings.TrimSpace(line[idx:])
-			}
-
-			targetLine := fmt.Sprintf("%senable: %t%s", line[:indent], wantTun, comment)
-			if lines[i] != targetLine {
-				log.Printf("[INFO] 修改 tun.enable: %q -> %q", lines[i], targetLine)
-				lines[i] = targetLine
-				modified = true
-			}
-		}
-	}
-
 	if modified {
-		newContent := strings.Join(lines, "\n")
-		if err := os.WriteFile(configPath, []byte(newContent), 0644); err != nil {
-			log.Printf("[ERROR] 写入 config.yaml 预置状态失败: %v", err)
-		} else {
-			log.Printf("[INFO] 成功校准 config.yaml 预置状态")
-		}
+		log.Printf("[INFO] 成功校准 config.yaml 预置状态")
 	} else {
 		log.Printf("[DEBUG] YAML 配置与内存目标状态一致，未触发重写")
 	}
