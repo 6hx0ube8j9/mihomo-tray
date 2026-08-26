@@ -253,28 +253,29 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		} else {
 			_ = sys.DisableSystemProxy()
 		}
-        enable := cmd.Payload == "true"
-        log.Printf("[INFO] 切换 TUN 模式开关: %v (设备: %s)", enable, a.Cfg.Get("tun_device"))
-        a.Cfg.Set("tun", strconv.FormatBool(enable))
-        if enable {
-            a.Cfg.State.SetTunRequestedTime(time.Now())
-        }
-        a.Cfg.State.MuteAPIWatcher(20 * time.Second)
-        
-        go func() {
-            tunCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-            defer cancel()
-            
-            err := a.API.SyncConfigToKernel(tunCtx, map[string]interface{}{
-                "tun": map[string]interface{}{
-                    "enable": enable,
-                    "device": a.Cfg.Get("tun_device"),
-                },
-            })
-            if err != nil {
-                log.Printf("[ERROR] 切换 TUN 状态失败: %v", err)
-            }
-        }()
+	case "ToggleTun": 
+		enable := cmd.Payload == "true"
+		log.Printf("[INFO] 切换 TUN 模式开关: %v (设备: %s)", enable, a.Cfg.Get("tun_device"))
+		a.Cfg.Set("tun", strconv.FormatBool(enable))
+		if enable {
+			a.Cfg.State.SetTunRequestedTime(time.Now())
+		}
+		a.Cfg.State.MuteAPIWatcher(20 * time.Second)
+
+		go func() {
+			tunCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+
+			err := a.API.SyncConfigToKernel(tunCtx, map[string]interface{}{
+				"tun": map[string]interface{}{
+					"enable": enable,
+					"device": a.Cfg.Get("tun_device"),
+				},
+			})
+			if err != nil {
+				log.Printf("[ERROR] 切换 TUN 状态失败: %v", err)
+			}
+		}()
 	case "SwitchMode":
 		log.Printf("[INFO] 切换运行模式: %s", cmd.Payload)
 		a.Cfg.Set("mode", cmd.Payload)
