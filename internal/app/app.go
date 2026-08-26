@@ -182,7 +182,6 @@ func (a *Application) eventLoop(ctx context.Context) {
 						cancel()
 						if err == nil {
 							log.Printf("[INFO] 内核 API 连接成功 (重试第 %d 次)，同步最新运行参数...", i+1)
-							a.syncAllConfig(ctx)
 
 							if a.pollKernelAPI(ctx) {
 								a.pushUIState()
@@ -254,20 +253,28 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		} else {
 			_ = sys.DisableSystemProxy()
 		}
-	case "ToggleTun":
-		enable := cmd.Payload == "true"
-		log.Printf("[INFO] 切换 TUN 模式开关: %v (设备: %s)", enable, a.Cfg.Get("tun_device"))
-		a.Cfg.Set("tun", strconv.FormatBool(enable))
-		if enable {
-			a.Cfg.State.SetTunRequestedTime(time.Now())
-		}
-		a.Cfg.State.MuteAPIWatcher(3 * time.Second)
-		go a.API.SyncConfigToKernel(ctx, map[string]interface{}{
-			"tun": map[string]interface{}{
-				"enable": enable,
-				"device": a.Cfg.Get("tun_device"),
-			},
-		})	
+        enable := cmd.Payload == "true"
+        log.Printf("[INFO] 切换 TUN 模式开关: %v (设备: %s)", enable, a.Cfg.Get("tun_device"))
+        a.Cfg.Set("tun", strconv.FormatBool(enable))
+        if enable {
+            a.Cfg.State.SetTunRequestedTime(time.Now())
+        }
+        a.Cfg.State.MuteAPIWatcher(20 * time.Second)
+        
+        go func() {
+            tunCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+            defer cancel()
+            
+            err := a.API.SyncConfigToKernel(tunCtx, map[string]interface{}{
+                "tun": map[string]interface{}{
+                    "enable": enable,
+                    "device": a.Cfg.Get("tun_device"),
+                },
+            })
+            if err != nil {
+                log.Printf("[ERROR] 切换 TUN 状态失败: %v", err)
+            }
+        }()
 	case "SwitchMode":
 		log.Printf("[INFO] 切换运行模式: %s", cmd.Payload)
 		a.Cfg.Set("mode", cmd.Payload)
@@ -503,7 +510,11 @@ func (a *Application) syncAllConfig(ctx context.Context) {
     }
     log.Printf("[DEBUG] 向内核同步运行参数: tun.enable=%v, tun.device=%s, mode=%s", 
         payload["tun"].(map[string]interface{})["enable"], a.Cfg.Get("tun_device"), payload["mode"])
-    if err := a.API.SyncConfigToKernel(ctx, payload); err != nil {
+        
+    syncCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+    defer cancel()
+
+    if err := a.API.SyncConfigToKernel(syncCtx, payload); err != nil {
         log.Printf("[ERROR] 同步参数到内核失败: %v", err)
     }
 }
