@@ -110,10 +110,14 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		cmd.Dir = absBaseDir
 
 		const CREATE_DEFAULT_ERROR_MODE = 0x04000000
+		
 		cmd.SysProcAttr = &windows.SysProcAttr{
-			HideWindow:    true,
-			CreationFlags: windows.CREATE_NO_WINDOW | CREATE_DEFAULT_ERROR_MODE,
+			HideWindow: true,
+			CreationFlags: windows.CREATE_NO_WINDOW |
+				windows.CREATE_NEW_PROCESS_GROUP |
+				CREATE_DEFAULT_ERROR_MODE,
 		}
+		
 		cmd.Stdout = errBuf
 		cmd.Stderr = errBuf
 		startTime := time.Now()
@@ -166,32 +170,32 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			}
 		}
 
-        if isShutdown {
-            return 
-        }
-        
-        km.mu.Lock()
-        km.activeProc = nil
-        atomic.StoreUint32(&km.currentPid, 0)
-        km.mu.Unlock()
+		if isShutdown {
+			return 
+		}
+		
+		km.mu.Lock()
+		km.activeProc = nil
+		atomic.StoreUint32(&km.currentPid, 0)
+		km.mu.Unlock()
 
-        select {
-        case eventCh <- EventKernelExit:
-        default:
-        }
+		select {
+		case eventCh <- EventKernelExit:
+		default:
+		}
 
-        if runDuration >= 5*time.Second || isKilledByUs {
-            currentDelay = 50 * time.Millisecond 
-        } else {
-            currentDelay = km.calculateBackoff(currentDelay, maxDelay)
-        }
+		if runDuration >= 5*time.Second || isKilledByUs {
+			currentDelay = 50 * time.Millisecond 
+		} else {
+			currentDelay = km.calculateBackoff(currentDelay, maxDelay)
+		}
 
-        select {
-        case <-ctx.Done():
-            return
-        case <-time.After(currentDelay):
-        }
-    }
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(currentDelay):
+		}
+	}
 }
 
 func (km *KernelManager) assignToJob(pid int) {
@@ -296,12 +300,34 @@ func (t *tailBuffer) Len() int {
 
 func (km *KernelManager) KillCurrent() {
 	km.mu.Lock()
-	if km.activeProc != nil {
-		_ = km.activeProc.Kill()
-		km.activeProc = nil
-	}
+	proc := km.activeProc
+	pid := atomic.LoadUint32(&km.currentPid)
+	
+	km.activeProc = nil
 	atomic.StoreUint32(&km.currentPid, 0)
 	km.mu.Unlock()
+
+	if proc != nil && pid != 0 {
+		err := windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
+		
+		if err == nil {
+			exited := false
+			for i := 0; i < 50; i++ {
+				if !sys.IsPidRunning(pid, "mihomo.exe") {
+					exited = true
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+			
+			if !exited {
+				_ = proc.Kill()
+			}
+		} else {
+			_ = proc.Kill()
+		}
+	}
+
 	sys.KillOtherProcessesByName("mihomo.exe", 0)
 	time.Sleep(250 * time.Millisecond)
 }
