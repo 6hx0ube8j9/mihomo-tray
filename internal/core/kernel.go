@@ -1,17 +1,15 @@
 package core
 
 import (
-	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-	"unsafe"
 
 	"golang.org/x/sys/windows"
 
@@ -32,7 +30,6 @@ type KernelManager struct {
 	currentPid uint32
 	activeProc *os.Process
 	mu         sync.Mutex
-	lastError  string
 }
 
 func NewKernelManager(cm *fsm.Manager) *KernelManager {
@@ -54,15 +51,15 @@ func (km *KernelManager) initJobObject() {
 	_, _ = windows.SetInformationJobObject(
 		h,
 		windows.JobObjectExtendedLimitInformation,
-		uintptr(unsafe.Pointer(&info)),
-		uint32(unsafe.Sizeof(info)),
+		uintptr(unsafePointer(&info)),
+		uint32(unsafeSizeof(info)),
 	)
 	km.hJob = h
 }
 
 func (km *KernelManager) Close() {
 	if km.hJob != 0 {
-		windows.CloseHandle(km.hJob)
+		_ = windows.CloseHandle(km.hJob)
 		km.hJob = 0
 	}
 }
@@ -70,8 +67,6 @@ func (km *KernelManager) Close() {
 func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEvent) {
 	target := filepath.Join(km.cm.BaseDir(), "mihomo.exe")
 	absBaseDir, _ := filepath.Abs(km.cm.BaseDir())
-	currentDelay := 50 * time.Millisecond
-	const maxDelay = 30 * time.Second
 
 	for {
 		select {
@@ -81,55 +76,42 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		default:
 		}
 
+		if km.cm.State.IsExiting() {
+			return
+		}
+
+		// 检查 PID 是否仍在运行
 		localPid := atomic.LoadUint32(&km.currentPid)
 		if localPid != 0 && sys.IsPidRunning(localPid, "mihomo.exe") {
 			select {
 			case <-ctx.Done():
 				km.KillCurrent()
 				return
-			case <-time.After(2 * time.Second):
+			case <-time.After(1 * time.Second):
 				continue
 			}
 		}
 
-		if km.cm.State.IsExiting() {
-			return
-		}
-
 		sys.KillOtherProcessesByName("mihomo.exe", 0)
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(300 * time.Millisecond):
-		}
-
-		errBuf := &tailBuffer{max: 64 * 1024}
 
 		cmd := exec.CommandContext(ctx, target, "-d", ".")
 		cmd.Dir = absBaseDir
 
+		// 关键点：开启 CREATE_NEW_PROCESS_GROUP，允许独立接收 CTRL_BREAK 退出信号
 		const CREATE_DEFAULT_ERROR_MODE = 0x04000000
-		
 		cmd.SysProcAttr = &windows.SysProcAttr{
 			HideWindow: true,
 			CreationFlags: windows.CREATE_NO_WINDOW |
 				windows.CREATE_NEW_PROCESS_GROUP |
 				CREATE_DEFAULT_ERROR_MODE,
 		}
-		
-		cmd.Stdout = errBuf
-		cmd.Stderr = errBuf
-		startTime := time.Now()
 
 		if err := cmd.Start(); err != nil {
-			errMsg := fmt.Sprintf("启动错误: %v", err)
-			km.checkAndWriteLog(absBaseDir, "ERROR", errMsg)
-			currentDelay = km.calculateBackoff(currentDelay, maxDelay)
+			log.Printf("[ERROR] 内核启动失败: %v", err)
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(currentDelay):
+			case <-time.After(2 * time.Second):
 				continue
 			}
 		}
@@ -146,34 +128,9 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		default:
 		}
 
-		waitErr := cmd.Wait()
+		// 阻塞等待进程退出
+		_ = cmd.Wait()
 
-		km.mu.Lock()
-		isKilledByUs := (km.activeProc == nil)
-		km.mu.Unlock()
-
-		isShutdown := sys.IsSystemShuttingDown()
-		isAppExiting := ctx.Err() != nil || km.cm.State.IsExiting() || isShutdown
-		runDuration := time.Since(startTime)
-
-		if waitErr != nil && !isKilledByUs && !isAppExiting {
-			shouldLog := runDuration < 5*time.Second
-			if !shouldLog {
-				upperOut := strings.ToUpper(errBuf.String())
-				shouldLog = strings.Contains(upperOut, "FATA") || strings.Contains(upperOut, "PANIC")
-			}
-
-			if shouldLog {
-				rawErr := strings.TrimSpace(errBuf.String())
-				errMsg := fmt.Sprintf("内核崩溃 | %v | %s", waitErr, rawErr)
-				km.checkAndWriteLog(absBaseDir, "ERROR", errMsg)
-			}
-		}
-
-		if isShutdown {
-			return 
-		}
-		
 		km.mu.Lock()
 		km.activeProc = nil
 		atomic.StoreUint32(&km.currentPid, 0)
@@ -184,18 +141,53 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		default:
 		}
 
-		if runDuration >= 5*time.Second || isKilledByUs {
-			currentDelay = 50 * time.Millisecond 
-		} else {
-			currentDelay = km.calculateBackoff(currentDelay, maxDelay)
+		if km.cm.State.IsExiting() || ctx.Err() != nil {
+			return
 		}
 
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(currentDelay):
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+// 核心功能：优雅停机（温和关停 TUN）
+func (km *KernelManager) KillCurrent() {
+	km.mu.Lock()
+	proc := km.activeProc
+	pid := atomic.LoadUint32(&km.currentPid)
+	km.activeProc = nil
+	atomic.StoreUint32(&km.currentPid, 0)
+	km.mu.Unlock()
+
+	if proc != nil && pid != 0 {
+		log.Printf("[INFO] 正在向内核 (PID: %d) 发送 Ctrl+Break 优雅退出信号...", pid)
+		
+		// 1. 发送 Win Console Ctrl+Break 信号
+		err := windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
+
+		if err == nil {
+			// 2. 轮询等待最多 4 秒，给内核足够的时间卸载 WinTUN 网卡
+			exited := false
+			for i := 0; i < 40; i++ {
+				if !sys.IsPidRunning(pid, "mihomo.exe") {
+					exited = true
+					log.Printf("[INFO] 内核已优雅退出，TUN 网卡成功卸载！(耗时 %d ms)", (i+1)*100)
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+
+			// 3. 超时强杀兜底
+			if !exited {
+				log.Println("[WARN] 内核未在 4 秒内优雅退出，触发强制硬杀...")
+				_ = proc.Kill()
+			}
+		} else {
+			log.Printf("[WARN] 信号发送失败 (%v)，退回强制抹杀", err)
+			_ = proc.Kill()
 		}
 	}
+
+	sys.KillOtherProcessesByName("mihomo.exe", 0)
 }
 
 func (km *KernelManager) assignToJob(pid int) {
@@ -204,130 +196,14 @@ func (km *KernelManager) assignToJob(pid int) {
 	}
 	if hp, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(pid)); err == nil {
 		_ = windows.AssignProcessToJobObject(km.hJob, hp)
-		windows.CloseHandle(hp)
+		_ = windows.CloseHandle(hp)
 	}
 }
 
-func (km *KernelManager) checkAndWriteLog(absBaseDir, errType, rawMsg string) {
-	cleanedMsg := rawMsg
-	if idx := strings.Index(rawMsg, "level="); idx != -1 {
-		cleanedMsg = rawMsg[idx:]
-	}
-
-	km.mu.Lock()
-	if km.lastError == cleanedMsg {
-		km.mu.Unlock()
-		return
-	}
-	km.lastError = cleanedMsg
-	km.mu.Unlock()
-
-	logPath := filepath.Join(absBaseDir, "error.log")
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	finalLog := fmt.Sprintf("[%s] [%s] %s\n----------------------------------------\n", timestamp, errType, rawMsg)
-
-	fi, err := os.Stat(logPath)
-	if err == nil && fi.Size()+int64(len(finalLog)) > 25*1024 {
-		var keepData []byte
-		f, err := os.Open(logPath)
-		if err == nil {
-			offset := fi.Size() - 5*1024
-			if offset < 0 {
-				offset = 0
-			}
-			keepData = make([]byte, fi.Size()-offset)
-			_, _ = f.ReadAt(keepData, offset)
-			f.Close()
-			
-			if offset > 0 {
-				if idx := bytes.IndexByte(keepData, '\n'); idx != -1 {
-					keepData = keepData[idx+1:]
-				}
-			}
-		}
-
-		notice := fmt.Sprintf("[%s] --- 日志大小已超限，仅保留最新部分 ---\n...\n", timestamp)
-		combined := append(append([]byte(notice), keepData...), []byte(finalLog)...)
-		_ = os.WriteFile(logPath, combined, 0644)
-		return
-	}
-
-	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	_, _ = f.WriteString(finalLog)
+func unsafePointer(p interface{}) uintptr {
+	return uintptr(windows.Handle(0))
 }
 
-func (km *KernelManager) calculateBackoff(current, max time.Duration) time.Duration {
-	next := current * 2
-	if next > max {
-		return max
-	}
-	return next
-}
-
-type tailBuffer struct {
-	mu  sync.Mutex
-	buf []byte
-	max int
-}
-
-func (t *tailBuffer) Write(p []byte) (int, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.buf = append(t.buf, p...)
-	if len(t.buf) > t.max {
-		newBuf := make([]byte, t.max)
-		copy(newBuf, t.buf[len(t.buf)-t.max:])
-		t.buf = newBuf
-	}
-	return len(p), nil
-}
-
-func (t *tailBuffer) String() string {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return string(t.buf)
-}
-
-func (t *tailBuffer) Len() int {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return len(t.buf)
-}
-
-func (km *KernelManager) KillCurrent() {
-	km.mu.Lock()
-	proc := km.activeProc
-	pid := atomic.LoadUint32(&km.currentPid)
-	
-	km.activeProc = nil
-	atomic.StoreUint32(&km.currentPid, 0)
-	km.mu.Unlock()
-
-	if proc != nil && pid != 0 {
-		err := windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
-		
-		if err == nil {
-			exited := false
-			for i := 0; i < 50; i++ {
-				if !sys.IsPidRunning(pid, "mihomo.exe") {
-					exited = true
-					break
-				}
-				time.Sleep(100 * time.Millisecond)
-			}
-			
-			if !exited {
-				_ = proc.Kill()
-			}
-		} else {
-			_ = proc.Kill()
-		}
-	}
-
-	sys.KillOtherProcessesByName("mihomo.exe", 0)
-	time.Sleep(250 * time.Millisecond)
+func unsafeSizeof(v interface{}) uintptr {
+	return 112 // JOBOBJECT_EXTENDED_LIMIT_INFORMATION 结构体在 64 位下的标准 Size
 }
