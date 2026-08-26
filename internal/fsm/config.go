@@ -287,14 +287,11 @@ func (m *Manager) SyncWithYAML() {
 	m.UpdateBatch(extracted)
 }
 
-func (m *Manager) EnsureTUNStateForBoot() {
+func (m *Manager) EnsureStateForBoot() {
 	m.mu.RLock()
-	wantTunOff := (m.data.Tun != "true")
+	wantTun := (m.data.Tun == "true")
+	wantMode := m.data.Mode
 	m.mu.RUnlock()
-
-	if !wantTunOff {
-		return
-	}
 
 	m.yamlMu.Lock()
 	defer m.yamlMu.Unlock()
@@ -305,10 +302,55 @@ func (m *Manager) EnsureTUNStateForBoot() {
 		return
 	}
 
-	text := string(content)
-	if strings.Contains(text, "enable: true") {
-		newText := strings.Replace(text, "enable: true", "enable: false", 1)
-		_ = os.WriteFile(configPath, []byte(newText), 0644)
+	lines := strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n")
+	inTunBlock := false
+	modified := false
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		indent := 0
+		for _, c := range line {
+			if c == ' ' {
+				indent++
+			} else if c == '\t' {
+				indent += 4
+			} else {
+				break
+			}
+		}
+
+		if indent == 0 {
+			inTunBlock = strings.HasPrefix(trimmed, "tun:")
+
+			if strings.HasPrefix(trimmed, "mode:") && wantMode != "" {
+				targetLine := fmt.Sprintf("mode: %s", wantMode)
+				if lines[i] != targetLine {
+					lines[i] = targetLine
+					modified = true
+				}
+			}
+			continue
+		}
+
+		if inTunBlock && indent > 0 {
+			if strings.HasPrefix(trimmed, "enable:") {
+				targetLine := fmt.Sprintf("%senable: %t", line[:indent], wantTun)
+				if lines[i] != targetLine {
+					lines[i] = targetLine
+					modified = true
+				}
+			}
+		}
+	}
+	
+	if modified {
+		newContent := strings.Join(lines, "\n")
+		_ = os.WriteFile(configPath, []byte(newContent), 0644)
 	}
 }
 
