@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"mihomo-tray/internal/core"
@@ -85,8 +87,8 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	}
 
 	a.Cfg.SyncWithYAML()
-	a.Cfg.EnsureStateForBoot()
-	log.Println("[INFO] 配置文件同步与 TUN 防闪烁校准完成")
+	a.ensureYAMLStateForBoot()
+	log.Println("[INFO] 配置文件同步与 TUN/Mode 开机状态校准完成")
 	
 	a.Cfg.State.MuteAPIWatcher(5 * time.Second)
 
@@ -419,7 +421,7 @@ func (a *Application) RestartKernel() {
 	a.Cfg.State.MuteAPIWatcher(5 * time.Second)
 	
 	a.Cfg.SyncWithYAML()
-	a.Cfg.EnsureStateForBoot()
+	a.ensureYAMLStateForBoot()
 
 	a.gracefulStopTUN()
 
@@ -576,6 +578,73 @@ func (a *Application) gracefulStopTUN() {
 		case <-timeout:
 			log.Println("[WARN] 等待 TUN 网卡关闭超时，强制继续操作")
 			return
+		}
+	}
+}
+
+func (a *Application) ensureYAMLStateForBoot() {
+	wantTun := a.Cfg.Get("tun") == "true"
+	wantMode := a.Cfg.Get("mode")
+	configPath := filepath.Join(a.Cfg.BaseDir(), "config.yaml")
+
+	content, err := os.ReadFile(configPath)
+	if err != nil || len(content) == 0 {
+		log.Printf("[WARN] 读取 config.yaml 校验开机预置状态失败: %v", err)
+		return
+	}
+
+	lines := strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n")
+	inTunBlock := false
+	modified := false
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		indent := 0
+		for _, c := range line {
+			if c == ' ' {
+				indent++
+			} else if c == '\t' {
+				indent += 4
+			} else {
+				break
+			}
+		}
+
+		if indent == 0 {
+			inTunBlock = strings.HasPrefix(trimmed, "tun:")
+
+			if strings.HasPrefix(trimmed, "mode:") && wantMode != "" {
+				targetLine := fmt.Sprintf("mode: %s", wantMode)
+				if lines[i] != targetLine {
+					lines[i] = targetLine
+					modified = true
+				}
+			}
+			continue
+		}
+
+		if inTunBlock && indent > 0 {
+			if strings.HasPrefix(trimmed, "enable:") {
+				targetLine := fmt.Sprintf("%senable: %t", line[:indent], wantTun)
+				if lines[i] != targetLine {
+					lines[i] = targetLine
+					modified = true
+				}
+			}
+		}
+	}
+
+	if modified {
+		newContent := strings.Join(lines, "\n")
+		if err := os.WriteFile(configPath, []byte(newContent), 0644); err != nil {
+			log.Printf("[ERROR] 写入 config.yaml 预置状态失败: %v", err)
+		} else {
+			log.Printf("[INFO] 成功校准 config.yaml 预置状态 (tun.enable=%v, mode=%s)", wantTun, wantMode)
 		}
 	}
 }
