@@ -35,7 +35,7 @@ func NewAPIClient(cm *fsm.Manager) *APIClient {
 				MaxIdleConns:          100,
 				MaxIdleConnsPerHost:   100,
 				IdleConnTimeout:       90 * time.Second,
-				ResponseHeaderTimeout: 15 * time.Second, 
+				ResponseHeaderTimeout: 12 * time.Second, 
 			},
 		},
 	}
