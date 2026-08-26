@@ -172,9 +172,9 @@ func (a *Application) eventLoop(ctx context.Context) {
                         _, err := a.API.DoRequest(pollCtx, "GET", "/configs", nil)
                         cancel()
                         if err == nil {
-                            log.Printf("[INFO] 内核 API 连接成功 (重试第 %d 次)，初始化系统代理与状态...", i+1)
-                            if a.Cfg.Get("proxy") == "true" {
-                                log.Println("[INFO] 安全启用系统代理...")
+                            log.Printf("[INFO] 内核 API 连接成功 (重试第 %d 次)...", i+1)
+                            if a.Cfg.Get("proxy") == "true" && a.Cfg.Get("tun") != "true" {
+                                log.Println("[INFO] 非 TUN 模式，安全启用系统代理...")
                                 _ = sys.EnableSystemProxy(a.Cfg.Get("port"))
                             }
 
@@ -438,41 +438,48 @@ func (a *Application) RestartKernel() {
 }
 
 func (a *Application) handleTunChange(ctx context.Context) {
-	if a.Cfg.State.IsExiting() {
-		return
-	}
-	tunDev := a.Cfg.Get("tun_device")
-	alive := sys.IsTunActive(tunDev)
+    if a.Cfg.State.IsExiting() {
+        return
+    }
+    tunDev := a.Cfg.Get("tun_device")
+    alive := sys.IsTunActive(tunDev)
 
-	if a.Cfg.State.IsTunAlive() != alive {
-		log.Printf("[INFO] TUN 虚拟网卡状态发生变更: 设备=%s, 活跃状态=%v", tunDev, alive)
-		if !alive {
-			a.Cfg.State.SetTunLostTime(time.Now())
-		}
-		if !alive && !a.Cfg.State.IsAPIWatcherMuted() {
-			go func() {
-				log.Println("[DEBUG] 检测到 TUN 断开，开始尝试快速轮询确认...")
-				for i := 0; i < 3; i++ {
-					pollCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
-					success := a.pollKernelAPI(pollCtx)
-					cancel()
-					if success {
-						log.Println("[DEBUG] TUN 断开检查中重连成功")
-						break
-					}
-					time.Sleep(100 * time.Millisecond)
-				}
-				a.Cfg.State.SetTunAlive(alive)
-				select {
-				case a.apiPollCh <- struct{}{}:
-				default:
-				}
-			}()
-		} else {
-			a.Cfg.State.SetTunAlive(alive)
-			a.pushUIState()
-		}
-	}
+    if a.Cfg.State.IsTunAlive() != alive {
+        log.Printf("[INFO] TUN 虚拟网卡状态发生变更: 设备=%s, 活跃状态=%v", tunDev, alive)
+        if !alive {
+            a.Cfg.State.SetTunLostTime(time.Now())
+        }
+        if !alive && !a.Cfg.State.IsAPIWatcherMuted() {
+            go func() {
+                log.Println("[DEBUG] 检测到 TUN 断开，开始尝试快速轮询确认...")
+                for i := 0; i < 3; i++ {
+                    pollCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+                    success := a.pollKernelAPI(pollCtx)
+                    cancel()
+                    if success {
+                        log.Println("[DEBUG] TUN 断开检查中重连成功")
+                        break
+                    }
+                    time.Sleep(100 * time.Millisecond)
+                }
+                a.Cfg.State.SetTunAlive(alive)
+                select {
+                case a.apiPollCh <- struct{}{}:
+                default:
+                }
+            }()
+        } else {
+            a.Cfg.State.SetTunAlive(alive)
+            
+            // 【核心修改】：TUN 网卡成功拉起变为 active 后，再补启系统代理
+            if alive && a.Cfg.Get("proxy") == "true" {
+                log.Println("[INFO] TUN 网卡已激活，同步开启系统代理...")
+                _ = sys.EnableSystemProxy(a.Cfg.Get("port"))
+            }
+
+            a.pushUIState()
+        }
+    }
 }
 
 func (a *Application) watchProxyAdapter(ctx context.Context) {
@@ -546,9 +553,8 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 
         wantTun := a.Cfg.Get("tun") == "true"
         if resp.Tun.Enable != wantTun {
-            // 如果本地想开 TUN，但内核返回 false，且当前还在 API 保护期内，则忽略此 false 状态
-            if wantTun && !resp.Tun.Enable && a.Cfg.State.IsAPIWatcherMuted() {
-                log.Println("[DEBUG] 内核返回 Tun.Enable=false，但处于 API 保护期内，忽略本次覆盖")
+            if wantTun && !resp.Tun.Enable {
+                log.Println("[DEBUG] 内核 API 返回 Tun.Enable=false（网卡初始化中），保持本地期望 tun=true")
             } else {
                 log.Printf("[INFO] 内核返回 Tun.Enable 变更: %v -> %v", wantTun, resp.Tun.Enable)
                 a.Cfg.Set("tun", fmt.Sprintf("%t", resp.Tun.Enable))
