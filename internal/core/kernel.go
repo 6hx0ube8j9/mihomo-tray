@@ -298,6 +298,27 @@ func (t *tailBuffer) Len() int {
 	return len(t.buf)
 }
 
+func sendConsoleSignal(pid uint32) error {
+	_ = windows.SetConsoleCtrlHandler(nil, true)
+	defer func() {
+		_ = windows.SetConsoleCtrlHandler(nil, false)
+	}()
+	
+	if err := windows.AttachConsole(pid); err != nil {
+		return fmt.Errorf("AttachConsole 失败: %w", err)
+	}
+	defer func() {
+		_ = windows.FreeConsole()
+	}()
+
+	if err := windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid); err != nil {
+		return fmt.Errorf("GenerateConsoleCtrlEvent 失败: %w", err)
+	}
+
+	return nil
+}
+
+
 func (km *KernelManager) KillCurrent() {
 	km.mu.Lock()
 	proc := km.activeProc
@@ -308,7 +329,7 @@ func (km *KernelManager) KillCurrent() {
 	km.mu.Unlock()
 
 	if proc != nil && pid != 0 {
-		err := windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
+		err := sendConsoleSignal(pid)
 
 		if err == nil {
 			exited := false
