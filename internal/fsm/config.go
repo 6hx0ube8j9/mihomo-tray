@@ -3,7 +3,6 @@ package fsm
 import (
 	"encoding/json"
 	"os"
-	"fsm"
 	"path/filepath"
 	"strings"
 	"sync"
