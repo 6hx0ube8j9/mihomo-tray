@@ -40,7 +40,6 @@ type Application struct {
 	webuiEventCh chan ui.Event
 
 	lastUIState ui.UIState
-	logFile     *os.File
 }
 
 func NewApplication(cm *fsm.Manager) *Application {
@@ -58,27 +57,7 @@ func NewApplication(cm *fsm.Manager) *Application {
 	}
 }
 
-// initLogger 初始化日志模块，将日志同时输出到文件和终端
-func (a *Application) initLogger() {
-	logPath := filepath.Join(a.Cfg.BaseDir(), "app.log")
-	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err != nil {
-		fmt.Printf("[ERROR] 无法创建日志文件 %s: %v\n", logPath, err)
-		return
-	}
-	a.logFile = file
-
-	// 保证日志优先写入 file，并将 os.Stdout 放在容错包装里
-	multiWriter := io.MultiWriter(file, safeWriter{w: os.Stdout})
-	log.SetOutput(multiWriter)
-	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
-
-	log.Println("[INFO] ==================== 应用日志服务初始化成功 ====================")
-	log.Printf("[INFO] 日志文件保存路径: %s", logPath)
-}
-
 func (a *Application) Bootstrap(ctx context.Context) {
-	a.initLogger()
 	log.Println("[INFO] 正在启动应用 Bootstrap...")
 
 	a.Cfg.EnsureDefault()
@@ -150,11 +129,7 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 
 	log.Println("[INFO] 关闭内核管理接口...")
 	a.Kernel.Close()
-
-	if a.logFile != nil {
-		log.Println("[INFO] ==================== 应用已安全关闭 ====================")
-		_ = a.logFile.Close()
-	}
+	log.Println("[INFO] ==================== 应用已安全关闭 ====================")
 }
 
 func (a *Application) eventLoop(ctx context.Context) {
