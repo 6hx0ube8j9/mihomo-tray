@@ -24,15 +24,29 @@ const (
 	ShowUIEvent = "Mihomo_Tray_Mutex_ShowUI"
 )
 
-// initEarlyLogger 在进程最早期初始化全局日志输出（保存至程序目录 app.log）
+// safeWriter 包装 Writer，忽略写入失败（如无控制台的 Windows GUI 模式）
+type safeWriter struct {
+	w io.Writer
+}
+
+func (s safeWriter) Write(p []byte) (int, error) {
+	if s.w == nil {
+		return len(p), nil
+	}
+	// 即使 os.Stdout 报错，也返回 len(p) 和 nil，不阻断 MultiWriter 继续写文件
+	_, _ = s.w.Write(p)
+	return len(p), nil
+}
+
 func initEarlyLogger(baseDir string) *os.File {
 	logPath := filepath.Join(baseDir, "app.log")
 	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
 		return nil
 	}
-	// 同时打印到终端与日志文件
-	multiWriter := io.MultiWriter(os.Stdout, file)
+	
+	// 先写文件，控制台做 safeWriter 容错处理
+	multiWriter := io.MultiWriter(file, safeWriter{w: os.Stdout})
 	log.SetOutput(multiWriter)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 	return file
