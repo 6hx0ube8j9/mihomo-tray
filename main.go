@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -24,18 +23,17 @@ const (
 	ShowUIEvent = "Mihomo_Tray_Mutex_ShowUI"
 )
 
-// safeWriter 包装 Writer，忽略写入失败（如无控制台的 Windows GUI 模式）
-type safeWriter struct {
-	w io.Writer
+// syncFileWriter 包装 os.File，每次写入后立即强制刷盘 (Sync)
+type syncFileWriter struct {
+	file *os.File
 }
 
-func (s safeWriter) Write(p []byte) (int, error) {
-	if s.w == nil {
-		return len(p), nil
+func (w *syncFileWriter) Write(p []byte) (n int, err error) {
+	n, err = w.file.Write(p)
+	if err == nil {
+		_ = w.file.Sync() // 强制刷新内存缓冲区到磁盘
 	}
-	// 即使 os.Stdout 报错，也返回 len(p) 和 nil，不阻断 MultiWriter 继续写文件
-	_, _ = s.w.Write(p)
-	return len(p), nil
+	return n, err
 }
 
 func initEarlyLogger(baseDir string) *os.File {
@@ -45,9 +43,8 @@ func initEarlyLogger(baseDir string) *os.File {
 		return nil
 	}
 	
-	// 先写文件，控制台做 safeWriter 容错处理
-	multiWriter := io.MultiWriter(file, safeWriter{w: os.Stdout})
-	log.SetOutput(multiWriter)
+	// 使用自动刷盘 Writer 接管 log 输出
+	log.SetOutput(&syncFileWriter{file: file})
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 	return file
 }
@@ -62,13 +59,13 @@ func main() {
 	baseDir := filepath.Dir(exePath)
 	_ = os.Chdir(baseDir)
 
-	// 1. 最优先初始化日志，捕获提权与互斥锁事件
+	// 1. 初始化日志（支持实时刷盘）
 	logFile := initEarlyLogger(baseDir)
 	if logFile != nil {
 		defer logFile.Close()
 	}
 
-	log.Println("[INFO] -------------------- Mihomo Tray 进程启动 --------------------")
+	log.Println("[INFO] ==================== Mihomo Tray 进程启动 ====================")
 	log.Printf("[INFO] 进程 PID: %d, 可执行文件路径: %s", os.Getpid(), exePath)
 
 	// 2. 检查单实例互斥锁
@@ -143,7 +140,7 @@ func main() {
 		}
 	}()
 
-	// 5. 监听重复启动时的唤醒事件
+	// 5. 监听唤醒事件
 	if hShowUIEvent != 0 {
 		go func() {
 			log.Println("[INFO] 唤醒事件监听协程已就绪")
@@ -183,7 +180,7 @@ func main() {
 
 	cfgMgr.State.ForceExitPhase()
 	application.SafeShutdown(cancel)
-	log.Println("[INFO] -------------------- Mihomo Tray 进程安全退出 --------------------")
+	log.Println("[INFO] ==================== Mihomo Tray 进程安全退出 ====================")
 }
 
 func isAdmin() bool {
