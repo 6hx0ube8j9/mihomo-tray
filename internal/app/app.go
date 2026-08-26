@@ -35,8 +35,8 @@ type Application struct {
 	proxyEventCh  chan bool
 	apiPollCh     chan struct{}
 
-	UIStateCh    chan ui.UIState
-	UICommandCh  chan ui.UICommand
+	UIStateCh   chan ui.UIState
+	UICommandCh chan ui.UICommand
 	webuiEventCh chan ui.Event
 
 	lastUIState ui.UIState
@@ -86,8 +86,9 @@ func (a *Application) Bootstrap(ctx context.Context) {
 		a.Cfg.Set("autostart", strconv.FormatBool(osTaskExists))
 	}
 
-	a.Cfg.SyncWithYAML()
+	// 顺序调整：先将内存中的目标状态写入 config.yaml，再做 SyncWithYAML
 	a.ensureYAMLStateForBoot()
+	a.Cfg.SyncWithYAML()
 	log.Println("[INFO] 配置文件同步与 TUN/Mode 开机状态校准完成")
 
 	a.Cfg.State.MuteAPIWatcher(5 * time.Second)
@@ -417,8 +418,9 @@ func (a *Application) RestartKernel() {
 	a.Cfg.State.SetReloading(false)
 	a.Cfg.State.MuteAPIWatcher(5 * time.Second)
 
-	a.Cfg.SyncWithYAML()
+	// 顺序调整：先将内存中用户最新的 Tun/Mode 目标值刷入 config.yaml，再做 SyncWithYAML
 	a.ensureYAMLStateForBoot()
+	a.Cfg.SyncWithYAML()
 
 	a.gracefulStopTUN()
 
@@ -518,7 +520,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		Mode string `json:"mode"`
 		Tun  struct {
 			Enable bool   `json:"enable"`
-			Device string `json:"device"` // 1. 增加 Device 字段解析
+			Device string `json:"device"`
 		} `json:"tun"`
 	}
 
@@ -534,7 +536,6 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 			a.Cfg.Set("tun", fmt.Sprintf("%t", resp.Tun.Enable))
 			changed = true
 		}
-		// 2. 比对并更新 tun_device 缓存
 		if resp.Tun.Device != "" && resp.Tun.Device != a.Cfg.Get("tun_device") {
 			log.Printf("[INFO] 内核返回 Tun.Device 变更: %s -> %s", a.Cfg.Get("tun_device"), resp.Tun.Device)
 			a.Cfg.Set("tun_device", resp.Tun.Device)
@@ -584,7 +585,6 @@ func (a *Application) ensureYAMLStateForBoot() {
 	wantMode := a.Cfg.Get("mode")
 	configPath := filepath.Join(a.Cfg.BaseDir(), "config.yaml")
 
-	// 🔍 日志 1：检查内存中读到的目标值是否为空
 	log.Printf("[DEBUG] 校验 YAML 预置状态: wantTun=%v, wantMode=%q (配置路径: %s)", wantTun, wantMode, configPath)
 
 	if wantMode == "" {
@@ -628,7 +628,7 @@ func (a *Application) ensureYAMLStateForBoot() {
 			inTunBlock = strings.HasPrefix(trimmed, "tun:")
 		}
 
-		// 🔍 匹配 mode 字段（取消 indent == 0 的限制，防止 YAML 中 mode 前有误留的空格）
+		// 匹配 mode 字段
 		if strings.HasPrefix(trimmed, "mode:") {
 			log.Printf("[DEBUG] 找到 YAML 中的 mode 行 (第 %d 行): %q, 当前想要的值 wantMode=%q", i+1, line, wantMode)
 
