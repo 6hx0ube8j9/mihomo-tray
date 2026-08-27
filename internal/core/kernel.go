@@ -11,7 +11,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"log"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -32,7 +31,6 @@ type KernelManager struct {
 	hJob       windows.Handle
 	currentPid uint32
 	activeProc *os.Process
-	activeCmd  *exec.Cmd
 	mu         sync.Mutex
 	lastError  string
 }
@@ -116,6 +114,8 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		const CREATE_DEFAULT_ERROR_MODE = 0x04000000
 		cmd.SysProcAttr = &windows.SysProcAttr{
 			HideWindow: true,
+			// 关键修改：使用 CREATE_NEW_PROCESS_GROUP，赋予子进程独立的进程组 ID（等于 Pid）
+			// 这样以后才能通过 GenerateConsoleCtrlEvent 给它发送精准的 CTRL_BREAK 信号
 			CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | CREATE_DEFAULT_ERROR_MODE,
 		}
 		cmd.Stdout = errBuf
@@ -135,7 +135,6 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		}
 
 		km.mu.Lock()
-		km.activeCmd = cmd
 		km.activeProc = cmd.Process
 		atomic.StoreUint32(&km.currentPid, uint32(cmd.Process.Pid))
 		km.mu.Unlock()
@@ -336,14 +335,10 @@ func setConsoleCtrlHandler(add bool) error {
 	return nil
 }
 
-// 1. 修复 sendCtrlBreak：先 freeConsole 避免重复绑定失败
 func sendCtrlBreak(pid uint32) error {
 	if pid == 0 {
 		return fmt.Errorf("invalid pid")
 	}
-
-	// 关键：先释放主进程可能持有的控制台（防止在 CMD/IDE 调试时 Attach 失败）
-	_ = freeConsole()
 
 	if err := attachConsole(pid); err != nil {
 		return fmt.Errorf("attachConsole(pid=%d) 失败: %w", pid, err)
@@ -356,44 +351,35 @@ func sendCtrlBreak(pid uint32) error {
 	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
 }
 
+
 func (km *KernelManager) KillCurrent() {
 	km.mu.Lock()
 	proc := km.activeProc
 	pid := atomic.LoadUint32(&km.currentPid)
 
+	// 标记为“已由我们主动停止”，防止 RunDaemon 误判为崩溃重试
 	km.activeProc = nil
-	km.activeCmd = nil
 	atomic.StoreUint32(&km.currentPid, 0)
 	km.mu.Unlock()
 
-	if proc == nil || pid == 0 {
-		sys.KillOtherProcessesByName("mihomo.exe", 0)
-		return
-	}
+	if proc != nil && pid != 0 {
+		// 1. 发送安全退出中断信号
+		err := sendCtrlBreak(pid)
 
-	log.Printf("[INFO] 正在优雅关闭内核 (PID: %d)...", pid)
-
-	err := sendCtrlBreak(pid)
-	if err != nil {
-		log.Printf("[ERROR] 发送 CTRL_BREAK 信号失败: %v，准备直接强杀", err)
-		_ = proc.Kill()
-	}
-
-	cleanExit := false
-	for i := 0; i < 50; i++ {
-		if !sys.IsPidRunning(pid, "mihomo.exe") {
-			cleanExit = true
-			log.Printf("[INFO] 内核进程 (PID: %d) 已完全退出，TUN 网卡与资源已安全卸载。", pid)
-			break
+		if err == nil {
+			for i := 0; i < 50; i++ {
+				if !sys.IsPidRunning(pid, "mihomo.exe") {
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
 		}
-		time.Sleep(100 * time.Millisecond)
-	}
 
-	if !cleanExit {
-		log.Printf("[WARN] 内核进程未在 5 秒内优雅退出，执行强杀！")
-		_ = proc.Kill()
+		if sys.IsPidRunning(pid, "mihomo.exe") {
+			_ = proc.Kill()
+		}
 	}
 
 	sys.KillOtherProcessesByName("mihomo.exe", 0)
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 }
