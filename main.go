@@ -14,7 +14,6 @@ import (
 	"golang.org/x/sys/windows"
 
 	"mihomo-tray/internal/app"
-	"mihomo-tray/internal/core" 
 	"mihomo-tray/internal/fsm"
 	"mihomo-tray/internal/ui"
 )
@@ -24,7 +23,7 @@ const (
 	ShowUIEvent = "Mihomo_Tray_Mutex_ShowUI"
 )
 
-
+// syncFileWriter 包装 os.File，每次写入后立即强制刷盘 (Sync)
 type syncFileWriter struct {
 	file *os.File
 }
@@ -32,7 +31,7 @@ type syncFileWriter struct {
 func (w *syncFileWriter) Write(p []byte) (n int, err error) {
 	n, err = w.file.Write(p)
 	if err == nil {
-		_ = w.file.Sync() 
+		_ = w.file.Sync() // 强制刷新内存缓冲区到磁盘
 	}
 	return n, err
 }
@@ -43,7 +42,7 @@ func initEarlyLogger(baseDir string) *os.File {
 	if err != nil {
 		return nil
 	}
-
+	
 	// 使用自动刷盘 Writer 接管 log 输出
 	log.SetOutput(&syncFileWriter{file: file})
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
@@ -51,12 +50,6 @@ func initEarlyLogger(baseDir string) *os.File {
 }
 
 func main() {
-
-	if core.CheckWatchdogArg() {
-		return
-	}
-	// =================================================================
-
 	runtime.LockOSThread()
 
 	exePath, err := os.Executable()
