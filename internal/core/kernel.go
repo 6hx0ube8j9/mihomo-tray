@@ -335,10 +335,14 @@ func setConsoleCtrlHandler(add bool) error {
 	return nil
 }
 
+// 1. 修复 sendCtrlBreak：先 freeConsole 避免重复绑定失败
 func sendCtrlBreak(pid uint32) error {
 	if pid == 0 {
 		return fmt.Errorf("invalid pid")
 	}
+
+	// 关键：先释放主进程可能持有的控制台（防止在 CMD/IDE 调试时 Attach 失败）
+	_ = freeConsole()
 
 	if err := attachConsole(pid); err != nil {
 		return fmt.Errorf("attachConsole(pid=%d) 失败: %w", pid, err)
@@ -351,8 +355,6 @@ func sendCtrlBreak(pid uint32) error {
 	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
 }
 
-// ---------------- 主动优雅退出控制 ----------------
-
 func (km *KernelManager) KillCurrent() {
 	km.mu.Lock()
 	proc := km.activeProc
@@ -363,23 +365,33 @@ func (km *KernelManager) KillCurrent() {
 	km.mu.Unlock()
 
 	if proc != nil && pid != 0 {
+		log.Printf("[INFO] 正在优雅关闭内核 (PID: %d)...", pid)
+		
+		// 发送安全中断信号
 		err := sendCtrlBreak(pid)
-
+		
+		cleanExit := false
 		if err == nil {
-
-			for i := 0; i < 50; i++ {
+			// 给 mihomo 最多 6 秒钟卸载 Wintun 网卡和清理路由表
+			for i := 0; i < 60; i++ {
 				if !sys.IsPidRunning(pid, "mihomo.exe") {
+					cleanExit = true
+					log.Printf("[INFO] 内核 (PID: %d) 已安全退出并清理 TUN。", pid)
 					break
 				}
 				time.Sleep(100 * time.Millisecond)
 			}
+		} else {
+			log.Printf("[ERROR] 发送退出信号失败: %v", err)
 		}
 
-		if sys.IsPidRunning(pid, "mihomo.exe") {
+		// 如果 6 秒内没有优雅退出（卡死），才执行兜底强杀
+		if !cleanExit && sys.IsPidRunning(pid, "mihomo.exe") {
+			log.Printf("[WARN] 内核未在规定时间内退出，执行兜底强杀！")
 			_ = proc.Kill()
 		}
 	}
 
-	sys.KillOtherProcessesByName("mihomo.exe", 0)
-	time.Sleep(100 * time.Millisecond)
+	sys.KillOtherProcessesByName("mihomo.exe", 0) 
+	time.Sleep(200 * time.Millisecond)
 }
