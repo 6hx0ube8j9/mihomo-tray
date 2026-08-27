@@ -358,41 +358,45 @@ func sendCtrlBreak(pid uint32) error {
 
 func (km *KernelManager) KillCurrent() {
 	km.mu.Lock()
-	proc := km.activeProc
+	cmd := km.activeCmd   // 启动时保存的 *exec.Cmd
+	proc := km.activeProc // 启动时保存的 *os.Process
 	pid := atomic.LoadUint32(&km.currentPid)
 
 	km.activeProc = nil
+	km.activeCmd = nil
 	atomic.StoreUint32(&km.currentPid, 0)
 	km.mu.Unlock()
 
-	if proc != nil && pid != 0 {
-		log.Printf("[INFO] 正在优雅关闭内核 (PID: %d)...", pid)
-		
-		// 发送安全中断信号
-		err := sendCtrlBreak(pid)
-		
-		cleanExit := false
-		if err == nil {
-			// 给 mihomo 最多 6 秒钟卸载 Wintun 网卡和清理路由表
-			for i := 0; i < 60; i++ {
-				if !sys.IsPidRunning(pid, "mihomo.exe") {
-					cleanExit = true
-					log.Printf("[INFO] 内核 (PID: %d) 已安全退出并清理 TUN。", pid)
-					break
-				}
-				time.Sleep(100 * time.Millisecond)
-			}
-		} else {
-			log.Printf("[ERROR] 发送退出信号失败: %v", err)
-		}
-
-		// 如果 6 秒内没有优雅退出（卡死），才执行兜底强杀
-		if !cleanExit && sys.IsPidRunning(pid, "mihomo.exe") {
-			log.Printf("[WARN] 内核未在规定时间内退出，执行兜底强杀！")
-			_ = proc.Kill()
-		}
+	if proc == nil || pid == 0 {
+		return
 	}
 
-	sys.KillOtherProcessesByName("mihomo.exe", 0) 
-	time.Sleep(200 * time.Millisecond)
+	log.Printf("[INFO] 正在优雅关闭内核 (PID: %d)...", pid)
+
+	// 1. 发送优雅退出信号
+	if err := sendCtrlBreak(pid); err != nil {
+		log.Printf("[ERROR] 发送 CTRL_BREAK 失败: %v，立即执行强杀", err)
+		_ = proc.Kill()
+		return
+	}
+
+	done := make(chan struct{})
+	go func() {
+		if cmd != nil {
+			_ = cmd.Wait()
+		} else {
+			_, _ = proc.Wait()
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		log.Printf("[INFO] 内核进程 (PID: %d) 已完全退出，TUN 网卡已安全卸载。", pid)
+	case <-time.After(5 * time.Second):
+		log.Printf("[WARN] 内核进程未在 5 秒内退出，执行兜底强杀！")
+		_ = proc.Kill()
+	}
+
+	sys.KillOtherProcessesByName("mihomo.exe", 0)
 }
