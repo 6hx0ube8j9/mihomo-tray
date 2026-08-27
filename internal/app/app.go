@@ -111,36 +111,27 @@ func (a *Application) Bootstrap(ctx context.Context) {
 }
 
 func (a *Application) SafeShutdown(cancel context.CancelFunc) {
-    log.Println("[INFO] 正在触发安全退出机制 (SafeShutdown)...")
-    a.Cfg.State.ForceExitPhase()
+	log.Println("[INFO] 正在触发安全退出机制 (SafeShutdown)...")
+	a.Cfg.State.ForceExitPhase()
 
-    // 1. 先关闭系统代理
-    if a.Cfg.Get("proxy") == "true" {
-        log.Println("[INFO] 正在关闭系统代理...")
-        if err := sys.DisableSystemProxy(); err != nil {
-            log.Printf("[ERROR] 关闭系统代理失败: %v", err)
-        }
-    }
+	if cancel != nil {
+		cancel()
+	}
 
-    // 2. 发送 API 关停 TUN（给 200ms 让内核回应）
-    log.Println("[INFO] 停止 TUN 网卡模式...")
-    a.gracefulStopTUN()
-    time.Sleep(200 * time.Millisecond)
+	if a.Cfg.Get("proxy") == "true" {
+		log.Println("[INFO] 正在关闭系统代理...")
+		if err := sys.DisableSystemProxy(); err != nil {
+			log.Printf("[ERROR] 关闭系统代理失败: %v", err)
+		}
+	}
 
-    // 3. 【核心修正】：必须显式调用 KillCurrent()，阻塞等待内核优雅退出（处理 TUN 注销）
-    log.Println("[INFO] 正在优雅关停内核进程...")
-    a.Kernel.KillCurrent() 
+	log.Println("[INFO] 正在优雅关停内核进程...")
+	a.Kernel.KillCurrent() 
 
-    // 4. 内核已经彻底退出后，再 cancel Context（避免触发 CommandContext 的默认硬杀）
-    if cancel != nil {
-        cancel()
-    }
+	log.Println("[INFO] 关闭内核管理接口...")
+	a.Kernel.Close() 
 
-    // 5. 最后关闭 Job 句柄（此时进程已死，关闭句柄不会触发 OS 强杀）
-    log.Println("[INFO] 关闭内核管理接口...")
-    a.Kernel.Close() 
-
-    log.Println("[INFO] ==================== 应用已安全关闭 ====================")
+	log.Println("[INFO] ==================== 应用已安全关闭 ====================")
 }
 
 func (a *Application) eventLoop(ctx context.Context) {
@@ -419,27 +410,19 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 		}
 	}()
 }
-
 func (a *Application) RestartKernel() {
-    log.Println("[WARN] 执行内核重启操作 (RestartKernel)...")
-    a.Cfg.State.SetRestarting(true)
-    a.Cfg.State.SetReloading(false)
-    a.Cfg.State.MuteAPIWatcher(5 * time.Second)
+	log.Println("[WARN] 执行内核重启操作 (RestartKernel)...")
+	a.Cfg.State.SetRestarting(true)
+	a.Cfg.State.SetReloading(false)
+	a.Cfg.State.MuteAPIWatcher(5 * time.Second)
 
-    a.ensureYAMLStateForBoot()
-    a.Cfg.SyncWithYAML()
+	a.ensureYAMLStateForBoot()
+	a.Cfg.SyncWithYAML()
 
-    // 1. API 软停 TUN
-    a.gracefulStopTUN()
-    
-    // 2. 给予 200ms 让 WinTUN 驱动完成 API 级别的解绑
-    time.Sleep(200 * time.Millisecond)
+	log.Println("[INFO] 终止当前内核进程...")
+	a.Kernel.KillCurrent()
 
-    // 3. 触发 KillCurrent（发送 CTRL_BREAK 信号并轮询等待 PID 消失）
-    log.Println("[INFO] 终止当前内核进程...")
-    a.Kernel.KillCurrent()
-
-    a.pushUIState()
+	a.pushUIState()
 }
 
 func (a *Application) handleTunChange(ctx context.Context) {
