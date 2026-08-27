@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +19,10 @@ import (
 	"mihomo-tray/internal/fsm"
 	"mihomo-tray/internal/sys"
 )
+
+// -----------------------------------------------------------------------------
+// 类型定义、常量与 Win32 API 动态加载 (置顶)
+// -----------------------------------------------------------------------------
 
 type KernelEvent int
 
@@ -41,6 +46,10 @@ type KernelManager struct {
 	mu         sync.Mutex
 	lastError  string
 }
+
+// -----------------------------------------------------------------------------
+// 构造函数与生命周期公开接口 (Public Methods)
+// -----------------------------------------------------------------------------
 
 func NewKernelManager(cm *fsm.Manager) *KernelManager {
 	km := &KernelManager{cm: cm}
@@ -93,7 +102,8 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		}
 
 		errBuf := &tailBuffer{max: 64 * 1024}
-		
+
+		// 注意：此处不使用 exec.CommandContext，防止 context cancel 时触发 Go 默认强杀
 		cmd := exec.Command(target, "-d", ".")
 		cmd.Dir = absBaseDir
 
@@ -131,6 +141,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		case eventCh <- EventKernelReady:
 		}
 
+		// 监听 context 取消信号触发安全关闭
 		waitDone := make(chan struct{})
 		go func() {
 			select {
@@ -175,8 +186,9 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		km.mu.Unlock()
 
 		select {
+		case <-ctx.Done():
+			return
 		case eventCh <- EventKernelExit:
-		default:
 		}
 
 		if runDuration >= 5*time.Second || isKilledByUs {
@@ -207,9 +219,13 @@ func (km *KernelManager) KillCurrent() {
 	atomic.StoreUint32(&km.currentPid, 0)
 	km.mu.Unlock()
 
+	log.Printf("[INFO] 正在向内核进程 (PID: %d) 发送安全退出中断 (CTRL_BREAK)...", pid)
+
 	if err := sendCtrlBreak(pid); err != nil {
+		log.Printf("[ERROR] 发送安全中断失败: %v，尝试强制结束进程", err)
 		_ = proc.Kill()
 	} else {
+		// 阻塞等待内核完成 TUN 卸载与清理退出（最长 10 秒）
 		exited := false
 		for i := 0; i < 100; i++ {
 			if !sys.IsPidRunning(pid, "mihomo.exe") {
@@ -219,7 +235,10 @@ func (km *KernelManager) KillCurrent() {
 			time.Sleep(100 * time.Millisecond)
 		}
 
-		if !exited {
+		if exited {
+			log.Printf("[INFO] 内核进程 (PID: %d) 已完成清理并安全退出。", pid)
+		} else {
+			log.Printf("[WARN] 内核进程 (PID: %d) 退出超时，执行强制 kill 兜底...", pid)
 			_ = proc.Kill()
 		}
 	}
@@ -227,6 +246,10 @@ func (km *KernelManager) KillCurrent() {
 	sys.KillOtherProcessesByName("mihomo.exe", 0)
 	time.Sleep(250 * time.Millisecond)
 }
+
+// -----------------------------------------------------------------------------
+// KernelManager 私有辅助方法 (Private Methods)
+// -----------------------------------------------------------------------------
 
 func (km *KernelManager) initJobObject() {
 	h, err := windows.CreateJobObject(nil, nil)
@@ -317,10 +340,14 @@ func (km *KernelManager) calculateBackoff(current, max time.Duration) time.Durat
 	return next
 }
 
+// -----------------------------------------------------------------------------
+// Win32 API 控制台信号发送底层实现
+// -----------------------------------------------------------------------------
+
 func attachConsole(pid uint32) error {
 	r1, _, err := procAttachConsole.Call(uintptr(pid))
 	if r1 == 0 {
-		return fmt.Errorf("attachConsole: %w", err)
+		return fmt.Errorf("attachConsole 失败: %w", err)
 	}
 	return nil
 }
@@ -328,7 +355,7 @@ func attachConsole(pid uint32) error {
 func freeConsole() error {
 	r1, _, err := procFreeConsole.Call()
 	if r1 == 0 {
-		return fmt.Errorf("freeConsole: %w", err)
+		return fmt.Errorf("freeConsole 失败: %w", err)
 	}
 	return nil
 }
@@ -340,7 +367,7 @@ func setConsoleCtrlHandler(add bool) error {
 	}
 	r1, _, err := procSetConsoleCtrlHandler.Call(0, a)
 	if r1 == 0 {
-		return fmt.Errorf("setConsoleCtrlHandler: %w", err)
+		return fmt.Errorf("setConsoleCtrlHandler 失败: %w", err)
 	}
 	return nil
 }
@@ -360,6 +387,10 @@ func sendCtrlBreak(pid uint32) error {
 
 	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
 }
+
+// -----------------------------------------------------------------------------
+// 日志 Tail Buffer 结构
+// -----------------------------------------------------------------------------
 
 type tailBuffer struct {
 	mu  sync.Mutex
