@@ -190,7 +190,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		}
 
 		if runDuration >= 5*time.Second || isKilledByUs {
-			currentDelay = 50 * time.Millisecond
+			currentDelay = 600 * time.Millisecond
 		} else {
 			currentDelay = km.calculateBackoff(currentDelay, maxDelay)
 		}
