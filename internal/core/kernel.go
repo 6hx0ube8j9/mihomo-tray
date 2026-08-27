@@ -32,7 +32,6 @@ type KernelManager struct {
 	hJob       windows.Handle
 	currentPid uint32
 	activeProc *os.Process
-	activeCmd  *exec.Cmd
 	mu         sync.Mutex
 	lastError  string
 }
@@ -137,7 +136,6 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		}
 
 		km.mu.Lock()
-		km.activeCmd = cmd
 		km.activeProc = cmd.Process
 		atomic.StoreUint32(&km.currentPid, uint32(cmd.Process.Pid))
 		km.mu.Unlock()
@@ -360,8 +358,7 @@ func sendCtrlBreak(pid uint32) error {
 
 func (km *KernelManager) KillCurrent() {
 	km.mu.Lock()
-	cmd := km.activeCmd   // 启动时保存的 *exec.Cmd
-	proc := km.activeProc // 启动时保存的 *os.Process
+	proc := km.activeProc
 	pid := atomic.LoadUint32(&km.currentPid)
 
 	km.activeProc = nil
@@ -370,35 +367,33 @@ func (km *KernelManager) KillCurrent() {
 	km.mu.Unlock()
 
 	if proc == nil || pid == 0 {
+		sys.KillOtherProcessesByName("mihomo.exe", 0)
 		return
 	}
 
 	log.Printf("[INFO] 正在优雅关闭内核 (PID: %d)...", pid)
 
-	// 1. 发送优雅退出信号
-	if err := sendCtrlBreak(pid); err != nil {
-		log.Printf("[ERROR] 发送 CTRL_BREAK 失败: %v，立即执行强杀", err)
+	err := sendCtrlBreak(pid)
+	if err != nil {
+		log.Printf("[ERROR] 发送 CTRL_BREAK 信号失败: %v，准备直接强杀", err)
 		_ = proc.Kill()
-		return
 	}
 
-	done := make(chan struct{})
-	go func() {
-		if cmd != nil {
-			_ = cmd.Wait()
-		} else {
-			_, _ = proc.Wait()
+	cleanExit := false
+	for i := 0; i < 50; i++ {
+		if !sys.IsPidRunning(pid, "mihomo.exe") {
+			cleanExit = true
+			log.Printf("[INFO] 内核进程 (PID: %d) 已完全退出，TUN 网卡与资源已安全卸载。", pid)
+			break
 		}
-		close(done)
-	}()
+		time.Sleep(100 * time.Millisecond)
+	}
 
-	select {
-	case <-done:
-		log.Printf("[INFO] 内核进程 (PID: %d) 已完全退出，TUN 网卡已安全卸载。", pid)
-	case <-time.After(5 * time.Second):
-		log.Printf("[WARN] 内核进程未在 5 秒内退出，执行兜底强杀！")
+	if !cleanExit {
+		log.Printf("[WARN] 内核进程未在 5 秒内优雅退出，执行强杀！")
 		_ = proc.Kill()
 	}
 
 	sys.KillOtherProcessesByName("mihomo.exe", 0)
+	time.Sleep(300 * time.Millisecond)
 }
