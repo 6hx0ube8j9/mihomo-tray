@@ -48,7 +48,7 @@ func (km *KernelManager) initJobObject() {
 	}
 	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
 		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
-			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+			// LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, ### 已移除 Job Object 关闭时自动强杀子进程的标记
 		},
 	}
 	_, _ = windows.SetInformationJobObject(
@@ -96,7 +96,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			return
 		}
 
-		sys.KillOtherProcessesByName("mihomo.exe", 0)
+		// sys.KillOtherProcessesByName("mihomo.exe", 0) ### 已移除清理同名残留进程的代码
 
 		select {
 		case <-ctx.Done():
@@ -320,14 +320,15 @@ func (km *KernelManager) KillCurrent() {
 				time.Sleep(100 * time.Millisecond)
 			}
 			
+
 			if !exited {
-				_ = proc.Kill()
+				// _ = proc.Kill() ### 已移除强杀当前进程的代码
 			}
 		} else {
-			_ = proc.Kill()
+			// _ = proc.Kill() ### 已移除强杀当前进程的代码
 		}
 	}
 
-	sys.KillOtherProcessesByName("mihomo.exe", 0)
+	// sys.KillOtherProcessesByName("mihomo.exe", 0) ### 已移除按名称强杀其他残留进程的代码
 	time.Sleep(250 * time.Millisecond)
 }
