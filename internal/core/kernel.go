@@ -126,8 +126,9 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		km.assignToJob(cmd.Process.Pid)
 
 		select {
+		case <-ctx.Done():
+			return
 		case eventCh <- EventKernelReady:
-		default:
 		}
 
 		waitDone := make(chan struct{})
