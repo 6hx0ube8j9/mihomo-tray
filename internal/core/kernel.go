@@ -320,7 +320,8 @@ func (km *KernelManager) sendCtrlBreak(pid uint32) error {
 
 	// 忽略本进程接收到的 Ctrl 信号，防止主程序被误导关闭
 	_ = windows.SetConsoleCtrlHandler(nil, true)
-	defer _ = windows.SetConsoleCtrlHandler(nil, false)
+	// 修正：defer 后直接跟函数调用，不能带有赋值语句 "_ ="
+	defer windows.SetConsoleCtrlHandler(nil, false)
 
 	// 向对应的 ProcessGroup 广播 CTRL_BREAK 软中断信号
 	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
