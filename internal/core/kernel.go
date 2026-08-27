@@ -32,6 +32,7 @@ type KernelManager struct {
 	hJob       windows.Handle
 	currentPid uint32
 	activeProc *os.Process
+	activeCmd  *exec.Cmd
 	mu         sync.Mutex
 	lastError  string
 }
@@ -115,8 +116,6 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		const CREATE_DEFAULT_ERROR_MODE = 0x04000000
 		cmd.SysProcAttr = &windows.SysProcAttr{
 			HideWindow: true,
-			// 关键修改：使用 CREATE_NEW_PROCESS_GROUP，赋予子进程独立的进程组 ID（等于 Pid）
-			// 这样以后才能通过 GenerateConsoleCtrlEvent 给它发送精准的 CTRL_BREAK 信号
 			CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | CREATE_DEFAULT_ERROR_MODE,
 		}
 		cmd.Stdout = errBuf
@@ -136,6 +135,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		}
 
 		km.mu.Lock()
+		km.activeCmd = cmd
 		km.activeProc = cmd.Process
 		atomic.StoreUint32(&km.currentPid, uint32(cmd.Process.Pid))
 		km.mu.Unlock()
