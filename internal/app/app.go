@@ -112,7 +112,11 @@ func (a *Application) Bootstrap(ctx context.Context) {
 
 func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	log.Println("[INFO] 正在触发安全退出机制 (SafeShutdown)...")
+	
 	a.Cfg.State.ForceExitPhase()
+
+	log.Println("[INFO] 正在优雅关停内核进程...")
+	a.Kernel.KillCurrent()
 
 	if cancel != nil {
 		cancel()
@@ -125,11 +129,8 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 		}
 	}
 
-	log.Println("[INFO] 正在优雅关停内核进程...")
-	a.Kernel.KillCurrent() 
-
 	log.Println("[INFO] 关闭内核管理接口...")
-	a.Kernel.Close() 
+	a.Kernel.Close()
 
 	log.Println("[INFO] ==================== 应用已安全关闭 ====================")
 }
