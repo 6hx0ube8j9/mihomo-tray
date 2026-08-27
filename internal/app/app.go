@@ -33,8 +33,8 @@ type Application struct {
 	proxyEventCh  chan bool
 	apiPollCh     chan struct{}
 
-	UIStateCh   chan ui.UIState
-	UICommandCh chan ui.UICommand
+	UIStateCh    chan ui.UIState
+	UICommandCh  chan ui.UICommand
 	webuiEventCh chan ui.Event
 
 	lastUIState ui.UIState
@@ -111,30 +111,33 @@ func (a *Application) Bootstrap(ctx context.Context) {
 }
 
 func (a *Application) SafeShutdown(cancel context.CancelFunc) {
-    log.Println("[INFO] 正在触发安全退出机制 (SafeShutdown)...")
-    
-    a.Cfg.State.ForceExitPhase()
+	log.Println("[INFO] 正在触发安全退出机制 (SafeShutdown)...")
 
-    if cancel != nil {
-        cancel()
-    }
+	// 1. 优先设置退出标记，通知全局与状态机停止接收外界变更通知
+	a.Cfg.State.ForceExitPhase()
 
-    if a.Cfg.Get("proxy") == "true" {
-        log.Println("[INFO] 正在关闭系统代理...")
-        if err := sys.DisableSystemProxy(); err != nil {
-            log.Printf("[ERROR] 关闭系统代理失败: %v", err)
-        }
-    }
+	// 2. 及时取消 Context 终止所有 background goroutines
+	if cancel != nil {
+		cancel()
+	}
 
-    log.Println("[INFO] 正在优雅关停内核进程...")
-    a.Kernel.KillCurrent()
+	// 3. 安全静默关闭系统代理（静音注册表监听）
+	if a.Cfg.Get("proxy") == "true" {
+		log.Println("[INFO] 正在关闭系统代理...")
+		if err := sys.DisableSystemProxy(); err != nil {
+			log.Printf("[ERROR] 关闭系统代理失败: %v", err)
+		}
+	}
 
-    log.Println("[INFO] 关闭内核管理接口...")
-    a.Kernel.Close()
+	log.Println("[INFO] 正在优雅关停内核进程...")
+	a.Kernel.KillCurrent()
 
-    time.Sleep(300 * time.Millisecond)
+	log.Println("[INFO] 关闭内核管理接口...")
+	a.Kernel.Close()
 
-    log.Println("[INFO] ==================== 应用已安全关闭 ====================")
+	time.Sleep(300 * time.Millisecond)
+
+	log.Println("[INFO] ==================== 应用已安全关闭 ====================")
 }
 
 func (a *Application) eventLoop(ctx context.Context) {
@@ -201,7 +204,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 			} else if event == core.EventKernelExit {
 				log.Println("[WARN] 内核异常退出 (EventKernelExit)，重置阶段为 Initializing")
 				a.Cfg.State.SetPhase(fsm.PhaseInitializing)
-				
+
 				a.Cfg.State.SetRestarting(false)
 				a.Cfg.State.SetReloading(false)
 			}
@@ -212,6 +215,9 @@ func (a *Application) eventLoop(ctx context.Context) {
 			a.handleTunChange(ctx)
 
 		case isProxyActive := <-a.proxyEventCh:
+			if a.Cfg.State.IsExiting() {
+				break
+			}
 			log.Printf("[INFO] 系统代理状态变更通知: active=%v", isProxyActive)
 			if !isProxyActive {
 				a.Cfg.Set("proxy", "false")
@@ -265,7 +271,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		if enable {
 			a.Cfg.State.SetTunRequestedTime(time.Now())
 		}
-		a.Cfg.State.MuteAPIWatcher(3 * time.Second)
+		a.Cfg.State.MuteAPIWatcher(5 * time.Second)
 		go a.API.SyncConfigToKernel(ctx, map[string]interface{}{
 			"tun": map[string]interface{}{
 				"enable": enable,
@@ -275,7 +281,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 	case "SwitchMode":
 		log.Printf("[INFO] 切换运行模式: %s", cmd.Payload)
 		a.Cfg.Set("mode", cmd.Payload)
-		a.Cfg.State.MuteAPIWatcher(2 * time.Second)
+		a.Cfg.State.MuteAPIWatcher(3 * time.Second)
 		go a.syncAllConfig(ctx)
 
 	case "ToggleAutoStart":
@@ -304,10 +310,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 
 func (a *Application) calculateUIState() ui.UIState {
 	s := ui.UIState{
-		IsTun:     a.Cfg.Get("tun") == "true",
-		IsProxy:   a.Cfg.Get("proxy") == "true",
-		Mode:      a.Cfg.Get("mode"),
-		AutoStart: a.Cfg.Get("autostart") == "true",
+		IsTun:      a.Cfg.Get("tun") == "true",
+		IsProxy:    a.Cfg.Get("proxy") == "true",
+		Mode:       a.Cfg.Get("mode"),
+		AutoStart:  a.Cfg.Get("autostart") == "true",
 	}
 
 	if a.Cfg.State.GetPhase() != fsm.PhaseRunning || a.Cfg.State.IsRestarting() {
@@ -476,6 +482,10 @@ func (a *Application) watchProxyAdapter(ctx context.Context) {
 		func() bool { return a.Cfg.Get("proxy") == "true" },
 		func() string { return a.Cfg.Get("port") },
 		func() {
+			// 在退出阶段直接忽略通知
+			if a.Cfg.State.IsExiting() {
+				return
+			}
 			log.Println("[WARN] 注册表通知: 系统代理在外部被关闭")
 			select {
 			case a.proxyEventCh <- false:
@@ -483,6 +493,10 @@ func (a *Application) watchProxyAdapter(ctx context.Context) {
 			}
 		},
 		func() {
+			// 在退出阶段直接忽略通知
+			if a.Cfg.State.IsExiting() {
+				return
+			}
 			log.Println("[INFO] 注册表通知: 系统代理在外部被开启")
 			select {
 			case a.proxyEventCh <- true:
@@ -511,6 +525,11 @@ func (a *Application) syncAllConfig(ctx context.Context) {
 }
 
 func (a *Application) pollKernelAPI(ctx context.Context) bool {
+	// 如果正处于 APIWatcherMuted 拦截期（例如启动/重载/重启阶段），禁止反向覆盖配置
+	if a.Cfg.State.IsAPIWatcherMuted() {
+		return false
+	}
+
 	queryCtx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
 	defer cancel()
 
@@ -534,6 +553,8 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 			a.Cfg.Set("mode", resp.Mode)
 			changed = true
 		}
+		
+		// 只有在非 Muted 且返回确定真实状态时才允许覆盖本地 Tun.Enable
 		if resp.Tun.Enable != (a.Cfg.Get("tun") == "true") {
 			log.Printf("[INFO] 内核返回 Tun.Enable 变更: %v -> %v", a.Cfg.Get("tun") == "true", resp.Tun.Enable)
 			a.Cfg.Set("tun", fmt.Sprintf("%t", resp.Tun.Enable))
@@ -548,7 +569,6 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 	}
 	return false
 }
-
 
 func (a *Application) ensureYAMLStateForBoot() {
 	wantTun := a.Cfg.Get("tun") == "true"
