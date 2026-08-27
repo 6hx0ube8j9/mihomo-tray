@@ -11,7 +11,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"unsafe"
 
 	"golang.org/x/sys/windows"
 
@@ -46,11 +45,8 @@ func (km *KernelManager) initJobObject() {
 	if err != nil {
 		return
 	}
-	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
-		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
-			// LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, ### 已移除 Job Object 关闭时自动强杀子进程的标记
-		},
-	}
+	// ### 移除了 LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE (阻止 Windows 操作系统在句柄关闭时强制 Kill 子进程)
+	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
 	_, _ = windows.SetInformationJobObject(
 		h,
 		windows.JobObjectExtendedLimitInformation,
@@ -76,7 +72,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 	for {
 		select {
 		case <-ctx.Done():
-			km.KillCurrent()
+			km.KillCurrent() // 内部已改为安全退出信号
 			return
 		default:
 		}
@@ -96,7 +92,6 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			return
 		}
 
-		// sys.KillOtherProcessesByName("mihomo.exe", 0) ### 已移除清理同名残留进程的代码
 
 		select {
 		case <-ctx.Done():
@@ -106,7 +101,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 
 		errBuf := &tailBuffer{max: 64 * 1024}
 
-		cmd := exec.CommandContext(ctx, target, "-d", ".")
+		cmd := exec.Command(target, "-d", ".")
 		cmd.Dir = absBaseDir
 
 		const CREATE_DEFAULT_ERROR_MODE = 0x04000000
@@ -146,7 +141,17 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		default:
 		}
 
+		waitDone := make(chan struct{})
+		go func() {
+			select {
+			case <-ctx.Done():
+				km.KillCurrent()
+			case <-waitDone:
+			}
+		}()
+
 		waitErr := cmd.Wait()
+		close(waitDone) // 进程自然退出后结束监听
 
 		km.mu.Lock()
 		isKilledByUs := (km.activeProc == nil)
@@ -311,24 +316,20 @@ func (km *KernelManager) KillCurrent() {
 		err := windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
 		
 		if err == nil {
-			exited := false
+			// 最多等待 5 秒让内核安全释放资源并自主退出
 			for i := 0; i < 50; i++ {
 				if !sys.IsPidRunning(pid, "mihomo.exe") {
-					exited = true
 					break
 				}
 				time.Sleep(100 * time.Millisecond)
 			}
 			
-
-			if !exited {
-				// _ = proc.Kill() ### 已移除强杀当前进程的代码
-			}
+			// ### 删除了超时后的 proc.Kill() 强杀代码
 		} else {
-			// _ = proc.Kill() ### 已移除强杀当前进程的代码
+			// ### 删除了发送信号失败时的 proc.Kill() 强杀代码
 		}
 	}
 
-	// sys.KillOtherProcessesByName("mihomo.exe", 0) ### 已移除按名称强杀其他残留进程的代码
+	// ### 删除了 sys.KillOtherProcessesByName("mihomo.exe", 0) 强制清洗同名进程的代码
 	time.Sleep(250 * time.Millisecond)
 }
