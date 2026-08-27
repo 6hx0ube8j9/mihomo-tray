@@ -118,12 +118,12 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	
 	a.Cfg.State.ForceExitPhase()
 
-	log.Println("[INFO] 正在优雅关停内核进程...")
-	a.Kernel.KillCurrent()
-
 	if cancel != nil {
 		cancel()
 	}
+
+	log.Println("[INFO] 正在优雅关停内核进程...")
+	a.Kernel.KillCurrent()
 
 	if a.Cfg.Get("proxy") == "true" {
 		log.Println("[INFO] 正在关闭系统代理...")
