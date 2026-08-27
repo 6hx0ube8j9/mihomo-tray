@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,7 +49,6 @@ func (km *KernelManager) initJobObject() {
 	}
 	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
 		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
-			// 兜底策略：主进程崩溃/被强杀时，操作系统底层自动终止子进程
 			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 		},
 	}
@@ -97,7 +97,6 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			return
 		}
 
-		// 启动前的防御性自愈清理：确保没有残留的 mihomo 孤儿进程
 		sys.KillOtherProcessesByName("mihomo.exe", 0)
 
 		select {
@@ -108,14 +107,14 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 
 		errBuf := &tailBuffer{max: 64 * 1024}
 
-		cmd := exec.CommandContext(ctx, target, "-d", ".")
+		// 注意：此处绝对不能用 exec.CommandContext，否则 context cancel 时 Go 会直接发起强杀！
+		cmd := exec.Command(target, "-d", ".")
 		cmd.Dir = absBaseDir
 
 		const CREATE_DEFAULT_ERROR_MODE = 0x04000000
 		cmd.SysProcAttr = &windows.SysProcAttr{
 			HideWindow: true,
-			// 关键修改：使用 CREATE_NEW_PROCESS_GROUP，赋予子进程独立的进程组 ID（等于 Pid）
-			// 这样以后才能通过 GenerateConsoleCtrlEvent 给它发送精准的 CTRL_BREAK 信号
+			// 必须添加 CREATE_NEW_PROCESS_GROUP 标志，允许向子进程组发送 CTRL_BREAK
 			CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | CREATE_DEFAULT_ERROR_MODE,
 		}
 		cmd.Stdout = errBuf
@@ -146,7 +145,18 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		default:
 		}
 
+		// 监听 context 取消信号，触发安全关闭
+		waitDone := make(chan struct{})
+		go func() {
+			select {
+			case <-ctx.Done():
+				km.KillCurrent()
+			case <-waitDone:
+			}
+		}()
+
 		waitErr := cmd.Wait()
+		close(waitDone)
 
 		km.mu.Lock()
 		isKilledByUs := (km.activeProc == nil)
@@ -298,8 +308,6 @@ func (t *tailBuffer) Len() int {
 	return len(t.buf)
 }
 
-// ---------------- Win32 Console API 动态绑定 ----------------
-
 var (
 	modkernel32               = windows.NewLazySystemDLL("kernel32.dll")
 	procAttachConsole         = modkernel32.NewProc("AttachConsole")
@@ -307,79 +315,60 @@ var (
 	procSetConsoleCtrlHandler = modkernel32.NewProc("SetConsoleCtrlHandler")
 )
 
-func attachConsole(pid uint32) error {
-	r1, _, err := procAttachConsole.Call(uintptr(pid))
-	if r1 == 0 {
-		return err
-	}
-	return nil
-}
-
-func freeConsole() error {
-	r1, _, err := procFreeConsole.Call()
-	if r1 == 0 {
-		return err
-	}
-	return nil
-}
-
-func setConsoleCtrlHandler(add bool) error {
-	var a uintptr
-	if add {
-		a = 1
-	}
-	r1, _, err := procSetConsoleCtrlHandler.Call(0, a)
-	if r1 == 0 {
-		return err
-	}
-	return nil
-}
-
 func sendCtrlBreak(pid uint32) error {
 	if pid == 0 {
 		return fmt.Errorf("invalid pid")
 	}
 
-	if err := attachConsole(pid); err != nil {
-		return fmt.Errorf("attachConsole(pid=%d) 失败: %w", pid, err)
+	r1, _, err := procAttachConsole.Call(uintptr(pid))
+	if r1 == 0 {
+		return fmt.Errorf("attachConsole 失败: %w", err)
 	}
-	defer freeConsole()
+	defer procFreeConsole.Call()
 
-	_ = setConsoleCtrlHandler(true)
-	defer setConsoleCtrlHandler(false)
+	procSetConsoleCtrlHandler.Call(0, 1) 
+	defer procSetConsoleCtrlHandler.Call(0, 0)
 
 	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
 }
-
 
 func (km *KernelManager) KillCurrent() {
 	km.mu.Lock()
 	proc := km.activeProc
 	pid := atomic.LoadUint32(&km.currentPid)
 
-	// 标记为“已由我们主动停止”，防止 RunDaemon 误判为崩溃重试
+	if proc == nil || pid == 0 {
+		km.mu.Unlock()
+		return
+	}
+
 	km.activeProc = nil
 	atomic.StoreUint32(&km.currentPid, 0)
 	km.mu.Unlock()
 
-	if proc != nil && pid != 0 {
-		// 1. 发送安全退出中断信号
-		err := sendCtrlBreak(pid)
+	log.Printf("[INFO] 正在向内核进程 (PID: %d) 发送安全退出中断 (CTRL_BREAK)...", pid)
 
-		if err == nil {
-			for i := 0; i < 50; i++ {
-				if !sys.IsPidRunning(pid, "mihomo.exe") {
-					break
-				}
-				time.Sleep(100 * time.Millisecond)
+	if err := sendCtrlBreak(pid); err != nil {
+		log.Printf("[ERROR] 发送安全中断失败: %v，尝试强制结束进程", err)
+		_ = proc.Kill()
+	} else {
+		exited := false
+		for i := 0; i < 100; i++ { // 100 * 100ms = 10s
+			if !sys.IsPidRunning(pid, "mihomo.exe") {
+				exited = true
+				break
 			}
+			time.Sleep(100 * time.Millisecond)
 		}
 
-		if sys.IsPidRunning(pid, "mihomo.exe") {
+		if exited {
+			log.Printf("[INFO] 内核进程 (PID: %d) 已完成清理并安全退出。", pid)
+		} else {
+			log.Printf("[WARN] 内核进程 (PID: %d) 退出超时，执行强制 kill 兜底...", pid)
 			_ = proc.Kill()
 		}
 	}
 
 	sys.KillOtherProcessesByName("mihomo.exe", 0)
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(250 * time.Millisecond)
 }
