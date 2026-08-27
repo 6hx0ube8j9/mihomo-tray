@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"log"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
