@@ -27,6 +27,13 @@ const (
 	EventKernelExit
 )
 
+var (
+	modkernel32               = windows.NewLazySystemDLL("kernel32.dll")
+	procAttachConsole         = modkernel32.NewProc("AttachConsole")
+	procFreeConsole           = modkernel32.NewProc("FreeConsole")
+	procSetConsoleCtrlHandler = modkernel32.NewProc("SetConsoleCtrlHandler")
+)
+
 type KernelManager struct {
 	cm         *fsm.Manager
 	hJob       windows.Handle
@@ -40,25 +47,6 @@ func NewKernelManager(cm *fsm.Manager) *KernelManager {
 	km := &KernelManager{cm: cm}
 	km.initJobObject()
 	return km
-}
-
-func (km *KernelManager) initJobObject() {
-	h, err := windows.CreateJobObject(nil, nil)
-	if err != nil {
-		return
-	}
-	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
-		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
-			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-		},
-	}
-	_, _ = windows.SetInformationJobObject(
-		h,
-		windows.JobObjectExtendedLimitInformation,
-		uintptr(unsafe.Pointer(&info)),
-		uint32(unsafe.Sizeof(info)),
-	)
-	km.hJob = h
 }
 
 func (km *KernelManager) Close() {
@@ -106,15 +94,13 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		}
 
 		errBuf := &tailBuffer{max: 64 * 1024}
-
-		// 注意：此处绝对不能用 exec.CommandContext，否则 context cancel 时 Go 会直接发起强杀！
+		
 		cmd := exec.Command(target, "-d", ".")
 		cmd.Dir = absBaseDir
 
 		const CREATE_DEFAULT_ERROR_MODE = 0x04000000
 		cmd.SysProcAttr = &windows.SysProcAttr{
-			HideWindow: true,
-			// 必须添加 CREATE_NEW_PROCESS_GROUP 标志，允许向子进程组发送 CTRL_BREAK
+			HideWindow:    true,
 			CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | CREATE_DEFAULT_ERROR_MODE,
 		}
 		cmd.Stdout = errBuf
@@ -145,7 +131,6 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		default:
 		}
 
-		// 监听 context 取消信号，触发安全关闭
 		waitDone := make(chan struct{})
 		go func() {
 			select {
@@ -206,6 +191,60 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		case <-time.After(currentDelay):
 		}
 	}
+}
+
+func (km *KernelManager) KillCurrent() {
+	km.mu.Lock()
+	proc := km.activeProc
+	pid := atomic.LoadUint32(&km.currentPid)
+
+	if proc == nil || pid == 0 {
+		km.mu.Unlock()
+		return
+	}
+
+	km.activeProc = nil
+	atomic.StoreUint32(&km.currentPid, 0)
+	km.mu.Unlock()
+
+	if err := sendCtrlBreak(pid); err != nil {
+		_ = proc.Kill()
+	} else {
+		exited := false
+		for i := 0; i < 100; i++ {
+			if !sys.IsPidRunning(pid, "mihomo.exe") {
+				exited = true
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		if !exited {
+			_ = proc.Kill()
+		}
+	}
+
+	sys.KillOtherProcessesByName("mihomo.exe", 0)
+	time.Sleep(250 * time.Millisecond)
+}
+
+func (km *KernelManager) initJobObject() {
+	h, err := windows.CreateJobObject(nil, nil)
+	if err != nil {
+		return
+	}
+	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
+		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
+			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+		},
+	}
+	_, _ = windows.SetInformationJobObject(
+		h,
+		windows.JobObjectExtendedLimitInformation,
+		uintptr(unsafe.Pointer(&info)),
+		uint32(unsafe.Sizeof(info)),
+	)
+	km.hJob = h
 }
 
 func (km *KernelManager) assignToJob(pid int) {
@@ -278,6 +317,50 @@ func (km *KernelManager) calculateBackoff(current, max time.Duration) time.Durat
 	return next
 }
 
+func attachConsole(pid uint32) error {
+	r1, _, err := procAttachConsole.Call(uintptr(pid))
+	if r1 == 0 {
+		return fmt.Errorf("attachConsole: %w", err)
+	}
+	return nil
+}
+
+func freeConsole() error {
+	r1, _, err := procFreeConsole.Call()
+	if r1 == 0 {
+		return fmt.Errorf("freeConsole: %w", err)
+	}
+	return nil
+}
+
+func setConsoleCtrlHandler(add bool) error {
+	var a uintptr
+	if add {
+		a = 1
+	}
+	r1, _, err := procSetConsoleCtrlHandler.Call(0, a)
+	if r1 == 0 {
+		return fmt.Errorf("setConsoleCtrlHandler: %w", err)
+	}
+	return nil
+}
+
+func sendCtrlBreak(pid uint32) error {
+	if pid == 0 {
+		return fmt.Errorf("invalid pid")
+	}
+
+	if err := attachConsole(pid); err != nil {
+		return err
+	}
+	defer freeConsole()
+
+	_ = setConsoleCtrlHandler(true)
+	defer setConsoleCtrlHandler(false)
+
+	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
+}
+
 type tailBuffer struct {
 	mu  sync.Mutex
 	buf []byte
@@ -306,69 +389,4 @@ func (t *tailBuffer) Len() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return len(t.buf)
-}
-
-var (
-	modkernel32               = windows.NewLazySystemDLL("kernel32.dll")
-	procAttachConsole         = modkernel32.NewProc("AttachConsole")
-	procFreeConsole           = modkernel32.NewProc("FreeConsole")
-	procSetConsoleCtrlHandler = modkernel32.NewProc("SetConsoleCtrlHandler")
-)
-
-func sendCtrlBreak(pid uint32) error {
-	if pid == 0 {
-		return fmt.Errorf("invalid pid")
-	}
-
-	r1, _, err := procAttachConsole.Call(uintptr(pid))
-	if r1 == 0 {
-		return fmt.Errorf("attachConsole 失败: %w", err)
-	}
-	defer procFreeConsole.Call()
-
-	procSetConsoleCtrlHandler.Call(0, 1) 
-	defer procSetConsoleCtrlHandler.Call(0, 0)
-
-	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
-}
-
-func (km *KernelManager) KillCurrent() {
-	km.mu.Lock()
-	proc := km.activeProc
-	pid := atomic.LoadUint32(&km.currentPid)
-
-	if proc == nil || pid == 0 {
-		km.mu.Unlock()
-		return
-	}
-
-	km.activeProc = nil
-	atomic.StoreUint32(&km.currentPid, 0)
-	km.mu.Unlock()
-
-	log.Printf("[INFO] 正在向内核进程 (PID: %d) 发送安全退出中断 (CTRL_BREAK)...", pid)
-
-	if err := sendCtrlBreak(pid); err != nil {
-		log.Printf("[ERROR] 发送安全中断失败: %v，尝试强制结束进程", err)
-		_ = proc.Kill()
-	} else {
-		exited := false
-		for i := 0; i < 100; i++ { // 100 * 100ms = 10s
-			if !sys.IsPidRunning(pid, "mihomo.exe") {
-				exited = true
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-
-		if exited {
-			log.Printf("[INFO] 内核进程 (PID: %d) 已完成清理并安全退出。", pid)
-		} else {
-			log.Printf("[WARN] 内核进程 (PID: %d) 退出超时，执行强制 kill 兜底...", pid)
-			_ = proc.Kill()
-		}
-	}
-
-	sys.KillOtherProcessesByName("mihomo.exe", 0)
-	time.Sleep(250 * time.Millisecond)
 }
