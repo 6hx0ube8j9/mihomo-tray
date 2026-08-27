@@ -189,6 +189,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		case <-ctx.Done():
 			return
 		case eventCh <- EventKernelExit:
+		default:
 		}
 
 		if runDuration >= 5*time.Second || isKilledByUs {
@@ -206,45 +207,45 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 }
 
 func (km *KernelManager) KillCurrent() {
-	km.mu.Lock()
-	proc := km.activeProc
-	pid := atomic.LoadUint32(&km.currentPid)
+    km.mu.Lock()
+    proc := km.activeProc
+    pid := atomic.LoadUint32(&km.currentPid)
 
-	if proc == nil || pid == 0 {
-		km.mu.Unlock()
-		return
-	}
+    if proc == nil || pid == 0 {
+        km.mu.Unlock()
+        return
+    }
 
-	km.activeProc = nil
-	atomic.StoreUint32(&km.currentPid, 0)
-	km.mu.Unlock()
+    km.activeProc = nil
+    atomic.StoreUint32(&km.currentPid, 0)
+    km.mu.Unlock()
 
-	log.Printf("[INFO] 正在向内核进程 (PID: %d) 发送安全退出中断 (CTRL_BREAK)...", pid)
+    log.Printf("[INFO] 正在向内核进程 (PID: %d) 发送安全退出中断 (CTRL_BREAK)...", pid)
 
-	if err := sendCtrlBreak(pid); err != nil {
-		log.Printf("[ERROR] 发送安全中断失败: %v，尝试强制结束进程", err)
-		_ = proc.Kill()
-	} else {
-		// 阻塞等待内核完成 TUN 卸载与清理退出（最长 10 秒）
-		exited := false
-		for i := 0; i < 100; i++ {
-			if !sys.IsPidRunning(pid, "mihomo.exe") {
-				exited = true
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
+    err := sendCtrlBreak(pid)
+    if err != nil {
+        log.Printf("[WARN] 发送 CTRL_BREAK 失败 (%v)，尝试通过 SIGINT 中断...", err)
+        _ = proc.Signal(os.Interrupt)
+    }
 
-		if exited {
-			log.Printf("[INFO] 内核进程 (PID: %d) 已完成清理并安全退出。", pid)
-		} else {
-			log.Printf("[WARN] 内核进程 (PID: %d) 退出超时，执行强制 kill 兜底...", pid)
-			_ = proc.Kill()
-		}
-	}
+    exited := false
+    for i := 0; i < 100; i++ {
+        if !sys.IsPidRunning(pid, "mihomo.exe") {
+            exited = true
+            break
+        }
+        time.Sleep(100 * time.Millisecond)
+    }
 
-	sys.KillOtherProcessesByName("mihomo.exe", 0)
-	time.Sleep(250 * time.Millisecond)
+    if exited {
+        log.Printf("[INFO] 内核进程 (PID: %d) 已完成清理并安全退出。", pid)
+        time.Sleep(300 * time.Millisecond)
+    } else {
+        log.Printf("[WARN] 内核进程 (PID: %d) 退出超时，执行强制 kill 兜底...", pid)
+        _ = proc.Kill()
+    }
+
+    sys.KillOtherProcessesByName("mihomo.exe", 0)
 }
 
 // -----------------------------------------------------------------------------
