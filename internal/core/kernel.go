@@ -32,6 +32,7 @@ type KernelManager struct {
 	hJob       windows.Handle
 	currentPid uint32
 	activeProc *os.Process
+	activeCmd  *exec.Cmd
 	mu         sync.Mutex
 	lastError  string
 }
@@ -136,6 +137,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		}
 
 		km.mu.Lock()
+		km.activeCmd = cmd
 		km.activeProc = cmd.Process
 		atomic.StoreUint32(&km.currentPid, uint32(cmd.Process.Pid))
 		km.mu.Unlock()
