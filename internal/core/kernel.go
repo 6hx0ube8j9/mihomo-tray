@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,7 +46,7 @@ func (km *KernelManager) initJobObject() {
 	if err != nil {
 		return
 	}
- 
+	// ### 移除了 LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE (阻止 Windows 操作系统在句柄关闭时强制 Kill 子进程)
 	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
 	_, _ = windows.SetInformationJobObject(
 		h,
@@ -94,7 +93,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			return
 		}
 
-		// ### 移除强杀同名进程的代码
+		// ### 删除了 sys.KillOtherProcessesByName("mihomo.exe", 0) 强杀残留进程的代码
 
 		select {
 		case <-ctx.Done():
@@ -104,15 +103,16 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 
 		errBuf := &tailBuffer{max: 64 * 1024}
 
-		// ### 使用普通 exec.Command 避免 context 取消时触发 Go 内置 proc.Kill()
+		// ### 改用 exec.Command 代替 exec.CommandContext，防止 Go 标准库在 ctx 结束时自动调用 proc.Kill() 强杀
 		cmd := exec.Command(target, "-d", ".")
 		cmd.Dir = absBaseDir
 
 		const CREATE_DEFAULT_ERROR_MODE = 0x04000000
 		
 		cmd.SysProcAttr = &windows.SysProcAttr{
-			HideWindow: true, // 保留窗口隐藏（无黑框）
-			CreationFlags: windows.CREATE_NEW_PROCESS_GROUP |  
+			HideWindow: true,
+			CreationFlags: windows.CREATE_NO_WINDOW |
+				windows.CREATE_NEW_PROCESS_GROUP |
 				CREATE_DEFAULT_ERROR_MODE,
 		}
 		
@@ -144,6 +144,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		default:
 		}
 
+		// ### 监听 Context 取消事件，收到取消通知时安全触发优雅退出
 		waitDone := make(chan struct{})
 		go func() {
 			select {
@@ -306,28 +307,26 @@ func (t *tailBuffer) Len() int {
 	return len(t.buf)
 }
 
-// ### 安全控制台中断发送函数
+// ### 新增 helper：在 Windows 下安全将控制台信号送达后台无窗口子进程
 func (km *KernelManager) sendCtrlBreak(pid uint32) error {
 	if pid == 0 {
 		return fmt.Errorf("invalid pid")
 	}
-	
-	// 动态附加到 mihomo 的隐蔽控制台上
+	// 1. 动态附加到子进程的控制台上
 	if err := windows.AttachConsole(pid); err != nil {
-		return fmt.Errorf("AttachConsole(pid=%d) 失败: %w", pid, err)
+		return err
 	}
 	defer windows.FreeConsole()
 
-	// 忽略本进程接收到的 Ctrl 信号，防止主程序被误导关闭
+	// 2. 暂时忽略主程序自身接收到的 Ctrl 信号，防止主程序跟着被误杀
 	_ = windows.SetConsoleCtrlHandler(nil, true)
-	// 修正：defer 后直接跟函数调用，不能带有赋值语句 "_ ="
-	defer windows.SetConsoleCtrlHandler(nil, false)
+	defer _ = windows.SetConsoleCtrlHandler(nil, false)
 
-	// 向对应的 ProcessGroup 广播 CTRL_BREAK 软中断信号
-	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
+	// 3. 向附加的控制台组广播 CTRL_BREAK_EVENT 软中断
+	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, 0)
 }
 
-// KillCurrent 优雅安全退出
+// KillCurrent 现已完全改造为“优雅安全关机”，不包含任何强杀行为
 func (km *KernelManager) KillCurrent() {
 	km.mu.Lock()
 	proc := km.activeProc
@@ -338,25 +337,23 @@ func (km *KernelManager) KillCurrent() {
 	km.mu.Unlock()
 
 	if proc != nil && pid != 0 {
-		log.Printf("[INFO] 正在向内核 (PID: %d) 发送安全退出信号 (CTRL_BREAK)...", pid)
+		// ### 使用 AttachConsole 方式向 mihomo 发送安全退出信号
 		err := km.sendCtrlBreak(pid)
 		
 		if err == nil {
-			// 轮询等待进程安全释放 TUN 驱动和端口并自行退出（最多等待 10 秒）
+			// 最多等待 10 秒让内核安全释放资源（如清理 TUN 网卡）并自主退出
 			for i := 0; i < 100; i++ {
 				if !sys.IsPidRunning(pid, "mihomo.exe") {
-					log.Printf("[INFO] 内核进程 (PID: %d) 已安全退出。", pid)
 					break
 				}
 				time.Sleep(100 * time.Millisecond)
 			}
-			// ### 绝不执行 proc.Kill()
+			// ### 已完全删除超时后的 proc.Kill()
 		} else {
-			log.Printf("[ERROR] 发送安全退出信号失败: %v", err)
-			// ### 绝不执行 proc.Kill()
+			// ### 已完全删除信号发送失败后的 proc.Kill()
 		}
 	}
 
-	// ### 绝不执行 sys.KillOtherProcessesByName
+	// ### 已完全删除 sys.KillOtherProcessesByName("mihomo.exe", 0) 强杀代码
 	time.Sleep(250 * time.Millisecond)
 }
