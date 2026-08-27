@@ -4,11 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -48,8 +46,12 @@ func (km *KernelManager) initJobObject() {
 	if err != nil {
 		return
 	}
-
-	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
+	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
+		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
+			// 兜底策略：主进程崩溃/被强杀时，操作系统底层自动终止子进程
+			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+		},
+	}
 	_, _ = windows.SetInformationJobObject(
 		h,
 		windows.JobObjectExtendedLimitInformation,
@@ -95,6 +97,9 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			return
 		}
 
+		// 启动前的防御性自愈清理：确保没有残留的 mihomo 孤儿进程
+		sys.KillOtherProcessesByName("mihomo.exe", 0)
+
 		select {
 		case <-ctx.Done():
 			return
@@ -103,17 +108,16 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 
 		errBuf := &tailBuffer{max: 64 * 1024}
 
-		cmd := exec.Command(target, "-d", ".")
+		cmd := exec.CommandContext(ctx, target, "-d", ".")
 		cmd.Dir = absBaseDir
 
 		const CREATE_DEFAULT_ERROR_MODE = 0x04000000
-
 		cmd.SysProcAttr = &windows.SysProcAttr{
 			HideWindow: true,
-			CreationFlags: windows.CREATE_NEW_PROCESS_GROUP |
-				CREATE_DEFAULT_ERROR_MODE,
+			// 关键修改：使用 CREATE_NEW_PROCESS_GROUP，赋予子进程独立的进程组 ID（等于 Pid）
+			// 这样以后才能通过 GenerateConsoleCtrlEvent 给它发送精准的 CTRL_BREAK 信号
+			CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | CREATE_DEFAULT_ERROR_MODE,
 		}
-
 		cmd.Stdout = errBuf
 		cmd.Stderr = errBuf
 		startTime := time.Now()
@@ -130,34 +134,19 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			}
 		}
 
-		childPid := uint32(cmd.Process.Pid)
-
 		km.mu.Lock()
 		km.activeProc = cmd.Process
-		atomic.StoreUint32(&km.currentPid, childPid)
+		atomic.StoreUint32(&km.currentPid, uint32(cmd.Process.Pid))
 		km.mu.Unlock()
 
 		km.assignToJob(cmd.Process.Pid)
-
-		// 启动后台守护看门狗进程
-		km.startWatchdog(childPid)
 
 		select {
 		case eventCh <- EventKernelReady:
 		default:
 		}
 
-		waitDone := make(chan struct{})
-		go func() {
-			select {
-			case <-ctx.Done():
-				km.KillCurrent()
-			case <-waitDone:
-			}
-		}()
-
 		waitErr := cmd.Wait()
-		close(waitDone)
 
 		km.mu.Lock()
 		isKilledByUs := (km.activeProc == nil)
@@ -207,22 +196,6 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		case <-time.After(currentDelay):
 		}
 	}
-}
-
-// 启动看门狗子进程
-func (km *KernelManager) startWatchdog(childPid uint32) {
-	exePath, err := os.Executable()
-	if err != nil {
-		return
-	}
-	parentPid := uint32(os.Getpid())
-
-	watchdogCmd := exec.Command(exePath, "--watchdog", fmt.Sprint(parentPid), fmt.Sprint(childPid))
-	watchdogCmd.SysProcAttr = &windows.SysProcAttr{
-		HideWindow:    true,
-		CreationFlags: windows.CREATE_NO_WINDOW,
-	}
-	_ = watchdogCmd.Start()
 }
 
 func (km *KernelManager) assignToJob(pid int) {
@@ -325,7 +298,8 @@ func (t *tailBuffer) Len() int {
 	return len(t.buf)
 }
 
-// 动态加载 kernel32.dll 底层 Win32 控制台 API
+// ---------------- Win32 Console API 动态绑定 ----------------
+
 var (
 	modkernel32               = windows.NewLazySystemDLL("kernel32.dll")
 	procAttachConsole         = modkernel32.NewProc("AttachConsole")
@@ -361,8 +335,7 @@ func setConsoleCtrlHandler(add bool) error {
 	return nil
 }
 
-// 安全控制台中断发送函数（静态全局可用）
-func sendCtrlBreakStatic(pid uint32) error {
+func sendCtrlBreak(pid uint32) error {
 	if pid == 0 {
 		return fmt.Errorf("invalid pid")
 	}
@@ -378,54 +351,7 @@ func sendCtrlBreakStatic(pid uint32) error {
 	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
 }
 
-func (km *KernelManager) sendCtrlBreak(pid uint32) error {
-	return sendCtrlBreakStatic(pid)
-}
-
-// CheckWatchdogArg 检查命令行参数，如果是看门狗模式则执行看门狗逻辑
-func CheckWatchdogArg() bool {
-	if len(os.Args) >= 4 && os.Args[1] == "--watchdog" {
-		parentPid, _ := strconv.ParseUint(os.Args[2], 10, 32)
-		childPid, _ := strconv.ParseUint(os.Args[3], 10, 32)
-		runWatchdog(uint32(parentPid), uint32(childPid))
-		return true
-	}
-	return false
-}
-
-// 看门狗核心逻辑
-func runWatchdog(parentPid, childPid uint32) {
-	if parentPid == 0 || childPid == 0 {
-		return
-	}
-
-	hParent, err := windows.OpenProcess(windows.SYNCHRONIZE, false, parentPid)
-	if err != nil {
-		return
-	}
-	defer windows.CloseHandle(hParent)
-
-	hChild, err := windows.OpenProcess(windows.SYNCHRONIZE, false, childPid)
-	if err != nil {
-		return
-	}
-	defer windows.CloseHandle(hChild)
-
-	handles := []windows.Handle{hParent, hChild}
-
-	// 阻塞等待：主程序退出 或 内核退出（CPU占用 0%）
-	event, err := windows.WaitForMultipleObjects(handles, false, windows.INFINITE)
-	if err != nil {
-		return
-	}
-
-	if event == windows.WAIT_OBJECT_0 {
-		// 替主程序向内核发送 CTRL_BREAK 优雅退出信号
-		_ = sendCtrlBreakStatic(childPid)
-		// 等待内核 safe exit，最多等待 10 秒
-		_, _ = windows.WaitForSingleObject(hChild, 10000)
-	}
-}
+// ---------------- 主动优雅退出控制 ----------------
 
 func (km *KernelManager) KillCurrent() {
 	km.mu.Lock()
@@ -437,21 +363,23 @@ func (km *KernelManager) KillCurrent() {
 	km.mu.Unlock()
 
 	if proc != nil && pid != 0 {
-		log.Printf("[INFO] 正在向内核 (PID: %d) 发送安全退出信号 (CTRL_BREAK)...", pid)
-		err := km.sendCtrlBreak(pid)
+		err := sendCtrlBreak(pid)
 
 		if err == nil {
-			for i := 0; i < 100; i++ {
+
+			for i := 0; i < 50; i++ {
 				if !sys.IsPidRunning(pid, "mihomo.exe") {
-					log.Printf("[INFO] 内核进程 (PID: %d) 已安全退出。", pid)
 					break
 				}
 				time.Sleep(100 * time.Millisecond)
 			}
-		} else {
-			log.Printf("[ERROR] 发送安全退出信号失败: %v", err)
+		}
+
+		if sys.IsPidRunning(pid, "mihomo.exe") {
+			_ = proc.Kill()
 		}
 	}
 
-	time.Sleep(250 * time.Millisecond)
+	sys.KillOtherProcessesByName("mihomo.exe", 0)
+	time.Sleep(100 * time.Millisecond)
 }
