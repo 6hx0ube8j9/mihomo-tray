@@ -44,6 +44,7 @@ type KernelManager struct {
 	currentPid uint32
 	activeProc *os.Process
 	mu         sync.Mutex
+	killMu     sync.Mutex
 	lastError  string
 }
 
@@ -204,6 +205,9 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 }
 
 func (km *KernelManager) KillCurrent() {
+	km.killMu.Lock()
+	defer km.killMu.Unlock()
+
 	km.mu.Lock()
 	proc := km.activeProc
 	pid := atomic.LoadUint32(&km.currentPid)
@@ -223,7 +227,6 @@ func (km *KernelManager) KillCurrent() {
 		log.Printf("[ERROR] 发送安全中断失败: %v，尝试强制结束进程", err)
 		_ = proc.Kill()
 	} else {
-		// 阻塞等待内核完成 TUN 卸载与清理退出（最长 10 秒）
 		exited := false
 		for i := 0; i < 100; i++ {
 			if !sys.IsPidRunning(pid, "mihomo.exe") {
