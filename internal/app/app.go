@@ -516,7 +516,6 @@ func (a *Application) syncAllConfig(ctx context.Context) {
 }
 
 func (a *Application) pollKernelAPI(ctx context.Context) bool {
-	// 如果正处于 APIWatcherMuted 拦截期（例如启动/重载/重启阶段），禁止反向覆盖配置
 	if a.Cfg.State.IsAPIWatcherMuted() {
 		return false
 	}
@@ -544,13 +543,26 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 			a.Cfg.Set("mode", resp.Mode)
 			changed = true
 		}
-		
-		// 只有在非 Muted 且返回确定真实状态时才允许覆盖本地 Tun.Enable
-		if resp.Tun.Enable != (a.Cfg.Get("tun") == "true") {
-			log.Printf("[INFO] 内核返回 Tun.Enable 变更: %v -> %v", a.Cfg.Get("tun") == "true", resp.Tun.Enable)
-			a.Cfg.Set("tun", fmt.Sprintf("%t", resp.Tun.Enable))
-			changed = true
+
+		wantTun := a.Cfg.Get("tun") == "true"
+		if resp.Tun.Enable != wantTun {
+			if wantTun && !resp.Tun.Enable {
+				inGracePeriod := time.Since(a.Cfg.State.GetTunRequestedTime()) < 20*time.Second ||
+					time.Since(a.Cfg.State.GetTunStartTime()) < 20*time.Second
+				if !inGracePeriod && !a.Cfg.State.IsTunAlive() {
+					log.Printf("[WARN] TUN 确认启动失败 (超时且网卡未激活)，同步本地 Tun.Enable: false")
+					a.Cfg.Set("tun", "false")
+					changed = true
+				} else {
+					log.Printf("[DEBUG] 忽略内核 TUN 初始化过渡期状态 (resp.Enable=false, wantTun=true)")
+				}
+			} else {
+				log.Printf("[INFO] 内核返回 Tun.Enable 变更: %v -> %v", wantTun, resp.Tun.Enable)
+				a.Cfg.Set("tun", fmt.Sprintf("%t", resp.Tun.Enable))
+				changed = true
+			}
 		}
+
 		if resp.Tun.Device != "" && resp.Tun.Device != a.Cfg.Get("tun_device") {
 			log.Printf("[INFO] 内核返回 Tun.Device 变更: %s -> %s", a.Cfg.Get("tun_device"), resp.Tun.Device)
 			a.Cfg.Set("tun_device", resp.Tun.Device)
