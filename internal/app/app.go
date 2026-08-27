@@ -115,16 +115,16 @@ func (a *Application) Bootstrap(ctx context.Context) {
 
 func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	log.Println("[INFO] 正在触发安全退出机制 (SafeShutdown)...")
-
-	// 1. 优先设置退出标记，通知全局与状态机停止接收外界变更通知
+	
 	a.Cfg.State.ForceExitPhase()
 
-	// 2. 及时取消 Context 终止所有 background goroutines
+	log.Println("[INFO] 正在优雅关停内核进程...")
+	a.Kernel.KillCurrent()
+
 	if cancel != nil {
 		cancel()
 	}
 
-	// 3. 安全静默关闭系统代理（静音注册表监听）
 	if a.Cfg.Get("proxy") == "true" {
 		log.Println("[INFO] 正在关闭系统代理...")
 		if err := sys.DisableSystemProxy(); err != nil {
@@ -132,13 +132,8 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 		}
 	}
 
-	log.Println("[INFO] 正在优雅关停内核进程...")
-	a.Kernel.KillCurrent()
-
 	log.Println("[INFO] 关闭内核管理接口...")
 	a.Kernel.Close()
-
-	time.Sleep(300 * time.Millisecond)
 
 	log.Println("[INFO] ==================== 应用已安全关闭 ====================")
 }
@@ -418,6 +413,7 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 		}
 	}()
 }
+
 func (a *Application) RestartKernel() {
 	log.Println("[WARN] 执行内核重启操作 (RestartKernel)...")
 	a.Cfg.State.SetRestarting(true)
