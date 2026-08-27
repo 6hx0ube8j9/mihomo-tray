@@ -202,9 +202,6 @@ func (a *Application) eventLoop(ctx context.Context) {
 			} else if event == core.EventKernelExit {
 				log.Println("[WARN] 内核异常退出 (EventKernelExit)，重置阶段为 Initializing")
 				a.Cfg.State.SetPhase(fsm.PhaseInitializing)
-
-				a.Cfg.State.SetRestarting(false)
-				a.Cfg.State.SetReloading(false)
 			}
 			a.pushUIState()
 
@@ -418,13 +415,14 @@ func (a *Application) RestartKernel() {
 	log.Println("[WARN] 执行内核重启操作 (RestartKernel)...")
 	a.Cfg.State.SetRestarting(true)
 	a.Cfg.State.SetReloading(false)
-	a.Cfg.State.MuteAPIWatcher(5 * time.Second)
 
 	a.ensureYAMLStateForBoot()
 	a.Cfg.SyncWithYAML()
 
 	log.Println("[INFO] 终止当前内核进程...")
 	a.Kernel.KillCurrent()
+	
+	a.Cfg.State.MuteAPIWatcher(5 * time.Second)
 
 	a.pushUIState()
 }
