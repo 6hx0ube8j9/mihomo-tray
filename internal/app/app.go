@@ -45,7 +45,7 @@ func NewApplication(cm *fsm.Manager) *Application {
 		Cfg:           cm,
 		Kernel:        core.NewKernelManager(cm),
 		API:           core.NewAPIClient(cm),
-		kernelEventCh: make(chan core.KernelEvent, 1),
+		kernelEventCh: make(chan core.KernelEvent, 10),
 		tunEventCh:    make(chan struct{}, 1),
 		proxyEventCh:  make(chan bool, 1),
 		apiPollCh:     make(chan struct{}, 1),
@@ -194,10 +194,14 @@ func (a *Application) eventLoop(ctx context.Context) {
 						time.Sleep(250 * time.Millisecond)
 					}
 					log.Println("[ERROR] 内核 API 校验超时 (尝试 20 次未连通)")
+					a.pushUIState()
 				}()
 			} else if event == core.EventKernelExit {
 				log.Println("[WARN] 内核异常退出 (EventKernelExit)，重置阶段为 Initializing")
 				a.Cfg.State.SetPhase(fsm.PhaseInitializing)
+				
+				a.Cfg.State.SetRestarting(false)
+				a.Cfg.State.SetReloading(false)
 			}
 			a.pushUIState()
 
