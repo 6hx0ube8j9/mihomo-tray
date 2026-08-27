@@ -88,9 +88,12 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	a.ensureYAMLStateForBoot()
 	a.Cfg.SyncWithYAML()
 	log.Println("[INFO] 配置文件同步与 TUN/Mode 开机状态校准完成")
-
-	a.Cfg.State.MuteAPIWatcher(5 * time.Second)
-
+	
+    a.Cfg.State.MuteAPIWatcher(20 * time.Second)
+	if a.Cfg.Get("tun") == "true" {
+		a.Cfg.State.SetTunRequestedTime(time.Now())
+	}
+	
 	if a.Cfg.Get("proxy") == "true" {
 		port := a.Cfg.Get("port")
 		log.Printf("[INFO] 检测到 Proxy 选项开启，正在启用系统代理 (端口: %s)...", port)
@@ -310,13 +313,13 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 
 func (a *Application) calculateUIState() ui.UIState {
 	s := ui.UIState{
-		IsTun:      a.Cfg.Get("tun") == "true",
-		IsProxy:    a.Cfg.Get("proxy") == "true",
-		Mode:       a.Cfg.Get("mode"),
-		AutoStart:  a.Cfg.Get("autostart") == "true",
+		IsTun:     a.Cfg.Get("tun") == "true",
+		IsProxy:   a.Cfg.Get("proxy") == "true",
+		Mode:      a.Cfg.Get("mode"),
+		AutoStart: a.Cfg.Get("autostart") == "true",
 	}
 
-	if a.Cfg.State.GetPhase() != fsm.PhaseRunning || a.Cfg.State.IsRestarting() {
+	if a.Cfg.State.IsExiting() || a.Cfg.State.IsRestarting() || a.Cfg.State.GetPhase() != fsm.PhaseRunning {
 		s.IconState = IconStop
 		return s
 	}
@@ -330,19 +333,11 @@ func (a *Application) calculateUIState() ui.UIState {
 		return s
 	}
 
-	if a.Cfg.State.IsReloading() {
-		if !a.Cfg.State.IsTunAlive() {
-			s.IconState = IconError
-		} else {
-			s.IconState = IconTun
-		}
-		return s
-	}
+	inGracePeriod := time.Since(a.Cfg.State.GetTunStartTime()) < 20*time.Second ||
+		time.Since(a.Cfg.State.GetTunRequestedTime()) < 20*time.Second ||
+		time.Since(a.Cfg.State.GetTunLostTime()) < 6*time.Second
 
-	if a.Cfg.State.IsTunAlive() ||
-		time.Since(a.Cfg.State.GetTunStartTime()) < 5*time.Second ||
-		time.Since(a.Cfg.State.GetTunRequestedTime()) < 5*time.Second ||
-		time.Since(a.Cfg.State.GetTunLostTime()) < 6*time.Second {
+	if a.Cfg.State.IsTunAlive() || inGracePeriod {
 		s.IconState = IconTun
 	} else {
 		s.IconState = IconError
