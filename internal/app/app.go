@@ -7,6 +7,7 @@ import (
 	"log"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"mihomo-tray/internal/config"
@@ -32,14 +33,15 @@ type Application struct {
 
 	kernelEventCh chan core.KernelEvent
 	tunEventCh    chan struct{}
-	proxyEventCh  chan bool
+	proxyStatusCh chan sys.ProxyStatus
 	apiPollCh     chan struct{}
 
-	UIStateCh    chan ui.UIState
-	UICommandCh  chan ui.UICommand
+	UIStateCh   chan ui.UIState
+	UICommandCh chan ui.UICommand
 	webuiEventCh chan ui.Event
 
-	lastUIState ui.UIState
+	lastUIState     ui.UIState
+	proxyRetryCount int
 }
 
 func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
@@ -50,7 +52,7 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 		API:           core.NewAPIClient(cm, st),
 		kernelEventCh: make(chan core.KernelEvent, 10),
 		tunEventCh:    make(chan struct{}, 1),
-		proxyEventCh:  make(chan bool, 1),
+		proxyStatusCh: make(chan sys.ProxyStatus, 5),
 		apiPollCh:     make(chan struct{}, 1),
 		UIStateCh:     make(chan ui.UIState, 1),
 		UICommandCh:   make(chan ui.UICommand, 10),
@@ -100,22 +102,13 @@ func (a *Application) Bootstrap(ctx context.Context) {
 		a.State.SetTunRequestedTime(time.Now())
 	}
 
-	if a.Cfg.Get("proxy") == "true" {
-		port := a.Cfg.Get("port")
-		log.Printf("[INFO] 检测到 Proxy 选项开启，正在启用系统代理 (端口: %s)...", port)
-		if err := sys.EnableSystemProxy(port); err != nil {
-			log.Printf("[ERROR] 启用系统代理失败: %v", err)
-		} else {
-			log.Println("[INFO] 系统代理启用成功")
-		}
-	}
-
+	a.syncSystemProxy()
 	a.pushUIState()
 
 	log.Println("[INFO] 启动核心守护协程 (Daemon)...")
 	go a.Kernel.RunDaemon(ctx, a.kernelEventCh)
 	go sys.WatchNetworkInterfaces(ctx, a.tunEventCh)
-	go a.watchProxyAdapter(ctx)
+	go sys.WatchProxyRegistry(ctx, a.proxyStatusCh)
 	go a.eventLoop(ctx)
 }
 
@@ -133,7 +126,7 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 
 	if a.Cfg.Get("proxy") == "true" {
 		log.Println("[INFO] 正在关闭系统代理...")
-		if err := sys.DisableSystemProxy(); err != nil {
+		if err := sys.SetSystemProxy(false, ""); err != nil {
 			log.Printf("[ERROR] 关闭系统代理失败: %v", err)
 		}
 	}
@@ -183,6 +176,8 @@ func (a *Application) eventLoop(ctx context.Context) {
 					a.State.SetTunRequestedTime(time.Now())
 				}
 
+				a.syncSystemProxy()
+
 				go func() {
 					defer a.State.SetRestarting(false)
 					log.Println("[INFO] 开始轮询内核 API 校验可连接性...")
@@ -206,7 +201,11 @@ func (a *Application) eventLoop(ctx context.Context) {
 					a.pushUIState()
 				}()
 			} else if event == core.EventKernelExit {
-				log.Println("[WARN] 内核异常退出 (EventKernelExit)，重置阶段为 Initializing")
+				if a.State.IsRestarting() {
+					log.Println("[INFO] 内核已停止，等待重新拉起...")
+				} else {
+					log.Println("[WARN] 内核异常退出 (EventKernelExit)，重置阶段为 Initializing")
+				}
 				a.State.SetPhase(state.PhaseInitializing)
 			}
 			a.pushUIState()
@@ -215,17 +214,8 @@ func (a *Application) eventLoop(ctx context.Context) {
 			log.Println("[DEBUG] 网络接口变更通知 (tunEventCh)")
 			a.handleTunChange(ctx)
 
-		case isProxyActive := <-a.proxyEventCh:
-			if a.State.IsExiting() {
-				break
-			}
-			log.Printf("[INFO] 系统代理状态变更通知: active=%v", isProxyActive)
-			if !isProxyActive {
-				a.Cfg.Set("proxy", "false")
-			} else {
-				_ = sys.EnableSystemProxy(a.Cfg.Get("port"))
-			}
-			a.pushUIState()
+		case status := <-a.proxyStatusCh:
+			a.handleProxyStatusChange(status)
 
 		case <-ticker.C:
 			tryPollAPI()
@@ -236,6 +226,66 @@ func (a *Application) eventLoop(ctx context.Context) {
 			a.pushUIState()
 		}
 	}
+}
+
+func (a *Application) syncSystemProxy() {
+	enable := a.Cfg.Get("proxy") == "true"
+	port := a.Cfg.Get("port")
+
+	if enable {
+		log.Printf("[INFO] 正在同步系统代理状态: 开启 (端口: %s)", port)
+	} else {
+		log.Println("[INFO] 正在同步系统代理状态: 关闭")
+	}
+
+	if err := sys.SetSystemProxy(enable, port); err != nil {
+		log.Printf("[ERROR] 同步系统代理设置失败: %v", err)
+	}
+}
+
+func (a *Application) handleProxyStatusChange(status sys.ProxyStatus) {
+	if a.State.IsExiting() {
+		return
+	}
+
+	expectedProxy := a.Cfg.Get("proxy") == "true"
+	expectedPort := a.Cfg.Get("port")
+	expectedServer := "127.0.0.1:" + expectedPort
+
+	if expectedProxy {
+		if status.Enabled {
+			if status.Server != "" && !strings.EqualFold(status.Server, expectedServer) {
+				log.Printf("[WARN] 检测到系统代理被外部修改: 期望=%s, 实际=%s，自动关闭本地代理标记", expectedServer, status.Server)
+				a.proxyRetryCount = 0
+				a.Cfg.Set("proxy", "false")
+				a.pushUIState()
+				return
+			}
+			a.proxyRetryCount = 0
+			return
+		}
+
+		a.proxyRetryCount++
+		if a.proxyRetryCount <= 3 {
+			log.Printf("[WARN] 系统代理在外部被关闭，异步尝试自动重新应用 (第 %d/3 次)...", a.proxyRetryCount)
+			go func() {		
+			    time.Sleep(200 * time.Millisecond)
+			    a.syncSystemProxy()
+			}()
+		} else {
+			log.Println("[WARN] 外部关闭代理重试超过 3 次，放弃纠偏并同步本地状态为关闭")
+			a.proxyRetryCount = 0
+			a.Cfg.Set("proxy", "false")
+			a.pushUIState()
+		}
+		return
+	}
+
+
+	if status.Enabled {
+		log.Printf("[INFO] 检测到外部工具开启了系统代理 (Server: %s)，本地保持未开启状态", status.Server)
+	}
+	a.proxyRetryCount = 0
 }
 
 func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
@@ -260,11 +310,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		enable := cmd.Payload == "true"
 		log.Printf("[INFO] 切换系统代理开关: %v", enable)
 		a.Cfg.Set("proxy", strconv.FormatBool(enable))
-		if enable {
-			_ = sys.EnableSystemProxy(a.Cfg.Get("port"))
-		} else {
-			_ = sys.DisableSystemProxy()
-		}
+		a.syncSystemProxy()
 	case "ToggleTun":
 		enable := cmd.Payload == "true"
 		log.Printf("[INFO] 切换 TUN 模式开关: %v (设备: %s)", enable, a.Cfg.Get("tun_device"))
@@ -369,23 +415,11 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 	a.State.SetRestarting(false)
 	a.State.MuteAPIWatcher(5 * time.Second)
 
-	oldPort := a.Cfg.Get("port")
-	isProxyOn := a.Cfg.Get("proxy") == "true"
-
 	go func() {
 		defer a.State.SetReloading(false)
 
 		if _, err := a.Cfg.PrepareYAMLForBoot(); err != nil {
 			log.Printf("[ERROR] 重载配置时同步 YAML 状态失败: %v", err)
-		}
-
-		portChanged := oldPort != "" && oldPort != a.Cfg.Get("port")
-
-		if portChanged && isProxyOn {
-			log.Printf("[INFO] 检查到端口变更 (%s -> %s)，临时关闭系统代理", oldPort, a.Cfg.Get("port"))
-			a.Cfg.Set("proxy", "false")
-			_ = sys.DisableSystemProxy()
-			a.pushUIState()
 		}
 
 		reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -394,24 +428,13 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 
 		if err != nil {
 			log.Printf("[ERROR] 内核加载新配置失败: %v", err)
-			if portChanged && isProxyOn {
-				log.Println("[WARN] 回滚系统代理状态...")
-				_ = sys.EnableSystemProxy(a.Cfg.Get("port"))
-				a.Cfg.Set("proxy", "true")
-				a.pushUIState()
-			}
 			return
 		}
 
 		log.Println("[INFO] 内核热重载成功，开始同步各模块配置...")
 		a.syncAllConfig(ctx)
 
-		if portChanged && isProxyOn {
-			time.Sleep(500 * time.Millisecond)
-			log.Printf("[INFO] 重新应用系统代理到新端口 %s", a.Cfg.Get("port"))
-			_ = sys.EnableSystemProxy(a.Cfg.Get("port"))
-			a.Cfg.Set("proxy", "true")
-		}
+		a.syncSystemProxy()
 
 		a.pushUIState()
 		select {
@@ -434,7 +457,6 @@ func (a *Application) RestartKernel() {
 	a.Kernel.KillCurrent()
 
 	a.State.MuteAPIWatcher(5 * time.Second)
-
 	a.pushUIState()
 }
 
@@ -474,34 +496,6 @@ func (a *Application) handleTunChange(ctx context.Context) {
 			a.pushUIState()
 		}
 	}
-}
-
-func (a *Application) watchProxyAdapter(ctx context.Context) {
-	log.Println("[INFO] 系统代理监听协程已启动")
-	sys.WatchProxyRegistry(ctx,
-		func() bool { return a.Cfg.Get("proxy") == "true" },
-		func() string { return a.Cfg.Get("port") },
-		func() {
-			if a.State.IsExiting() {
-				return
-			}
-			log.Println("[WARN] 注册表通知: 系统代理在外部被关闭")
-			select {
-			case a.proxyEventCh <- false:
-			case <-ctx.Done():
-			}
-		},
-		func() {
-			if a.State.IsExiting() {
-				return
-			}
-			log.Println("[INFO] 注册表通知: 系统代理在外部被开启")
-			select {
-			case a.proxyEventCh <- true:
-			case <-ctx.Done():
-			}
-		},
-	)
 }
 
 func (a *Application) syncAllConfig(ctx context.Context) {
