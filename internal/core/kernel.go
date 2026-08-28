@@ -16,14 +16,10 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"mihomo-tray/internal/fsm"
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/sys"
 )
 
-// -----------------------------------------------------------------------------
-// 类型定义、常量与 Win32 API 动态加载 (置顶)
-// -----------------------------------------------------------------------------
 
 type KernelEvent int
 
@@ -49,9 +45,6 @@ type KernelManager struct {
 	lastError  string
 }
 
-// -----------------------------------------------------------------------------
-// 构造函数与生命周期公开接口 (Public Methods)
-// -----------------------------------------------------------------------------
 
 func NewKernelManager(cm *config.Manager) *KernelManager {
 	km := &KernelManager{cm: cm}
@@ -105,7 +98,6 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 
 		errBuf := &tailBuffer{max: 64 * 1024}
 
-		// 注意：此处不使用 exec.CommandContext，防止 context cancel 时触发 Go 默认强杀
 		cmd := exec.Command(target, "-d", ".")
 		cmd.Dir = absBaseDir
 
@@ -249,10 +241,6 @@ func (km *KernelManager) KillCurrent() {
 	time.Sleep(250 * time.Millisecond)
 }
 
-// -----------------------------------------------------------------------------
-// KernelManager 私有辅助方法 (Private Methods)
-// -----------------------------------------------------------------------------
-
 func (km *KernelManager) initJobObject() {
 	h, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
@@ -342,10 +330,6 @@ func (km *KernelManager) calculateBackoff(current, max time.Duration) time.Durat
 	return next
 }
 
-// -----------------------------------------------------------------------------
-// Win32 API 控制台信号发送底层实现
-// -----------------------------------------------------------------------------
-
 func attachConsole(pid uint32) error {
 	r1, _, err := procAttachConsole.Call(uintptr(pid))
 	if r1 == 0 {
@@ -389,10 +373,6 @@ func sendCtrlBreak(pid uint32) error {
 
 	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
 }
-
-// -----------------------------------------------------------------------------
-// 日志 Tail Buffer 结构
-// -----------------------------------------------------------------------------
 
 type tailBuffer struct {
 	mu  sync.Mutex
