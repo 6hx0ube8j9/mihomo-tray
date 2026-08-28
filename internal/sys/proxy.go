@@ -8,19 +8,14 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-var (
-	wininet   = windows.NewLazySystemDLL("wininet.dll")
-	setOption = wininet.NewProc("InternetSetOptionW")
-)
-
 const (
 	INTERNET_OPTION_REFRESH          = 37
 	INTERNET_OPTION_SETTINGS_CHANGED = 39
 )
 
 func RefreshWininet() {
-	_, _, _ = setOption.Call(0, INTERNET_OPTION_SETTINGS_CHANGED, 0, 0)
-	_, _, _ = setOption.Call(0, INTERNET_OPTION_REFRESH, 0, 0)
+	_, _, _ = procInternetSetOption.Call(0, INTERNET_OPTION_SETTINGS_CHANGED, 0, 0)
+	_, _, _ = procInternetSetOption.Call(0, INTERNET_OPTION_REFRESH, 0, 0)
 }
 
 func EnableSystemProxy(portStr string) error {
@@ -37,7 +32,7 @@ func EnableSystemProxy(portStr string) error {
 	_ = k.SetDWordValue("ProxyEnable", 1)
 	_ = k.SetStringValue("ProxyServer", "127.0.0.1:"+portStr)
 	_ = k.SetStringValue("ProxyOverride", "<local>;localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*")
-	
+
 	RefreshWininet()
 	return nil
 }
