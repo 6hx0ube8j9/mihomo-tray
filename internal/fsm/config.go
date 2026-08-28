@@ -2,14 +2,32 @@ package fsm
 
 import (
 	"encoding/json"
-	"os"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 )
 
-const ConfigFileName = "mihomo-tray.json"
+const (
+	ConfigFileName = "mihomo-tray.json"
+
+	DefaultAutostart          = "false"
+	DefaultProxy              = "false"
+	DefaultTun                = "false"
+	DefaultMode               = "rule"
+	DefaultMixedPort          = "7890"
+	DefaultSocksPort          = "7891"
+	DefaultHTTPPort           = "7892"
+	DefaultExternalController = "127.0.0.1:9090"
+	DefaultSecret             = ""
+	DefaultTunDevice          = "Meta"
+
+	DefaultExternalUI    = "ui"
+	DefaultExternalUIURL = ""
+	DefaultTunStack      = "mixed"
+	DefaultTunAutoRoute  = true
+)
 
 type TrayConfig struct {
 	Autostart          string `json:"autostart"`
@@ -43,6 +61,7 @@ func NewManager(baseDir, exePath string) *Manager {
 func (m *Manager) EnsureDefault() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	cfgPath := filepath.Join(m.baseDir, ConfigFileName)
 
 	if f, err := os.Open(cfgPath); err == nil {
@@ -50,13 +69,31 @@ func (m *Manager) EnsureDefault() {
 		_ = f.Close()
 	}
 
-	if m.data.Proxy == "" { m.data.Proxy = "false" }
-	if m.data.Tun == "" { m.data.Tun = "false" }
-	if m.data.Autostart == "" { m.data.Autostart = "false" }
-	if m.data.Mode == "" { m.data.Mode = "rule" }
-	if m.data.Port == "" { m.data.Port = "7890" }
-	if m.data.TunDevice == "" { m.data.TunDevice = "Meta" }
-	if m.data.ExternalController == "" { m.data.ExternalController = "127.0.0.1:9090" }
+	if m.data.Proxy == "" {
+		m.data.Proxy = DefaultProxy
+	}
+	if m.data.Tun == "" {
+		m.data.Tun = DefaultTun
+	}
+	if m.data.Autostart == "" {
+		m.data.Autostart = DefaultAutostart
+	}
+	if m.data.Mode == "" {
+		m.data.Mode = DefaultMode
+	}
+	if m.data.Port == "" {
+		m.data.Port = DefaultMixedPort
+	}
+	if m.data.TunDevice == "" {
+		m.data.TunDevice = DefaultTunDevice
+	}
+	if m.data.ExternalController == "" {
+		m.data.ExternalController = DefaultExternalController
+	}
+	if m.data.Secret == "" {
+		m.data.Secret = DefaultSecret
+	}
+
 	m.lockedSave()
 }
 
@@ -88,22 +125,58 @@ func (m *Manager) UpdateBatch(updates map[string]string) {
 	for key, value := range updates {
 		if value == "" {
 			switch key {
-			case "tun_device": value = "Meta"
-			case "mode": value = "rule"
-			case "port": value = "7890"
-			case "external-controller": value = "127.0.0.1:9090"
+			case "tun_device":
+				value = DefaultTunDevice
+			case "mode":
+				value = DefaultMode
+			case "port":
+				value = DefaultMixedPort
+			case "external-controller":
+				value = DefaultExternalController
 			}
 		}
 
 		switch key {
-		case "autostart": if m.data.Autostart != value { m.data.Autostart = value; changed = true }
-		case "external-controller": if m.data.ExternalController != value { m.data.ExternalController = value; changed = true }
-		case "mode": if m.data.Mode != value { m.data.Mode = value; changed = true }
-		case "port": if m.data.Port != value { m.data.Port = value; changed = true }
-		case "proxy": if m.data.Proxy != value { m.data.Proxy = value; changed = true }
-		case "secret": if m.data.Secret != value { m.data.Secret = value; changed = true }
-		case "tun": if m.data.Tun != value { m.data.Tun = value; changed = true }
-		case "tun_device": if m.data.TunDevice != value { m.data.TunDevice = value; changed = true }
+		case "autostart":
+			if m.data.Autostart != value {
+				m.data.Autostart = value
+				changed = true
+			}
+		case "external-controller":
+			if m.data.ExternalController != value {
+				m.data.ExternalController = value
+				changed = true
+			}
+		case "mode":
+			if m.data.Mode != value {
+				m.data.Mode = value
+				changed = true
+			}
+		case "port":
+			if m.data.Port != value {
+				m.data.Port = value
+				changed = true
+			}
+		case "proxy":
+			if m.data.Proxy != value {
+				m.data.Proxy = value
+				changed = true
+			}
+		case "secret":
+			if m.data.Secret != value {
+				m.data.Secret = value
+				changed = true
+			}
+		case "tun":
+			if m.data.Tun != value {
+				m.data.Tun = value
+				changed = true
+			}
+		case "tun_device":
+			if m.data.TunDevice != value {
+				m.data.TunDevice = value
+				changed = true
+			}
 		}
 	}
 
@@ -112,288 +185,244 @@ func (m *Manager) UpdateBatch(updates map[string]string) {
 	}
 }
 
-func (m *Manager) SyncWithYAML() {
-	m.yamlMu.Lock()
-
-	configPath := filepath.Join(m.baseDir, "config.yaml")
-	content, err := os.ReadFile(configPath)
-
-	var lines []string
-	if err == nil && len(content) > 0 {
-		text := strings.ReplaceAll(string(content), "\r\n", "\n")
-		lines = strings.Split(text, "\n")
-	}
-
-	type Field struct {
-		exists bool
-		value  string
-	}
-	var (
-		mixedPortF, socksPortF, portF, modeF Field
-		extCtrlF, secretF, extUIF, extUIUrlF Field
-		tunDevice                            Field
-	)
-
-	tunRootExists := false
-	inTun := false
-
-	cleanVal := func(s string) string { return strings.Trim(strings.TrimSpace(s), " \"'") }
-
-	stripComment := func(s string) string {
-		inSingle, inDouble := false, false
-		for i, char := range s {
-			if char == '\'' && !inDouble {
-				inSingle = !inSingle
-			} else if char == '"' && !inSingle {
-				inDouble = !inDouble
-			} else if char == '#' && !inSingle && !inDouble {
-				return s[:i]
-			}
-		}
-		return s
-	}
-
-	getIndent := func(s string) int {
-		for i, c := range s {
-			if c != ' ' && c != '\t' {
-				return i
-			}
-		}
-		return len(s)
-	}
-
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-
-		raw := stripComment(line)
-		if strings.TrimSpace(raw) == "" {
-			continue
-		}
-
-		indent := getIndent(raw)
-		trimmed := strings.TrimSpace(raw)
-
-		if indent == 0 {
-			inTun = false
-			
-			if strings.HasPrefix(trimmed, "mixed-port:") {
-				mixedPortF.exists = true
-				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 { mixedPortF.value = cleanVal(parts[1]) }
-			} else if strings.HasPrefix(trimmed, "socks-port:") {
-				socksPortF.exists = true
-			} else if strings.HasPrefix(trimmed, "port:") {
-				portF.exists = true
-				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 { portF.value = cleanVal(parts[1]) }
-			} else if strings.HasPrefix(trimmed, "mode:") {
-				modeF.exists = true
-				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 { modeF.value = cleanVal(parts[1]) }
-			} else if strings.HasPrefix(trimmed, "external-controller:") {
-				extCtrlF.exists = true
-				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 { extCtrlF.value = cleanVal(parts[1]) }
-			} else if strings.HasPrefix(trimmed, "secret:") {
-				secretF.exists = true
-				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 { secretF.value = cleanVal(parts[1]) }
-			} else if strings.HasPrefix(trimmed, "external-ui:") {
-				extUIF.exists = true
-			} else if strings.HasPrefix(trimmed, "external-ui-url:") {
-				extUIUrlF.exists = true
-			} else if strings.HasPrefix(trimmed, "tun:") {
-				tunRootExists = true
-				inTun = true
-			}
-		} else if inTun && indent > 0 {
-			if strings.HasPrefix(trimmed, "device:") {
-				tunDevice.exists = true
-				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 { tunDevice.value = cleanVal(parts[1]) }
-			}
-		}
-	}
-
-	var prependLines []string
-	changed := false
-	extracted := make(map[string]string)
-
-	if !mixedPortF.exists { 
-		prependLines = append(prependLines, "mixed-port: 7890"); changed = true; extracted["port"] = "7890"
-	} else { extracted["port"] = mixedPortF.value }
-	
-	if !socksPortF.exists { prependLines = append(prependLines, "socks-port: 7891"); changed = true }
-	if !portF.exists && !mixedPortF.exists { prependLines = append(prependLines, "port: 7892"); changed = true }
-	
-	if !modeF.exists { 
-		prependLines = append(prependLines, "mode: rule"); changed = true; extracted["mode"] = "rule"
-	} else { extracted["mode"] = modeF.value }
-	
-	if !extCtrlF.exists { 
-		prependLines = append(prependLines, "external-controller: 127.0.0.1:9090"); changed = true; extracted["external-controller"] = "127.0.0.1:9090"
-	} else { extracted["external-controller"] = extCtrlF.value }
-	
-	if !secretF.exists { 
-		prependLines = append(prependLines, "secret: ''"); changed = true; extracted["secret"] = ""
-	} else { extracted["secret"] = secretF.value }
-	
-	if !extUIF.exists { prependLines = append(prependLines, "external-ui: 'ui'"); changed = true }
-	if !extUIUrlF.exists { prependLines = append(prependLines, "external-ui-url: ''"); changed = true }
-	
-	if !tunRootExists {
-		prependLines = append(prependLines, "tun:")
-		prependLines = append(prependLines, "  enable: false")
-		prependLines = append(prependLines, "  stack: mixed")
-		prependLines = append(prependLines, "  auto-route: true")
-		prependLines = append(prependLines, "  device: Meta")
-		changed = true
-		extracted["tun_device"] = "Meta"
-	} else if tunDevice.exists {
-		extracted["tun_device"] = tunDevice.value
-	} else {
-		extracted["tun_device"] = ""
-	}
-
-	if changed {
-		var finalLines []string
-		finalLines = append(finalLines, prependLines...)
-		finalLines = append(finalLines, lines...)
-
-		output := strings.Join(finalLines, "\n")
-		if len(output) > 0 && !strings.HasSuffix(output, "\n") {
-			output += "\n"
-		}
-
-		tmpFile, err := os.CreateTemp(m.baseDir, "config.yaml.*.tmp")
-		if err == nil {
-			tmpName := tmpFile.Name()
-			writeSuccess := false
-			
-			func() {
-				defer func() {
-					_ = tmpFile.Close()
-					if !writeSuccess {
-						_ = os.Remove(tmpName) 
-					}
-				}()
-				if _, err := tmpFile.Write([]byte(output)); err != nil { return }
-				if err := tmpFile.Sync(); err != nil { return }
-				writeSuccess = true
-			}()
-
-			if writeSuccess {
-				_ = os.Rename(tmpName, configPath)
-			}
-		}
-	}
-	
-	m.yamlMu.Unlock() 
-	m.UpdateBatch(extracted)
-}
-
-func (m *Manager) EnsureYAMLStateForBoot(wantMode string, wantTun bool) (bool, error) {
+func (m *Manager) PrepareYAMLForBoot(wantMode string, wantTun bool) (bool, error) {
 	m.yamlMu.Lock()
 	defer m.yamlMu.Unlock()
 
 	configPath := filepath.Join(m.baseDir, "config.yaml")
 	content, err := os.ReadFile(configPath)
-	if err != nil || len(content) == 0 {
+	if err != nil {
 		return false, err
 	}
 
 	rawStr := strings.TrimPrefix(string(content), "\xef\xbb\xbf")
 	lines := strings.Split(strings.ReplaceAll(rawStr, "\r\n", "\n"), "\n")
 
-	inTunBlock := false
+	outLines, extracted, modified := processYAMLContent(lines, wantMode, wantTun)
+
+	if modified {
+		output := strings.Join(outLines, "\n")
+		if len(output) > 0 && !strings.HasSuffix(output, "\n") {
+			output += "\n"
+		}
+
+		if err := writeTmpAndRename(m.baseDir, configPath, []byte(output)); err != nil {
+			return false, fmt.Errorf("failed to save config.yaml: %w", err)
+		}
+	}
+
+	if len(extracted) > 0 {
+		m.UpdateBatch(extracted)
+	}
+
+	return modified, nil
+}
+
+func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string, map[string]string, bool) {
+	extracted := make(map[string]string)
 	modified := false
 
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
+	var (
+		hasMixedPort bool
+		mixedPortVal string
+		hasSocksPort bool
+		hasPort      bool
+		portVal      string
+		hasMode      bool
+		hasExtCtrl   bool
+		extCtrlVal   string
+		hasSecret    bool
+		secretVal    string
+		hasExtUI     bool
+		hasExtUIUrl  bool
 
+		tunRootExists bool
+		tunRootIndex  int = -1
+		inTun         bool
+		hasTunEnable  bool
+		hasTunDevice  bool
+		tunDeviceVal  string
+	)
+
+	outLines := make([]string, len(lines))
+	copy(outLines, lines)
+
+	for i, line := range outLines {
+		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") {
 			continue
 		}
 
 		indent := 0
+		prefixLen := 0
 		for _, c := range line {
 			if c == ' ' {
 				indent++
+				prefixLen++
 			} else if c == '\t' {
 				indent += 4
+				prefixLen++
 			} else {
 				break
 			}
 		}
 
 		if indent == 0 {
-			inTunBlock = strings.HasPrefix(trimmed, "tun:")
-		}
+			inTun = false
 
-		if strings.HasPrefix(trimmed, "mode:") {
-			if wantMode != "" {
-				comment := ""
-				if idx := strings.Index(line, "#"); idx != -1 {
-					comment = " " + strings.TrimSpace(line[idx:])
+			if strings.HasPrefix(trimmed, "mixed-port:") {
+				hasMixedPort = true
+				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
+					mixedPortVal = cleanVal(parts[1])
 				}
-
-				targetLine := fmt.Sprintf("%smode: %s%s", line[:indent], wantMode, comment)
-
-				if lines[i] != targetLine {
-					lines[i] = targetLine
+			} else if strings.HasPrefix(trimmed, "socks-port:") {
+				hasSocksPort = true
+			} else if strings.HasPrefix(trimmed, "port:") {
+				hasPort = true
+				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
+					portVal = cleanVal(parts[1])
+				}
+			} else if strings.HasPrefix(trimmed, "mode:") {
+				hasMode = true
+				if wantMode != "" {
+					comment := extractComment(line)
+					targetLine := fmt.Sprintf("%smode: %s%s", line[:prefixLen], wantMode, comment)
+					if outLines[i] != targetLine {
+						outLines[i] = targetLine
+						modified = true
+					}
+				}
+			} else if strings.HasPrefix(trimmed, "external-controller:") {
+				hasExtCtrl = true
+				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
+					extCtrlVal = cleanVal(parts[1])
+				}
+			} else if strings.HasPrefix(trimmed, "secret:") {
+				hasSecret = true
+				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
+					secretVal = cleanVal(parts[1])
+				}
+			} else if strings.HasPrefix(trimmed, "external-ui:") {
+				hasExtUI = true
+			} else if strings.HasPrefix(trimmed, "external-ui-url:") {
+				hasExtUIUrl = true
+			} else if strings.HasPrefix(trimmed, "tun:") {
+				tunRootExists = true
+				tunRootIndex = i
+				inTun = true
+			}
+		} else if inTun && indent > 0 {
+			if strings.HasPrefix(trimmed, "enable:") {
+				hasTunEnable = true
+				comment := extractComment(line)
+				targetLine := fmt.Sprintf("%senable: %t%s", line[:prefixLen], wantTun, comment)
+				if outLines[i] != targetLine {
+					outLines[i] = targetLine
 					modified = true
 				}
-			}
-			continue
-		}
-
-		if inTunBlock && indent > 0 && strings.HasPrefix(trimmed, "enable:") {
-			comment := ""
-			if idx := strings.Index(line, "#"); idx != -1 {
-				comment = " " + strings.TrimSpace(line[idx:])
-			}
-
-			targetLine := fmt.Sprintf("%senable: %t%s", line[:indent], wantTun, comment)
-			if lines[i] != targetLine {
-				lines[i] = targetLine
-				modified = true
+			} else if strings.HasPrefix(trimmed, "device:") {
+				hasTunDevice = true
+				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
+					tunDeviceVal = cleanVal(parts[1])
+				}
 			}
 		}
 	}
 
-	if !modified {
-		return false, nil
-	}
-
-	newContent := strings.Join(lines, "\n")
-	tmpFile, err := os.CreateTemp(m.baseDir, "config.yaml.*.tmp")
-	if err != nil {
-		return false, err
-	}
-	tmpName := tmpFile.Name()
-	writeSuccess := false
-
-	func() {
-		defer func() {
-			_ = tmpFile.Close()
-			if !writeSuccess {
-				_ = os.Remove(tmpName)
-			}
-		}()
-		if _, err := tmpFile.Write([]byte(newContent)); err != nil {
-			return
+	if tunRootExists && !hasTunEnable {
+		enableLine := fmt.Sprintf("  enable: %t", wantTun)
+		if tunRootIndex >= 0 && tunRootIndex < len(outLines) {
+			outLines = append(outLines[:tunRootIndex+1], append([]string{enableLine}, outLines[tunRootIndex+1:]...)...)
+			modified = true
 		}
-		if err := tmpFile.Sync(); err != nil {
-			return
+	}
+
+	if hasMixedPort {
+		extracted["port"] = mixedPortVal
+	} else if hasPort {
+		extracted["port"] = portVal
+	}
+
+	if hasExtCtrl {
+		extracted["external-controller"] = extCtrlVal
+	}
+
+	if hasSecret {
+		extracted["secret"] = secretVal
+	}
+
+	if tunRootExists {
+		if hasTunDevice && tunDeviceVal != "" {
+			extracted["tun_device"] = tunDeviceVal
+		} else {
+			extracted["tun_device"] = DefaultTunDevice
 		}
-		writeSuccess = true
-	}()
-
-	if !writeSuccess {
-		return false, os.ErrInvalid
 	}
 
-	if err := os.Rename(tmpName, configPath); err != nil {
-		return false, err
+	var prependLines []string
+
+	if !hasMixedPort {
+		prependLines = append(prependLines, fmt.Sprintf("mixed-port: %s", DefaultMixedPort))
+		modified = true
+		if !hasPort {
+			extracted["port"] = DefaultMixedPort
+		}
+	}
+	if !hasSocksPort {
+		prependLines = append(prependLines, fmt.Sprintf("socks-port: %s", DefaultSocksPort))
+		modified = true
+	}
+	if !hasPort && !hasMixedPort {
+		prependLines = append(prependLines, fmt.Sprintf("port: %s", DefaultHTTPPort))
+		modified = true
 	}
 
-	return true, nil
+	if !hasMode {
+		modeToSet := DefaultMode
+		if wantMode != "" {
+			modeToSet = wantMode
+		}
+		prependLines = append(prependLines, "mode: "+modeToSet)
+		modified = true
+	}
+
+	if !hasExtCtrl {
+		prependLines = append(prependLines, fmt.Sprintf("external-controller: %s", DefaultExternalController))
+		modified = true
+		extracted["external-controller"] = DefaultExternalController
+	}
+
+	if !hasSecret {
+		prependLines = append(prependLines, fmt.Sprintf("secret: '%s'", DefaultSecret))
+		modified = true
+		extracted["secret"] = DefaultSecret
+	}
+
+	if !hasExtUI {
+		prependLines = append(prependLines, fmt.Sprintf("external-ui: '%s'", DefaultExternalUI))
+		modified = true
+	}
+
+	if !hasExtUIUrl {
+		prependLines = append(prependLines, fmt.Sprintf("external-ui-url: '%s'", DefaultExternalUIURL))
+		modified = true
+	}
+
+	if !tunRootExists {
+		prependLines = append(prependLines, "tun:")
+		prependLines = append(prependLines, fmt.Sprintf("  enable: %t", wantTun))
+		prependLines = append(prependLines, fmt.Sprintf("  stack: %s", DefaultTunStack))
+		prependLines = append(prependLines, fmt.Sprintf("  auto-route: %t", DefaultTunAutoRoute))
+		prependLines = append(prependLines, fmt.Sprintf("  device: %s", DefaultTunDevice))
+		modified = true
+		extracted["tun_device"] = DefaultTunDevice
+	}
+
+	if len(prependLines) > 0 {
+		outLines = append(prependLines, outLines...)
+	}
+
+	return outLines, extracted, modified
 }
 
 func (m *Manager) lockedSave() {
@@ -401,31 +430,65 @@ func (m *Manager) lockedSave() {
 	if err != nil {
 		return
 	}
-
 	cfgPath := filepath.Join(m.baseDir, ConfigFileName)
-	tmpFile, err := os.CreateTemp(m.baseDir, ConfigFileName+".*.tmp")
-	if err != nil {
-		return
-	}
-	tmpName := tmpFile.Name()
-	writeSuccess := false
-
-	func() {
-		defer func() {
-			_ = tmpFile.Close()
-			if !writeSuccess {
-				_ = os.Remove(tmpName)
-			}
-		}()
-		if _, err := tmpFile.Write(b); err != nil { return }
-		if err := tmpFile.Sync(); err != nil { return }
-		writeSuccess = true
-	}()
-
-	if writeSuccess {
-		_ = os.Rename(tmpName, cfgPath)
-	}
+	_ = writeTmpAndRename(m.baseDir, cfgPath, b)
 }
 
 func (m *Manager) BaseDir() string { return m.baseDir }
 func (m *Manager) ExePath() string { return m.exePath }
+
+func extractComment(line string) string {
+	if idx := strings.Index(line, "#"); idx != -1 {
+		rawComment := line[idx:]
+		if idx > 0 && line[idx-1] == ' ' {
+			return " " + strings.TrimSpace(rawComment)
+		}
+		return " " + strings.TrimSpace(rawComment)
+	}
+	return ""
+}
+
+func cleanVal(s string) string {
+	inSingle, inDouble := false, false
+	for i, char := range s {
+		if char == '\'' && !inDouble {
+			inSingle = !inSingle
+		} else if char == '"' && !inSingle {
+			inDouble = !inDouble
+		} else if char == '#' && !inSingle && !inDouble {
+			s = s[:i]
+			break
+		}
+	}
+	return strings.Trim(strings.TrimSpace(s), " \"'")
+}
+
+func writeTmpAndRename(baseDir, targetPath string, content []byte) error {
+	tmpFile, err := os.CreateTemp(baseDir, "config.*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmpFile.Name()
+
+	cleaned := false
+	defer func() {
+		if !cleaned {
+			_ = tmpFile.Close()
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	if _, err := tmpFile.Write(content); err != nil {
+		return err
+	}
+	if err := tmpFile.Sync(); err != nil {
+		return err
+	}
+
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+	cleaned = true
+
+	return os.Rename(tmpName, targetPath)
+}
