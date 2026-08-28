@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-
-	"mihomo-tray/internal/fsm"
 )
 
 const (
@@ -48,15 +46,12 @@ type Manager struct {
 	mu      sync.RWMutex
 	yamlMu  sync.Mutex
 	data    TrayConfig
-
-	State *fsm.RuntimeState
 }
 
 func NewManager(baseDir, exePath string) *Manager {
 	return &Manager{
 		baseDir: baseDir,
 		exePath: exePath,
-		State:   fsm.NewRuntimeState(),
 	}
 }
 
@@ -187,9 +182,7 @@ func (m *Manager) UpdateBatch(updates map[string]string) {
 	}
 }
 
-// PrepareYAMLForBoot 自动提取内存目标状态，完成 YAML 校准、原子落盘与反向同步
 func (m *Manager) PrepareYAMLForBoot() (bool, error) {
-	// 在持 yamlMu 锁之前读取期望状态，避免锁嵌套
 	wantMode := m.Get("mode")
 	wantTun := m.Get("tun") == "true"
 
