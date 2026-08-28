@@ -565,11 +565,20 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		}
 
 		if resp.Tun.Device != "" && resp.Tun.Device != a.Cfg.Get("tun_device") {
-			log.Printf("[INFO] 内核返回 Tun.Device 变更: %s -> %s", a.Cfg.Get("tun_device"), resp.Tun.Device)
-			a.Cfg.Set("tun_device", resp.Tun.Device)
-			changed = true
-		}
-		return changed
-	}
-	return false
+            log.Printf("[INFO] 内核返回 Tun.Device 变更: %s -> %s", a.Cfg.Get("tun_device"), resp.Tun.Device)
+            a.Cfg.Set("tun_device", resp.Tun.Device)
+            changed = true
+        }
+
+        if changed {
+            realAlive := sys.IsTunActive(a.Cfg.Get("tun_device"))
+            if a.State.IsTunAlive() != realAlive {
+                log.Printf("[DEBUG] 轮询纠偏：及时同步底层网卡真实存活状态 -> %v", realAlive)
+                a.State.SetTunAlive(realAlive)
+            }
+        }
+
+        return changed
+    }
+    return false
 }
