@@ -18,13 +18,15 @@ import (
 )
 
 type APIClient struct {
-	cm         *config.Manager
+	cfg        *config.Manager
+	st         *state.RuntimeState
 	httpClient *http.Client
 }
 
-func NewAPIClient(cm *config.Manager) *APIClient { 
+func NewAPIClient(cfg *config.Manager, st *state.RuntimeState) *APIClient {
 	return &APIClient{
-		cm: cm,
+		cfg: cfg,
+		st:  st,
 		httpClient: &http.Client{
 			Transport: &http.Transport{
 				Proxy: nil,
@@ -43,11 +45,11 @@ func NewAPIClient(cm *config.Manager) *APIClient {
 }
 
 func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload interface{}) ([]byte, error) {
-	if c.cm.State.IsExiting() {
+	if c.st.IsExiting() {
 		return nil, context.Canceled
 	}
 
-	apiAddr := strings.TrimSuffix(c.cm.Get("external-controller"), "/")
+	apiAddr := strings.TrimSuffix(c.cfg.Get("external-controller"), "/")
 	if apiAddr == "" {
 		return nil, fmt.Errorf("api address is empty")
 	}
@@ -76,7 +78,7 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 	if bodyReader != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if secret := c.cm.Get("secret"); secret != "" {
+	if secret := c.cfg.Get("secret"); secret != "" {
 		req.Header.Set("Authorization", "Bearer "+secret)
 	}
 
@@ -102,7 +104,7 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if method == http.MethodPut && strings.Contains(path, "/configs") {
-			logPath := filepath.Join(c.cm.BaseDir(), "error.log")
+			logPath := filepath.Join(c.cfg.BaseDir(), "error.log")
 			_ = os.WriteFile(logPath, body, 0644)
 		}
 		return body, fmt.Errorf("API Error: %d, Response: %s", resp.StatusCode, string(body))
@@ -112,7 +114,7 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 }
 
 func (c *APIClient) SyncConfigToKernel(ctx context.Context, payload map[string]interface{}) error {
-	if c.cm.State.IsExiting() {
+	if c.st.IsExiting() {
 		return context.Canceled
 	}
 	_, err := c.DoRequest(ctx, http.MethodPatch, "/configs", payload)
