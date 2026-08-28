@@ -17,11 +17,11 @@ import (
 )
 
 type APIClient struct {
-	cm         *fsm.Manager
+	cm         *config.Manager
 	httpClient *http.Client
 }
 
-func NewAPIClient(cm *fsm.Manager) *APIClient {
+func NewAPIClient(cm *config.Manager) *APIClient { 
 	return &APIClient{
 		cm: cm,
 		httpClient: &http.Client{
@@ -35,7 +35,7 @@ func NewAPIClient(cm *fsm.Manager) *APIClient {
 				MaxIdleConns:          100,
 				MaxIdleConnsPerHost:   100,
 				IdleConnTimeout:       90 * time.Second,
-				ResponseHeaderTimeout: 12 * time.Second, 
+				ResponseHeaderTimeout: 12 * time.Second,
 			},
 		},
 	}
