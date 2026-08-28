@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"mihomo-tray/internal/fsm"
+	"mihomo-tray/internal/config"
 )
 
 type APIClient struct {
