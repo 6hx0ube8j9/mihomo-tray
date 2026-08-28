@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/fsm"
 	"mihomo-tray/internal/sys"
@@ -24,7 +25,7 @@ const (
 )
 
 type Application struct {
-	Cfg    *fsm.Manager
+	Cfg    *config.Manager
 	Kernel *core.KernelManager
 	API    *core.APIClient
 
@@ -40,7 +41,7 @@ type Application struct {
 	lastUIState ui.UIState
 }
 
-func NewApplication(cm *fsm.Manager) *Application {
+func NewApplication(cm *config.Manager) *Application {
 	return &Application{
 		Cfg:           cm,
 		Kernel:        core.NewKernelManager(cm),
@@ -84,16 +85,19 @@ func (a *Application) Bootstrap(ctx context.Context) {
 		a.Cfg.Set("autostart", strconv.FormatBool(osTaskExists))
 	}
 
-	// 顺序调整：先将内存中的目标状态写入 config.yaml，再做 SyncWithYAML
-	a.ensureYAMLStateForBoot()
-	a.Cfg.SyncWithYAML()
-	log.Println("[INFO] 配置文件同步与 TUN/Mode 开机状态校准完成")
-	
-    a.Cfg.State.MuteAPIWatcher(20 * time.Second)
+	if modified, err := a.Cfg.PrepareYAMLForBoot(); err != nil {
+		log.Printf("[ERROR] 启动前准备 YAML 配置失败: %v", err)
+	} else if modified {
+		log.Println("[INFO] 成功校准 config.yaml 预置状态并完成配置同步")
+	} else {
+		log.Println("[DEBUG] YAML 配置与内存目标状态一致，未触发重写")
+	}
+
+	a.Cfg.State.MuteAPIWatcher(20 * time.Second)
 	if a.Cfg.Get("tun") == "true" {
 		a.Cfg.State.SetTunRequestedTime(time.Now())
 	}
-	
+
 	if a.Cfg.Get("proxy") == "true" {
 		port := a.Cfg.Get("port")
 		log.Printf("[INFO] 检测到 Proxy 选项开启，正在启用系统代理 (端口: %s)...", port)
@@ -115,7 +119,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 
 func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	log.Println("[INFO] 正在触发安全退出机制 (SafeShutdown)...")
-	
+
 	a.Cfg.State.ForceExitPhase()
 
 	if cancel != nil {
@@ -368,7 +372,11 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 
 	go func() {
 		defer a.Cfg.State.SetReloading(false)
-		a.Cfg.SyncWithYAML()
+
+		if _, err := a.Cfg.PrepareYAMLForBoot(); err != nil {
+			log.Printf("[ERROR] 重载配置时同步 YAML 状态失败: %v", err)
+		}
+
 		portChanged := oldPort != "" && oldPort != a.Cfg.Get("port")
 
 		if portChanged && isProxyOn {
@@ -416,12 +424,13 @@ func (a *Application) RestartKernel() {
 	a.Cfg.State.SetRestarting(true)
 	a.Cfg.State.SetReloading(false)
 
-	a.ensureYAMLStateForBoot()
-	a.Cfg.SyncWithYAML()
+	if _, err := a.Cfg.PrepareYAMLForBoot(); err != nil {
+		log.Printf("[ERROR] 重启内核前校准 YAML 失败: %v", err)
+	}
 
 	log.Println("[INFO] 终止当前内核进程...")
 	a.Kernel.KillCurrent()
-	
+
 	a.Cfg.State.MuteAPIWatcher(5 * time.Second)
 
 	a.pushUIState()
@@ -471,7 +480,6 @@ func (a *Application) watchProxyAdapter(ctx context.Context) {
 		func() bool { return a.Cfg.Get("proxy") == "true" },
 		func() string { return a.Cfg.Get("port") },
 		func() {
-			// 在退出阶段直接忽略通知
 			if a.Cfg.State.IsExiting() {
 				return
 			}
@@ -482,7 +490,6 @@ func (a *Application) watchProxyAdapter(ctx context.Context) {
 			}
 		},
 		func() {
-			// 在退出阶段直接忽略通知
 			if a.Cfg.State.IsExiting() {
 				return
 			}
@@ -569,28 +576,4 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		return changed
 	}
 	return false
-}
-
-func (a *Application) ensureYAMLStateForBoot() {
-	wantTun := a.Cfg.Get("tun") == "true"
-	wantMode := a.Cfg.Get("mode")
-	configPath := filepath.Join(a.Cfg.BaseDir(), "config.yaml")
-
-	log.Printf("[DEBUG] 校验 YAML 预置状态: wantTun=%v, wantMode=%q (配置路径: %s)", wantTun, wantMode, configPath)
-
-	if wantMode == "" {
-		log.Printf("[WARN] wantMode 为空，跳过 mode 校验 (请检查 JSON 配置是否已正确加载)")
-	}
-
-	modified, err := a.Cfg.EnsureYAMLStateForBoot(wantMode, wantTun)
-	if err != nil {
-		log.Printf("[ERROR] 写入 config.yaml 预置状态失败: %v", err)
-		return
-	}
-
-	if modified {
-		log.Printf("[INFO] 成功校准 config.yaml 预置状态")
-	} else {
-		log.Printf("[DEBUG] YAML 配置与内存目标状态一致，未触发重写")
-	}
 }
