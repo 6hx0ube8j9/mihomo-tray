@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"mihomo-tray/internal/config"
+	"mihomo-tray/internal/state"
 )
 
 type APIClient struct {
