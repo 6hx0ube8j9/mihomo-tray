@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"mihomo-tray/internal/fsm"
+	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/sys"
 )
 
@@ -39,7 +40,7 @@ var (
 )
 
 type KernelManager struct {
-	cm         *fsm.Manager
+	cm         *config.Manager
 	hJob       windows.Handle
 	currentPid uint32
 	activeProc *os.Process
@@ -52,7 +53,7 @@ type KernelManager struct {
 // 构造函数与生命周期公开接口 (Public Methods)
 // -----------------------------------------------------------------------------
 
-func NewKernelManager(cm *fsm.Manager) *KernelManager {
+func NewKernelManager(cm *config.Manager) *KernelManager {
 	km := &KernelManager{cm: cm}
 	km.initJobObject()
 	return km
