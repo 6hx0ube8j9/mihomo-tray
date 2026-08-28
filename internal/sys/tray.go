@@ -36,35 +36,6 @@ type TrayHost struct {
 	ready     chan struct{}
 }
 
-var (
-	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
-	user32   = windows.NewLazySystemDLL("user32.dll")
-	shell32  = windows.NewLazySystemDLL("shell32.dll")
-
-	pGetModuleHandleW         = kernel32.NewProc("GetModuleHandleW")
-	pRegisterClassExW         = user32.NewProc("RegisterClassExW")
-	pCreateWindowExW          = user32.NewProc("CreateWindowExW")
-	pDestroyWindow            = user32.NewProc("DestroyWindow")
-	pDefWindowProcW           = user32.NewProc("DefWindowProcW")
-	pGetMessageW              = user32.NewProc("GetMessageW")
-	pTranslateMessage         = user32.NewProc("TranslateMessage")
-	pDispatchMessageW         = user32.NewProc("DispatchMessageW")
-	pPostQuitMessage          = user32.NewProc("PostQuitMessage")
-	pPostMessageW             = user32.NewProc("PostMessageW")
-	pRegisterWindowMessageW   = user32.NewProc("RegisterWindowMessageW")
-	pGetSystemMetrics         = user32.NewProc("GetSystemMetrics")
-	pCreatePopupMenu          = user32.NewProc("CreatePopupMenu")
-	pAppendMenuW              = user32.NewProc("AppendMenuW")
-	pDestroyMenu              = user32.NewProc("DestroyMenu")
-	pTrackPopupMenu           = user32.NewProc("TrackPopupMenu")
-	pSetForegroundWindow      = user32.NewProc("SetForegroundWindow")
-	pGetCursorPos             = user32.NewProc("GetCursorPos")
-	pDestroyIcon              = user32.NewProc("DestroyIcon")
-	pCreateIconFromResourceEx = user32.NewProc("CreateIconFromResourceEx")
-
-	pShell_NotifyIconW = shell32.NewProc("Shell_NotifyIconW")
-)
-
 const (
 	WM_USER      = 0x0400
 	WM_TRAYICON  = WM_USER + 1
@@ -146,46 +117,46 @@ func init() {
 }
 
 func wndProc(hwnd windows.HWND, msg uint32, wParam uintptr, lParam uintptr) uintptr {
-    var th *TrayHost
-    if host, ok := trayInstances.Load(hwnd); ok {
-        th = host.(*TrayHost)
-    }
+	var th *TrayHost
+	if host, ok := trayInstances.Load(hwnd); ok {
+		th = host.(*TrayHost)
+	}
 
-    if wmTaskbarCreated != 0 && msg == wmTaskbarCreated {
-        if th != nil {
-            th.addNotifyIcon()
-        }
-        return 0
-    }
+	if wmTaskbarCreated != 0 && msg == wmTaskbarCreated {
+		if th != nil {
+			th.addNotifyIcon()
+		}
+		return 0
+	}
 
-    switch msg {
-    case WM_TRAYICON:
-        if th != nil {
-            switch uint32(lParam) {
-            case WM_LBUTTONUP:
-                if th.onLeftClick != nil {
-                    th.onLeftClick()
-                }
-            case WM_RBUTTONUP:
-                if th.onRightClick != nil {
-                    th.onRightClick()
-                }
-            }
-        }
-        return 0
+	switch msg {
+	case WM_TRAYICON:
+		if th != nil {
+			switch uint32(lParam) {
+			case WM_LBUTTONUP:
+				if th.onLeftClick != nil {
+					th.onLeftClick()
+				}
+			case WM_RBUTTONUP:
+				if th.onRightClick != nil {
+					th.onRightClick()
+				}
+			}
+		}
+		return 0
 
-    case WM_DESTROY:
-        if th != nil {
-            th.removeNotifyIcon()
-            th.freeIcons()
-            trayInstances.Delete(hwnd)
-        }
-        pPostQuitMessage.Call(0)
-        return 0
-    }
+	case WM_DESTROY:
+		if th != nil {
+			th.removeNotifyIcon()
+			th.freeIcons()
+			trayInstances.Delete(hwnd)
+		}
+		pPostQuitMessage.Call(0)
+		return 0
+	}
 
-    r, _, _ := pDefWindowProcW.Call(uintptr(hwnd), uintptr(msg), wParam, lParam)
-    return r
+	r, _, _ := pDefWindowProcW.Call(uintptr(hwnd), uintptr(msg), wParam, lParam)
+	return r
 }
 
 func NewTrayHost(tooltip string, onLeftClick, onRightClick func(), onMenuItemClick func(id uint32)) *TrayHost {
