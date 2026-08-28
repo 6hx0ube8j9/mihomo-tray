@@ -12,7 +12,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"unsafe"
 
 	"golang.org/x/sys/windows"
 
@@ -21,22 +20,11 @@ import (
 	"mihomo-tray/internal/sys"
 )
 
-// -----------------------------------------------------------------------------
-// 类型定义、常量与 Win32 API 动态加载 (置顶)
-// -----------------------------------------------------------------------------
-
 type KernelEvent int
 
 const (
 	EventKernelReady KernelEvent = iota
 	EventKernelExit
-)
-
-var (
-	modkernel32               = windows.NewLazySystemDLL("kernel32.dll")
-	procAttachConsole         = modkernel32.NewProc("AttachConsole")
-	procFreeConsole           = modkernel32.NewProc("FreeConsole")
-	procSetConsoleCtrlHandler = modkernel32.NewProc("SetConsoleCtrlHandler")
 )
 
 type KernelManager struct {
@@ -50,16 +38,12 @@ type KernelManager struct {
 	lastError  string
 }
 
-// -----------------------------------------------------------------------------
-// 构造函数与生命周期公开接口 (Public Methods)
-// -----------------------------------------------------------------------------
-
 func NewKernelManager(cfg *config.Manager, st *state.RuntimeState) *KernelManager {
 	km := &KernelManager{
 		cfg: cfg,
 		st:  st,
 	}
-	km.initJobObject()
+	km.hJob, _ = sys.CreateKillOnCloseJob()
 	return km
 }
 
@@ -109,7 +93,6 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 
 		errBuf := &tailBuffer{max: 64 * 1024}
 
-		// 注意：此处不使用 exec.CommandContext，防止 context cancel 时触发 Go 默认强杀
 		cmd := exec.Command(target, "-d", ".")
 		cmd.Dir = absBaseDir
 
@@ -139,7 +122,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		atomic.StoreUint32(&km.currentPid, uint32(cmd.Process.Pid))
 		km.mu.Unlock()
 
-		km.assignToJob(cmd.Process.Pid)
+		sys.AssignProcessToJob(km.hJob, cmd.Process.Pid)
 
 		select {
 		case <-ctx.Done():
@@ -228,7 +211,7 @@ func (km *KernelManager) KillCurrent() {
 
 	log.Printf("[INFO] 正在向内核进程 (PID: %d) 发送安全退出中断 (CTRL_BREAK)...", pid)
 
-	if err := sendCtrlBreak(pid); err != nil {
+	if err := sys.SendCtrlBreak(pid); err != nil {
 		log.Printf("[ERROR] 发送安全中断失败: %v，尝试强制结束进程", err)
 		_ = proc.Kill()
 	} else {
@@ -251,39 +234,6 @@ func (km *KernelManager) KillCurrent() {
 
 	sys.KillOtherProcessesByName("mihomo.exe", 0)
 	time.Sleep(250 * time.Millisecond)
-}
-
-// -----------------------------------------------------------------------------
-// KernelManager 私有辅助方法 (Private Methods)
-// -----------------------------------------------------------------------------
-
-func (km *KernelManager) initJobObject() {
-	h, err := windows.CreateJobObject(nil, nil)
-	if err != nil {
-		return
-	}
-	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
-		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
-			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-		},
-	}
-	_, _ = windows.SetInformationJobObject(
-		h,
-		windows.JobObjectExtendedLimitInformation,
-		uintptr(unsafe.Pointer(&info)),
-		uint32(unsafe.Sizeof(info)),
-	)
-	km.hJob = h
-}
-
-func (km *KernelManager) assignToJob(pid int) {
-	if km.hJob == 0 {
-		return
-	}
-	if hp, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(pid)); err == nil {
-		_ = windows.AssignProcessToJobObject(km.hJob, hp)
-		windows.CloseHandle(hp)
-	}
 }
 
 func (km *KernelManager) checkAndWriteLog(absBaseDir, errType, rawMsg string) {
@@ -345,58 +295,6 @@ func (km *KernelManager) calculateBackoff(current, max time.Duration) time.Durat
 	}
 	return next
 }
-
-// -----------------------------------------------------------------------------
-// Win32 API 控制台信号发送底层实现
-// -----------------------------------------------------------------------------
-
-func attachConsole(pid uint32) error {
-	r1, _, err := procAttachConsole.Call(uintptr(pid))
-	if r1 == 0 {
-		return fmt.Errorf("attachConsole 失败: %w", err)
-	}
-	return nil
-}
-
-func freeConsole() error {
-	r1, _, err := procFreeConsole.Call()
-	if r1 == 0 {
-		return fmt.Errorf("freeConsole 失败: %w", err)
-	}
-	return nil
-}
-
-func setConsoleCtrlHandler(add bool) error {
-	var a uintptr
-	if add {
-		a = 1
-	}
-	r1, _, err := procSetConsoleCtrlHandler.Call(0, a)
-	if r1 == 0 {
-		return fmt.Errorf("setConsoleCtrlHandler 失败: %w", err)
-	}
-	return nil
-}
-
-func sendCtrlBreak(pid uint32) error {
-	if pid == 0 {
-		return fmt.Errorf("invalid pid")
-	}
-
-	if err := attachConsole(pid); err != nil {
-		return err
-	}
-	defer freeConsole()
-
-	_ = setConsoleCtrlHandler(true)
-	defer setConsoleCtrlHandler(false)
-
-	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
-}
-
-// -----------------------------------------------------------------------------
-// 日志 Tail Buffer 结构
-// -----------------------------------------------------------------------------
 
 type tailBuffer struct {
 	mu  sync.Mutex
