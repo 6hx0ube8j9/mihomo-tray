@@ -15,6 +15,7 @@ import (
 
 	"mihomo-tray/internal/app"
 	"mihomo-tray/internal/config"
+	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/ui"
 )
 
@@ -23,7 +24,7 @@ const (
 	ShowUIEvent = "Mihomo_Tray_Mutex_ShowUI"
 )
 
-
+// syncFileWriter 包装 os.File，每次写入后立即强制刷盘 (Sync)
 type syncFileWriter struct {
 	file *os.File
 }
@@ -31,7 +32,7 @@ type syncFileWriter struct {
 func (w *syncFileWriter) Write(p []byte) (n int, err error) {
 	n, err = w.file.Write(p)
 	if err == nil {
-		_ = w.file.Sync()
+		_ = w.file.Sync() // 强制刷新内存缓冲区到磁盘
 	}
 	return n, err
 }
@@ -43,6 +44,7 @@ func initEarlyLogger(baseDir string) *os.File {
 		return nil
 	}
 
+	// 使用自动刷盘 Writer 接管 log 输出
 	log.SetOutput(&syncFileWriter{file: file})
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 	return file
@@ -58,6 +60,7 @@ func main() {
 	baseDir := filepath.Dir(exePath)
 	_ = os.Chdir(baseDir)
 
+	// 1. 初始化日志（支持实时刷盘）
 	logFile := initEarlyLogger(baseDir)
 	if logFile != nil {
 		defer logFile.Close()
@@ -66,6 +69,7 @@ func main() {
 	log.Println("[INFO] ==================== Mihomo Tray 进程启动 ====================")
 	log.Printf("[INFO] 进程 PID: %d, 可执行文件路径: %s", os.Getpid(), exePath)
 
+	// 2. 检查单实例互斥锁
 	mName, _ := windows.UTF16PtrFromString(AppMutex)
 	hM, err := windows.CreateMutex(nil, false, mName)
 	if errors.Is(err, windows.ERROR_ALREADY_EXISTS) || err == windows.ERROR_ALREADY_EXISTS {
@@ -95,6 +99,7 @@ func main() {
 		defer windows.CloseHandle(hShowUIEvent)
 	}
 
+	// 3. 命令行参数与权限检查
 	isAutostart := false
 	for _, arg := range os.Args {
 		if arg == "---autostart" || arg == "--autostart" {
@@ -115,12 +120,14 @@ func main() {
 	defer cancel()
 
 	cfgMgr := config.NewManager(baseDir, exePath)
-	application := app.NewApplication(cfgMgr)
+	runtimeState := state.NewRuntimeState()
+	application := app.NewApplication(cfgMgr, runtimeState)
 	trayMenu := ui.NewTrayMenu(ctx, cancel, application.UICommandCh, application.UIStateCh)
 
 	log.Println("[INFO] 初始化系统托盘 UI...")
 	trayMenu.Init()
 
+	// 4. 系统信号监听
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -135,6 +142,7 @@ func main() {
 		}
 	}()
 
+	// 5. 监听唤醒事件
 	if hShowUIEvent != 0 {
 		go func() {
 			log.Println("[INFO] 唤醒事件监听协程已就绪")
@@ -172,7 +180,7 @@ func main() {
 		windows.SetEvent(hShowUIEvent)
 	}
 
-	cfgMgr.State.ForceExitPhase()
+	runtimeState.ForceExitPhase()
 	application.SafeShutdown(cancel)
 	log.Println("[INFO] ==================== Mihomo Tray 进程安全退出 ====================")
 }
