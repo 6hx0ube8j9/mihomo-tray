@@ -4,66 +4,66 @@ import "golang.org/x/sys/windows"
 
 // DLL loaders
 var (
-	k32     = windows.NewLazySystemDLL("kernel32.dll")
-	u32     = windows.NewLazySystemDLL("user32.dll")
-	s32     = windows.NewLazySystemDLL("shell32.dll")
-	wininet = windows.NewLazySystemDLL("wininet.dll")
+	modKernel32 = windows.NewLazySystemDLL("kernel32.dll")
+	modUser32   = windows.NewLazySystemDLL("user32.dll")
+	modShell32  = windows.NewLazySystemDLL("shell32.dll")
+	modWininet  = windows.NewLazySystemDLL("wininet.dll")
 )
 
 // Win32 procedures
 var (
 	// --- kernel32 ---
-	procGetCurrentThread      = k32.NewProc("GetCurrentThreadId")       // window
-	pGetModuleHandleW         = k32.NewProc("GetModuleHandleW")          // tray
-	procAttachConsole         = k32.NewProc("AttachConsole")            // process
-	procFreeConsole           = k32.NewProc("FreeConsole")              // process
-	procSetConsoleCtrlHandler = k32.NewProc("SetConsoleCtrlHandler")    // process
+	procGetCurrentThread      = modKernel32.NewProc("GetCurrentThreadId")    // window
+	pGetModuleHandleW         = modKernel32.NewProc("GetModuleHandleW")       // tray
+	procAttachConsole         = modKernel32.NewProc("AttachConsole")         // process
+	procFreeConsole           = modKernel32.NewProc("FreeConsole")           // process
+	procSetConsoleCtrlHandler = modKernel32.NewProc("SetConsoleCtrlHandler") // process
 
 	// --- user32: window & focus ---
-	procEnumWindows          = u32.NewProc("EnumWindows")
-	procGetClassName         = u32.NewProc("GetClassNameW")
-	procIsWindowVisible      = u32.NewProc("IsWindowVisible")
-	procGetWindowThread      = u32.NewProc("GetWindowThreadProcessId")
-	procGetWindowText        = u32.NewProc("GetWindowTextW")
-	procSetWindowPos         = u32.NewProc("SetWindowPos")
-	procShowWindow           = u32.NewProc("ShowWindow")
-	procBringToTop           = u32.NewProc("BringWindowToTop")
-	procGetForeground        = u32.NewProc("GetForegroundWindow")
-	procAttachThread         = u32.NewProc("AttachThreadInput")
-	procSwitchToThisWindow   = u32.NewProc("SwitchToThisWindow")
-	procSystemParametersInfo = u32.NewProc("SystemParametersInfoW")
-	procSetProcessDpiContext = u32.NewProc("SetProcessDpiAwarenessContext")
-	procSetProcessDPIAware   = u32.NewProc("SetProcessDPIAware")
+	procEnumWindows          = modUser32.NewProc("EnumWindows")
+	procGetClassName         = modUser32.NewProc("GetClassNameW")
+	procIsWindowVisible      = modUser32.NewProc("IsWindowVisible")
+	procGetWindowThread      = modUser32.NewProc("GetWindowThreadProcessId")
+	procGetWindowText        = modUser32.NewProc("GetWindowTextW")
+	procSetWindowPos         = modUser32.NewProc("SetWindowPos")
+	procShowWindow           = modUser32.NewProc("ShowWindow")
+	procBringToTop           = modUser32.NewProc("BringWindowToTop")
+	procGetForeground        = modUser32.NewProc("GetForegroundWindow")
+	procAttachThread         = modUser32.NewProc("AttachThreadInput")
+	procSwitchToThisWindow   = modUser32.NewProc("SwitchToThisWindow")
+	procSystemParametersInfo = modUser32.NewProc("SystemParametersInfoW")
+	procSetProcessDpiContext = modUser32.NewProc("SetProcessDpiAwarenessContext")
+	procSetProcessDPIAware   = modUser32.NewProc("SetProcessDPIAware")
 
 	// --- user32: shared ---
-	procGetSystemMetrics = u32.NewProc("GetSystemMetrics")
+	procGetSystemMetrics = modUser32.NewProc("GetSystemMetrics")
 	pGetSystemMetrics    = procGetSystemMetrics
 
-	procSetForeground    = u32.NewProc("SetForegroundWindow")
+	procSetForeground    = modUser32.NewProc("SetForegroundWindow")
 	pSetForegroundWindow = procSetForeground
 
 	// --- user32: tray & menu ---
-	pRegisterClassExW         = u32.NewProc("RegisterClassExW")
-	pCreateWindowExW          = u32.NewProc("CreateWindowExW")
-	pDestroyWindow            = u32.NewProc("DestroyWindow")
-	pDefWindowProcW           = u32.NewProc("DefWindowProcW")
-	pGetMessageW              = u32.NewProc("GetMessageW")
-	pTranslateMessage         = u32.NewProc("TranslateMessage")
-	pDispatchMessageW         = u32.NewProc("DispatchMessageW")
-	pPostQuitMessage          = u32.NewProc("PostQuitMessage")
-	pPostMessageW             = u32.NewProc("PostMessageW")
-	pRegisterWindowMessageW   = u32.NewProc("RegisterWindowMessageW")
-	pCreatePopupMenu          = u32.NewProc("CreatePopupMenu")
-	pAppendMenuW              = u32.NewProc("AppendMenuW")
-	pDestroyMenu              = u32.NewProc("DestroyMenu")
-	pTrackPopupMenu           = u32.NewProc("TrackPopupMenu")
-	pGetCursorPos             = u32.NewProc("GetCursorPos")
-	pDestroyIcon              = u32.NewProc("DestroyIcon")
-	pCreateIconFromResourceEx = u32.NewProc("CreateIconFromResourceEx")
+	pRegisterClassExW         = modUser32.NewProc("RegisterClassExW")
+	pCreateWindowExW          = modUser32.NewProc("CreateWindowExW")
+	pDestroyWindow            = modUser32.NewProc("DestroyWindow")
+	pDefWindowProcW           = modUser32.NewProc("DefWindowProcW")
+	pGetMessageW              = modUser32.NewProc("GetMessageW")
+	pTranslateMessage         = modUser32.NewProc("TranslateMessage")
+	pDispatchMessageW         = modUser32.NewProc("DispatchMessageW")
+	pPostQuitMessage          = modUser32.NewProc("PostQuitMessage")
+	pPostMessageW             = modUser32.NewProc("PostMessageW")
+	pRegisterWindowMessageW   = modUser32.NewProc("RegisterWindowMessageW")
+	pCreatePopupMenu          = modUser32.NewProc("CreatePopupMenu")
+	pAppendMenuW              = modUser32.NewProc("AppendMenuW")
+	pDestroyMenu              = modUser32.NewProc("DestroyMenu")
+	pTrackPopupMenu           = modUser32.NewProc("TrackPopupMenu")
+	pGetCursorPos             = modUser32.NewProc("GetCursorPos")
+	pDestroyIcon              = modUser32.NewProc("DestroyIcon")
+	pCreateIconFromResourceEx = modUser32.NewProc("CreateIconFromResourceEx")
 
 	// --- shell32 ---
-	pShell_NotifyIconW = s32.NewProc("Shell_NotifyIconW") // tray
+	pShell_NotifyIconW = modShell32.NewProc("Shell_NotifyIconW") // tray
 
 	// --- wininet ---
-	procInternetSetOption = wininet.NewProc("InternetSetOptionW") // proxy
+	procInternetSetOption = modWininet.NewProc("InternetSetOptionW") // proxy
 )
