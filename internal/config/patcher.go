@@ -124,7 +124,7 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 						}
 					}
 				}
-				
+			}
 		} else if inTun && indent > 0 {
 			if strings.HasPrefix(trimmed, "enable:") {
 				hasTunEnable = true
@@ -175,7 +175,7 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 
 	var prependLines []string
 
-    if !hasMixedPort {
+	if !hasMixedPort {
 		prependLines = append(prependLines, fmt.Sprintf("mixed-port: %s", DefaultMixedPort))
 		modified = true
 		extracted["port"] = DefaultMixedPort
