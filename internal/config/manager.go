@@ -17,8 +17,6 @@ const (
 	DefaultTun                = "false"
 	DefaultMode               = "rule"
 	DefaultMixedPort          = "7890"
-	DefaultSocksPort          = "7891"
-	DefaultHTTPPort           = "7892"
 	DefaultExternalController = "127.0.0.1:9090"
 	DefaultSecret             = ""
 	DefaultTunDevice          = "Meta"
