@@ -42,6 +42,9 @@ type Application struct {
 
 	lastUIState     ui.UIState
 	proxyRetryCount int
+
+	actualTunDevice string
+	tunDevMutex     sync.RWMutex
 }
 
 func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
@@ -58,6 +61,22 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 		UICommandCh:   make(chan ui.UICommand, 10),
 		webuiEventCh:  make(chan ui.Event, 1),
 	}
+}
+
+
+func (a *Application) getActualTunDevice() string {
+    a.tunDevMutex.RLock()
+    defer a.tunDevMutex.RUnlock()
+    if a.actualTunDevice == "" {
+        return a.Cfg.Get("tun_device")
+    }
+    return a.actualTunDevice
+}
+
+func (a *Application) setActualTunDevice(dev string) {
+    a.tunDevMutex.Lock()
+    defer a.tunDevMutex.Unlock()
+    a.actualTunDevice = dev
 }
 
 func (a *Application) Bootstrap(ctx context.Context) {
@@ -317,6 +336,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		a.Cfg.Set("tun", strconv.FormatBool(enable))
 		if enable {
 			a.State.SetTunRequestedTime(time.Now())
+			a.setActualTunDevice(a.Cfg.Get("tun_device"))
 		}
 		a.State.MuteAPIWatcher(5 * time.Second)
 		go a.API.SyncConfigToKernel(ctx, map[string]interface{}{
@@ -464,7 +484,7 @@ func (a *Application) handleTunChange(ctx context.Context) {
 	if a.State.IsExiting() {
 		return
 	}
-	tunDev := a.Cfg.Get("tun_device")
+	tunDev := a.getActualTunDevice()
 	alive := sys.IsTunActive(tunDev)
 
 	if a.State.IsTunAlive() != alive {
@@ -564,14 +584,15 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 			}
 		}
 
-		if resp.Tun.Device != "" && resp.Tun.Device != a.Cfg.Get("tun_device") {
-            log.Printf("[INFO] 内核返回 Tun.Device 变更: %s -> %s", a.Cfg.Get("tun_device"), resp.Tun.Device)
-            a.Cfg.Set("tun_device", resp.Tun.Device)
+		currentActual := a.getActualTunDevice()
+		if resp.Tun.Device != "" && resp.Tun.Device != currentActual {
+            log.Printf("[INFO] 内核返回 Tun.Device 变更 (运行时变动): %s -> %s", currentActual, resp.Tun.Device)
+            a.setActualTunDevice(resp.Tun.Device)
             changed = true
         }
 
         if changed {
-            realAlive := sys.IsTunActive(a.Cfg.Get("tun_device"))
+            realAlive := sys.IsTunActive(a.getActualTunDevice())
             if a.State.IsTunAlive() != realAlive {
                 log.Printf("[DEBUG] 轮询纠偏：及时同步底层网卡真实存活状态 -> %v", realAlive)
                 a.State.SetTunAlive(realAlive)
