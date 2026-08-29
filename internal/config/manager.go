@@ -2,10 +2,10 @@ package config
 
 import (
 	"encoding/json"
-	"bytes"	
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -98,15 +98,24 @@ func (m *Manager) Get(key string) string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	switch key {
-	case "autostart": return m.data.Autostart
-	case "external-controller": return m.data.ExternalController
-	case "mode": return m.data.Mode
-	case "port": return m.data.Port
-	case "proxy": return m.data.Proxy
-	case "secret": return m.data.Secret
-	case "tun": return m.data.Tun
-	case "tun_device": return m.data.TunDevice
-	default: return ""
+	case "autostart":
+		return m.data.Autostart
+	case "external-controller":
+		return m.data.ExternalController
+	case "mode":
+		return m.data.Mode
+	case "port":
+		return m.data.Port
+	case "proxy":
+		return m.data.Proxy
+	case "secret":
+		return m.data.Secret
+	case "tun":
+		return m.data.Tun
+	case "tun_device":
+		return m.data.TunDevice
+	default:
+		return ""
 	}
 }
 
@@ -195,16 +204,19 @@ func (m *Manager) PrepareYAMLForBoot() (bool, error) {
 		return false, err
 	}
 
-	content = bytes.TrimPrefix(content, []byte("\xef\xbb\xbf"))
-	
-	newContent, extracted, modified, err := processYAMLAST(content, wantMode, wantTun)
-	if err != nil {
-		return false, fmt.Errorf("解析或修改配置文件失败: %w", err)
-	}
+	rawStr := strings.TrimPrefix(string(content), "\xef\xbb\xbf")
+	lines := strings.Split(strings.ReplaceAll(rawStr, "\r\n", "\n"), "\n")
+
+	outLines, extracted, modified := processYAMLContent(lines, wantMode, wantTun)
 
 	if modified {
-		if err := writeTmpAndRename(m.baseDir, configPath, newContent); err != nil {
-			return false, fmt.Errorf("保存 config.yaml 失败: %w", err)
+		output := strings.Join(outLines, "\n")
+		if len(output) > 0 && !strings.HasSuffix(output, "\n") {
+			output += "\n"
+		}
+
+		if err := writeTmpAndRename(m.baseDir, configPath, []byte(output)); err != nil {
+			return false, fmt.Errorf("failed to save config.yaml: %w", err)
 		}
 	}
 
