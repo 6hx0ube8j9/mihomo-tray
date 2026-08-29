@@ -113,13 +113,6 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 			return
 		}
 		handles = append(handles, event)
-
-		filter := uint32(windows.REG_NOTIFY_CHANGE_LAST_SET | windows.REG_NOTIFY_CHANGE_NAME | windows.REG_NOTIFY_THREAD_AGNOSTIC)
-		err = windows.RegNotifyChangeKeyValue(windows.Handle(k), false, filter, event, true)
-		if err != nil {
-			filter &^= windows.REG_NOTIFY_THREAD_AGNOSTIC
-			_ = windows.RegNotifyChangeKeyValue(windows.Handle(k), false, filter, event, true)
-		}
 	}
 
 	if len(handles) == 0 {
@@ -128,11 +121,25 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 
 	cancelEvent, _ := windows.CreateEvent(nil, 0, 0, nil)
 	handles = append(handles, cancelEvent)
+	cancelIdx := uint32(len(handles) - 1)
 
 	go func() {
 		<-ctx.Done()
 		_ = windows.SetEvent(cancelEvent)
 	}()
+
+	armKey := func(idx int) {
+		filter := uint32(windows.REG_NOTIFY_CHANGE_LAST_SET | windows.REG_NOTIFY_CHANGE_NAME | windows.REG_NOTIFY_THREAD_AGNOSTIC)
+		err := windows.RegNotifyChangeKeyValue(windows.Handle(keys[idx]), false, filter, handles[idx], true)
+		if err != nil {
+			filter &^= windows.REG_NOTIFY_THREAD_AGNOSTIC
+			_ = windows.RegNotifyChangeKeyValue(windows.Handle(keys[idx]), false, filter, handles[idx], true)
+		}
+	}
+
+	for i := range keys {
+		armKey(i)
+	}
 
 	for {
 		index, err := windows.WaitForMultipleObjects(handles, false, windows.INFINITE)
@@ -140,8 +147,17 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 			return
 		}
 
-		if index == windows.WAIT_OBJECT_0+uint32(len(handles)-1) {
+		if index == windows.WAIT_OBJECT_0+cancelIdx {
 			return
+		}
+
+		triggeredIdx := int(index - windows.WAIT_OBJECT_0)
+		if triggeredIdx >= 0 && triggeredIdx < len(keys) {
+			armKey(triggeredIdx)
+		} else {
+			for i := range keys {
+				armKey(i)
+			}
 		}
 
 		if status, err := GetProxyStatus(); err == nil {
