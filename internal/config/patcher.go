@@ -14,7 +14,6 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 	var (
 		hasMixedPort  bool
 		mixedPortVal  string
-		hasSocksPort  bool
 		hasPort       bool
 		portVal       string
 		hasMode       bool
@@ -63,8 +62,6 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
 					mixedPortVal = cleanVal(parts[1])
 				}
-			} else if strings.HasPrefix(trimmed, "socks-port:") {
-				hasSocksPort = true
 			} else if strings.HasPrefix(trimmed, "port:") {
 				hasPort = true
 				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
