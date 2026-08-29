@@ -2,10 +2,10 @@ package config
 
 import (
 	"encoding/json"
+	"bytes"	
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 )
 
