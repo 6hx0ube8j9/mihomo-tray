@@ -97,8 +97,6 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 				inTun = true
 
 				if strings.Contains(trimmed, "{") && strings.Contains(trimmed, "}") {
-					hasTunEnable = true
-
 					deviceRe := regexp.MustCompile(`device:\s*([^,}]+)`)
 					if match := deviceRe.FindStringSubmatch(trimmed); len(match) > 1 {
 						hasTunDevice = true
@@ -106,16 +104,27 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 					}
 
 					enableRe := regexp.MustCompile(`(?i)(enable:\s*)(true|false)`)
-					targetEnable := fmt.Sprintf("${1}%t", wantTun)
-
-					newTrimmed := enableRe.ReplaceAllString(line, targetEnable)
-
-					if newTrimmed != line {
-						outLines[i] = newTrimmed
-						modified = true
+					if enableRe.MatchString(trimmed) {
+						hasTunEnable = true
+						targetEnable := fmt.Sprintf("${1}%t", wantTun)
+						newTrimmed := enableRe.ReplaceAllString(line, targetEnable)
+						if newTrimmed != line {
+							outLines[i] = newTrimmed
+							modified = true
+						}
+					} else {
+						hasTunEnable = true
+						injection := fmt.Sprintf("{enable: %t, ", wantTun)
+						newTrimmed := strings.Replace(line, "{", injection, 1)
+						newTrimmed = strings.Replace(newTrimmed, ", }", "}", 1)
+						
+						if newTrimmed != line {
+							outLines[i] = newTrimmed
+							modified = true
+						}
 					}
 				}
-			}
+				
 		} else if inTun && indent > 0 {
 			if strings.HasPrefix(trimmed, "enable:") {
 				hasTunEnable = true
