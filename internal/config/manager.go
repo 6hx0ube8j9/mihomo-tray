@@ -195,19 +195,16 @@ func (m *Manager) PrepareYAMLForBoot() (bool, error) {
 		return false, err
 	}
 
-	rawStr := strings.TrimPrefix(string(content), "\xef\xbb\xbf")
-	lines := strings.Split(strings.ReplaceAll(rawStr, "\r\n", "\n"), "\n")
-
-	outLines, extracted, modified := processYAMLContent(lines, wantMode, wantTun)
+	content = bytes.TrimPrefix(content, []byte("\xef\xbb\xbf"))
+	
+	newContent, extracted, modified, err := processYAMLAST(content, wantMode, wantTun)
+	if err != nil {
+		return false, fmt.Errorf("解析或修改配置文件失败: %w", err)
+	}
 
 	if modified {
-		output := strings.Join(outLines, "\n")
-		if len(output) > 0 && !strings.HasSuffix(output, "\n") {
-			output += "\n"
-		}
-
-		if err := writeTmpAndRename(m.baseDir, configPath, []byte(output)); err != nil {
-			return false, fmt.Errorf("failed to save config.yaml: %w", err)
+		if err := writeTmpAndRename(m.baseDir, configPath, newContent); err != nil {
+			return false, fmt.Errorf("保存 config.yaml 失败: %w", err)
 		}
 	}
 
