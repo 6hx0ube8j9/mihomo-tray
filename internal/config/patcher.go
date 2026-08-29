@@ -169,20 +169,10 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 
 	var prependLines []string
 
-	if !hasMixedPort {
+    if !hasMixedPort {
 		prependLines = append(prependLines, fmt.Sprintf("mixed-port: %s", DefaultMixedPort))
 		modified = true
-		if !hasPort {
-			extracted["port"] = DefaultMixedPort
-		}
-	}
-	if !hasSocksPort {
-		prependLines = append(prependLines, fmt.Sprintf("socks-port: %s", DefaultSocksPort))
-		modified = true
-	}
-	if !hasPort && !hasMixedPort {
-		prependLines = append(prependLines, fmt.Sprintf("port: %s", DefaultHTTPPort))
-		modified = true
+		extracted["port"] = DefaultMixedPort
 	}
 
 	if !hasMode {
