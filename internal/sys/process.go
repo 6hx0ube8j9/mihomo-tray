@@ -118,14 +118,15 @@ func SendCtrlBreak(pid uint32) error {
 		return fmt.Errorf("invalid pid")
 	}
 
+	procSetConsoleCtrlHandler.Call(0, 1)
+	defer procSetConsoleCtrlHandler.Call(0, 0)
+	procFreeConsole.Call()
+
 	r1, _, err := procAttachConsole.Call(uintptr(pid))
 	if r1 == 0 {
 		return fmt.Errorf("attachConsole 失败: %w", err)
 	}
+	
 	defer procFreeConsole.Call()
-
-	procSetConsoleCtrlHandler.Call(0, 1)
-	defer procSetConsoleCtrlHandler.Call(0, 0)
-
 	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
 }
