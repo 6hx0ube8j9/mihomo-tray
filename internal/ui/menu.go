@@ -108,7 +108,7 @@ func (tm *TrayMenu) ListenUIState() {
 			tm.stateMu.Unlock()
 
 			if state.IconState >= 0 && state.IconState < 5 {
-				tm.trayHost.SetIcon(state.IconState)
+				go tm.trayHost.SetIcon(state.IconState)
 			}
 		}
 	}
