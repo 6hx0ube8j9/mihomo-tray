@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 )
 
@@ -19,7 +18,6 @@ const (
 	DefaultMixedPort          = "7890"
 	DefaultExternalController = "127.0.0.1:9090"
 	DefaultSecret             = ""
-	DefaultTunDevice          = "Meta"
 
 	DefaultExternalUI    = "ui"
 	DefaultExternalUIURL = ""
@@ -79,9 +77,6 @@ func (m *Manager) EnsureDefault() {
 	if m.data.Port == "" {
 		m.data.Port = DefaultMixedPort
 	}
-	if m.data.TunDevice == "" {
-		m.data.TunDevice = DefaultTunDevice
-	}
 	if m.data.ExternalController == "" {
 		m.data.ExternalController = DefaultExternalController
 	}
@@ -129,8 +124,6 @@ func (m *Manager) UpdateBatch(updates map[string]string) {
 	for key, value := range updates {
 		if value == "" {
 			switch key {
-			case "tun_device":
-				value = DefaultTunDevice
 			case "mode":
 				value = DefaultMode
 			case "port":
