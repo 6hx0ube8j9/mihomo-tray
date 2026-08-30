@@ -69,12 +69,15 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 				}
 			} else if strings.HasPrefix(trimmed, "mode:") {
 				hasMode = true
-				if wantMode != "" {
-					comment := extractComment(line)
-					targetLine := fmt.Sprintf("%smode: %s%s", line[:prefixLen], wantMode, comment)
-					if outLines[i] != targetLine {
-						outLines[i] = targetLine
-						modified = true
+				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
+					currentModeVal := strings.ToLower(cleanVal(parts[1]))
+					if wantMode != "" && currentModeVal != strings.ToLower(wantMode) {
+						comment := extractComment(line)
+						targetLine := fmt.Sprintf("%smode: %s%s", line[:prefixLen], wantMode, comment)
+						if outLines[i] != targetLine {
+							outLines[i] = targetLine
+							modified = true
+						}
 					}
 				}
 			} else if strings.HasPrefix(trimmed, "external-controller:") {
@@ -117,7 +120,7 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 						injection := fmt.Sprintf("{enable: %t, ", wantTun)
 						newTrimmed := strings.Replace(line, "{", injection, 1)
 						newTrimmed = strings.Replace(newTrimmed, ", }", "}", 1)
-						
+
 						if newTrimmed != line {
 							outLines[i] = newTrimmed
 							modified = true
@@ -166,11 +169,7 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 	}
 
 	if tunRootExists {
-		if hasTunDevice && tunDeviceVal != "" {
-			extracted["tun_device"] = tunDeviceVal
-		} else {
-			extracted["tun_device"] = DefaultTunDevice
-		}
+		extracted["tun_device"] = tunDeviceVal
 	}
 
 	var prependLines []string
@@ -217,9 +216,8 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 		prependLines = append(prependLines, fmt.Sprintf("  enable: %t", wantTun))
 		prependLines = append(prependLines, fmt.Sprintf("  stack: %s", DefaultTunStack))
 		prependLines = append(prependLines, fmt.Sprintf("  auto-route: %t", DefaultTunAutoRoute))
-		prependLines = append(prependLines, fmt.Sprintf("  device: %s", DefaultTunDevice))
 		modified = true
-		extracted["tun_device"] = DefaultTunDevice
+		extracted["tun_device"] = ""
 	}
 
 	if len(prependLines) > 0 {
