@@ -27,7 +27,6 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 		tunRootIndex  int = -1
 		inTun         bool
 		hasTunEnable  bool
-		hasTunDevice  bool
 		tunDeviceVal  string
 	)
 
@@ -102,7 +101,6 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 				if strings.Contains(trimmed, "{") && strings.Contains(trimmed, "}") {
 					deviceRe := regexp.MustCompile(`device:\s*([^,}]+)`)
 					if match := deviceRe.FindStringSubmatch(trimmed); len(match) > 1 {
-						hasTunDevice = true
 						tunDeviceVal = cleanVal(match[1])
 					}
 
@@ -138,7 +136,6 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 					modified = true
 				}
 			} else if strings.HasPrefix(trimmed, "device:") {
-				hasTunDevice = true
 				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
 					tunDeviceVal = cleanVal(parts[1])
 				}
