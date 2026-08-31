@@ -36,12 +36,15 @@ type KernelManager struct {
 	mu         sync.Mutex
 	killMu     sync.Mutex
 	lastError  string
+	isPaused   bool
+	wakeCh     chan struct{}
 }
 
 func NewKernelManager(cfg *config.Manager, st *state.RuntimeState) *KernelManager {
 	km := &KernelManager{
-		cfg: cfg,
-		st:  st,
+		cfg:    cfg,
+		st:     st,
+		wakeCh: make(chan struct{}, 1),
 	}
 	km.hJob, _ = sys.CreateKillOnCloseJob()
 	return km
@@ -60,12 +63,22 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 	currentDelay := 50 * time.Millisecond
 	const maxDelay = 30 * time.Second
 
+	crashCount := 0
+
 	for {
 		select {
 		case <-ctx.Done():
 			km.KillCurrent()
 			return
 		default:
+		}
+
+		km.mu.Lock()
+		paused := km.isPaused
+		km.mu.Unlock()
+		if paused {
+			time.Sleep(1 * time.Second)
+			continue
 		}
 
 		localPid := atomic.LoadUint32(&km.currentPid)
@@ -108,13 +121,26 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		if err := cmd.Start(); err != nil {
 			errMsg := fmt.Sprintf("启动错误: %v", err)
 			km.checkAndWriteLog(absBaseDir, "ERROR", errMsg)
-			currentDelay = km.calculateBackoff(currentDelay, maxDelay)
+
+			crashCount++
+			if crashCount >= 3 {
+				fatalMsg := fmt.Sprintf("内核文件损坏或架构不兼容，连续 %d 次启动失败，触发熔断休眠 15 秒", crashCount)
+				km.checkAndWriteLog(absBaseDir, "FATAL", fatalMsg)
+				log.Printf("[FATAL] %s", fatalMsg)
+				currentDelay = 15 * time.Second
+				crashCount = 0
+			} else {
+				currentDelay = km.calculateBackoff(currentDelay, maxDelay)
+			}
+
 			select {
 			case <-ctx.Done():
 				return
 			case <-time.After(currentDelay):
-				continue
+			case <-km.wakeCh:
+				currentDelay = 50 * time.Millisecond
 			}
+			continue
 		}
 
 		km.mu.Lock()
@@ -178,16 +204,29 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		default:
 		}
 
-		if runDuration >= 5*time.Second || isKilledByUs {
+		if runDuration >= 5*time.Second || isKilledByUs || isAppExiting {
 			currentDelay = 600 * time.Millisecond
+			crashCount = 0
 		} else {
-			currentDelay = km.calculateBackoff(currentDelay, maxDelay)
+			crashCount++
+			if crashCount >= 3 {
+				errMsg := fmt.Sprintf("内核连续 %d 次异常秒崩，触发熔断机制，强行暂停拉起 15 秒 (请检查 9090 端口是否被其他代理软件占用，或配置是否存在严重错误)", crashCount)
+				km.checkAndWriteLog(absBaseDir, "FATAL", errMsg)
+				log.Printf("[ERROR] %s", errMsg)
+
+				currentDelay = 15 * time.Second
+				crashCount = 0
+			} else {
+				currentDelay = km.calculateBackoff(currentDelay, maxDelay)
+			}
 		}
 
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(currentDelay):
+		case <-km.wakeCh:
+			currentDelay = 50 * time.Millisecond
 		}
 	}
 }
@@ -324,4 +363,21 @@ func (t *tailBuffer) Len() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return len(t.buf)
+}
+
+func (km *KernelManager) HaltDaemon() {
+	km.mu.Lock()
+	km.isPaused = true
+	km.mu.Unlock()
+	km.KillCurrent()
+}
+
+func (km *KernelManager) WakeDaemon() {
+	km.mu.Lock()
+	km.isPaused = false
+	km.mu.Unlock()
+	select {
+	case km.wakeCh <- struct{}{}:
+	default:
+	}
 }
