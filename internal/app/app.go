@@ -52,6 +52,7 @@ type Application struct {
 
 	actualTunDevice string
 	tunDevMutex     sync.RWMutex
+	lastProxyModify time.Time
 }
 
 func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
@@ -285,6 +286,10 @@ func (a *Application) handleProxyStatusChange(status sys.ProxyStatus) {
 		return
 	}
 
+	if time.Since(a.lastProxyModify) < 1500*time.Millisecond {
+		return
+	}
+	
 	expectedProxy := a.Cfg.Get("proxy") == "true"
 	expectedPort := a.Cfg.Get("port")
 	expectedServer := "127.0.0.1:" + expectedPort
@@ -346,6 +351,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		enable := cmd.Payload == "true"
 		log.Printf("[INFO] 代理开关: %v", enable)
 		a.Cfg.Set("proxy", strconv.FormatBool(enable))
+		a.lastProxyModify = time.Now()
 		a.syncSystemProxy()
 	case "ToggleTun":
 		enable := cmd.Payload == "true"
