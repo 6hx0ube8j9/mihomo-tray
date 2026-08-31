@@ -29,6 +29,7 @@ const (
 type TrayConfig struct {
 	Autostart          string `json:"autostart"`
 	ExternalController string `json:"external-controller"`
+	ExternalUI         string `json:"external-ui"`
 	Mode               string `json:"mode"`
 	Port               string `json:"port"`
 	Proxy              string `json:"proxy"`
@@ -84,6 +85,9 @@ func (m *Manager) EnsureDefault() {
 	if m.data.Secret == "" {
 		m.data.Secret = DefaultSecret
 	}
+	if m.data.ExternalUI == "" {
+		m.data.ExternalUI = DefaultExternalUI
+	}
 
 	m.lockedSave()
 }
@@ -96,6 +100,8 @@ func (m *Manager) Get(key string) string {
 		return m.data.Autostart
 	case "external-controller":
 		return m.data.ExternalController
+	case "external-ui":
+		return m.data.ExternalUI
 	case "mode":
 		return m.data.Mode
 	case "port":
@@ -131,6 +137,8 @@ func (m *Manager) UpdateBatch(updates map[string]string) {
 				value = DefaultMixedPort
 			case "external-controller":
 				value = DefaultExternalController
+			case "external-ui":
+				value = DefaultExternalUI
 			}
 		}
 
@@ -143,6 +151,11 @@ func (m *Manager) UpdateBatch(updates map[string]string) {
 		case "external-controller":
 			if m.data.ExternalController != value {
 				m.data.ExternalController = value
+				changed = true
+			}
+		case "external-ui": // 更新 JSON 同步缓存
+			if m.data.ExternalUI != value {
+				m.data.ExternalUI = value
 				changed = true
 			}
 		case "mode":
