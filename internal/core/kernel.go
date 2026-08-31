@@ -1,383 +1,639 @@
-package core
+package app
 
 import (
-	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
-	"os"
-	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
-	"golang.org/x/sys/windows"
-
 	"mihomo-tray/internal/config"
+	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
+	"mihomo-tray/internal/ui"
 )
-
-type KernelEvent int
 
 const (
-	EventKernelReady KernelEvent = iota
-	EventKernelExit
+	TunInitGracePeriod = 20 * time.Second
+	TunLostAlarmDelay  = 6 * time.Second
+	APIMuteShortPeriod = 5 * time.Second
 )
 
-type KernelManager struct {
-	cfg        *config.Manager
-	st         *state.RuntimeState
-	hJob       windows.Handle
-	currentPid uint32
-	activeProc *os.Process
-	mu         sync.Mutex
-	killMu     sync.Mutex
-	lastError  string
-	isPaused   bool
-	wakeCh     chan struct{}
+const (
+	IconStop = iota
+	IconError
+	IconTun
+	IconProxy
+	IconDefault
+)
+
+type Application struct {
+	Cfg    *config.Manager
+	State  *state.RuntimeState
+	Kernel *core.KernelManager
+	API    *core.APIClient
+
+	kernelEventCh chan core.KernelEvent
+	tunEventCh    chan struct{}
+	proxyStatusCh chan sys.ProxyStatus
+	apiPollCh     chan struct{}
+
+	UIStateCh    chan ui.UIState
+	UICommandCh  chan ui.UICommand
+	webuiEventCh chan ui.Event
+
+	lastUIState     ui.UIState
+	proxyRetryCount int
+
+	actualTunDevice string
+	tunDevMutex     sync.RWMutex
 }
 
-func NewKernelManager(cfg *config.Manager, st *state.RuntimeState) *KernelManager {
-	km := &KernelManager{
-		cfg:    cfg,
-		st:     st,
-		wakeCh: make(chan struct{}, 1),
+func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
+	return &Application{
+		Cfg:           cm,
+		State:         st,
+		Kernel:        core.NewKernelManager(cm, st),
+		API:           core.NewAPIClient(cm, st),
+		kernelEventCh: make(chan core.KernelEvent, 10),
+		tunEventCh:    make(chan struct{}, 1),
+		proxyStatusCh: make(chan sys.ProxyStatus, 5),
+		apiPollCh:     make(chan struct{}, 1),
+		UIStateCh:     make(chan ui.UIState, 1),
+		UICommandCh:   make(chan ui.UICommand, 10),
+		webuiEventCh:  make(chan ui.Event, 1),
 	}
-	km.hJob, _ = sys.CreateKillOnCloseJob()
-	return km
 }
 
-func (km *KernelManager) Close() {
-	if km.hJob != 0 {
-		windows.CloseHandle(km.hJob)
-		km.hJob = 0
+func (a *Application) getActualTunDevice() string {
+	a.tunDevMutex.RLock()
+	defer a.tunDevMutex.RUnlock()
+	if a.actualTunDevice == "" {
+		return a.Cfg.Get("tun_device")
 	}
+	return a.actualTunDevice
 }
 
-func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEvent) {
-	target := filepath.Join(km.cfg.BaseDir(), "mihomo.exe")
-	absBaseDir, _ := filepath.Abs(km.cfg.BaseDir())
-	currentDelay := 50 * time.Millisecond
-	const maxDelay = 30 * time.Second
+func (a *Application) setActualTunDevice(dev string) {
+	a.tunDevMutex.Lock()
+	defer a.tunDevMutex.Unlock()
+	a.actualTunDevice = dev
+}
 
-	crashCount := 0
+func (a *Application) isTunInGracePeriod() bool {
+	return time.Since(a.State.GetTunStartTime()) < TunInitGracePeriod ||
+		time.Since(a.State.GetTunRequestedTime()) < TunInitGracePeriod ||
+		time.Since(a.State.GetTunLostTime()) < TunLostAlarmDelay
+}
+
+func (a *Application) Bootstrap(ctx context.Context) {
+	log.Println("[INFO] 启动应用...")
+
+	a.Cfg.EnsureDefault()
+
+	osTaskExists := sys.CheckAutoStartStatus()
+	cfgMemoryStatus := a.Cfg.Get("autostart") == "true"
+	log.Printf("[INFO] 自启检查: 任务=%v, 配置=%v", osTaskExists, cfgMemoryStatus)
+
+	if osTaskExists {
+		if !sys.IsTaskPathValid(a.Cfg.ExePath()) {
+			log.Println("[WARN] 修复无效自启任务...")
+			if cfgMemoryStatus {
+				sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), true)
+				osTaskExists = true
+				log.Println("[INFO] 自启任务路径已更新")
+			} else {
+				sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), false)
+				osTaskExists = false
+				log.Println("[INFO] 已清除无效自启任务")
+			}
+		}
+	}
+
+	if osTaskExists != cfgMemoryStatus {
+		log.Printf("[INFO] 更新自启配置: %v", osTaskExists)
+		a.Cfg.Set("autostart", strconv.FormatBool(osTaskExists))
+	}
+
+	if modified, err := a.Cfg.PrepareYAMLForBoot(); err != nil {
+		log.Printf("[ERROR] YAML 预处理失败: %v", err)
+	} else if modified {
+		log.Println("[INFO] YAML 配置校准同步完成")
+	} else {
+		log.Println("[DEBUG] YAML 配置一致，无需重写")
+	}
+
+	a.State.MuteAPIWatcher(TunInitGracePeriod)
+	if a.Cfg.Get("tun") == "true" {
+		a.State.SetTunRequestedTime(time.Now())
+	}
+
+	a.syncSystemProxy()
+	a.pushUIState()
+
+	log.Println("[INFO] 启动守护协程...")
+	go a.Kernel.RunDaemon(ctx, a.kernelEventCh)
+	go sys.WatchNetworkInterfaces(ctx, a.tunEventCh)
+	go sys.WatchProxyRegistry(ctx, a.proxyStatusCh)
+	go a.eventLoop(ctx)
+}
+
+func (a *Application) SafeShutdown(cancel context.CancelFunc) {
+	log.Println("[INFO] 执行安全退出...")
+
+	a.State.ForceExitPhase()
+
+	if cancel != nil {
+		cancel()
+	}
+
+	log.Println("[INFO] 关停内核...")
+	a.Kernel.KillCurrent()
+
+	if a.Cfg.Get("proxy") == "true" {
+		log.Println("[INFO] 关闭系统代理...")
+		if err := sys.SetSystemProxy(false, ""); err != nil {
+			log.Printf("[ERROR] 关闭代理失败: %v", err)
+		}
+	}
+
+	log.Println("[INFO] 关闭内核接口...")
+	a.Kernel.Close()
+
+	log.Println("[INFO] === 应用已安全关闭 ===")
+}
+
+func (a *Application) eventLoop(ctx context.Context) {
+	log.Println("[INFO] 事件循环已开启")
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	tryPollAPI := func() {
+		if a.State.GetPhase() == state.PhaseRunning && !a.State.IsAPIWatcherMuted() {
+			if a.pollKernelAPI(ctx) {
+				log.Println("[DEBUG] API 状态更新，推送 UI")
+				a.pushUIState()
+			}
+		}
+	}
 
 	for {
 		select {
+		case event := <-a.webuiEventCh:
+			log.Printf("[WARN] WebUI 事件: %v", event)
+			if event == ui.EventError {
+				log.Println("[ERROR] WebUI 错误")
+			}
 		case <-ctx.Done():
-			km.KillCurrent()
+			log.Println("[INFO] 退出事件循环")
 			return
-		default:
-		}
 
-		km.mu.Lock()
-		paused := km.isPaused
-		km.mu.Unlock()
-		if paused {
-			time.Sleep(1 * time.Second)
-			continue
-		}
+		case cmd := <-a.UICommandCh:
+			log.Printf("[INFO] UI 指令: %s (参数: %s)", cmd.Action, cmd.Payload)
+			a.handleUICommand(ctx, cmd)
 
-		localPid := atomic.LoadUint32(&km.currentPid)
-		if localPid != 0 && sys.IsPidRunning(localPid, "mihomo.exe") {
-			select {
-			case <-ctx.Done():
-				km.KillCurrent()
-				return
-			case <-time.After(2 * time.Second):
-				continue
-			}
-		}
+		case event := <-a.kernelEventCh:
+			log.Printf("[INFO] 内核事件: %v", event)
+			if event == core.EventKernelReady {
+				log.Println("[INFO] 内核就绪，进入 Running 阶段")
 
-		if km.st.IsExiting() {
-			return
-		}
-
-		sys.KillOtherProcessesByName("mihomo.exe", 0)
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(300 * time.Millisecond):
-		}
-
-		errBuf := &tailBuffer{max: 64 * 1024}
-
-		cmd := exec.Command(target, "-d", ".")
-		cmd.Dir = absBaseDir
-
-		const CREATE_DEFAULT_ERROR_MODE = 0x04000000
-		cmd.SysProcAttr = &windows.SysProcAttr{
-			HideWindow:    true,
-			CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | CREATE_DEFAULT_ERROR_MODE,
-		}
-		cmd.Stdout = errBuf
-		cmd.Stderr = errBuf
-		startTime := time.Now()
-
-		if err := cmd.Start(); err != nil {
-			errMsg := fmt.Sprintf("启动错误: %v", err)
-			km.checkAndWriteLog(absBaseDir, "ERROR", errMsg)
-
-			crashCount++
-			if crashCount >= 3 {
-				fatalMsg := fmt.Sprintf("内核文件损坏或架构不兼容，连续 %d 次启动失败，触发熔断休眠 15 秒", crashCount)
-				km.checkAndWriteLog(absBaseDir, "FATAL", fatalMsg)
-				log.Printf("[FATAL] %s", fatalMsg)
-				currentDelay = 15 * time.Second
-				crashCount = 0
-			} else {
-				currentDelay = km.calculateBackoff(currentDelay, maxDelay)
-			}
-
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(currentDelay):
-			case <-km.wakeCh:
-				currentDelay = 50 * time.Millisecond
-			}
-			continue
-		}
-
-		km.mu.Lock()
-		km.activeProc = cmd.Process
-		atomic.StoreUint32(&km.currentPid, uint32(cmd.Process.Pid))
-		km.mu.Unlock()
-
-		sys.AssignProcessToJob(km.hJob, cmd.Process.Pid)
-
-		select {
-		case <-ctx.Done():
-			return
-		case eventCh <- EventKernelReady:
-		}
-
-		waitDone := make(chan struct{})
-		go func() {
-			select {
-			case <-ctx.Done():
-				km.KillCurrent()
-			case <-waitDone:
-			}
-		}()
-
-		waitErr := cmd.Wait()
-		close(waitDone)
-
-		km.mu.Lock()
-		isKilledByUs := (km.activeProc == nil)
-		km.mu.Unlock()
-
-		isShutdown := sys.IsSystemShuttingDown()
-		isAppExiting := ctx.Err() != nil || km.st.IsExiting() || isShutdown
-		runDuration := time.Since(startTime)
-
-		if waitErr != nil && !isKilledByUs && !isAppExiting {
-			shouldLog := runDuration < 5*time.Second
-			if !shouldLog {
-				upperOut := strings.ToUpper(errBuf.String())
-				shouldLog = strings.Contains(upperOut, "FATA") || strings.Contains(upperOut, "PANIC")
-			}
-
-			if shouldLog {
-				rawErr := strings.TrimSpace(errBuf.String())
-				errMsg := fmt.Sprintf("内核崩溃 | %v | %s", waitErr, rawErr)
-				km.checkAndWriteLog(absBaseDir, "ERROR", errMsg)
-			}
-		}
-
-		if isShutdown {
-			return
-		}
-
-		km.mu.Lock()
-		km.activeProc = nil
-		atomic.StoreUint32(&km.currentPid, 0)
-		km.mu.Unlock()
-
-		select {
-		case eventCh <- EventKernelExit:
-		default:
-		}
-
-		if runDuration >= 5*time.Second || isKilledByUs || isAppExiting {
-			currentDelay = 600 * time.Millisecond
-			crashCount = 0
-		} else {
-			crashCount++
-			if crashCount >= 3 {
-				errMsg := fmt.Sprintf("内核连续 %d 次异常秒崩，触发熔断机制，强行暂停拉起 15 秒 (请检查 9090 端口是否被其他代理软件占用，或配置是否存在严重错误)", crashCount)
-				km.checkAndWriteLog(absBaseDir, "FATAL", errMsg)
-				log.Printf("[ERROR] %s", errMsg)
-
-				currentDelay = 15 * time.Second
-				crashCount = 0
-			} else {
-				currentDelay = km.calculateBackoff(currentDelay, maxDelay)
-			}
-		}
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(currentDelay):
-		case <-km.wakeCh:
-			currentDelay = 50 * time.Millisecond
-		}
-	}
-}
-
-func (km *KernelManager) KillCurrent() {
-	km.killMu.Lock()
-	defer km.killMu.Unlock()
-
-	km.mu.Lock()
-	proc := km.activeProc
-	pid := atomic.LoadUint32(&km.currentPid)
-
-	if proc == nil || pid == 0 {
-		km.mu.Unlock()
-		return
-	}
-
-	km.activeProc = nil
-	atomic.StoreUint32(&km.currentPid, 0)
-	km.mu.Unlock()
-
-	log.Printf("[INFO] 正在向内核进程 (PID: %d) 发送安全退出中断 (CTRL_BREAK)...", pid)
-
-	if err := sys.SendCtrlBreak(pid); err != nil {
-		log.Printf("[ERROR] 发送安全中断失败: %v，尝试强制结束进程", err)
-		_ = proc.Kill()
-	} else {
-		exited := false
-		for i := 0; i < 100; i++ {
-			if !sys.IsPidRunning(pid, "mihomo.exe") {
-				exited = true
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-
-		if exited {
-			log.Printf("[INFO] 内核进程 (PID: %d) 已完成清理并安全退出。", pid)
-		} else {
-			log.Printf("[WARN] 内核进程 (PID: %d) 退出超时，执行强制 kill 兜底...", pid)
-			_ = proc.Kill()
-		}
-	}
-
-	sys.KillOtherProcessesByName("mihomo.exe", 0)
-	time.Sleep(250 * time.Millisecond)
-}
-
-func (km *KernelManager) checkAndWriteLog(absBaseDir, errType, rawMsg string) {
-	cleanedMsg := rawMsg
-	if idx := strings.Index(rawMsg, "level="); idx != -1 {
-		cleanedMsg = rawMsg[idx:]
-	}
-
-	km.mu.Lock()
-	if km.lastError == cleanedMsg {
-		km.mu.Unlock()
-		return
-	}
-	km.lastError = cleanedMsg
-	km.mu.Unlock()
-
-	logPath := filepath.Join(absBaseDir, "error.log")
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	finalLog := fmt.Sprintf("[%s] [%s] %s\n----------------------------------------\n", timestamp, errType, rawMsg)
-
-	fi, err := os.Stat(logPath)
-	if err == nil && fi.Size()+int64(len(finalLog)) > 25*1024 {
-		var keepData []byte
-		f, err := os.Open(logPath)
-		if err == nil {
-			offset := fi.Size() - 5*1024
-			if offset < 0 {
-				offset = 0
-			}
-			keepData = make([]byte, fi.Size()-offset)
-			_, _ = f.ReadAt(keepData, offset)
-			f.Close()
-
-			if offset > 0 {
-				if idx := bytes.IndexByte(keepData, '\n'); idx != -1 {
-					keepData = keepData[idx+1:]
+				if a.State.GetPhase() != state.PhaseInitializing {
+					a.State.MuteAPIWatcher(APIMuteShortPeriod)
 				}
+				a.State.SetPhase(state.PhaseRunning)
+
+				if a.Cfg.Get("tun") == "true" {
+					a.State.SetTunRequestedTime(time.Now())
+				}
+
+				a.syncSystemProxy()
+
+				go func() {
+					defer a.State.SetRestarting(false)
+					log.Println("[INFO] 轮询内核 API...")
+					
+					for i := 0; i < 60; i++ {
+						pollCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+						_, err := a.API.DoRequest(pollCtx, "GET", "/configs", nil)
+						cancel()
+						if err == nil {
+							log.Printf("[INFO] 内核 API 连通 (重试 %d)", i+1)
+							a.pushUIState()
+							select {
+							case a.apiPollCh <- struct{}{}:
+							default:
+							}
+							return
+						}
+						time.Sleep(250 * time.Millisecond)
+					}
+					log.Println("[ERROR] 内核 API 连接超时 (尝试 60 次)")
+					a.Kernel.HaltDaemon()
+					a.State.SetPhase(state.PhaseInitializing)
+					a.pushUIState()
+				}()
+			} else if event == core.EventKernelExit {
+				if a.State.IsRestarting() {
+					log.Println("[INFO] 内核已停止，等待重启...")
+				} else {
+					log.Println("[WARN] 内核异常退出，退回 Initializing 阶段")
+				}
+				a.State.SetPhase(state.PhaseInitializing)
+			}
+			a.pushUIState()
+
+		case <-a.tunEventCh:
+			log.Println("[DEBUG] TUN 接口变更")
+			a.handleTunChange(ctx)
+
+		case status := <-a.proxyStatusCh:
+			a.handleProxyStatusChange(status)
+
+		case <-ticker.C:
+			tryPollAPI()
+			a.pushUIState()
+
+		case <-a.apiPollCh:
+			tryPollAPI()
+			a.pushUIState()
+		}
+	}
+}
+
+func (a *Application) syncSystemProxy() {
+	enable := a.Cfg.Get("proxy") == "true"
+	port := a.Cfg.Get("port")
+
+	if enable {
+		log.Printf("[INFO] 系统代理: 开启 (端口 %s)", port)
+	} else {
+		log.Println("[INFO] 系统代理: 关闭")
+	}
+
+	if err := sys.SetSystemProxy(enable, port); err != nil {
+		log.Printf("[ERROR] 设置系统代理失败: %v", err)
+	}
+}
+
+func (a *Application) handleProxyStatusChange(status sys.ProxyStatus) {
+	if a.State.IsExiting() {
+		return
+	}
+
+	expectedProxy := a.Cfg.Get("proxy") == "true"
+	expectedPort := a.Cfg.Get("port")
+	expectedServer := "127.0.0.1:" + expectedPort
+
+	if expectedProxy {
+		if status.Enabled {
+			if status.Server != "" && !strings.EqualFold(status.Server, expectedServer) {
+				log.Printf("[WARN] 代理被外部修改 (期望 %s, 实际 %s)，关闭本地代理", expectedServer, status.Server)
+				a.proxyRetryCount = 0
+				a.Cfg.Set("proxy", "false")
+				a.pushUIState()
+				return
+			}
+			a.proxyRetryCount = 0
+			return
+		}
+
+		a.proxyRetryCount++
+		if a.proxyRetryCount <= 3 {
+			log.Printf("[WARN] 外部关闭代理，尝试恢复 (%d/3)", a.proxyRetryCount)
+			go func() {
+				time.Sleep(200 * time.Millisecond)
+				a.syncSystemProxy()
+			}()
+		} else {
+			log.Println("[WARN] 代理恢复失败，同步关闭本地状态")
+			a.proxyRetryCount = 0
+			a.Cfg.Set("proxy", "false")
+			a.pushUIState()
+		}
+		return
+	}
+
+	if status.Enabled {
+		log.Printf("[INFO] 外部工具开启代理 (%s)，忽略", status.Server)
+	}
+	a.proxyRetryCount = 0
+}
+
+func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
+	switch cmd.Action {
+	case "OpenWebUI":
+		if a.State.GetPhase() != state.PhaseRunning {
+			log.Println("[WARN] 内核未运行，拒绝打开 WebUI")
+			break
+		}
+		cfg := ui.Config{
+			APIAddr:   a.Cfg.Get("external-controller"),
+			Secret:    a.Cfg.Get("secret"),
+			ProxyPort: a.Cfg.Get("port"),
+			BaseDir:   a.Cfg.BaseDir(),
+		}
+		log.Printf("[INFO] 启动 WebUI (%s)...", cfg.APIAddr)
+		go ui.Launch(cfg, a.webuiEventCh)
+	case "ExitApp":
+		log.Println("[INFO] 请求退出程序")
+		ui.Cleanup()
+	case "ToggleProxy":
+		enable := cmd.Payload == "true"
+		log.Printf("[INFO] 代理开关: %v", enable)
+		a.Cfg.Set("proxy", strconv.FormatBool(enable))
+		a.syncSystemProxy()
+	case "ToggleTun":
+		enable := cmd.Payload == "true"
+		log.Printf("[INFO] TUN 开关: %v (%s)", enable, a.Cfg.Get("tun_device"))
+		a.Cfg.Set("tun", strconv.FormatBool(enable))
+		if enable {
+			a.State.SetTunRequestedTime(time.Now())
+			a.setActualTunDevice(a.Cfg.Get("tun_device"))
+		}
+		a.State.MuteAPIWatcher(APIMuteShortPeriod)
+
+		tunPayload := map[string]interface{}{
+			"enable": enable,
+		}
+		if dev := a.Cfg.Get("tun_device"); dev != "" {
+			tunPayload["device"] = dev
+		}
+		go a.API.SyncConfigToKernel(ctx, map[string]interface{}{"tun": tunPayload})
+
+	case "SwitchMode":
+		log.Printf("[INFO] 运行模式: %s", cmd.Payload)
+		a.Cfg.Set("mode", cmd.Payload)
+		a.State.MuteAPIWatcher(3 * time.Second)
+		go a.syncAllConfig(ctx)
+
+	case "ToggleAutoStart":
+		enable := cmd.Payload == "true"
+		log.Printf("[INFO] 开机自启: %v", enable)
+		a.Cfg.Set("autostart", cmd.Payload)
+		sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), enable)
+	case "OpenBaseDir":
+		baseDir := a.Cfg.BaseDir()
+		log.Printf("[INFO] 打开目录: %s", baseDir)
+		_ = sys.ExecuteSystemCommand(baseDir)
+	case "ReloadConfig":
+		log.Println("[INFO] 手动重载配置")
+		a.ReloadConfig(ctx)
+	case "RestartKernel":
+		log.Println("[WARN] 重启内核")
+		a.RestartKernel()
+	case "OpenConfigFile":
+		configPath := filepath.Join(a.Cfg.BaseDir(), "config.yaml")
+		log.Printf("[INFO] 打开配置: %s", configPath)
+		_ = sys.ExecuteSystemCommand(configPath)
+	}
+
+	a.pushUIState()
+}
+
+func (a *Application) calculateUIState() ui.UIState {
+	s := ui.UIState{
+		IsTun:     a.Cfg.Get("tun") == "true",
+		IsProxy:   a.Cfg.Get("proxy") == "true",
+		Mode:      a.Cfg.Get("mode"),
+		AutoStart: a.Cfg.Get("autostart") == "true",
+	}
+
+	if a.State.IsExiting() || a.State.IsRestarting() || a.State.GetPhase() != state.PhaseRunning {
+		s.IconState = IconStop
+		return s
+	}
+
+	if !s.IsTun {
+		if s.IsProxy {
+			s.IconState = IconProxy
+		} else {
+			s.IconState = IconDefault
+		}
+		return s
+	}
+
+	if a.State.IsTunAlive() || a.isTunInGracePeriod() {
+		s.IconState = IconTun
+	} else {
+		s.IconState = IconError
+	}
+
+	return s
+}
+
+func (a *Application) pushUIState() {
+	if a.State.IsExiting() {
+		return
+	}
+	newState := a.calculateUIState()
+
+	if newState != a.lastUIState {
+		log.Printf("[DEBUG] UI 状态: Icon=%d, Tun=%v, Proxy=%v, Mode=%s",
+			newState.IconState, newState.IsTun, newState.IsProxy, newState.Mode)
+		a.lastUIState = newState
+		select {
+		case a.UIStateCh <- newState:
+		default:
+			<-a.UIStateCh
+			a.UIStateCh <- newState
+		}
+	}
+}
+
+func (a *Application) ReloadConfig(ctx context.Context) {
+	log.Println("[INFO] 执行重载配置...")
+	a.State.SetReloading(true)
+	a.State.SetRestarting(false)
+	a.State.MuteAPIWatcher(APIMuteShortPeriod)
+
+	go func() {
+		defer a.State.SetReloading(false)
+
+		if _, err := a.Cfg.PrepareYAMLForBoot(); err != nil {
+			log.Printf("[ERROR] 重载 YAML 失败: %v", err)
+		}
+
+		reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_, err := a.API.DoRequest(reqCtx, "PUT", "/configs?force=true", map[string]interface{}{"path": "", "payload": ""})
+		cancel()
+
+		if err != nil {
+			log.Printf("[ERROR] 加载新配置失败: %v", err)
+			return
+		}
+
+		log.Println("[INFO] 热重载成功，同步配置...")
+		a.syncAllConfig(ctx)
+
+		a.syncSystemProxy()
+
+		a.pushUIState()
+		select {
+		case a.apiPollCh <- struct{}{}:
+		default:
+		}
+	}()
+}
+
+func (a *Application) RestartKernel() {
+	log.Println("[WARN] 执行内核重启...")
+	a.Kernel.WakeDaemon()
+	a.State.SetRestarting(true)
+	a.State.SetReloading(false)
+
+	if _, err := a.Cfg.PrepareYAMLForBoot(); err != nil {
+		log.Printf("[ERROR] 重启前校准 YAML 失败: %v", err)
+	}
+
+	log.Println("[INFO] 终止当前内核...")
+	a.Kernel.KillCurrent()
+
+	a.State.MuteAPIWatcher(APIMuteShortPeriod)
+	a.pushUIState()
+}
+
+func (a *Application) handleTunChange(ctx context.Context) {
+	if a.State.IsExiting() {
+		return
+	}
+	tunDev := a.getActualTunDevice()
+	alive := sys.IsTunActive(tunDev)
+
+	if a.State.IsTunAlive() != alive {
+		log.Printf("[INFO] TUN 状态变更: %s, 活跃=%v", tunDev, alive)
+		if !alive {
+			a.State.SetTunLostTime(time.Now())
+		}
+		if !alive && !a.State.IsAPIWatcherMuted() {
+			go func() {
+				log.Println("[DEBUG] TUN 断开，快速确认...")
+				for i := 0; i < 3; i++ {
+					pollCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+					success := a.pollKernelAPI(pollCtx)
+					cancel()
+					if success {
+						log.Println("[DEBUG] TUN 快速确认 API 连通")
+						break
+					}
+					time.Sleep(100 * time.Millisecond)
+				}
+				realAlive := sys.IsTunActive(a.getActualTunDevice())
+				a.State.SetTunAlive(realAlive)
+				select {
+				case a.apiPollCh <- struct{}{}:
+				default:
+				}
+			}()
+		} else {
+			a.State.SetTunAlive(alive)
+			a.pushUIState()
+		}
+	}
+}
+
+func (a *Application) syncAllConfig(ctx context.Context) {
+	if a.State.GetPhase() != state.PhaseRunning {
+		return
+	}
+
+	tunPayload := map[string]interface{}{
+		"enable": a.Cfg.Get("tun") == "true",
+	}
+	if dev := a.Cfg.Get("tun_device"); dev != "" {
+		tunPayload["device"] = dev
+	}
+
+	payload := map[string]interface{}{
+		"tun":  tunPayload,
+		"mode": a.Cfg.Get("mode"),
+	}
+	log.Printf("[DEBUG] 同步内核参数: tun=%v, dev=%s, mode=%s",
+		tunPayload["enable"], a.Cfg.Get("tun_device"), payload["mode"])
+	if err := a.API.SyncConfigToKernel(ctx, payload); err != nil {
+		log.Printf("[ERROR] 参数同步失败: %v", err)
+	}
+}
+
+func (a *Application) pollKernelAPI(ctx context.Context) bool {
+	if a.State.IsAPIWatcherMuted() {
+		return false
+	}
+
+	queryCtx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+	defer cancel()
+
+	body, err := a.API.DoRequest(queryCtx, "GET", "/configs", nil)
+	if err != nil {
+		return false
+	}
+
+	var resp struct {
+		Mode string `json:"mode"`
+		Tun  struct {
+			Enable bool   `json:"enable"`
+			Device string `json:"device"`
+		} `json:"tun"`
+	}
+
+	if json.Unmarshal(body, &resp) == nil {
+		changed := false
+		if resp.Mode != "" && resp.Mode != a.Cfg.Get("mode") {
+			log.Printf("[INFO] 内核 Mode 变更: %s -> %s", a.Cfg.Get("mode"), resp.Mode)
+			a.Cfg.Set("mode", resp.Mode)
+			changed = true
+		}
+
+		wantTun := a.Cfg.Get("tun") == "true"
+
+		if resp.Tun.Enable && a.State.GetTunStartTime().IsZero() {
+			a.State.SetTunStartTime(time.Now())
+		} else if !resp.Tun.Enable && !a.State.GetTunStartTime().IsZero() {
+			a.State.SetTunStartTime(time.Time{})
+		}
+
+		if resp.Tun.Enable != wantTun {
+			if wantTun && !resp.Tun.Enable {
+				if !a.isTunInGracePeriod() && !a.State.IsTunAlive() {
+					log.Printf("[WARN] TUN 启动失败，关闭本地 Tun")
+					a.Cfg.Set("tun", "false")
+
+					if a.Cfg.Get("proxy") != "true" {
+						log.Printf("[INFO] 容灾: 回退开启系统代理")
+						a.Cfg.Set("proxy", "true")
+						a.syncSystemProxy()
+					}
+					changed = true
+				} else {
+					log.Printf("[DEBUG] 忽略 TUN 初始化状态")
+				}
+			} else {
+				log.Printf("[INFO] 内核 Tun.Enable 变更: %v -> %v", wantTun, resp.Tun.Enable)
+				a.Cfg.Set("tun", fmt.Sprintf("%t", resp.Tun.Enable))
+				changed = true
 			}
 		}
 
-		notice := fmt.Sprintf("[%s] --- 日志大小已超限，仅保留最新部分 ---\n...\n", timestamp)
-		combined := append(append([]byte(notice), keepData...), []byte(finalLog)...)
-		_ = os.WriteFile(logPath, combined, 0644)
-		return
+		currentActual := a.getActualTunDevice()
+		if resp.Tun.Device != "" && resp.Tun.Device != currentActual {
+			log.Printf("[INFO] 内核 Tun.Device 变更: %s -> %s", currentActual, resp.Tun.Device)
+			a.setActualTunDevice(resp.Tun.Device)
+			changed = true
+		}
+
+		if changed {
+			realAlive := sys.IsTunActive(a.getActualTunDevice())
+			if a.State.IsTunAlive() != realAlive {
+				log.Printf("[DEBUG] 轮询纠偏 TUN 真实状态: %v", realAlive)
+				a.State.SetTunAlive(realAlive)
+			}
+		}
+
+		return changed
 	}
-
-	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	_, _ = f.WriteString(finalLog)
-}
-
-func (km *KernelManager) calculateBackoff(current, max time.Duration) time.Duration {
-	next := current * 2
-	if next > max {
-		return max
-	}
-	return next
-}
-
-type tailBuffer struct {
-	mu  sync.Mutex
-	buf []byte
-	max int
-}
-
-func (t *tailBuffer) Write(p []byte) (int, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.buf = append(t.buf, p...)
-	if len(t.buf) > t.max {
-		newBuf := make([]byte, t.max)
-		copy(newBuf, t.buf[len(t.buf)-t.max:])
-		t.buf = newBuf
-	}
-	return len(p), nil
-}
-
-func (t *tailBuffer) String() string {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return string(t.buf)
-}
-
-func (t *tailBuffer) Len() int {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return len(t.buf)
-}
-
-func (km *KernelManager) HaltDaemon() {
-	km.mu.Lock()
-	km.isPaused = true
-	km.mu.Unlock()
-	km.KillCurrent()
-}
-
-func (km *KernelManager) WakeDaemon() {
-	km.mu.Lock()
-	km.isPaused = false
-	km.mu.Unlock()
-	select {
-	case km.wakeCh <- struct{}{}:
-	default:
-	}
+	return false
 }
