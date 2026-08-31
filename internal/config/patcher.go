@@ -22,6 +22,7 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 		hasSecret     bool
 		secretVal     string
 		hasExtUI      bool
+		extUIVal      string // 新增：用于提取 external-ui 的值
 		hasExtUIUrl   bool
 		tunRootExists bool
 		tunRootIndex  int = -1
@@ -91,6 +92,19 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 				}
 			} else if strings.HasPrefix(trimmed, "external-ui:") {
 				hasExtUI = true
+				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
+					extUIVal = cleanVal(parts[1])
+					// 核心改动：如果发现 external-ui 为空，直接原位替换填补，避免追加导致出现重复的 yaml key
+					if extUIVal == "" {
+						comment := extractComment(line)
+						targetLine := fmt.Sprintf("%sexternal-ui: '%s'%s", line[:prefixLen], DefaultExternalUI, comment)
+						if outLines[i] != targetLine {
+							outLines[i] = targetLine
+							modified = true
+						}
+						extUIVal = DefaultExternalUI
+					}
+				}
 			} else if strings.HasPrefix(trimmed, "external-ui-url:") {
 				hasExtUIUrl = true
 			} else if strings.HasPrefix(trimmed, "tun:") {
@@ -165,6 +179,10 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 		extracted["secret"] = secretVal
 	}
 
+	if hasExtUI {
+		extracted["external-ui"] = extUIVal
+	}
+
 	if tunRootExists {
 		extracted["tun_device"] = tunDeviceVal
 	}
@@ -201,6 +219,7 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 	if !hasExtUI {
 		prependLines = append(prependLines, fmt.Sprintf("external-ui: '%s'", DefaultExternalUI))
 		modified = true
+		extracted["external-ui"] = DefaultExternalUI
 	}
 
 	if !hasExtUIUrl {
