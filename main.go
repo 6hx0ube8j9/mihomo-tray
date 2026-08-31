@@ -82,7 +82,6 @@ func (w *rollingLogWriter) Write(p []byte) (n int, err error) {
 	n, err = w.file.Write(p)
 	if err == nil {
 		w.currSize += int64(n)
-		_ = w.file.Sync()
 	}
 	return n, err
 }
