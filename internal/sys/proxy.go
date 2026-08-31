@@ -74,11 +74,11 @@ func SetSystemProxy(enable bool, portStr string) error {
 		return nil
 	}
 
-	_ = k.SetDWordValue("ProxyEnable", 1)
 	_ = k.SetStringValue("ProxyServer", expectedServer)
 	_ = k.SetStringValue("ProxyOverride", defaultProxyOverride)
 	_ = k.SetDWordValue("AutoDetect", 0)
 	_ = k.DeleteValue("AutoConfigURL")
+	_ = k.SetDWordValue("ProxyEnable", 1)
 
 	RefreshWininet()
 	return nil
