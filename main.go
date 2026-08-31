@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"syscall"
 	"time"
+	"sync"
 
 	"golang.org/x/sys/windows"
 
@@ -22,32 +23,84 @@ import (
 const (
 	AppMutex    = "Mihomo_Tray_Mutex"
 	ShowUIEvent = "Mihomo_Tray_Mutex_ShowUI"
+	MaxLogSize  = 512 * 1024
 )
 
-// syncFileWriter 包装 os.File，每次写入后立即强制刷盘 (Sync)
-type syncFileWriter struct {
-	file *os.File
+type rollingLogWriter struct {
+	mu       sync.Mutex
+	logPath  string
+	bakPath  string
+	file     *os.File
+	currSize int64
 }
 
-func (w *syncFileWriter) Write(p []byte) (n int, err error) {
+func newRollingLogWriter(baseDir string) *rollingLogWriter {
+	w := &rollingLogWriter{
+		logPath: filepath.Join(baseDir, "app.log"),
+		bakPath: filepath.Join(baseDir, "app.log.bak"),
+	}
+	w.open()
+	return w
+}
+
+func (w *rollingLogWriter) open() {
+	fi, err := os.Stat(w.logPath)
+	if err == nil {
+		w.currSize = fi.Size()
+		if w.currSize >= MaxLogSize {
+			w.rotate()
+			return
+		}
+	} else {
+		w.currSize = 0
+	}
+	w.file, _ = os.OpenFile(w.logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+}
+
+func (w *rollingLogWriter) rotate() {
+	if w.file != nil {
+		w.file.Close()
+		w.file = nil
+	}
+	_ = os.Rename(w.logPath, w.bakPath)
+	w.file, _ = os.OpenFile(w.logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	w.currSize = 0
+}
+
+func (w *rollingLogWriter) Write(p []byte) (n int, err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.file == nil {
+		return len(p), nil
+	}
+
+	if w.currSize+int64(len(p)) > MaxLogSize {
+		w.rotate()
+	}
+
 	n, err = w.file.Write(p)
 	if err == nil {
-		_ = w.file.Sync() // 强制刷新内存缓冲区到磁盘
+		w.currSize += int64(n)
+		_ = w.file.Sync()
 	}
 	return n, err
 }
 
-func initEarlyLogger(baseDir string) *os.File {
-	logPath := filepath.Join(baseDir, "app.log")
-	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err != nil {
-		return nil
+func (w *rollingLogWriter) Close() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.file != nil {
+		w.file.Close()
+		w.file = nil
 	}
+}
 
-	// 使用自动刷盘 Writer 接管 log 输出
-	log.SetOutput(&syncFileWriter{file: file})
+func initEarlyLogger(baseDir string) *rollingLogWriter {
+	writer := newRollingLogWriter(baseDir)
+	log.SetOutput(writer)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
-	return file
+	return writer
 }
 
 func main() {
@@ -60,16 +113,14 @@ func main() {
 	baseDir := filepath.Dir(exePath)
 	_ = os.Chdir(baseDir)
 
-	// 1. 初始化日志（支持实时刷盘）
-	logFile := initEarlyLogger(baseDir)
-	if logFile != nil {
-		defer logFile.Close()
+	logWriter := initEarlyLogger(baseDir)
+	if logWriter != nil {
+		defer logWriter.Close()
 	}
 
 	log.Println("[INFO] ==================== Mihomo Tray 进程启动 ====================")
 	log.Printf("[INFO] 进程 PID: %d, 可执行文件路径: %s", os.Getpid(), exePath)
 
-	// 2. 检查单实例互斥锁
 	mName, _ := windows.UTF16PtrFromString(AppMutex)
 	hM, err := windows.CreateMutex(nil, false, mName)
 	if errors.Is(err, windows.ERROR_ALREADY_EXISTS) || err == windows.ERROR_ALREADY_EXISTS {
@@ -127,7 +178,6 @@ func main() {
 	log.Println("[INFO] 初始化系统托盘 UI...")
 	trayMenu.Init()
 
-	// 4. 系统信号监听
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -142,7 +192,6 @@ func main() {
 		}
 	}()
 
-	// 5. 监听唤醒事件
 	if hShowUIEvent != 0 {
 		go func() {
 			log.Println("[INFO] 唤醒事件监听协程已就绪")
