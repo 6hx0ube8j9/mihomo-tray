@@ -36,9 +36,9 @@ type Config struct {
 var (
 	chromeDebugPort string
 	debugPortMu     sync.Mutex
-	launchMu        sync.Mutex 
+	launchMu        sync.Mutex
 
-	webuiClient     = &http.Client{
+	webuiClient = &http.Client{
 		Transport: &http.Transport{
 			DisableKeepAlives: true,
 		},
@@ -79,6 +79,29 @@ func safeGet(url string) (*http.Response, error) {
 	return webuiClient.Do(req)
 }
 
+func getWebUITarget(debugPort string) (id string, title string, found bool) {
+	resp, err := safeGet(fmt.Sprintf("http://127.0.0.1:%s/json", debugPort))
+	if err != nil {
+		return "", "", false
+	}
+	defer resp.Body.Close()
+
+	var targets []map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&targets); err != nil {
+		return "", "", false
+	}
+
+	for _, t := range targets {
+		pURL, _ := t["url"].(string)
+		if strings.Contains(pURL, "/ui/") || strings.Contains(pURL, "setup") || strings.Contains(pURL, "#/proxies") {
+			id, _ = t["id"].(string)
+			title, _ = t["title"].(string)
+			return id, title, true
+		}
+	}
+	return "", "", false
+}
+
 func Launch(cfg Config, eventCh chan<- Event) {
 	cleanAddr := strings.TrimRight(cfg.APIAddr, "/")
 	cleanAddr = strings.TrimPrefix(strings.TrimPrefix(cleanAddr, "http://"), "https://")
@@ -107,7 +130,7 @@ func Launch(cfg Config, eventCh chan<- Event) {
 	}
 
 	finalURL := fmt.Sprintf("http://%s:%s%s?%s#/?%s", host, port, uiPath, query, query)
-	
+
 	proxyAddr := "127.0.0.1:" + cfg.ProxyPort
 
 	if hwnd := sys.GetCachedWebUIHwnd(); hwnd != 0 {
@@ -238,7 +261,7 @@ func Cleanup() {
 	if safeDebugPort == "" {
 		return
 	}
-	
+
 	apiURL := fmt.Sprintf("http://127.0.0.1:%s/json", safeDebugPort)
 	if resp, err := safeGet(apiURL); err == nil {
 		defer resp.Body.Close()
