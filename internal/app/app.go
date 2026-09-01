@@ -341,6 +341,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			Secret:    a.Cfg.Get("secret"),
 			ProxyPort: a.Cfg.Get("port"),
 			BaseDir:   a.Cfg.BaseDir(),
+			UIName:    a.Cfg.Get("external-ui-name"),
 		}
 		log.Printf("[INFO] 启动 WebUI (%s)...", cfg.APIAddr)
 		go ui.Launch(cfg, a.webuiEventCh)
