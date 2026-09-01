@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,6 +30,7 @@ type Config struct {
 	Secret    string
 	ProxyPort string
 	BaseDir   string
+	UIName    string
 }
 
 var (
@@ -77,39 +79,35 @@ func safeGet(url string) (*http.Response, error) {
 	return webuiClient.Do(req)
 }
 
-func getWebUITarget(debugPort string) (id string, title string, found bool) {
-	resp, err := safeGet(fmt.Sprintf("http://127.0.0.1:%s/json", debugPort))
-	if err != nil {
-		return "", "", false
-	}
-	defer resp.Body.Close()
-
-	var targets []map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&targets); err != nil {
-		return "", "", false
-	}
-
-	for _, t := range targets {
-		pURL, _ := t["url"].(string)
-		if strings.Contains(pURL, "/ui/") || strings.Contains(pURL, "setup") || strings.Contains(pURL, "#/proxies") {
-			id, _ = t["id"].(string)
-			title, _ = t["title"].(string)
-			return id, title, true
-		}
-	}
-	return "", "", false
-}
-
 func Launch(cfg Config, eventCh chan<- Event) {
-	baseUI := strings.TrimRight(cfg.APIAddr, "/")
-	if !strings.HasPrefix(baseUI, "http") {
-		baseUI = "http://" + baseUI
+	cleanAddr := strings.TrimRight(cfg.APIAddr, "/")
+	cleanAddr = strings.TrimPrefix(strings.TrimPrefix(cleanAddr, "http://"), "https://")
+
+	host, port, err := net.SplitHostPort(cleanAddr)
+	if err != nil {
+		host = cleanAddr
+		port = "9090"
 	}
-	host, port, _ := net.SplitHostPort(strings.TrimPrefix(strings.TrimPrefix(baseUI, "http://"), "https://"))
 	if port == "" {
-		host, port = "127.0.0.1", "9090"
+		port = "9090"
 	}
-	finalURL := fmt.Sprintf("%s/ui/?hostname=%s&port=%s&secret=%s#/proxies", baseUI, host, port, cfg.Secret)
+
+	if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
+		host = "127.0.0.1"
+	}
+
+	uiPath := "/ui/"
+	if cfg.UIName != "" {
+		uiPath = fmt.Sprintf("/ui/%s/", strings.Trim(cfg.UIName, "/"))
+	}
+
+	query := fmt.Sprintf("hostname=%s&port=%s", host, port)
+	if cfg.Secret != "" {
+		query += fmt.Sprintf("&secret=%s", url.QueryEscape(cfg.Secret))
+	}
+
+	finalURL := fmt.Sprintf("http://%s:%s%s?%s#/?%s", host, port, uiPath, query, query)
+	
 	proxyAddr := "127.0.0.1:" + cfg.ProxyPort
 
 	if hwnd := sys.GetCachedWebUIHwnd(); hwnd != 0 {
@@ -200,9 +198,9 @@ func Launch(cfg Config, eventCh chan<- Event) {
 		cmd := exec.Command(browserPath, args...)
 		if err := cmd.Start(); err == nil {
 			mainPid := uint32(cmd.Process.Pid)
-			
+
 			go func() {
-				_ = cmd.Wait() 
+				_ = cmd.Wait()
 			}()
 
 			for i := 0; i < 30; i++ {
