@@ -6,14 +6,15 @@ import (
 	"strings"
 	"sync"
 	"time"
-
 	"golang.org/x/sys/windows"
 )
 
-var tunKeywords = []string{"mihomo", "meta", "clash", "wintun"}
-
 func IsTunActive(targetDevice string) bool {
 	target := strings.ToLower(strings.TrimSpace(targetDevice))
+	if target == "" {
+		return false
+	}
+
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return false
@@ -21,15 +22,8 @@ func IsTunActive(targetDevice string) bool {
 
 	for _, i := range ifaces {
 		name := strings.ToLower(i.Name)
-	
-		if target != "" && strings.Contains(name, target) {
+		if strings.Contains(name, target) {
 			return true
-		}
-		
-		for _, kw := range tunKeywords {
-			if strings.Contains(name, kw) {
-				return true
-			}
 		}
 	}
 
