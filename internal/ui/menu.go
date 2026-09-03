@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"mihomo-tray/internal/sys"
+	"mihomo-tray/internal/wintray"
 )
 
 //go:embed icons/*.ico
@@ -48,7 +48,7 @@ type TrayMenu struct {
 	commandCh chan<- UICommand
 	stateCh   <-chan UIState
 
-	trayHost  *sys.TrayHost
+	trayHost  *wintray.TrayHost
 	currState UIState
 	stateMu   sync.RWMutex
 
@@ -66,7 +66,7 @@ func NewTrayMenu(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- UI
 }
 
 func (tm *TrayMenu) Init() {
-	tm.trayHost = sys.NewTrayHost(
+	tm.trayHost = wintray.NewTrayHost(
 		"MihomoTray",
 		tm.onLeftClick,
 		tm.onRightClick,
