@@ -10,6 +10,13 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+var (
+	modKernel32Proc = windows.NewLazySystemDLL("kernel32.dll")
+	procAttachConsole         = modKernel32Proc.NewProc("AttachConsole")
+	procFreeConsole           = modKernel32Proc.NewProc("FreeConsole")
+	procSetConsoleCtrlHandler = modKernel32Proc.NewProc("SetConsoleCtrlHandler")
+)
+
 func KillOtherProcessesByName(name string, excludePid uint32) {
 	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil || snapshot == windows.InvalidHandle {
@@ -27,7 +34,6 @@ func KillOtherProcessesByName(name string, excludePid uint32) {
 
 	for {
 		exeName := windows.UTF16ToString(pe.ExeFile[:])
-
 		if strings.EqualFold(exeName, name) && pe.ProcessID != excludePid && pe.ProcessID != currentPid {
 			h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, pe.ProcessID)
 			if err == nil {
@@ -74,14 +80,6 @@ func IsPidRunning(pid uint32, expectedExeName string) bool {
 	}
 
 	return false
-}
-
-func ExecuteSystemCommand(path string) error {
-	pathPtr, err := windows.UTF16PtrFromString(path)
-	if err != nil {
-		return err
-	}
-	return windows.ShellExecute(0, nil, pathPtr, nil, nil, 1)
 }
 
 func CreateKillOnCloseJob() (windows.Handle, error) {
