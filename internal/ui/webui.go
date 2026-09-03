@@ -45,6 +45,16 @@ var (
 	}
 )
 
+func isDebugPortAlive(port string) bool {
+	resp, err := safeGet(fmt.Sprintf("http://127.0.0.1:%s/json", port))
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	var targets []map[string]interface{}
+	return json.NewDecoder(resp.Body).Decode(&targets) == nil
+}
+
 func getFreePort() string {
 	addr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -148,12 +158,15 @@ func Launch(cfg Config, eventCh chan<- Event) {
 	defer launchMu.Unlock()
 
 	debugPortMu.Lock()
+	if chromeDebugPort != "" && !isDebugPortAlive(chromeDebugPort) {
+		chromeDebugPort = ""
+	}
 	if chromeDebugPort == "" {
 		chromeDebugPort = getFreePort()
-	}
+	}	
 	safeDebugPort := chromeDebugPort
 	debugPortMu.Unlock()
-
+	
 	targetID, targetTitle, found := getWebUITarget(safeDebugPort)
 	if found {
 		if actResp, actErr := safeGet(fmt.Sprintf("http://127.0.0.1:%s/json/activate/%s", safeDebugPort, targetID)); actErr == nil {
