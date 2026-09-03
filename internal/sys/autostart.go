@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/sys/windows"
@@ -19,6 +21,9 @@ func ToggleAutoStart(exePath, baseDir string, enable bool) bool {
 		key.Close()
 	}
 
+	schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
+	powershellPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+
 	if enable {
 		safeExePath := strings.ReplaceAll(exePath, "'", "''")
 		safeBaseDir := strings.ReplaceAll(baseDir, "'", "''")
@@ -32,12 +37,12 @@ func ToggleAutoStart(exePath, baseDir string, enable bool) bool {
 		)
 		
 		encodedScript := encodeUTF16Base64(psScript)
-		cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedScript)
+		cmd := exec.Command(powershellPath, "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedScript)
 		cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 		return cmd.Run() == nil
 	}
 
-	cmd := exec.Command("schtasks", "/Delete", "/TN", taskName, "/F")
+	cmd := exec.Command(schtasksPath, "/Delete", "/TN", taskName, "/F")
 	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 	
 	if err := cmd.Run(); err == nil {
@@ -47,13 +52,15 @@ func ToggleAutoStart(exePath, baseDir string, enable bool) bool {
 }
 
 func CheckAutoStartStatus() bool {
-	cmd := exec.Command("schtasks", "/Query", "/TN", taskName)
+	schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
+	cmd := exec.Command(schtasksPath, "/Query", "/TN", taskName)
 	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 	return cmd.Run() == nil
 }
 
 func IsTaskPathValid(currentExePath string) bool {
-	cmd := exec.Command("schtasks", "/Query", "/TN", taskName, "/XML")
+	schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
+	cmd := exec.Command(schtasksPath, "/Query", "/TN", taskName, "/XML")
 	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 	out, err := cmd.Output()
 	if err != nil {
