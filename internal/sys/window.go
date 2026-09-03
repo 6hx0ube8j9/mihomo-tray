@@ -11,6 +11,29 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+var (
+	modUser32Window   = windows.NewLazySystemDLL("user32.dll")
+	modKernel32Window = windows.NewLazySystemDLL("kernel32.dll")
+
+	procGetCurrentThread      = modKernel32Window.NewProc("GetCurrentThreadId")
+	procEnumWindows           = modUser32Window.NewProc("EnumWindows")
+	procGetClassName          = modUser32Window.NewProc("GetClassNameW")
+	procIsWindowVisible       = modUser32Window.NewProc("IsWindowVisible")
+	procGetWindowThread       = modUser32Window.NewProc("GetWindowThreadProcessId")
+	procGetWindowText         = modUser32Window.NewProc("GetWindowTextW")
+	procSetWindowPos          = modUser32Window.NewProc("SetWindowPos")
+	procShowWindow            = modUser32Window.NewProc("ShowWindow")
+	procBringToTop            = modUser32Window.NewProc("BringWindowToTop")
+	procGetForeground         = modUser32Window.NewProc("GetForegroundWindow")
+	procAttachThread          = modUser32Window.NewProc("AttachThreadInput")
+	procSwitchToThisWindow    = modUser32Window.NewProc("SwitchToThisWindow")
+	procSystemParametersInfo  = modUser32Window.NewProc("SystemParametersInfoW")
+	procSetProcessDpiContext  = modUser32Window.NewProc("SetProcessDpiAwarenessContext")
+	procSetProcessDPIAware    = modUser32Window.NewProc("SetProcessDPIAware")
+	procGetSystemMetrics      = modUser32Window.NewProc("GetSystemMetrics")
+	procSetForeground         = modUser32Window.NewProc("SetForegroundWindow")
+)
+
 const (
 	SW_RESTORE     = 9
 	SWP_NOSIZE     = 0x0001
