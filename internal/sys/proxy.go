@@ -9,6 +9,11 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
+var (
+	modWininet            = windows.NewLazySystemDLL("wininet.dll")
+	procInternetSetOption = modWininet.NewProc("InternetSetOptionW")
+)
+
 const (
 	INTERNET_OPTION_REFRESH          = 37
 	INTERNET_OPTION_SETTINGS_CHANGED = 39
