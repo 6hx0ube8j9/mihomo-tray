@@ -489,16 +489,15 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 
 func (a *Application) RestartKernel() {
 	log.Println("[WARN] 执行内核重启...")
-	a.Kernel.WakeDaemon()
 	a.State.SetRestarting(true)
 	a.State.SetReloading(false)
+	a.Kernel.HaltDaemon()
 
 	if _, err := a.Cfg.PrepareYAMLForBoot(); err != nil {
 		log.Printf("[ERROR] 重启前校准 YAML 失败: %v", err)
 	}
 
-	log.Println("[INFO] 终止当前内核...")
-	a.Kernel.KillCurrent()
+	a.Kernel.WakeDaemon()
 
 	a.State.MuteAPIWatcher(APIMuteShortPeriod)
 	a.pushUIState()
