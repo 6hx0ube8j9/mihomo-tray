@@ -62,8 +62,9 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 	absBaseDir, _ := filepath.Abs(km.cfg.BaseDir())
 	currentDelay := 50 * time.Millisecond
 	const maxDelay = 30 * time.Second
-
 	crashCount := 0
+
+	sys.KillOtherProcessesByName("mihomo.exe", 0)
 
 	for {
 		select {
@@ -95,8 +96,6 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		if km.st.IsExiting() {
 			return
 		}
-
-		sys.KillOtherProcessesByName("mihomo.exe", 0)
 
 		select {
 		case <-ctx.Done():
@@ -267,11 +266,11 @@ func (km *KernelManager) KillCurrent() {
 			log.Printf("[INFO] 内核进程 (PID: %d) 已完成清理并安全退出。", pid)
 		} else {
 			log.Printf("[WARN] 内核进程 (PID: %d) 退出超时，执行强制 kill 兜底...", pid)
-			_ = proc.Kill()
+			_ = proc.Kill()         
+			sys.KillOtherProcessesByName("mihomo.exe", 0)
 		}
 	}
 
-	sys.KillOtherProcessesByName("mihomo.exe", 0)
 	time.Sleep(250 * time.Millisecond)
 }
 
