@@ -35,6 +35,7 @@ type Config struct {
 
 var (
 	chromeDebugPort string
+	isolatedWebUIPid uint32
 	debugPortMu     sync.Mutex
 	launchMu        sync.Mutex
 
@@ -234,6 +235,7 @@ func Launch(cfg Config, eventCh chan<- Event) {
 		cmd := exec.Command(browserPath, args...)
 		if err := cmd.Start(); err == nil {
 			mainPid := uint32(cmd.Process.Pid)
+			atomic.StoreUint32(&isolatedWebUIPid, mainPid)
 
 			go func() {
 				_ = cmd.Wait()
@@ -289,4 +291,14 @@ func Cleanup() {
 			}
 		}
 	}
+
+	time.Sleep(500 * time.Millisecond)
+	pid := atomic.LoadUint32(&isolatedWebUIPid)
+	if pid != 0 && sys.IsPidRunning(pid, "") {
+		if h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, pid); err == nil {
+			windows.TerminateProcess(h, 0)
+			windows.CloseHandle(h)
+		}
+	}
+	atomic.StoreUint32(&isolatedWebUIPid, 0)
 }
