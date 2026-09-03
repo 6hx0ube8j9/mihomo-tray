@@ -301,12 +301,12 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 	case "ToggleTun":
 		enable := cmd.Payload == "true"
 		log.Printf("[INFO] 尝试通过 API 切换 TUN: %v", enable)
-		
+		a.Cfg.Set("tun", strconv.FormatBool(enable))
 		if enable {
 			a.State.SetTunRequestedTime(time.Now())
 			a.setActualTunDevice(a.Cfg.Get("tun_device"))
 		}
-		
+
 		go func() {
 			tunPayload := map[string]interface{}{"enable": enable}
 			if dev := a.Cfg.Get("tun_device"); dev != "" {
@@ -325,6 +325,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 
 	case "SwitchMode":
 		log.Printf("[INFO] 尝试通过 API 切换模式: %s", cmd.Payload)
+		a.Cfg.Set("mode", cmd.Payload) 
+		
 		go func() {
 			if err := a.API.SyncConfigToKernel(ctx, map[string]interface{}{"mode": cmd.Payload}); err == nil {
 				select {
@@ -356,6 +358,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		log.Printf("[INFO] 打开配置: %s", configPath)
 		_ = sys.ExecuteSystemCommand(configPath)
 	}
+	
+	a.pushUIState()
 }
 
 func (a *Application) syncSystemProxy() {
