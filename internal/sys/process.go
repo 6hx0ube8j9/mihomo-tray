@@ -16,12 +16,12 @@ var (
 	procAttachConsole         = modKernel32Proc.NewProc("AttachConsole")
 	procFreeConsole           = modKernel32Proc.NewProc("FreeConsole")
 	procSetConsoleCtrlHandler = modKernel32Proc.NewProc("SetConsoleCtrlHandler")
-	procGetSystemMetrics      = modUser32Process.NewProc("GetSystemMetrics")
+	procGetSystemMetricsProcess = modUser32Process.NewProc("GetSystemMetrics") 
 )
 
 func IsSystemShuttingDown() bool {
 	const SM_SHUTTINGDOWN = 0x2000
-	r, _, _ := procGetSystemMetrics.Call(SM_SHUTTINGDOWN)
+	r, _, _ := procGetSystemMetricsProcess.Call(SM_SHUTTINGDOWN)
 	return r != 0
 }
 
