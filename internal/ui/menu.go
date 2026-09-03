@@ -121,19 +121,10 @@ func (tm *TrayMenu) sendCommand(action, payload string) {
 	}
 }
 
-func (tm *TrayMenu) onLeftClick() {
-	tm.clickMu.Lock()
-	if time.Since(tm.lastClick) < 300*time.Millisecond {
-		tm.clickMu.Unlock()
-		return
-	}
-	tm.lastClick = time.Now()
-	tm.clickMu.Unlock()
-
-	tm.sendCommand("OpenWebUI", "")
-}
-
 func (tm *TrayMenu) onRightClick() {
+	tm.sendCommand("ForceSyncAPI", "")
+	time.Sleep(30 * time.Millisecond)
+
 	tm.stateMu.RLock()
 	st := tm.currState
 	tm.stateMu.RUnlock()
