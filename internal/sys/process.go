@@ -11,11 +11,19 @@ import (
 )
 
 var (
-	modKernel32Proc = windows.NewLazySystemDLL("kernel32.dll")
+	modKernel32Proc           = windows.NewLazySystemDLL("kernel32.dll")
+	modUser32Process          = windows.NewLazySystemDLL("user32.dll")
 	procAttachConsole         = modKernel32Proc.NewProc("AttachConsole")
 	procFreeConsole           = modKernel32Proc.NewProc("FreeConsole")
 	procSetConsoleCtrlHandler = modKernel32Proc.NewProc("SetConsoleCtrlHandler")
+	procGetSystemMetrics      = modUser32Process.NewProc("GetSystemMetrics")
 )
+
+func IsSystemShuttingDown() bool {
+	const SM_SHUTTINGDOWN = 0x2000
+	r, _, _ := procGetSystemMetrics.Call(SM_SHUTTINGDOWN)
+	return r != 0
+}
 
 func KillOtherProcessesByName(name string, excludePid uint32) {
 	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
