@@ -151,7 +151,7 @@ func (tm *TrayMenu) onRightClick() {
 		currModeName = "未知"
 	}
 
-	items := []sys.MenuItem{
+	items := []wintray.MenuItem{
 		{ID: IDOpenWebUI, Text: "进入 Web 面板"},
 		{IsSeparator: true},
 		{
