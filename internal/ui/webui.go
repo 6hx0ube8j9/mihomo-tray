@@ -295,10 +295,7 @@ func Cleanup() {
 	time.Sleep(500 * time.Millisecond)
 	pid := atomic.LoadUint32(&isolatedWebUIPid)
 	if pid != 0 && sys.IsPidRunning(pid, "") {
-		if h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, pid); err == nil {
-			windows.TerminateProcess(h, 0)
-			windows.CloseHandle(h)
-		}
+			sys.HardKill(pid)
 	}
 	atomic.StoreUint32(&isolatedWebUIPid, 0)
 }
