@@ -620,29 +620,13 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		} else if !resp.Tun.Enable && !a.State.GetTunStartTime().IsZero() {
 			a.State.SetTunStartTime(time.Time{})
 		}
-
-		if resp.Tun.Enable != wantTun {
-			if wantTun && !resp.Tun.Enable {
-				if !a.isTunInGracePeriod() && !a.State.IsTunAlive() {
-					log.Printf("[WARN] TUN 启动失败，关闭本地 Tun")
-					a.Cfg.Set("tun", "false")
-
-					if a.Cfg.Get("proxy") != "true" {
-						log.Printf("[INFO] 容灾: 回退开启系统代理")
-						a.Cfg.Set("proxy", "true")
-						a.syncSystemProxy()
-					}
-					changed = true
-				} else {
-					log.Printf("[DEBUG] 忽略 TUN 初始化状态")
-				}
-			} else {
-				log.Printf("[INFO] 内核 Tun.Enable 变更: %v -> %v", wantTun, resp.Tun.Enable)
-				a.Cfg.Set("tun", fmt.Sprintf("%t", resp.Tun.Enable))
-				changed = true
-			}
+	
+        if resp.Tun.Enable != wantTun {
+			log.Printf("[INFO] 状态同步 | 内核 Tun.Enable 变更: %v -> %v", wantTun, resp.Tun.Enable)
+			a.Cfg.Set("tun", fmt.Sprintf("%t", resp.Tun.Enable))
+			changed = true
 		}
-
+		
 		currentActual := a.getActualTunDevice()
 		if resp.Tun.Device != "" && resp.Tun.Device != currentActual {
 			log.Printf("[INFO] 内核 Tun.Device 变更: %s -> %s", currentActual, resp.Tun.Device)
