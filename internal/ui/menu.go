@@ -167,7 +167,7 @@ func (tm *TrayMenu) onRightClick() {
 		{IsSeparator: true},
 		{
 			Text: fmt.Sprintf("当前模式: %s", currModeName),
-			SubMenuItems: []sys.MenuItem{
+			SubMenuItems: []wintray.MenuItem{
 				{ID: IDModeRule, Text: "规则", Checked: st.Mode == "rule"},
 				{ID: IDModeDirect, Text: "直连", Checked: st.Mode == "direct"},
 				{ID: IDModeGlobal, Text: "全局", Checked: st.Mode == "global"},
@@ -177,7 +177,7 @@ func (tm *TrayMenu) onRightClick() {
 		{ID: IDOpenBaseDir, Text: "打开程序目录"},
 		{
 			Text: "更多",
-			SubMenuItems: []sys.MenuItem{
+			SubMenuItems: []wintray.MenuItem{
 				{ID: IDToggleAutoStart, Text: "开机启动", Checked: st.AutoStart},
 				{ID: IDReloadConfig, Text: "重载配置文件"},
 				{ID: IDRestartKernel, Text: "重启核心"},
