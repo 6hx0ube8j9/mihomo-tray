@@ -149,7 +149,6 @@ func main() {
 		defer windows.CloseHandle(hShowUIEvent)
 	}
 
-	// 3. 命令行参数与权限检查
 	isAutostart := false
 	for _, arg := range os.Args {
 		if arg == "---autostart" || arg == "--autostart" {
@@ -161,7 +160,7 @@ func main() {
 
 	if !isAdmin() && !isAutostart {
 		log.Println("[WARN] 当前进程无管理员权限，准备请求 UAC 提权重新启动...")
-		runAsAdmin(exePath, baseDir)
+		sys.RunAsAdmin(exePath, baseDir)
 		log.Println("[INFO] UAC 提权指令已发送，当前普通权限进程退出")
 		return
 	}
@@ -242,14 +241,4 @@ func isAdmin() bool {
 	}
 	defer token.Close()
 	return token.IsElevated()
-}
-
-func runAsAdmin(exe, dir string) {
-	verb, _ := windows.UTF16PtrFromString("runas")
-	exePtr, _ := windows.UTF16PtrFromString(exe)
-	cwdPtr, _ := windows.UTF16PtrFromString(dir)
-	err := windows.ShellExecute(0, verb, exePtr, nil, cwdPtr, windows.SW_SHOWNORMAL)
-	if err != nil {
-		log.Printf("[ERROR] 触发 UAC 提权失败 (ShellExecute): %v", err)
-	}
 }
