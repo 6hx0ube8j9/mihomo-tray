@@ -171,7 +171,7 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 
 func (a *Application) eventLoop(ctx context.Context) {
 	log.Println("[INFO] 事件循环已开启")
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
 	tryPollAPI := func() {
@@ -249,8 +249,9 @@ func (a *Application) eventLoop(ctx context.Context) {
 			a.pushUIState()
 
 		case <-a.tunEventCh:
-			log.Println("[DEBUG] TUN 接口变更")
+			log.Println("[DEBUG] TUN 接口硬件级变更，执行状态核对")
 			a.handleTunChange(ctx)
+			tryPollAPI() 
 
 		case status := <-a.proxyStatusCh:
 			a.handleProxyStatusChange(status)
@@ -263,6 +264,97 @@ func (a *Application) eventLoop(ctx context.Context) {
 			tryPollAPI()
 			a.pushUIState()
 		}
+	}
+}
+
+func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
+	switch cmd.Action {
+	case "ForceSyncAPI":
+		if a.State.GetPhase() == state.PhaseRunning {
+			if a.pollKernelAPI(ctx) {
+				a.pushUIState()
+			}
+		}
+	case "OpenWebUI":
+		if a.State.GetPhase() != state.PhaseRunning {
+			log.Println("[WARN] 内核未运行，拒绝打开 WebUI")
+			break
+		}
+		cfg := ui.Config{
+			APIAddr:   a.Cfg.Get("external-controller"),
+			Secret:    a.Cfg.Get("secret"),
+			ProxyPort: a.Cfg.Get("port"),
+			BaseDir:   a.Cfg.BaseDir(),
+			UIName:    a.Cfg.Get("external-ui-name"),
+		}
+		log.Printf("[INFO] 启动 WebUI (%s)...", cfg.APIAddr)
+		go ui.Launch(cfg, a.webuiEventCh)
+	case "ExitApp":
+		log.Println("[INFO] 请求退出程序")
+		ui.Cleanup()
+	case "ToggleProxy":
+		enable := cmd.Payload == "true"
+		log.Printf("[INFO] 代理开关: %v", enable)
+		a.Cfg.Set("proxy", strconv.FormatBool(enable))
+		a.lastProxyModify = time.Now()
+		a.syncSystemProxy()
+	case "ToggleTun":
+		enable := cmd.Payload == "true"
+		log.Printf("[INFO] 尝试通过 API 切换 TUN: %v", enable)
+		
+		if enable {
+			a.State.SetTunRequestedTime(time.Now())
+			a.setActualTunDevice(a.Cfg.Get("tun_device"))
+		}
+		
+		go func() {
+			tunPayload := map[string]interface{}{"enable": enable}
+			if dev := a.Cfg.Get("tun_device"); dev != "" {
+				tunPayload["device"] = dev
+			}
+			if err := a.API.SyncConfigToKernel(ctx, map[string]interface{}{"tun": tunPayload}); err == nil {
+				time.Sleep(150 * time.Millisecond)
+				select {
+				case a.apiPollCh <- struct{}{}:
+				default:
+				}
+			} else {
+				log.Printf("[ERROR] API 切换 TUN 失败: %v", err)
+			}
+		}()
+
+	case "SwitchMode":
+		log.Printf("[INFO] 尝试通过 API 切换模式: %s", cmd.Payload)
+		go func() {
+			if err := a.API.SyncConfigToKernel(ctx, map[string]interface{}{"mode": cmd.Payload}); err == nil {
+				select {
+				case a.apiPollCh <- struct{}{}:
+				default:
+				}
+			} else {
+				log.Printf("[ERROR] API 模式切换失败: %v", err)
+			}
+		}()
+
+	case "ToggleAutoStart":
+		enable := cmd.Payload == "true"
+		log.Printf("[INFO] 开机自启: %v", enable)
+		a.Cfg.Set("autostart", cmd.Payload)
+		sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), enable)
+	case "OpenBaseDir":
+		baseDir := a.Cfg.BaseDir()
+		log.Printf("[INFO] 打开目录: %s", baseDir)
+		_ = sys.ExecuteSystemCommand(baseDir)
+	case "ReloadConfig":
+		log.Println("[INFO] 手动重载配置")
+		a.ReloadConfig(ctx)
+	case "RestartKernel":
+		log.Println("[WARN] 重启内核")
+		a.RestartKernel()
+	case "OpenConfigFile":
+		configPath := filepath.Join(a.Cfg.BaseDir(), "config.yaml")
+		log.Printf("[INFO] 打开配置: %s", configPath)
+		_ = sys.ExecuteSystemCommand(configPath)
 	}
 }
 
@@ -327,79 +419,6 @@ func (a *Application) handleProxyStatusChange(status sys.ProxyStatus) {
 		log.Printf("[INFO] 外部工具开启代理 (%s)，忽略", status.Server)
 	}
 	a.proxyRetryCount = 0
-}
-
-func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
-	switch cmd.Action {
-	case "OpenWebUI":
-		if a.State.GetPhase() != state.PhaseRunning {
-			log.Println("[WARN] 内核未运行，拒绝打开 WebUI")
-			break
-		}
-		cfg := ui.Config{
-			APIAddr:   a.Cfg.Get("external-controller"),
-			Secret:    a.Cfg.Get("secret"),
-			ProxyPort: a.Cfg.Get("port"),
-			BaseDir:   a.Cfg.BaseDir(),
-			UIName:    a.Cfg.Get("external-ui-name"),
-		}
-		log.Printf("[INFO] 启动 WebUI (%s)...", cfg.APIAddr)
-		go ui.Launch(cfg, a.webuiEventCh)
-	case "ExitApp":
-		log.Println("[INFO] 请求退出程序")
-		ui.Cleanup()
-	case "ToggleProxy":
-		enable := cmd.Payload == "true"
-		log.Printf("[INFO] 代理开关: %v", enable)
-		a.Cfg.Set("proxy", strconv.FormatBool(enable))
-		a.lastProxyModify = time.Now()
-		a.syncSystemProxy()
-	case "ToggleTun":
-		enable := cmd.Payload == "true"
-		log.Printf("[INFO] TUN 开关: %v (%s)", enable, a.Cfg.Get("tun_device"))
-		a.Cfg.Set("tun", strconv.FormatBool(enable))
-		if enable {
-			a.State.SetTunRequestedTime(time.Now())
-			a.setActualTunDevice(a.Cfg.Get("tun_device"))
-		}
-		a.State.MuteAPIWatcher(APIMuteShortPeriod)
-
-		tunPayload := map[string]interface{}{
-			"enable": enable,
-		}
-		if dev := a.Cfg.Get("tun_device"); dev != "" {
-			tunPayload["device"] = dev
-		}
-		go a.API.SyncConfigToKernel(ctx, map[string]interface{}{"tun": tunPayload})
-
-	case "SwitchMode":
-		log.Printf("[INFO] 运行模式: %s", cmd.Payload)
-		a.Cfg.Set("mode", cmd.Payload)
-		a.State.MuteAPIWatcher(3 * time.Second)
-		go a.syncAllConfig(ctx)
-
-	case "ToggleAutoStart":
-		enable := cmd.Payload == "true"
-		log.Printf("[INFO] 开机自启: %v", enable)
-		a.Cfg.Set("autostart", cmd.Payload)
-		sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), enable)
-	case "OpenBaseDir":
-		baseDir := a.Cfg.BaseDir()
-		log.Printf("[INFO] 打开目录: %s", baseDir)
-		_ = sys.ExecuteSystemCommand(baseDir)
-	case "ReloadConfig":
-		log.Println("[INFO] 手动重载配置")
-		a.ReloadConfig(ctx)
-	case "RestartKernel":
-		log.Println("[WARN] 重启内核")
-		a.RestartKernel()
-	case "OpenConfigFile":
-		configPath := filepath.Join(a.Cfg.BaseDir(), "config.yaml")
-		log.Printf("[INFO] 打开配置: %s", configPath)
-		_ = sys.ExecuteSystemCommand(configPath)
-	}
-
-	a.pushUIState()
 }
 
 func (a *Application) calculateUIState() ui.UIState {
