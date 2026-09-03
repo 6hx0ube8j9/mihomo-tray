@@ -136,3 +136,13 @@ func SendCtrlBreak(pid uint32) error {
 	defer procFreeConsole.Call()
 	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
 }
+
+func HardKill(pid uint32) {
+	if pid == 0 {
+		return
+	}
+	if h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, pid); err == nil {
+		_ = windows.TerminateProcess(h, 0)
+		windows.CloseHandle(h)
+	}
+}
