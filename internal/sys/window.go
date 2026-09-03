@@ -215,9 +215,3 @@ func IsWindowVisible(hwnd uintptr) bool {
 	vis, _, _ := procIsWindowVisible.Call(hwnd)
 	return vis != 0
 }
-
-func IsSystemShuttingDown() bool {
-	const SM_SHUTTINGDOWN = 0x2000
-	r, _, _ := procGetSystemMetrics.Call(SM_SHUTTINGDOWN)
-	return r != 0
-}
