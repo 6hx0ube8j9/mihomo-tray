@@ -3,14 +3,16 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
-	"sync"
+
+	"log/slog"
 
 	"golang.org/x/sys/windows"
 
@@ -27,6 +29,8 @@ const (
 	MaxLogSize  = 512 * 1024
 )
 
+var GlobalLogLevel = new(slog.LevelVar)
+
 type rollingLogWriter struct {
 	mu       sync.Mutex
 	logPath  string
@@ -37,8 +41,8 @@ type rollingLogWriter struct {
 
 func newRollingLogWriter(baseDir string) *rollingLogWriter {
 	w := &rollingLogWriter{
-		logPath: filepath.Join(baseDir, "app.log"),
-		bakPath: filepath.Join(baseDir, "app.log.bak"),
+		logPath: filepath.Join(baseDir, "mihomo-tray.log"),
+		bakPath: filepath.Join(baseDir, "mihomo-tray.log.bak"),
 	}
 	w.open()
 	return w
@@ -98,9 +102,41 @@ func (w *rollingLogWriter) Close() {
 
 func initEarlyLogger(baseDir string) *rollingLogWriter {
 	writer := newRollingLogWriter(baseDir)
-	log.SetOutput(writer)
-	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
+	GlobalLogLevel.Set(slog.LevelError)
+
+	opts := &slog.HandlerOptions{
+		Level: GlobalLogLevel,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.TimeKey {
+				t := a.Value.Time()
+				a.Value = slog.StringValue(t.Format("2006/01/02 15:04:05"))
+			}
+			return a
+		},
+	}
+
+	logger := slog.New(slog.NewTextHandler(writer, opts))
+	slog.SetDefault(logger)
+
 	return writer
+}
+
+func syncLogLevel(cfgMgr *config.Manager) {
+	levelStr := cfgMgr.GetJSON("tray_log_level")
+	switch strings.ToLower(levelStr) {
+	case "silent":
+		GlobalLogLevel.Set(slog.Level(100))
+	case "debug":
+		GlobalLogLevel.Set(slog.LevelDebug)
+	case "info":
+		GlobalLogLevel.Set(slog.LevelInfo)
+	case "warn":
+		GlobalLogLevel.Set(slog.LevelWarn)
+	case "error":
+		GlobalLogLevel.Set(slog.LevelError)
+	default:
+		GlobalLogLevel.Set(slog.LevelError)
+	}
 }
 
 func main() {
@@ -118,13 +154,15 @@ func main() {
 		defer logWriter.Close()
 	}
 
-	log.Println("[INFO] ==================== Mihomo Tray 进程启动 ====================")
-	log.Printf("[INFO] 进程 PID: %d, 可执行文件路径: %s", os.Getpid(), exePath)
+	cfgMgr := config.NewManager(baseDir, exePath)
+	syncLogLevel(cfgMgr)
+
+	slog.Info("程序启动", "PID", os.Getpid(), "工作目录", baseDir)
 
 	mName, _ := windows.UTF16PtrFromString(AppMutex)
 	hM, err := windows.CreateMutex(nil, false, mName)
 	if errors.Is(err, windows.ERROR_ALREADY_EXISTS) || err == windows.ERROR_ALREADY_EXISTS {
-		log.Println("[WARN] 检测到应用已有实例在运行，尝试唤醒已有实例并退出当前进程...")
+		slog.Warn("检测到旧实例，尝试唤醒")
 		if hM != 0 {
 			windows.CloseHandle(hM)
 		}
@@ -134,9 +172,9 @@ func main() {
 		if err == nil && hEvent != 0 {
 			windows.SetEvent(hEvent)
 			windows.CloseHandle(hEvent)
-			log.Println("[INFO] 成功触发已存在实例的唤醒事件 (ShowUIEvent)")
+			slog.Info("成功触发唤醒事件")
 		} else {
-			log.Printf("[ERROR] 无法打开或触发唤醒事件: %v", err)
+			slog.Error("触发唤醒事件失败", "err", err)
 		}
 		return
 	}
@@ -157,24 +195,24 @@ func main() {
 			break
 		}
 	}
-	log.Printf("[INFO] 参数检查: autostart=%v, isAdmin=%v", isAutostart, isAdmin())
+	
+	slog.Debug("启动参数检查", "autostart", isAutostart, "isAdmin", isAdmin())
 
 	if !isAdmin() && !isAutostart {
-		log.Println("[WARN] 当前进程无管理员权限，准备请求 UAC 提权重新启动...")
+		slog.Warn("权限不足，准备请求提权")
 		sys.RunAsAdmin(exePath, baseDir)
-		log.Println("[INFO] UAC 提权指令已发送，当前普通权限进程退出")
+		slog.Info("提权指令已发送，当前进程退出")
 		return
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	cfgMgr := config.NewManager(baseDir, exePath)
 	runtimeState := state.NewRuntimeState()
 	application := app.NewApplication(cfgMgr, runtimeState)
 	trayMenu := ui.NewTrayMenu(ctx, cancel, application.UICommandCh, application.UIStateCh)
 
-	log.Println("[INFO] 初始化系统托盘 UI...")
+	slog.Debug("初始化系统托盘")
 	trayMenu.Init()
 
 	go func() {
@@ -184,7 +222,7 @@ func main() {
 
 		select {
 		case sig := <-sigCh:
-			log.Printf("[WARN] 接收到系统终止信号 (%v)，正在通知托盘退出...", sig)
+			slog.Info("接收到退出信号，准备清理", "信号", sig)
 			trayMenu.Stop()
 		case <-ctx.Done():
 			return
@@ -193,7 +231,7 @@ func main() {
 
 	if hShowUIEvent != 0 {
 		go func() {
-			log.Println("[INFO] 唤醒事件监听协程已就绪")
+			slog.Debug("唤醒监听已就绪")
 			for {
 				s, _ := windows.WaitForSingleObject(hShowUIEvent, windows.INFINITE)
 				if s != windows.WAIT_OBJECT_0 {
@@ -204,7 +242,7 @@ func main() {
 					return
 				}
 
-				log.Println("[INFO] 收到外部唤醒信号，正在触发 OpenWebUI 指令")
+				slog.Info("收到外部唤醒信号")
 				select {
 				case application.UICommandCh <- ui.UICommand{Action: "OpenWebUI"}:
 					time.Sleep(200 * time.Millisecond)
@@ -215,13 +253,13 @@ func main() {
 		}()
 	}
 
-	log.Println("[INFO] 启动应用程序后台主循环 (Bootstrap)...")
+	slog.Debug("启动后台主循环")
 	go application.Bootstrap(ctx)
 
-	log.Println("[INFO] 运行托盘界面事件循环...")
+	slog.Debug("运行托盘界面事件循环")
 	trayMenu.Run()
 
-	log.Println("[INFO] 托盘循环结束，开始执行退出清理程序...")
+	slog.Debug("托盘循环结束")
 	cancel()
 
 	if hShowUIEvent != 0 {
@@ -230,14 +268,14 @@ func main() {
 
 	runtimeState.ForceExitPhase()
 	application.SafeShutdown(cancel)
-	log.Println("[INFO] ==================== Mihomo Tray 进程安全退出 ====================")
+	slog.Info("程序安全退出")
 }
 
 func isAdmin() bool {
 	var token windows.Token
 	err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &token)
 	if err != nil {
-		log.Printf("[ERROR] 查询进程 Token 失败: %v", err)
+		slog.Error("查询 Token 失败", "err", err)
 		return false
 	}
 	defer token.Close()
