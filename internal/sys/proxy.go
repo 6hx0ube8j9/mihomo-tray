@@ -168,7 +168,7 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 
 		triggeredIdx := int(index - windows.WAIT_OBJECT_0)
 		if triggeredIdx >= 0 && triggeredIdx < len(keys) {
-			slog.Debug("底层感知: 注册表代理键值发生变更")
+			slog.Debug("检测到系统代理注册表发生变更")
 			armKey(triggeredIdx)
 		} else {
 			for i := range keys {
