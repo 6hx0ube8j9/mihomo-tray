@@ -45,15 +45,15 @@ func KillOtherProcessesByName(name string, excludePid uint32) {
 	for {
 		exeName := windows.UTF16ToString(pe.ExeFile[:])
 		if strings.EqualFold(exeName, name) && pe.ProcessID != excludePid && pe.ProcessID != currentPid {
-			slog.Debug("全局清场: 发现匹配残留进程", "目标", name, "PID", pe.ProcessID)
+			slog.Debug("发现同名残留进程，准备结束", "目标", name, "PID", pe.ProcessID)
 			h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, pe.ProcessID)
 			if err == nil {
 				_ = windows.TerminateProcess(h, 9)
 				windows.CloseHandle(h)
-				slog.Debug("全局清场: 强杀执行完毕", "PID", pe.ProcessID)
+				slog.Debug("残留进程已结束", "PID", pe.ProcessID)
 				time.Sleep(50 * time.Millisecond)
 			} else {
-				slog.Error("全局清场: 强杀失败 (拒绝访问)", "PID", pe.ProcessID, "err", err)
+				slog.Error("结束残留进程失败 (拒绝访问)", "PID", pe.ProcessID, "err", err)
 			}
 		}
 		if err := windows.Process32Next(snapshot, &pe); err != nil {
@@ -99,7 +99,7 @@ func IsPidRunning(pid uint32, expectedExeName string) bool {
 func CreateKillOnCloseJob() (windows.Handle, error) {
 	h, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
-		slog.Error("创建系统作业对象失败", "err", err)
+		slog.Error("创建进程组 (Job Object) 失败", "err", err)
 		return 0, err
 	}
 	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
@@ -114,7 +114,7 @@ func CreateKillOnCloseJob() (windows.Handle, error) {
 		uint32(unsafe.Sizeof(info)),
 	)
 	if err != nil {
-		slog.Error("配置作业对象限制属性失败", "err", err)
+		slog.Error("配置进程组退出策略失败", "err", err)
 	}
 	return h, err
 }
@@ -125,11 +125,11 @@ func AssignProcessToJob(hJob windows.Handle, pid int) {
 	}
 	if hp, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(pid)); err == nil {
 		if err := windows.AssignProcessToJobObject(hJob, hp); err != nil {
-			slog.Error("进程绑定至作业对象失败", "PID", pid, "err", err)
+			slog.Error("进程加入资源组失败", "PID", pid, "err", err)
 		}
 		windows.CloseHandle(hp)
 	} else {
-		slog.Error("打开目标进程句柄失败 (AssignProcess)", "PID", pid, "err", err)
+		slog.Error("获取目标进程句柄失败 (AssignProcess)", "PID", pid, "err", err)
 	}
 }
 
@@ -156,11 +156,11 @@ func HardKill(pid uint32) {
 	if pid == 0 {
 		return
 	}
-	slog.Debug("执行底线拔管 (HardKill)", "PID", pid)
+	slog.Debug("强制结束进程 (HardKill)", "PID", pid)
 	if h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, pid); err == nil {
 		_ = windows.TerminateProcess(h, 0)
 		windows.CloseHandle(h)
 	} else {
-		slog.Error("执行底线拔管失败", "PID", pid, "err", err)
+		slog.Error("强制结束进程失败", "PID", pid, "err", err)
 	}
 }
