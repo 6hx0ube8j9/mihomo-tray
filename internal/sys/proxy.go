@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"log/slog"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
@@ -37,6 +38,7 @@ func RefreshWininet() {
 func GetProxyStatus() (ProxyStatus, error) {
 	k, err := registry.OpenKey(registry.CURRENT_USER, internetSettingsPath, registry.QUERY_VALUE)
 	if err != nil {
+		slog.Error("读取系统代理注册表失败", "err", err)
 		return ProxyStatus{}, err
 	}
 	defer k.Close()
@@ -53,6 +55,7 @@ func GetProxyStatus() (ProxyStatus, error) {
 func SetSystemProxy(enable bool, portStr string) error {
 	k, err := registry.OpenKey(registry.CURRENT_USER, internetSettingsPath, registry.QUERY_VALUE|registry.SET_VALUE)
 	if err != nil {
+		slog.Error("打开代理注册表写权限失败", "err", err)
 		return err
 	}
 	defer k.Close()
@@ -64,6 +67,7 @@ func SetSystemProxy(enable bool, portStr string) error {
 		if errEnable == nil && currEnable == 0 {
 			return nil
 		}
+		slog.Debug("底层动作: 关闭系统代理")
 		_ = k.SetDWordValue("ProxyEnable", 0)
 		RefreshWininet()
 		return nil
@@ -79,6 +83,7 @@ func SetSystemProxy(enable bool, portStr string) error {
 		return nil
 	}
 
+	slog.Debug("底层动作: 设置系统代理", "目标Server", expectedServer)
 	_ = k.SetStringValue("ProxyServer", expectedServer)
 	_ = k.SetStringValue("ProxyOverride", defaultProxyOverride)
 	_ = k.SetDWordValue("AutoDetect", 0)
@@ -103,12 +108,14 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 		for _, k := range keys {
 			_ = k.Close()
 		}
+		slog.Debug("系统代理注册表监听已退出清理")
 	}
 	defer cleanup()
 
 	for _, path := range paths {
 		k, err := registry.OpenKey(registry.CURRENT_USER, path, registry.NOTIFY|registry.QUERY_VALUE)
 		if err != nil {
+			slog.Error("启动注册表监听失败 (无法打开键)", "path", path, "err", err)
 			continue
 		}
 		keys = append(keys, k)
@@ -123,6 +130,8 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 	if len(handles) == 0 {
 		return
 	}
+
+	slog.Debug("系统代理注册表监听已启动", "监听路径数量", len(keys))
 
 	cancelEvent, _ := windows.CreateEvent(nil, 0, 0, nil)
 	handles = append(handles, cancelEvent)
@@ -149,6 +158,7 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 	for {
 		index, err := windows.WaitForMultipleObjects(handles, false, windows.INFINITE)
 		if err != nil {
+			slog.Error("WaitForMultipleObjects 等待注册表事件出错", "err", err)
 			return
 		}
 
@@ -158,6 +168,7 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 
 		triggeredIdx := int(index - windows.WAIT_OBJECT_0)
 		if triggeredIdx >= 0 && triggeredIdx < len(keys) {
+			slog.Debug("底层感知: 注册表代理键值发生变更")
 			armKey(triggeredIdx)
 		} else {
 			for i := range keys {
