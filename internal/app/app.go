@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"log/slog"
 
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/core"
@@ -93,40 +93,40 @@ func (a *Application) isTunInGracePeriod() bool {
 }
 
 func (a *Application) Bootstrap(ctx context.Context) {
-	log.Println("[INFO] 启动应用...")
+	slog.Debug("中枢控制器开始引导启动")
 
 	a.Cfg.EnsureDefault()
 
 	osTaskExists := sys.CheckAutoStartStatus()
 	cfgMemoryStatus := a.Cfg.Get("autostart") == "true"
-	log.Printf("[INFO] 自启检查: 任务=%v, 配置=%v", osTaskExists, cfgMemoryStatus)
+	slog.Debug("开机自启状态核对", "系统任务", osTaskExists, "配置预期", cfgMemoryStatus)
 
 	if osTaskExists {
 		if !sys.IsTaskPathValid(a.Cfg.ExePath()) {
-			log.Println("[WARN] 修复无效自启任务...")
+			slog.Warn("发现无效的自启任务路径，正在尝试修复")
 			if cfgMemoryStatus {
 				sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), true)
 				osTaskExists = true
-				log.Println("[INFO] 自启任务路径已更新")
+				slog.Info("自启任务路径已更新至当前位置")
 			} else {
 				sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), false)
 				osTaskExists = false
-				log.Println("[INFO] 已清除无效自启任务")
+				slog.Info("已清除系统残留的无效自启任务")
 			}
 		}
 	}
 
 	if osTaskExists != cfgMemoryStatus {
-		log.Printf("[INFO] 更新自启配置: %v", osTaskExists)
+		slog.Debug("同步自启状态至本地配置", "Status", osTaskExists)
 		a.Cfg.Set("autostart", strconv.FormatBool(osTaskExists))
 	}
 
 	if modified, err := a.Cfg.PrepareYAMLForBoot(); err != nil {
-		log.Printf("[ERROR] YAML 预处理失败: %v", err)
+		slog.Error("内核 YAML 预处理失败", "err", err)
 	} else if modified {
-		log.Println("[INFO] YAML 配置校准同步完成")
+		slog.Info("内核 YAML 配置已自动校准同步")
 	} else {
-		log.Println("[DEBUG] YAML 配置一致，无需重写")
+		slog.Debug("内核 YAML 配置一致，跳过重写")
 	}
 
 	a.State.MuteAPIWatcher(TunInitGracePeriod)
@@ -137,7 +137,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	a.syncSystemProxy()
 	a.pushUIState()
 
-	log.Println("[INFO] 启动守护协程...")
+	slog.Debug("拉起底层硬件感知与内核守护协程")
 	go a.Kernel.RunDaemon(ctx, a.kernelEventCh)
 	go sys.WatchNetworkInterfaces(ctx, a.tunEventCh)
 	go sys.WatchProxyRegistry(ctx, a.proxyStatusCh)
@@ -145,7 +145,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 }
 
 func (a *Application) SafeShutdown(cancel context.CancelFunc) {
-	log.Println("[INFO] 执行安全退出...")
+	slog.Info("触发中枢安全退出流程")
 
 	a.State.ForceExitPhase()
 
@@ -153,31 +153,30 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 		cancel()
 	}
 
-	log.Println("[INFO] 关停内核...")
+	slog.Debug("发送内核关停指令")
 	a.Kernel.KillCurrent()
 
 	if a.Cfg.Get("proxy") == "true" {
-		log.Println("[INFO] 关闭系统代理...")
+		slog.Info("正在恢复系统全局代理设置")
 		if err := sys.SetSystemProxy(false, ""); err != nil {
-			log.Printf("[ERROR] 关闭代理失败: %v", err)
+			slog.Error("关闭系统代理失败", "err", err)
 		}
 	}
 
-	log.Println("[INFO] 关闭内核接口...")
+	slog.Debug("清理内核资源句柄")
 	a.Kernel.Close()
-
-	log.Println("[INFO] === 应用已安全关闭 ===")
+	slog.Info("应用中枢已完全挂起")
 }
 
 func (a *Application) eventLoop(ctx context.Context) {
-	log.Println("[INFO] 事件循环已开启")
+	slog.Debug("主事件循环 (EventLoop) 已激活")
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
 	tryPollAPI := func() {
 		if a.State.GetPhase() == state.PhaseRunning && !a.State.IsAPIWatcherMuted() {
 			if a.pollKernelAPI(ctx) {
-				log.Println("[DEBUG] API 状态更新，推送 UI")
+				slog.Debug("内核 API 状态发生漂移，已同步至 UI")
 				a.pushUIState()
 			}
 		}
@@ -186,22 +185,20 @@ func (a *Application) eventLoop(ctx context.Context) {
 	for {
 		select {
 		case event := <-a.webuiEventCh:
-			log.Printf("[WARN] WebUI 事件: %v", event)
 			if event == ui.EventError {
-				log.Println("[ERROR] WebUI 错误")
+				slog.Error("WebUI 面板拉起失败或崩溃")
 			}
 		case <-ctx.Done():
-			log.Println("[INFO] 退出事件循环")
+			slog.Debug("终止主事件循环")
 			return
 
 		case cmd := <-a.UICommandCh:
-			log.Printf("[INFO] UI 指令: %s (参数: %s)", cmd.Action, cmd.Payload)
+			slog.Debug("接收 UI 指令", "Action", cmd.Action, "Payload", cmd.Payload)
 			a.handleUICommand(ctx, cmd)
 
 		case event := <-a.kernelEventCh:
-			log.Printf("[INFO] 内核事件: %v", event)
 			if event == core.EventKernelReady {
-				log.Println("[INFO] 内核就绪，进入 Running 阶段")
+				slog.Info("内核进程就绪", "阶段", "Running")
 
 				if a.State.GetPhase() != state.PhaseInitializing {
 					a.State.MuteAPIWatcher(APIMuteShortPeriod)
@@ -216,14 +213,14 @@ func (a *Application) eventLoop(ctx context.Context) {
 
 				go func() {
 					defer a.State.SetRestarting(false)
-					log.Println("[INFO] 轮询内核 API...")
+					slog.Debug("开始探测内核 API 通道...")
 					
 					for i := 0; i < 60; i++ {
 						pollCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
 						_, err := a.API.DoRequest(pollCtx, "GET", "/configs", nil)
 						cancel()
 						if err == nil {
-							log.Printf("[INFO] 内核 API 连通 (重试 %d)", i+1)
+							slog.Info("内核接管成功", "探测耗时(ms)", (i+1)*250)
 							a.pushUIState()
 							select {
 							case a.apiPollCh <- struct{}{}:
@@ -233,23 +230,23 @@ func (a *Application) eventLoop(ctx context.Context) {
 						}
 						time.Sleep(250 * time.Millisecond)
 					}
-					log.Println("[ERROR] 内核 API 连接超时 (尝试 60 次)")
+					slog.Error("内核 API 连接超时触发熔断", "重试次数", 60)
 					a.Kernel.HaltDaemon()
 					a.State.SetPhase(state.PhaseInitializing)
 					a.pushUIState()
 				}()
 			} else if event == core.EventKernelExit {
 				if a.State.IsRestarting() {
-					log.Println("[INFO] 内核已停止，等待重启...")
+					slog.Info("内核已被主动挂起，等待重启拉起指令")
 				} else {
-					log.Println("[WARN] 内核异常退出，退回 Initializing 阶段")
+					slog.Warn("内核意外退出，状态机回滚至 Initializing")
 				}
 				a.State.SetPhase(state.PhaseInitializing)
 			}
 			a.pushUIState()
 
 		case <-a.tunEventCh:
-			log.Println("[DEBUG] TUN 接口硬件级变更，执行状态核对")
+			slog.Debug("感知到系统网卡硬件发生变更，触发审计")
 			a.handleTunChange(ctx)
 			tryPollAPI() 
 
@@ -277,7 +274,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		}
 	case "OpenWebUI":
 		if a.State.GetPhase() != state.PhaseRunning {
-			log.Println("[WARN] 内核未运行，拒绝打开 WebUI")
+			slog.Warn("拒绝打开 WebUI：内核底层未运行")
 			break
 		}
 		cfg := ui.Config{
@@ -287,20 +284,20 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			BaseDir:   a.Cfg.BaseDir(),
 			UIName:    a.Cfg.Get("external-ui-name"),
 		}
-		log.Printf("[INFO] 启动 WebUI (%s)...", cfg.APIAddr)
+		slog.Info("拉起独立 WebUI 面板", "API", cfg.APIAddr)
 		go ui.Launch(cfg, a.webuiEventCh)
 	case "ExitApp":
-		log.Println("[INFO] 请求退出程序")
+		slog.Info("用户触发退出指令")
 		ui.Cleanup()
 	case "ToggleProxy":
 		enable := cmd.Payload == "true"
-		log.Printf("[INFO] 代理开关: %v", enable)
+		slog.Info("切换系统代理", "目标状态", enable)
 		a.Cfg.Set("proxy", strconv.FormatBool(enable))
 		a.lastProxyModify = time.Now()
 		a.syncSystemProxy()
 	case "ToggleTun":
 		enable := cmd.Payload == "true"
-		log.Printf("[INFO] 尝试通过 API 切换 TUN: %v", enable)
+		slog.Info("切换虚拟网卡(TUN)", "目标状态", enable)
 		a.Cfg.Set("tun", strconv.FormatBool(enable))
 		if enable {
 			a.State.SetTunRequestedTime(time.Now())
@@ -319,12 +316,12 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 				default:
 				}
 			} else {
-				log.Printf("[ERROR] API 切换 TUN 失败: %v", err)
+				slog.Error("API 切换 TUN 失败", "err", err)
 			}
 		}()
 
 	case "SwitchMode":
-		log.Printf("[INFO] 尝试通过 API 切换模式: %s", cmd.Payload)
+		slog.Info("切换路由模式", "目标模式", cmd.Payload)
 		a.Cfg.Set("mode", cmd.Payload) 
 		
 		go func() {
@@ -334,28 +331,28 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 				default:
 				}
 			} else {
-				log.Printf("[ERROR] API 模式切换失败: %v", err)
+				slog.Error("API 模式切换失败", "err", err)
 			}
 		}()
 
 	case "ToggleAutoStart":
 		enable := cmd.Payload == "true"
-		log.Printf("[INFO] 开机自启: %v", enable)
+		slog.Info("切换开机启动", "目标状态", enable)
 		a.Cfg.Set("autostart", cmd.Payload)
 		sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), enable)
 	case "OpenBaseDir":
 		baseDir := a.Cfg.BaseDir()
-		log.Printf("[INFO] 打开目录: %s", baseDir)
+		slog.Info("在资源管理器打开工作目录")
 		_ = sys.ExecuteSystemCommand(baseDir)
 	case "ReloadConfig":
-		log.Println("[INFO] 手动重载配置")
+		slog.Info("用户手动请求重载配置")
 		a.ReloadConfig(ctx)
 	case "RestartKernel":
-		log.Println("[WARN] 重启内核")
+		slog.Warn("用户手动触发内核硬重启")
 		a.RestartKernel()
 	case "OpenConfigFile":
 		configPath := filepath.Join(a.Cfg.BaseDir(), "config.yaml")
-		log.Printf("[INFO] 打开配置: %s", configPath)
+		slog.Info("调用系统默认编辑器打开内核配置")
 		_ = sys.ExecuteSystemCommand(configPath)
 	}
 	
@@ -367,13 +364,13 @@ func (a *Application) syncSystemProxy() {
 	port := a.Cfg.Get("port")
 
 	if enable {
-		log.Printf("[INFO] 系统代理: 开启 (端口 %s)", port)
+		slog.Info("系统代理状态", "状态", "已接管", "端口", port)
 	} else {
-		log.Println("[INFO] 系统代理: 关闭")
+		slog.Info("系统代理状态", "状态", "已释放")
 	}
 
 	if err := sys.SetSystemProxy(enable, port); err != nil {
-		log.Printf("[ERROR] 设置系统代理失败: %v", err)
+		slog.Error("修改 Windows 系统代理失败", "err", err)
 	}
 }
 
@@ -393,7 +390,7 @@ func (a *Application) handleProxyStatusChange(status sys.ProxyStatus) {
 	if expectedProxy {
 		if status.Enabled {
 			if status.Server != "" && !strings.EqualFold(status.Server, expectedServer) {
-				log.Printf("[WARN] 代理被外部修改 (期望 %s, 实际 %s)，关闭本地代理", expectedServer, status.Server)
+				slog.Warn("系统代理已被外部工具抢占，自动退让关闭本地代理", "当前接管方", status.Server)
 				a.proxyRetryCount = 0
 				a.Cfg.Set("proxy", "false")
 				a.pushUIState()
@@ -405,13 +402,13 @@ func (a *Application) handleProxyStatusChange(status sys.ProxyStatus) {
 
 		a.proxyRetryCount++
 		if a.proxyRetryCount <= 3 {
-			log.Printf("[WARN] 外部关闭代理，尝试恢复 (%d/3)", a.proxyRetryCount)
+			slog.Warn("系统代理遭到外部进程恶意关闭，尝试实施自动修复", "重试次数", a.proxyRetryCount)
 			go func() {
 				time.Sleep(200 * time.Millisecond)
 				a.syncSystemProxy()
 			}()
 		} else {
-			log.Println("[WARN] 代理恢复失败，同步关闭本地状态")
+			slog.Warn("代理修复失败达到阈值，放弃接管并同步为关闭状态")
 			a.proxyRetryCount = 0
 			a.Cfg.Set("proxy", "false")
 			a.pushUIState()
@@ -420,7 +417,7 @@ func (a *Application) handleProxyStatusChange(status sys.ProxyStatus) {
 	}
 
 	if status.Enabled {
-		log.Printf("[INFO] 外部工具开启代理 (%s)，忽略", status.Server)
+		slog.Debug("侦测到外部工具开启代理，当前处于静默模式，忽略此变更", "Server", status.Server)
 	}
 	a.proxyRetryCount = 0
 }
@@ -463,8 +460,12 @@ func (a *Application) pushUIState() {
 	newState := a.calculateUIState()
 
 	if newState != a.lastUIState {
-		log.Printf("[DEBUG] UI 状态: Icon=%d, Tun=%v, Proxy=%v, Mode=%s",
-			newState.IconState, newState.IsTun, newState.IsProxy, newState.Mode)
+		slog.Debug("UI 视图状态刷新", 
+			"Icon", newState.IconState, 
+			"Tun", newState.IsTun, 
+			"Proxy", newState.IsProxy, 
+			"Mode", newState.Mode)
+		
 		a.lastUIState = newState
 		select {
 		case a.UIStateCh <- newState:
@@ -476,7 +477,7 @@ func (a *Application) pushUIState() {
 }
 
 func (a *Application) ReloadConfig(ctx context.Context) {
-	log.Println("[INFO] 执行重载配置...")
+	slog.Info("开始执行内核配置热重载")
 	a.State.SetReloading(true)
 	a.State.SetRestarting(false)
 	a.State.MuteAPIWatcher(APIMuteShortPeriod)
@@ -485,7 +486,7 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 		defer a.State.SetReloading(false)
 
 		if _, err := a.Cfg.PrepareYAMLForBoot(); err != nil {
-			log.Printf("[ERROR] 重载 YAML 失败: %v", err)
+			slog.Error("重载前 YAML 校准失败", "err", err)
 		}
 
 		reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -493,16 +494,15 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 		cancel()
 
 		if err != nil {
-			log.Printf("[ERROR] 加载新配置失败: %v", err)
+			slog.Error("热重载内核配置失败", "err", err)
 			return
 		}
 
-		log.Println("[INFO] 热重载成功，同步配置...")
+		slog.Info("热重载成功，开始同步运行参数")
 		a.syncAllConfig(ctx)
-
 		a.syncSystemProxy()
-
 		a.pushUIState()
+		
 		select {
 		case a.apiPollCh <- struct{}{}:
 		default:
@@ -511,13 +511,13 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 }
 
 func (a *Application) RestartKernel() {
-	log.Println("[WARN] 执行内核重启...")
+	slog.Info("正在执行内核进程强制回收与重启")
 	a.State.SetRestarting(true)
 	a.State.SetReloading(false)
 	a.Kernel.HaltDaemon()
 
 	if _, err := a.Cfg.PrepareYAMLForBoot(); err != nil {
-		log.Printf("[ERROR] 重启前校准 YAML 失败: %v", err)
+		slog.Error("重启前 YAML 校准失败", "err", err)
 	}
 
 	a.Kernel.WakeDaemon()
@@ -534,19 +534,19 @@ func (a *Application) handleTunChange(ctx context.Context) {
 	alive := sys.IsTunActive(tunDev)
 
 	if a.State.IsTunAlive() != alive {
-		log.Printf("[INFO] TUN 状态变更: %s, 活跃=%v", tunDev, alive)
+		slog.Info("虚拟网卡(TUN) 硬件连接状态改变", "设备", tunDev, "活跃状态", alive)
 		if !alive {
 			a.State.SetTunLostTime(time.Now())
 		}
 		if !alive && !a.State.IsAPIWatcherMuted() {
 			go func() {
-				log.Println("[DEBUG] TUN 断开，快速确认...")
+				slog.Debug("触发 TUN 断线快速纠偏机制")
 				for i := 0; i < 3; i++ {
 					pollCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
 					success := a.pollKernelAPI(pollCtx)
 					cancel()
 					if success {
-						log.Println("[DEBUG] TUN 快速确认 API 连通")
+						slog.Debug("纠偏机制确认 TUN 已恢复响应")
 						break
 					}
 					time.Sleep(100 * time.Millisecond)
@@ -581,10 +581,14 @@ func (a *Application) syncAllConfig(ctx context.Context) {
 		"tun":  tunPayload,
 		"mode": a.Cfg.Get("mode"),
 	}
-	log.Printf("[DEBUG] 同步内核参数: tun=%v, dev=%s, mode=%s",
-		tunPayload["enable"], a.Cfg.Get("tun_device"), payload["mode"])
+	
+	slog.Debug("同步托盘参数至内核 API", 
+		"Tun", tunPayload["enable"], 
+		"Dev", a.Cfg.Get("tun_device"), 
+		"Mode", payload["mode"])
+		
 	if err := a.API.SyncConfigToKernel(ctx, payload); err != nil {
-		log.Printf("[ERROR] 参数同步失败: %v", err)
+		slog.Error("API 参数同步失败", "err", err)
 	}
 }
 
@@ -612,7 +616,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 	if json.Unmarshal(body, &resp) == nil {
 		changed := false
 		if resp.Mode != "" && resp.Mode != a.Cfg.Get("mode") {
-			log.Printf("[INFO] 内核 Mode 变更: %s -> %s", a.Cfg.Get("mode"), resp.Mode)
+			slog.Info("捕获到内核级 Mode 变更漂移，执行同步", "Old", a.Cfg.Get("mode"), "New", resp.Mode)
 			a.Cfg.Set("mode", resp.Mode)
 			changed = true
 		}
@@ -626,14 +630,14 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		}
 	
         if resp.Tun.Enable != wantTun {
-			log.Printf("[INFO] 状态同步 | 内核 Tun.Enable 变更: %v -> %v", wantTun, resp.Tun.Enable)
+			slog.Info("捕获到内核级 TUN 状态漂移，执行同步", "Expected", wantTun, "Actual", resp.Tun.Enable)
 			a.Cfg.Set("tun", fmt.Sprintf("%t", resp.Tun.Enable))
 			changed = true
 		}
 		
 		currentActual := a.getActualTunDevice()
 		if resp.Tun.Device != "" && resp.Tun.Device != currentActual {
-			log.Printf("[INFO] 内核 Tun.Device 变更: %s -> %s", currentActual, resp.Tun.Device)
+			slog.Debug("TUN 网卡硬件标识符发生更新", "NewDev", resp.Tun.Device)
 			a.setActualTunDevice(resp.Tun.Device)
 			changed = true
 		}
@@ -641,7 +645,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		if changed {
 			realAlive := sys.IsTunActive(a.getActualTunDevice())
 			if a.State.IsTunAlive() != realAlive {
-				log.Printf("[DEBUG] 轮询纠偏 TUN 真实状态: %v", realAlive)
+				slog.Debug("基于漂移数据校准底层网卡真实状态", "Alive", realAlive)
 				a.State.SetTunAlive(realAlive)
 			}
 		}
