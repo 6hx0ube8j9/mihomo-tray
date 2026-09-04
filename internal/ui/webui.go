@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"log/slog"
 
 	"mihomo-tray/internal/sys"
 )
@@ -142,11 +143,11 @@ func Launch(cfg Config, eventCh chan<- Event) {
 	}
 
 	finalURL := fmt.Sprintf("http://%s:%s%s?%s#/?%s", host, port, uiPath, query, query)
-
 	proxyAddr := "127.0.0.1:" + cfg.ProxyPort
 
 	if hwnd := sys.GetCachedWebUIHwnd(); hwnd != 0 {
 		if sys.IsWindowVisible(hwnd) {
+			slog.Debug("唤醒已隐藏的 WebUI 窗口")
 			sys.FocusWindowSilky(hwnd)
 			emitEvent(eventCh, EventReady)
 			return
@@ -171,6 +172,7 @@ func Launch(cfg Config, eventCh chan<- Event) {
 	
 	targetID, targetTitle, found := getWebUITarget(safeDebugPort)
 	if found {
+		slog.Debug("发现存活的调试端口，尝试直接激活标签页", "Port", safeDebugPort, "ID", targetID)
 		if actResp, actErr := safeGet(fmt.Sprintf("http://127.0.0.1:%s/json/activate/%s", safeDebugPort, targetID)); actErr == nil {
 			_ = actResp.Body.Close()
 		}
@@ -218,6 +220,7 @@ func Launch(cfg Config, eventCh chan<- Event) {
 	}
 
 	if browserPath != "" {
+		slog.Info("准备注入沙盒启动 WebUI", "Browser", browserTag, "DebugPort", safeDebugPort)
 		userDataDir := filepath.Join(cfg.BaseDir, "webcache", browserTag)
 		_ = os.MkdirAll(userDataDir, 0755)
 		winW, winH, winX, winY := sys.GetIdealWindowBounds()
@@ -237,6 +240,7 @@ func Launch(cfg Config, eventCh chan<- Event) {
 		if err := cmd.Start(); err == nil {
 			mainPid := uint32(cmd.Process.Pid)
 			atomic.StoreUint32(&isolatedWebUIPid, mainPid)
+			slog.Debug("独立浏览器进程已启动", "PID", mainPid)
 
 			go func() {
 				_ = cmd.Wait()
@@ -247,23 +251,28 @@ func Launch(cfg Config, eventCh chan<- Event) {
 				_, liveTitle, isLive := getWebUITarget(safeDebugPort)
 				if isLive {
 					if sys.FindAndFocusAppWindow(liveTitle, mainPid) {
+						slog.Info("WebUI 窗口捕获成功")
 						emitEvent(eventCh, EventReady)
 						return
 					}
 				}
 			}
+			slog.Error("超时未能捕获浏览器窗口句柄")
 			emitEvent(eventCh, EventError)
 			return
 
 		} else {
+			slog.Error("创建浏览器进程失败", "err", err)
 			emitEvent(eventCh, EventError)
 			return
 		}
 	} else {
+		slog.Warn("未探测到受支持的浏览器，降级为系统默认打开")
 		err := exec.Command("cmd", "/c", "start", "", finalURL).Start()
 		if err == nil {
 			emitEvent(eventCh, EventReady)
 		} else {
+			slog.Error("调用系统默认浏览器失败", "err", err)
 			emitEvent(eventCh, EventError)
 		}
 		return
@@ -277,7 +286,8 @@ func Cleanup() {
 	if safeDebugPort == "" {
 		return
 	}
-
+	
+	slog.Debug("触发 WebUI 软性关闭 (DevTools Protocol)")
 	apiURL := fmt.Sprintf("http://127.0.0.1:%s/json", safeDebugPort)
 	if resp, err := safeGet(apiURL); err == nil {
 		defer resp.Body.Close()
@@ -296,7 +306,8 @@ func Cleanup() {
 	time.Sleep(500 * time.Millisecond)
 	pid := atomic.LoadUint32(&isolatedWebUIPid)
 	if pid != 0 && sys.IsPidRunning(pid, "") {
-			sys.HardKill(pid)
+		slog.Warn("软性关闭超时，执行浏览器进程底线拔管", "PID", pid)
+		sys.HardKill(pid)
 	}
 	atomic.StoreUint32(&isolatedWebUIPid, 0)
 }
