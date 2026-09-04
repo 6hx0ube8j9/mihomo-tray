@@ -267,7 +267,7 @@ func Launch(cfg Config, eventCh chan<- Event) {
 			return
 		}
 	} else {
-		slog.Warn("未探测到受支持的浏览器，降级为系统默认打开")
+		slog.Warn("未探测到受支持的浏览器，降级为默认浏览器打开")
 		err := exec.Command("cmd", "/c", "start", "", finalURL).Start()
 		if err == nil {
 			emitEvent(eventCh, EventReady)
