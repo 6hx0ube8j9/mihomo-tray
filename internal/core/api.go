@@ -83,7 +83,10 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 		req.Header.Set("Authorization", "Bearer "+secret)
 	}
 
-	slog.Debug("发起内核 API 请求", "Method", method, "Path", path)
+	if !(method == http.MethodGet && path == "/configs") {
+		slog.Debug("发起内核 API 请求", "Method", method, "Path", path)
+	}	
+		
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
