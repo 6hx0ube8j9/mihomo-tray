@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"log/slog"
 
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/state"
@@ -82,6 +83,7 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 		req.Header.Set("Authorization", "Bearer "+secret)
 	}
 
+	slog.Debug("发起内核 API 请求", "Method", method, "Path", path)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -93,6 +95,7 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return nil, nil
 		}
+		slog.Error("API 异常空响应", "Code", resp.StatusCode)
 		return nil, fmt.Errorf("API Status Error: %d", resp.StatusCode)
 	}
 
@@ -107,6 +110,7 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 			logPath := filepath.Join(c.cfg.BaseDir(), "error.log")
 			_ = os.WriteFile(logPath, body, 0644)
 		}
+		slog.Error("API 返回错误状态码", "Code", resp.StatusCode, "Body", string(body))
 		return body, fmt.Errorf("API Error: %d, Response: %s", resp.StatusCode, string(body))
 	}
 
