@@ -43,6 +43,6 @@ func RunAsAdmin(exe, dir string) {
 
 		title, _ := windows.UTF16PtrFromString("权限请求失败")
 		msg, _ := windows.UTF16PtrFromString("TUN 模式及系统网络接管需要管理员权限，请授权后运行。")
-		_ = windows.MessageBox(0, msg, title, mbErrorTopmost)
+		_, _ = windows.MessageBox(0, msg, title, mbErrorTopmost)
 	}
 }
