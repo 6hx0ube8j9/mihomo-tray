@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"log/slog"
 )
 
 const (
@@ -35,7 +36,8 @@ type TrayConfig struct {
 	Proxy              string `json:"proxy"`
 	Secret             string `json:"secret"`
 	Tun                string `json:"tun"`
-	TunDevice          string `json:"tun_device"`
+	TunDevice          string `json:"tun_device"`	
+	TrayLogLevel       string `json:"tray_log_level,omitempty"` 
 }
 
 type Manager struct {
@@ -60,8 +62,12 @@ func (m *Manager) EnsureDefault() {
 	cfgPath := filepath.Join(m.baseDir, ConfigFileName)
 
 	if f, err := os.Open(cfgPath); err == nil {
-		_ = json.NewDecoder(f).Decode(&m.data)
+		if decodeErr := json.NewDecoder(f).Decode(&m.data); decodeErr != nil {
+			slog.Error("解析本地配置文件失败，将使用默认值覆盖", "err", decodeErr)
+		}
 		_ = f.Close()
+	} else {
+		slog.Info("未找到或无法打开配置文件，将创建全新配置", "Path", cfgPath)
 	}
 
 	if m.data.Proxy == "" {
@@ -114,6 +120,15 @@ func (m *Manager) Get(key string) string {
 	default:
 		return ""
 	}
+}
+
+func (m *Manager) GetJSON(key string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if key == "tray_log_level" {
+		return m.data.TrayLogLevel
+	}
+	return ""
 }
 
 func (m *Manager) Set(key, value string) {
@@ -187,6 +202,7 @@ func (m *Manager) UpdateBatch(updates map[string]string) {
 	}
 
 	if changed {
+		slog.Debug("配置项变更命中，执行落地存储")
 		m.lockedSave()
 	}
 }
@@ -201,6 +217,7 @@ func (m *Manager) PrepareYAMLForBoot() (bool, error) {
 	configPath := filepath.Join(m.baseDir, "config.yaml")
 	content, err := os.ReadFile(configPath)
 	if err != nil {
+		slog.Error("读取内核 YAML 文件失败", "path", configPath, "err", err)
 		return false, err
 	}
 
@@ -210,12 +227,14 @@ func (m *Manager) PrepareYAMLForBoot() (bool, error) {
 	outLines, extracted, modified := processYAMLContent(lines, wantMode, wantTun)
 
 	if modified {
+		slog.Debug("正在下发配置至 config.yaml", "Mode", wantMode, "Tun", wantTun)
 		output := strings.Join(outLines, "\n")
 		if len(output) > 0 && !strings.HasSuffix(output, "\n") {
 			output += "\n"
 		}
 
 		if err := writeTmpAndRename(m.baseDir, configPath, []byte(output)); err != nil {
+			slog.Error("写入内核 YAML 文件失败", "err", err)
 			return false, fmt.Errorf("failed to save config.yaml: %w", err)
 		}
 	}
@@ -230,6 +249,7 @@ func (m *Manager) PrepareYAMLForBoot() (bool, error) {
 func (m *Manager) lockedSave() {
 	b, err := json.MarshalIndent(m.data, "", "  ")
 	if err != nil {
+		slog.Error("序列化配置文件失败", "err", err)
 		return
 	}
 	cfgPath := filepath.Join(m.baseDir, ConfigFileName)
