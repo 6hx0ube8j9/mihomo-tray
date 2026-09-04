@@ -186,7 +186,7 @@ func main() {
 		err == windows.ERROR_ACCESS_DENIED
 
 	if isAlreadyExist {
-		slog.Warn("检测到旧实例运行中，尝试唤醒前端")
+		slog.Warn("检测到已有实例运行，尝试唤醒现有进程界面")
 		if hM != 0 {
 			windows.CloseHandle(hM)
 		}
@@ -196,9 +196,9 @@ func main() {
 		if err == nil && hEvent != 0 {
 			windows.SetEvent(hEvent)
 			windows.CloseHandle(hEvent)
-			slog.Info("成功触发跨进程唤醒事件")
+			slog.Info("已成功发送进程唤醒信号")
 		} else {
-			slog.Error("触发唤醒事件失败", "err", err)
+			slog.Error("发送进程唤醒信号失败", "err", err)
 		}
 		return
 	}
@@ -223,9 +223,9 @@ func main() {
 	slog.Debug("启动参数与权限检查", "autostart", isAutostart, "isAdmin", isAdmin())
 
 	if !isAdmin() && !isAutostart {
-		slog.Warn("权限不足，准备请求提权")
+		slog.Warn("权限不足，准备发起提升请求")
 		sys.RunAsAdmin(exePath, baseDir)
-		slog.Info("提权指令已发送，当前普通权限进程退出")
+		slog.Info("提权请求已发送，退出普通权限进程")
 		return
 	}
 
@@ -273,7 +273,7 @@ func main() {
 		}()
 	}
 
-	slog.Debug("启动后台控制器中枢")
+	slog.Debug("启动后台核心服务")
 	go application.Bootstrap(ctx)
 
 	slog.Debug("进入托盘界面事件循环")
