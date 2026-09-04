@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -11,8 +12,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
-	"log/slog"
 
 	"golang.org/x/sys/windows"
 
@@ -40,11 +39,10 @@ type rollingLogWriter struct {
 }
 
 func newRollingLogWriter(baseDir string) *rollingLogWriter {
-	w := &rollingLogWriter{
+	return &rollingLogWriter{
 		logPath: filepath.Join(baseDir, "mihomo-tray.log"),
 		bakPath: filepath.Join(baseDir, "mihomo-tray.log.bak"),
 	}
-	return w
 }
 
 func (w *rollingLogWriter) open() {
@@ -182,8 +180,13 @@ func main() {
 
 	mName, _ := windows.UTF16PtrFromString(AppMutex)
 	hM, err := windows.CreateMutex(nil, false, mName)
-	if errors.Is(err, windows.ERROR_ALREADY_EXISTS) || err == windows.ERROR_ALREADY_EXISTS {
-		slog.Warn("检测到旧实例，尝试唤醒")
+	isAlreadyExist := errors.Is(err, windows.ERROR_ALREADY_EXISTS) ||
+		errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+		err == windows.ERROR_ALREADY_EXISTS ||
+		err == windows.ERROR_ACCESS_DENIED
+
+	if isAlreadyExist {
+		slog.Warn("检测到旧实例运行中，尝试唤醒前端")
 		if hM != 0 {
 			windows.CloseHandle(hM)
 		}
@@ -193,7 +196,7 @@ func main() {
 		if err == nil && hEvent != 0 {
 			windows.SetEvent(hEvent)
 			windows.CloseHandle(hEvent)
-			slog.Info("成功触发唤醒事件")
+			slog.Info("成功触发跨进程唤醒事件")
 		} else {
 			slog.Error("触发唤醒事件失败", "err", err)
 		}
@@ -211,19 +214,18 @@ func main() {
 
 	isAutostart := false
 	for _, arg := range os.Args[1:] {
-		cleanArg := strings.ToLower(strings.TrimLeft(arg, "-"))
-		if cleanArg == "autostart" {
+		if strings.EqualFold(strings.TrimLeft(arg, "-"), "autostart") {
 			isAutostart = true
 			break
 		}
 	}
-	
-	slog.Debug("启动参数检查", "autostart", isAutostart, "isAdmin", isAdmin())
+
+	slog.Debug("启动参数与权限检查", "autostart", isAutostart, "isAdmin", isAdmin())
 
 	if !isAdmin() && !isAutostart {
 		slog.Warn("权限不足，准备请求提权")
 		sys.RunAsAdmin(exePath, baseDir)
-		slog.Info("提权指令已发送，当前进程退出")
+		slog.Info("提权指令已发送，当前普通权限进程退出")
 		return
 	}
 
@@ -244,7 +246,7 @@ func main() {
 
 		select {
 		case sig := <-sigCh:
-			slog.Info("接收到退出信号，准备清理", "信号", sig)
+			slog.Info("接收到系统退出信号，准备清理", "信号", sig)
 			trayMenu.Stop()
 		case <-ctx.Done():
 			return
@@ -253,18 +255,14 @@ func main() {
 
 	if hShowUIEvent != 0 {
 		go func() {
-			slog.Debug("唤醒监听已就绪")
+			slog.Debug("唤醒事件监听已就绪")
 			for {
 				s, _ := windows.WaitForSingleObject(hShowUIEvent, windows.INFINITE)
-				if s != windows.WAIT_OBJECT_0 {
+				if s != windows.WAIT_OBJECT_0 || ctx.Err() != nil {
 					return
 				}
 
-				if ctx.Err() != nil {
-					return
-				}
-
-				slog.Info("收到外部唤醒信号")
+				slog.Info("收到外部进程唤醒信号")
 				select {
 				case application.UICommandCh <- ui.UICommand{Action: "OpenWebUI"}:
 					time.Sleep(200 * time.Millisecond)
@@ -275,13 +273,13 @@ func main() {
 		}()
 	}
 
-	slog.Debug("启动后台主循环")
+	slog.Debug("启动后台控制器中枢")
 	go application.Bootstrap(ctx)
 
-	slog.Debug("运行托盘界面事件循环")
+	slog.Debug("进入托盘界面事件循环")
 	trayMenu.Run()
 
-	slog.Debug("托盘循环结束")
+	slog.Debug("托盘循环退出，开始释放资源")
 	cancel()
 
 	if hShowUIEvent != 0 {
@@ -290,7 +288,7 @@ func main() {
 
 	runtimeState.ForceExitPhase()
 	application.SafeShutdown(cancel)
-	slog.Info("程序安全退出")
+	slog.Info("程序安全退出完成")
 }
 
 func isAdmin() bool {
