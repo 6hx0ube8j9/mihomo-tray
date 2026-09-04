@@ -1,3 +1,60 @@
 name: Build mihomo-tray
 
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: windows-2022
+    strategy:
+      matrix:
+        goarch:
+          - amd64
+          # - arm64
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: false
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          go mod tidy
+
+      - name: Install and Run rsrc (Resource Compiler)
+        shell: pwsh
+        run: |
+          go install github.com/akavel/rsrc@latest
+          $GOBIN = "$(go env GOPATH)\bin"
+          if (Test-Path "internal/ui/icons/app.ico") {
+            & "$GOBIN\rsrc.exe" -arch ${{ matrix.goarch }} -manifest main.manifest -ico internal/ui/icons/app.ico -o rsrc.syso
+          } else {
+            Write-Error "Icon file not found at internal/ui/icons/app.ico"
+            exit 1
+          }
+
+      - name: Build EXE
+        shell: pwsh
+        run: |
+          $env:CGO_ENABLED="0"
+          $env:GOARCH="${{ matrix.goarch }}"          
+          go env GOOS GOARCH CGO_ENABLED 
+          New-Item -ItemType Directory -Force -Path "release/mihomo-tray"
+          go build -ldflags="-s -w -H=windowsgui" -o "release/mihomo-tray/mihomo-tray.exe" .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mihomo-tray-${{ matrix.goarch }}
+          path: release/
