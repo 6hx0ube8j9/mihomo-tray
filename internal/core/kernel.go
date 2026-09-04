@@ -250,6 +250,8 @@ func (km *KernelManager) KillCurrent() {
 	if err := sys.SendCtrlBreak(pid); err != nil {
 		slog.Error("安全中断失败，执行强制结束", "PID", pid, "err", err)
 		_ = proc.Kill()
+		sys.HardKill(pid)
+		sys.KillOtherProcessesByName("mihomo.exe", 0) 
 	} else {
 		exited := false
 		for i := 0; i < 100; i++ {
@@ -265,6 +267,7 @@ func (km *KernelManager) KillCurrent() {
 		} else {
 			slog.Warn("退出超时，执行强制兜底", "PID", pid)
 			_ = proc.Kill()
+			sys.HardKill(pid)
 			sys.KillOtherProcessesByName("mihomo.exe", 0)
 		}
 	}
