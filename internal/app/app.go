@@ -94,9 +94,6 @@ func (a *Application) isTunInGracePeriod() bool {
 
 func (a *Application) Bootstrap(ctx context.Context) {
 	slog.Debug("中枢控制器开始引导启动")
-
-	a.Cfg.EnsureDefault()
-
 	osTaskExists := sys.CheckAutoStartStatus()
 	cfgMemoryStatus := a.Cfg.Get("autostart") == "true"
 	slog.Debug("开机自启状态核对", "系统任务", osTaskExists, "配置预期", cfgMemoryStatus)
