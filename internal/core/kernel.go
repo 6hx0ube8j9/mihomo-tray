@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"log/slog"
 
 	"golang.org/x/sys/windows"
 
@@ -44,7 +44,7 @@ func NewKernelManager(cfg *config.Manager, st *state.RuntimeState) *KernelManage
 	km := &KernelManager{
 		cfg:    cfg,
 		st:     st,
-		wakeCh: make(chan struct{}, 1), 
+		wakeCh: make(chan struct{}, 1),
 	}
 	km.hJob, _ = sys.CreateKillOnCloseJob()
 	return km
@@ -123,9 +123,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 
 			crashCount++
 			if crashCount >= 3 {
-				fatalMsg := fmt.Sprintf("内核文件损坏或架构不兼容，连续 %d 次启动失败，触发熔断休眠 15 秒", crashCount)
-				km.checkAndWriteLog(absBaseDir, "FATAL", fatalMsg)
-				log.Printf("[FATAL] %s", fatalMsg)
+				slog.Error("连续启动失败触发熔断", "连续失败次数", crashCount, "休眠", "15s")
 				currentDelay = 15 * time.Second
 				crashCount = 0
 			} else {
@@ -141,6 +139,8 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			}
 			continue
 		}
+		
+		slog.Info("启动内核进程", "PID", cmd.Process.Pid)
 
 		km.mu.Lock()
 		km.activeProc = cmd.Process
@@ -148,6 +148,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		km.mu.Unlock()
 
 		sys.AssignProcessToJob(km.hJob, cmd.Process.Pid)
+		slog.Debug("作业对象绑定成功", "PID", cmd.Process.Pid)
 
 		select {
 		case <-ctx.Done():
@@ -209,10 +210,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		} else {
 			crashCount++
 			if crashCount >= 3 {
-				errMsg := fmt.Sprintf("内核连续 %d 次异常秒崩，触发熔断机制，强行暂停拉起 15 秒 (请检查 9090 端口是否被其他代理软件占用，或配置是否存在严重错误)", crashCount)
-				km.checkAndWriteLog(absBaseDir, "FATAL", errMsg)
-				log.Printf("[ERROR] %s", errMsg)
-
+				slog.Error("异常秒崩触发熔断机制", "次数", crashCount, "休眠", "15s")
 				currentDelay = 15 * time.Second
 				crashCount = 0
 			} else {
@@ -247,10 +245,10 @@ func (km *KernelManager) KillCurrent() {
 	atomic.StoreUint32(&km.currentPid, 0)
 	km.mu.Unlock()
 
-	log.Printf("[INFO] 正在向内核进程 (PID: %d) 发送安全退出中断 (CTRL_BREAK)...", pid)
+	slog.Info("发送安全退出中断", "PID", pid)
 
 	if err := sys.SendCtrlBreak(pid); err != nil {
-		log.Printf("[ERROR] 发送安全中断失败: %v，尝试强制结束进程", err)
+		slog.Error("安全中断失败，执行强制结束", "PID", pid, "err", err)
 		_ = proc.Kill()
 	} else {
 		exited := false
@@ -263,10 +261,10 @@ func (km *KernelManager) KillCurrent() {
 		}
 
 		if exited {
-			log.Printf("[INFO] 内核进程 (PID: %d) 已完成清理并安全退出。", pid)
+			slog.Info("内核进程安全退出", "PID", pid)
 		} else {
-			log.Printf("[WARN] 内核进程 (PID: %d) 退出超时，执行强制 kill 兜底...", pid)
-			_ = proc.Kill()         
+			slog.Warn("退出超时，执行强制兜底", "PID", pid)
+			_ = proc.Kill()
 			sys.KillOtherProcessesByName("mihomo.exe", 0)
 		}
 	}
@@ -375,6 +373,8 @@ func (km *KernelManager) WakeDaemon() {
 	km.mu.Lock()
 	km.isPaused = false
 	km.mu.Unlock()
+	
+	slog.Debug("写入唤醒信号")
 
 	select {
 	case km.wakeCh <- struct{}{}:
