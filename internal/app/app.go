@@ -300,7 +300,9 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			a.State.SetTunRequestedTime(time.Now())
 			a.setActualTunDevice(a.Cfg.Get("tun_device"))
 		}
-
+		
+        a.State.MuteAPIWatcher(APIMuteShortPeriod)
+		
 		go func() {
 			tunPayload := map[string]interface{}{"enable": enable}
 			if dev := a.Cfg.Get("tun_device"); dev != "" {
@@ -320,6 +322,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 	case "SwitchMode":
 		slog.Info("切换路由模式", "目标模式", cmd.Payload)
 		a.Cfg.Set("mode", cmd.Payload) 
+
+		a.State.MuteAPIWatcher(3 * time.Second)
 		
 		go func() {
 			if err := a.API.SyncConfigToKernel(ctx, map[string]interface{}{"mode": cmd.Payload}); err == nil {
@@ -393,16 +397,29 @@ func (a *Application) handleProxyStatusChange(status sys.ProxyStatus) {
 				a.pushUIState()
 				return
 			}
-			a.proxyRetryCount = 0
+			a.proxyRetryCount = 0 
 			return
 		}
 
 		a.proxyRetryCount++
 		if a.proxyRetryCount <= 3 {
 			slog.Warn("系统代理遭到外部进程恶意关闭，尝试实施自动修复", "重试次数", a.proxyRetryCount)
+			
+			a.lastProxyModify = time.Now()
+			
 			go func() {
 				time.Sleep(200 * time.Millisecond)
 				a.syncSystemProxy()
+				
+				time.Sleep(1600 * time.Millisecond)
+				if cur, err := sys.GetProxyStatus(); err == nil {
+					if !cur.Enabled {
+						select {
+						case a.proxyStatusCh <- cur:
+						default:
+						}
+					}
+				}
 			}()
 		} else {
 			slog.Warn("代理修复失败达到阈值，放弃接管并同步为关闭状态")
@@ -498,7 +515,6 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 		slog.Info("热重载成功，开始同步运行参数")
 		a.syncAllConfig(ctx)
 		a.syncSystemProxy()
-		a.pushUIState()
 		
 		select {
 		case a.apiPollCh <- struct{}{}:
@@ -625,13 +641,23 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		} else if !resp.Tun.Enable && !a.State.GetTunStartTime().IsZero() {
 			a.State.SetTunStartTime(time.Time{})
 		}
-	
-        if resp.Tun.Enable != wantTun {
-			slog.Info("捕获到内核级 TUN 状态漂移，执行同步", "Expected", wantTun, "Actual", resp.Tun.Enable)
-			a.Cfg.Set("tun", fmt.Sprintf("%t", resp.Tun.Enable))
-			changed = true
+
+		if resp.Tun.Enable != wantTun {
+			if wantTun && !resp.Tun.Enable {
+				if !a.isTunInGracePeriod() && !a.State.IsTunAlive() {
+					slog.Warn("TUN 启动超时失败，诚实回滚本地状态")
+					a.Cfg.Set("tun", "false")
+					changed = true
+				} else {
+					slog.Debug("TUN 仍处于启动宽限期或网卡活跃中，暂缓判定为失败")
+				}
+			} else {
+				slog.Info("捕获到外部 TUN 状态漂移，执行同步", "Expected", wantTun, "Actual", resp.Tun.Enable)
+				a.Cfg.Set("tun", fmt.Sprintf("%t", resp.Tun.Enable))
+				changed = true
+			}
 		}
-		
+
 		currentActual := a.getActualTunDevice()
 		if resp.Tun.Device != "" && resp.Tun.Device != currentActual {
 			slog.Debug("TUN 网卡硬件标识符发生更新", "NewDev", resp.Tun.Device)
