@@ -306,7 +306,7 @@ func Cleanup() {
 	time.Sleep(500 * time.Millisecond)
 	pid := atomic.LoadUint32(&isolatedWebUIPid)
 	if pid != 0 && sys.IsPidRunning(pid, "") {
-		slog.Warn("软性关闭超时，执行浏览器进程底线拔管", "PID", pid)
+		slog.Warn("正常关闭超时，强制结束浏览器进程", "PID", pid)
 		sys.HardKill(pid)
 	}
 	atomic.StoreUint32(&isolatedWebUIPid, 0)
