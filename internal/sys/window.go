@@ -186,7 +186,7 @@ func FocusWindowSilky(targetHwnd uintptr) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	
-	slog.Debug("触发丝滑置顶防闪烁机制 (AttachThreadInput)")
+	slog.Debug("附加线程输入以强制置顶窗口 (AttachThreadInput)")
 	currT, _, _ := procGetCurrentThread.Call()
 	foreH, _, _ := procGetForeground.Call()
 	foreT, _, _ := procGetWindowThread.Call(foreH, 0)
