@@ -220,7 +220,7 @@ func Launch(cfg Config, eventCh chan<- Event) {
 	}
 
 	if browserPath != "" {
-		slog.Info("准备注入沙盒启动 WebUI", "Browser", browserTag, "DebugPort", safeDebugPort)
+		slog.Info("启动独立浏览器进程运行 WebUI", "Browser", browserTag, "DebugPort", safeDebugPort)
 		userDataDir := filepath.Join(cfg.BaseDir, "webcache", browserTag)
 		_ = os.MkdirAll(userDataDir, 0755)
 		winW, winH, winX, winY := sys.GetIdealWindowBounds()
@@ -287,7 +287,7 @@ func Cleanup() {
 		return
 	}
 	
-	slog.Debug("触发 WebUI 软性关闭 (DevTools Protocol)")
+	slog.Debug("通过 DevTools 协议发送关闭请求")
 	apiURL := fmt.Sprintf("http://127.0.0.1:%s/json", safeDebugPort)
 	if resp, err := safeGet(apiURL); err == nil {
 		defer resp.Body.Close()
