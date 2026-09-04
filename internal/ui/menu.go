@@ -93,7 +93,7 @@ func (tm *TrayMenu) Run() {
 
 func (tm *TrayMenu) Stop() {
 	if tm.trayHost != nil {
-		slog.Debug("正在触发托盘消息循环安全退出")
+		slog.Debug("正在发送托盘消息循环安全退出")
 		tm.trayHost.Stop()
 	}
 }
