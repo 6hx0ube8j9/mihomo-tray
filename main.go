@@ -44,7 +44,6 @@ func newRollingLogWriter(baseDir string) *rollingLogWriter {
 		logPath: filepath.Join(baseDir, "mihomo-tray.log"),
 		bakPath: filepath.Join(baseDir, "mihomo-tray.log.bak"),
 	}
-	w.open()
 	return w
 }
 
@@ -77,7 +76,10 @@ func (w *rollingLogWriter) Write(p []byte) (n int, err error) {
 	defer w.mu.Unlock()
 
 	if w.file == nil {
-		return len(p), nil
+		w.open()
+		if w.file == nil {
+			return len(p), nil 
+		}
 	}
 
 	if w.currSize+int64(len(p)) > MaxLogSize {
