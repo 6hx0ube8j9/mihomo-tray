@@ -6,16 +6,17 @@ import (
 	"strings"
 	"time"
 	"unsafe"
+	"log/slog"
 
 	"golang.org/x/sys/windows"
 )
 
 var (
-	modKernel32Proc           = windows.NewLazySystemDLL("kernel32.dll")
-	modUser32Process          = windows.NewLazySystemDLL("user32.dll")
-	procAttachConsole         = modKernel32Proc.NewProc("AttachConsole")
-	procFreeConsole           = modKernel32Proc.NewProc("FreeConsole")
-	procSetConsoleCtrlHandler = modKernel32Proc.NewProc("SetConsoleCtrlHandler")
+	modKernel32Proc             = windows.NewLazySystemDLL("kernel32.dll")
+	modUser32Process            = windows.NewLazySystemDLL("user32.dll")
+	procAttachConsole           = modKernel32Proc.NewProc("AttachConsole")
+	procFreeConsole             = modKernel32Proc.NewProc("FreeConsole")
+	procSetConsoleCtrlHandler   = modKernel32Proc.NewProc("SetConsoleCtrlHandler")
 	procGetSystemMetricsProcess = modUser32Process.NewProc("GetSystemMetrics") 
 )
 
@@ -28,6 +29,7 @@ func IsSystemShuttingDown() bool {
 func KillOtherProcessesByName(name string, excludePid uint32) {
 	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil || snapshot == windows.InvalidHandle {
+		slog.Error("创建进程快照失败", "err", err)
 		return
 	}
 	defer windows.CloseHandle(snapshot)
@@ -43,11 +45,15 @@ func KillOtherProcessesByName(name string, excludePid uint32) {
 	for {
 		exeName := windows.UTF16ToString(pe.ExeFile[:])
 		if strings.EqualFold(exeName, name) && pe.ProcessID != excludePid && pe.ProcessID != currentPid {
+			slog.Debug("全局清场: 发现匹配残留进程", "目标", name, "PID", pe.ProcessID)
 			h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, pe.ProcessID)
 			if err == nil {
 				_ = windows.TerminateProcess(h, 9)
 				windows.CloseHandle(h)
+				slog.Debug("全局清场: 强杀执行完毕", "PID", pe.ProcessID)
 				time.Sleep(50 * time.Millisecond)
+			} else {
+				slog.Error("全局清场: 强杀失败 (拒绝访问)", "PID", pe.ProcessID, "err", err)
 			}
 		}
 		if err := windows.Process32Next(snapshot, &pe); err != nil {
@@ -71,7 +77,7 @@ func IsPidRunning(pid uint32, expectedExeName string) bool {
 	if err := windows.GetExitCodeProcess(h, &exitCode); err != nil {
 		return false
 	}
-	if exitCode != 259 {
+	if exitCode != 259 { // STILL_ACTIVE = 259
 		return false
 	}
 
@@ -93,6 +99,7 @@ func IsPidRunning(pid uint32, expectedExeName string) bool {
 func CreateKillOnCloseJob() (windows.Handle, error) {
 	h, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
+		slog.Error("创建系统作业对象失败", "err", err)
 		return 0, err
 	}
 	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
@@ -100,13 +107,16 @@ func CreateKillOnCloseJob() (windows.Handle, error) {
 			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 		},
 	}
-	_, _ = windows.SetInformationJobObject(
+	_, err = windows.SetInformationJobObject(
 		h,
 		windows.JobObjectExtendedLimitInformation,
 		uintptr(unsafe.Pointer(&info)),
 		uint32(unsafe.Sizeof(info)),
 	)
-	return h, nil
+	if err != nil {
+		slog.Error("配置作业对象限制属性失败", "err", err)
+	}
+	return h, err
 }
 
 func AssignProcessToJob(hJob windows.Handle, pid int) {
@@ -114,8 +124,12 @@ func AssignProcessToJob(hJob windows.Handle, pid int) {
 		return
 	}
 	if hp, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(pid)); err == nil {
-		_ = windows.AssignProcessToJobObject(hJob, hp)
+		if err := windows.AssignProcessToJobObject(hJob, hp); err != nil {
+			slog.Error("进程绑定至作业对象失败", "PID", pid, "err", err)
+		}
 		windows.CloseHandle(hp)
+	} else {
+		slog.Error("打开目标进程句柄失败 (AssignProcess)", "PID", pid, "err", err)
 	}
 }
 
@@ -130,6 +144,7 @@ func SendCtrlBreak(pid uint32) error {
 
 	r1, _, err := procAttachConsole.Call(uintptr(pid))
 	if r1 == 0 {
+		slog.Error("附加目标控制台失败 (AttachConsole)", "PID", pid, "err", err)
 		return fmt.Errorf("attachConsole 失败: %w", err)
 	}
 	
@@ -141,8 +156,11 @@ func HardKill(pid uint32) {
 	if pid == 0 {
 		return
 	}
+	slog.Debug("执行底线拔管 (HardKill)", "PID", pid)
 	if h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, pid); err == nil {
 		_ = windows.TerminateProcess(h, 0)
 		windows.CloseHandle(h)
+	} else {
+		slog.Error("执行底线拔管失败", "PID", pid, "err", err)
 	}
 }
