@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"log/slog"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
@@ -25,6 +26,7 @@ func ToggleAutoStart(exePath, baseDir string, enable bool) bool {
 	powershellPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
 
 	if enable {
+		slog.Debug("开始注册计划任务 (开机自启最高权限)", "目标", taskName)
 		safeExePath := strings.ReplaceAll(exePath, "'", "''")
 		safeBaseDir := strings.ReplaceAll(baseDir, "'", "''")
 
@@ -39,14 +41,23 @@ func ToggleAutoStart(exePath, baseDir string, enable bool) bool {
 		encodedScript := encodeUTF16Base64(psScript)
 		cmd := exec.Command(powershellPath, "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedScript)
 		cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
-		return cmd.Run() == nil
+		
+		err := cmd.Run()
+		if err != nil {
+			slog.Error("计划任务注册失败 (PowerShell)", "err", err)
+			return false
+		}
+		return true
 	}
 
+	slog.Debug("开始注销计划任务", "目标", taskName)
 	cmd := exec.Command(schtasksPath, "/Delete", "/TN", taskName, "/F")
 	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 	
 	if err := cmd.Run(); err == nil {
 		return true
+	} else {
+		slog.Error("注销计划任务命令执行失败", "err", err)
 	}
 	return !CheckAutoStartStatus()
 }
@@ -64,6 +75,7 @@ func IsTaskPathValid(currentExePath string) bool {
 	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 	out, err := cmd.Output()
 	if err != nil {
+		slog.Error("读取计划任务 XML 配置失败", "err", err)
 		return false
 	}
 
