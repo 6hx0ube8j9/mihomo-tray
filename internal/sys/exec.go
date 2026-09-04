@@ -1,16 +1,15 @@
 package sys
 
 import (
-	"unsafe"
+	"errors"
 	"log/slog"
-	
+	"os"
+	"strings"
+
 	"golang.org/x/sys/windows"
 )
 
-var (
-	modUser32Exec   = windows.NewLazySystemDLL("user32.dll")
-	procMessageBoxW = modUser32Exec.NewProc("MessageBoxW")
-)
+const mbErrorTopmost = windows.MB_ICONERROR | windows.MB_TOPMOST | windows.MB_SETFOREGROUND
 
 func ExecuteSystemCommand(path string) error {
 	pathPtr, err := windows.UTF16PtrFromString(path)
@@ -26,15 +25,24 @@ func RunAsAdmin(exe, dir string) {
 	verb, _ := windows.UTF16PtrFromString("runas")
 	exePtr, _ := windows.UTF16PtrFromString(exe)
 	cwdPtr, _ := windows.UTF16PtrFromString(dir)
-	
+
+	var argsPtr *uint16
+	if len(os.Args) > 1 {
+		argsPtr, _ = windows.UTF16PtrFromString(strings.Join(os.Args[1:], " "))
+	}
+
 	slog.Debug("发起 UAC 提权请求 (runas)", "exe", exe)
-	err := windows.ShellExecute(0, verb, exePtr, nil, cwdPtr, windows.SW_SHOWNORMAL)
-	
+	err := windows.ShellExecute(0, verb, exePtr, argsPtr, cwdPtr, windows.SW_SHOWNORMAL)
+
 	if err != nil {
-		slog.Error("用户拒绝或触发 UAC 提权失败", "err", err)
-		// MB_ICONERROR | MB_TOPMOST = 0x10 | 0x40000 = 0x40010
+		if errors.Is(err, windows.ERROR_CANCELLED) {
+			slog.Warn("用户取消了 UAC 提权授权")
+		} else {
+			slog.Error("UAC 提权启动失败", "err", err)
+		}
+
 		title, _ := windows.UTF16PtrFromString("权限请求失败")
-		msg, _ := windows.UTF16PtrFromString("请以管理员权限重新运行程序。")
-		procMessageBoxW.Call(0, uintptr(unsafe.Pointer(msg)), uintptr(unsafe.Pointer(title)), 0x40010)
+		msg, _ := windows.UTF16PtrFromString("TUN 模式及系统网络接管需要管理员权限，请授权后运行。")
+		_ = windows.MessageBox(0, msg, title, mbErrorTopmost)
 	}
 }
