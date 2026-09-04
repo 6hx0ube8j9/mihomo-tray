@@ -148,7 +148,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		km.mu.Unlock()
 
 		sys.AssignProcessToJob(km.hJob, cmd.Process.Pid)
-		slog.Debug("作业对象绑定成功", "PID", cmd.Process.Pid)
+		slog.Debug("进程已加入生命周期管理组 (Job Object)", "PID", cmd.Process.Pid)
 
 		select {
 		case <-ctx.Done():
