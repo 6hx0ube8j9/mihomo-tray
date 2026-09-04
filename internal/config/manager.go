@@ -60,43 +60,56 @@ func (m *Manager) EnsureDefault() {
 	defer m.mu.Unlock()
 
 	cfgPath := filepath.Join(m.baseDir, ConfigFileName)
+	changed := false
 
 	if f, err := os.Open(cfgPath); err == nil {
 		if decodeErr := json.NewDecoder(f).Decode(&m.data); decodeErr != nil {
 			slog.Error("解析本地配置文件失败，将使用默认值覆盖", "err", decodeErr)
+			changed = true
 		}
 		_ = f.Close()
 	} else {
 		slog.Info("未找到配置文件，将创建全新配置", "Path", cfgPath)
+		changed = true
 	}
 
 	if m.data.Proxy == "" {
 		m.data.Proxy = DefaultProxy
+		changed = true
 	}
 	if m.data.Tun == "" {
 		m.data.Tun = DefaultTun
+		changed = true
 	}
 	if m.data.Autostart == "" {
 		m.data.Autostart = DefaultAutostart
+		changed = true
 	}
 	if m.data.Mode == "" {
 		m.data.Mode = DefaultMode
+		changed = true
 	}
 	if m.data.Port == "" {
 		m.data.Port = DefaultMixedPort
+		changed = true
 	}
 	if m.data.ExternalController == "" {
 		m.data.ExternalController = DefaultExternalController
+		changed = true
 	}
 	if m.data.Secret == "" {
 		m.data.Secret = DefaultSecret
+		changed = true
 	}
-	
 	if m.data.TrayLogLevel == "" {
 		m.data.TrayLogLevel = "error"
+		changed = true
 	}
-	
-	m.lockedSave()
+
+	if changed {
+		slog.Debug("本地配置已初始化或补全默认值，执行保存")
+		m.lockedSave()
+	}
 }
 
 func (m *Manager) Get(key string) string {
