@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"log/slog"
 
 	"mihomo-tray/internal/wintray"
 )
@@ -77,6 +78,8 @@ func (tm *TrayMenu) Init() {
 	for id, name := range iconFiles {
 		if b, err := iconFs.ReadFile("icons/" + name); err == nil {
 			tm.trayHost.CacheIcon(id, b)
+		} else {
+			slog.Error("加载托盘资源图标失败", "icon", name, "err", err)
 		}
 	}
 
@@ -90,6 +93,7 @@ func (tm *TrayMenu) Run() {
 
 func (tm *TrayMenu) Stop() {
 	if tm.trayHost != nil {
+		slog.Debug("正在触发托盘消息循环安全退出")
 		tm.trayHost.Stop()
 	}
 }
@@ -115,6 +119,7 @@ func (tm *TrayMenu) ListenUIState() {
 }
 
 func (tm *TrayMenu) sendCommand(action, payload string) {
+	slog.Debug("托盘下发控制指令", "Action", action, "Payload", payload)
 	select {
 	case tm.commandCh <- UICommand{Action: action, Payload: payload}:
 	case <-tm.ctx.Done():
