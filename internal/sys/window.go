@@ -7,6 +7,7 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+	"log/slog"
 
 	"golang.org/x/sys/windows"
 )
@@ -174,6 +175,7 @@ func FindAndFocusAppWindow(exactTitle string, mainPid uint32) bool {
 	procEnumWindows.Call(cb, 0)
 
 	if foundHwnd != 0 {
+		slog.Debug("通过句柄接管目标浏览器进程", "Hwnd", foundHwnd)
 		FocusWindowSilky(foundHwnd)
 		return true
 	}
@@ -183,6 +185,8 @@ func FindAndFocusAppWindow(exactTitle string, mainPid uint32) bool {
 func FocusWindowSilky(targetHwnd uintptr) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
+	
+	slog.Debug("触发丝滑置顶防闪烁机制 (AttachThreadInput)")
 	currT, _, _ := procGetCurrentThread.Call()
 	foreH, _, _ := procGetForeground.Call()
 	foreT, _, _ := procGetWindowThread.Call(foreH, 0)
