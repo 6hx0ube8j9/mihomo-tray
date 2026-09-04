@@ -66,9 +66,24 @@ func (w *rollingLogWriter) rotate() {
 		w.file.Close()
 		w.file = nil
 	}
-	_ = os.Rename(w.logPath, w.bakPath)
-	w.file, _ = os.OpenFile(w.logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	w.currSize = 0
+
+	_ = os.Remove(w.bakPath)
+
+	renameErr := os.Rename(w.logPath, w.bakPath)
+
+	var file *os.File
+	var err error
+
+	if renameErr == nil {
+		file, err = os.OpenFile(w.logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	} else {
+		file, err = os.OpenFile(w.logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
+	}
+
+	if err == nil {
+		w.file = file
+		w.currSize = 0
+	}
 }
 
 func (w *rollingLogWriter) Write(p []byte) (n int, err error) {
@@ -78,12 +93,15 @@ func (w *rollingLogWriter) Write(p []byte) (n int, err error) {
 	if w.file == nil {
 		w.open()
 		if w.file == nil {
-			return len(p), nil 
+			return len(p), nil
 		}
 	}
 
 	if w.currSize+int64(len(p)) > MaxLogSize {
 		w.rotate()
+		if w.file == nil {
+			return len(p), nil
+		}
 	}
 
 	n, err = w.file.Write(p)
@@ -192,8 +210,9 @@ func main() {
 	}
 
 	isAutostart := false
-	for _, arg := range os.Args {
-		if arg == "---autostart" || arg == "--autostart" {
+	for _, arg := range os.Args[1:] {
+		cleanArg := strings.ToLower(strings.TrimLeft(arg, "-"))
+		if cleanArg == "autostart" {
 			isAutostart = true
 			break
 		}
