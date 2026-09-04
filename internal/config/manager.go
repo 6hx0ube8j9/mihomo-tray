@@ -36,7 +36,7 @@ type TrayConfig struct {
 	Proxy              string `json:"proxy"`
 	Secret             string `json:"secret"`
 	Tun                string `json:"tun"`
-	TunDevice          string `json:"tun_device"`	
+	TunDevice          string `json:"tun_device"`    
 	TrayLogLevel       string `json:"tray_log_level"`
 }
 
@@ -67,7 +67,7 @@ func (m *Manager) EnsureDefault() {
 		}
 		_ = f.Close()
 	} else {
-		slog.Info("未找到或无法打开配置文件，将创建全新配置", "Path", cfgPath)
+		slog.Info("未找到配置文件，将创建全新配置", "Path", cfgPath)
 	}
 
 	if m.data.Proxy == "" {
@@ -206,7 +206,7 @@ func (m *Manager) UpdateBatch(updates map[string]string) {
 	}
 
 	if changed {
-		slog.Debug("配置项变更命中，执行落地存储")
+		slog.Debug("本地配置已变更，执行保存")
 		m.lockedSave()
 	}
 }
@@ -231,14 +231,14 @@ func (m *Manager) PrepareYAMLForBoot() (bool, error) {
 	outLines, extracted, modified := processYAMLContent(lines, wantMode, wantTun)
 
 	if modified {
-		slog.Debug("正在下发配置至 config.yaml", "Mode", wantMode, "Tun", wantTun)
+		slog.Debug("正在更新 config.yaml 参数", "Mode", wantMode, "Tun", wantTun)
 		output := strings.Join(outLines, "\n")
 		if len(output) > 0 && !strings.HasSuffix(output, "\n") {
 			output += "\n"
 		}
 
 		if err := writeTmpAndRename(m.baseDir, configPath, []byte(output)); err != nil {
-			slog.Error("写入内核 YAML 文件失败", "err", err)
+			slog.Error("保存内核 YAML 文件失败", "err", err)
 			return false, fmt.Errorf("failed to save config.yaml: %w", err)
 		}
 	}
