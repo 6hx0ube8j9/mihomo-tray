@@ -37,7 +37,7 @@ type TrayConfig struct {
 	Secret             string `json:"secret"`
 	Tun                string `json:"tun"`
 	TunDevice          string `json:"tun_device"`	
-	TrayLogLevel       string `json:"tray_log_level,omitempty"` 
+	TrayLogLevel       string `json:"tray_log_level"`
 }
 
 type Manager struct {
@@ -91,7 +91,11 @@ func (m *Manager) EnsureDefault() {
 	if m.data.Secret == "" {
 		m.data.Secret = DefaultSecret
 	}
-
+	
+	if m.data.TrayLogLevel == "" {
+		m.data.TrayLogLevel = "error"
+	}
+	
 	m.lockedSave()
 }
 
