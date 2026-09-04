@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"log/slog"
+
 	"golang.org/x/sys/windows"
 )
 
@@ -17,6 +19,7 @@ func IsTunActive(targetDevice string) bool {
 
 	ifaces, err := net.Interfaces()
 	if err != nil {
+		slog.Error("获取系统网卡列表失败", "err", err)
 		return false
 	}
 
@@ -33,6 +36,7 @@ func IsTunActive(targetDevice string) bool {
 func WatchNetworkInterfaces(ctx context.Context, eventCh chan<- struct{}) {
 	fd, err := windows.Socket(windows.AF_INET, windows.SOCK_DGRAM, windows.IPPROTO_UDP)
 	if err != nil {
+		slog.Error("创建网络监听 Socket 失败，降级为定时轮询模式", "err", err)
 		fallbackWatch(ctx, eventCh)
 		return
 	}
@@ -43,6 +47,7 @@ func WatchNetworkInterfaces(ctx context.Context, eventCh chan<- struct{}) {
 	safeCloseSocket := func() {
 		closeOnce.Do(func() {
 			_ = windows.Close(fd)
+			slog.Debug("已释放网络监听 Socket")
 		})
 	}
 
@@ -53,9 +58,11 @@ func WatchNetworkInterfaces(ctx context.Context, eventCh chan<- struct{}) {
 		for {
 			err := windows.WSAIoctl(fd, SIO_ADDRESS_LIST_CHANGE, nil, 0, nil, 0, &bytesReturned, nil, 0)
 			if err != nil {
+				slog.Debug("WSAIoctl 监听退出", "err", err)
 				break
 			}
 			
+			slog.Debug("底层硬件感知: 网络接口列表发生变化 (WSAIoctl)")
 			select {
 			case notifyCh <- struct{}{}:
 			default: 
