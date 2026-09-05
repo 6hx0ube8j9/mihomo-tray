@@ -1,7 +1,7 @@
 {
   "RT_GROUP_ICON": {
     "APP": {
-      "0": [
+      "neutral": [
         "../internal/ui/icons/app.png"
       ]
     }
@@ -14,13 +14,13 @@
   },
   "RT_VERSION": {
     "#1": {
-      "0": {
+      "neutral": {
         "fixed": {
           "file_version": "1.0.0.0",
           "product_version": "1.0.0.0"
         },
         "info": {
-          "0": {
+          "04b0": {
             "CompanyName": "Mihomo Tray",
             "FileDescription": "Mihomo Tray",
             "FileVersion": "1.0.0.0",
