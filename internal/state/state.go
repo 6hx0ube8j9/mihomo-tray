@@ -19,7 +19,7 @@ type RuntimeState struct {
 	proxyActive  atomic.Bool
 	isRestarting atomic.Bool
 	isReloading  atomic.Bool
-	tunSwitching atomic.Bool
+	configSyncing atomic.Bool
 
 	tunStartTime atomic.Int64
 	tunReqTime   atomic.Int64
@@ -33,8 +33,8 @@ func NewRuntimeState() *RuntimeState {
 	return rs
 }
 
-func (r *RuntimeState) SetTunSwitching(b bool) { r.tunSwitching.Store(b) }
-func (r *RuntimeState) IsTunSwitching() bool   { return r.tunSwitching.Load() }
+func (r *RuntimeState) SetConfigSyncing(b bool) { r.configSyncing.Store(b) }
+func (r *RuntimeState) IsConfigSyncing() bool   { return r.configSyncing.Load() }
 func (r *RuntimeState) SetRestarting(b bool) { r.isRestarting.Store(b) }
 func (r *RuntimeState) IsRestarting() bool   { return r.isRestarting.Load() }
 func (r *RuntimeState) SetReloading(b bool)  { r.isReloading.Store(b) }
