@@ -289,7 +289,11 @@ func (km *KernelManager) checkAndWriteLog(absBaseDir, errType, rawMsg string) {
 	km.lastError = cleanedMsg
 	km.mu.Unlock()
 
-	logPath := filepath.Join(absBaseDir, "error.log")
+	logDir := filepath.Join(absBaseDir, "logs")
+	_ = os.MkdirAll(logDir, 0755)
+
+	logPath := filepath.Join(logDir, "core.log")
+	
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	finalLog := fmt.Sprintf("[%s] [%s] %s\n----------------------------------------\n", timestamp, errType, rawMsg)
 
