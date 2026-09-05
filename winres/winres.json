@@ -1,9 +1,7 @@
 {
   "RT_GROUP_ICON": {
     "APP": {
-      "0000": [
-        "../internal/ui/icons/app.ico"
-      ]
+      "0000": "../internal/ui/icons/app.ico"
     }
   },
   "RT_MANIFEST": {
