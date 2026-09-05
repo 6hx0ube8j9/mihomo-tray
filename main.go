@@ -27,7 +27,7 @@ import (
 const (
 	AppMutex    = "Local\\Mihomo_Tray_Mutex"
 	ShowUIEvent = "Local\\Mihomo_Tray_Mutex_ShowUI"
-	MaxLogSize  = 512 * 1024
+	MaxLogSize  = 1024 * 1024
 )
 
 var GlobalLogLevel = new(slog.LevelVar)
@@ -41,13 +41,16 @@ type rollingLogWriter struct {
 }
 
 func newRollingLogWriter(baseDir string) *rollingLogWriter {
+	logDir := filepath.Join(baseDir, "logs")
 	return &rollingLogWriter{
-		logPath: filepath.Join(baseDir, "mihomo-tray.log"),
-		bakPath: filepath.Join(baseDir, "mihomo-tray.log.bak"),
+		logPath: filepath.Join(logDir, "mihomo-tray.log"),
+		bakPath: filepath.Join(logDir, "mihomo-tray.log.bak"),
 	}
 }
 
 func (w *rollingLogWriter) open() {
+	_ = os.MkdirAll(filepath.Dir(w.logPath), 0755)
+
 	fi, err := os.Stat(w.logPath)
 	if err == nil {
 		w.currSize = fi.Size()
