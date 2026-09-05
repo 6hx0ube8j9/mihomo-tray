@@ -34,8 +34,6 @@ jobs:
       - name: Generate Windows Resources
         shell: pwsh
         run: |
-          go install github.com/tc-hib/go-winres@latest
-          $GOBIN = "$(go env GOPATH)\bin"
           if (!(Test-Path "internal/ui/icons/app.ico")) {
             Write-Error "Icon file not found"
             exit 1
@@ -44,7 +42,7 @@ jobs:
             Write-Error "Manifest file not found"
             exit 1
           }
-          go-winres make --arch ${{ matrix.goarch }}
+          go run github.com/tc-hib/go-winres@latest make --arch ${{ matrix.goarch }}
 
       - name: Build EXE
         shell: pwsh
