@@ -618,9 +618,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 
 		if wantTun {
 			if !a.State.IsTunAlive() && !a.isTunInGracePeriod() {
-				slog.Warn("TUN 模式已在内核开启，但系统虚拟网卡未能按时初始化，执行状态回退")
-				a.Cfg.Set("tun", "false")
-				changed = true
+				slog.Warn("TUN 核心已开启，但底层虚拟网卡未能按时初始化或已丢失，请检查驱动或权限")
 			} else if a.State.GetTunStartTime().IsZero() {
 				a.State.SetTunStartTime(time.Now())
 			}
