@@ -399,11 +399,17 @@ func (a *Application) handleProxyStatusChange(status sys.ProxyStatus) {
 		go func() {
 			defer a.proxyRepairing.Store(false)
 
-			for i := 1; i <= 3; i++ {
+			for i := 1; i <= 10; i++ {
+				if a.Cfg.Get("proxy") != "true" {
+					slog.Info("用户已手动关闭系统代理，终止自动恢复流程")
+					return
+				}
+
 				slog.Warn("系统代理被外部程序关闭，尝试自动恢复", "当前尝试次数", i)
 				
 				a.syncSystemProxy()
-				time.Sleep(1500 * time.Millisecond)
+				
+				time.Sleep(1000 * time.Millisecond)
 
 				cur, err := sys.GetProxyStatus()
 				if err == nil && cur.Enabled && strings.EqualFold(cur.Server, expectedServer) {
@@ -412,7 +418,7 @@ func (a *Application) handleProxyStatusChange(status sys.ProxyStatus) {
 				}
 			}
 
-			slog.Warn("系统代理自动恢复连续 3 次失败，终止重试并回退为关闭状态")
+			slog.Warn("系统代理自动恢复连续 10 次失败，终止重试并回退为关闭状态")
 			a.Cfg.Set("proxy", "false")
 			a.pushUIState()
 		}()
