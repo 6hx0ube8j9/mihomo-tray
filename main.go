@@ -25,8 +25,8 @@ import (
 )
 
 const (
-	AppMutex    = "Global\\Mihomo_Tray_Mutex"
-	ShowUIEvent = "Global\\Mihomo_Tray_Mutex_ShowUI"
+	AppMutex    = "Local\\Mihomo_Tray_Mutex"
+	ShowUIEvent = "Local\\Mihomo_Tray_Mutex_ShowUI"
 	MaxLogSize  = 512 * 1024
 )
 
@@ -68,16 +68,13 @@ func (w *rollingLogWriter) rotate() {
 	}
 	_ = os.Remove(w.bakPath)
 	renameErr := os.Rename(w.logPath, w.bakPath)
-
 	var file *os.File
 	var err error
-
 	if renameErr == nil {
 		file, err = os.OpenFile(w.logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	} else {
 		file, err = os.OpenFile(w.logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
 	}
-
 	if err == nil {
 		w.file = file
 		w.currSize = 0
@@ -87,21 +84,18 @@ func (w *rollingLogWriter) rotate() {
 func (w *rollingLogWriter) Write(p []byte) (n int, err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-
 	if w.file == nil {
 		w.open()
 		if w.file == nil {
 			return len(p), nil
 		}
 	}
-
 	if w.currSize+int64(len(p)) > MaxLogSize {
 		w.rotate()
 		if w.file == nil {
 			return len(p), nil
 		}
 	}
-
 	n, err = w.file.Write(p)
 	if err == nil {
 		w.currSize += int64(n)
@@ -121,7 +115,6 @@ func (w *rollingLogWriter) Close() {
 func initEarlyLogger(baseDir string) *rollingLogWriter {
 	writer := newRollingLogWriter(baseDir)
 	GlobalLogLevel.Set(slog.LevelError)
-
 	opts := &slog.HandlerOptions{
 		Level: GlobalLogLevel,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
@@ -132,10 +125,8 @@ func initEarlyLogger(baseDir string) *rollingLogWriter {
 			return a
 		},
 	}
-
 	logger := slog.New(slog.NewTextHandler(writer, opts))
 	slog.SetDefault(logger)
-
 	return writer
 }
 
@@ -202,15 +193,12 @@ func main() {
 		if hM != 0 {
 			windows.CloseHandle(hM)
 		}
-
 		eName, _ := windows.UTF16PtrFromString(ShowUIEvent)
 		hEvent, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName)
 		if err == nil && hEvent != 0 {
 			windows.SetEvent(hEvent)
 			windows.CloseHandle(hEvent)
 			slog.Info("已成功发送进程唤醒信号")
-		} else {
-			slog.Error("发送进程唤醒信号失败", "err", err)
 		}
 		return
 	}
@@ -230,18 +218,16 @@ func main() {
 			windows.CloseHandle(hM)
 			hM = 0
 		}
-
 		if cfgMgr.Get("autostart") == "true" {
 			slog.Debug("尝试通过计划任务执行无感提权启动")
 			cmd := exec.Command("schtasks", "/run", "/tn", "MihomoTrayTask")
 			cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 			if cmd.Run() == nil {
 				slog.Info("计划任务触发成功，当前普通权限进程退出")
-				return 
+				return
 			}
 			slog.Warn("计划任务触发失败，将回退至 UAC 弹窗")
 		}
-
 		slog.Warn("权限不足，准备发起提升请求")
 		sys.RunAsAdmin(exePath, baseDir)
 		return
@@ -271,7 +257,6 @@ func main() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		defer signal.Stop(sigCh)
-
 		select {
 		case sig := <-sigCh:
 			slog.Info("接收到系统退出信号，准备清理", "信号", sig)
@@ -289,7 +274,6 @@ func main() {
 				if s != windows.WAIT_OBJECT_0 || ctx.Err() != nil {
 					return
 				}
-
 				slog.Info("收到外部进程唤醒信号")
 				select {
 				case application.UICommandCh <- ui.UICommand{Action: "OpenWebUI"}:
@@ -303,13 +287,10 @@ func main() {
 
 	slog.Debug("启动后台核心服务")
 	go application.Bootstrap(ctx)
-
 	slog.Debug("进入托盘界面事件循环")
 	trayMenu.Run()
-
 	slog.Debug("托盘循环退出，开始释放资源")
 	cancel()
-
 	if hShowUIEvent != 0 {
 		windows.SetEvent(hShowUIEvent)
 	}
