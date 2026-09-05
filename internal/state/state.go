@@ -33,14 +33,14 @@ func NewRuntimeState() *RuntimeState {
 	return rs
 }
 
+func (r *RuntimeState) SetTunSwitching(b bool) { r.tunSwitching.Store(b) }
+func (r *RuntimeState) IsTunSwitching() bool   { return r.tunSwitching.Load() }
 func (r *RuntimeState) SetRestarting(b bool) { r.isRestarting.Store(b) }
 func (r *RuntimeState) IsRestarting() bool   { return r.isRestarting.Load() }
 func (r *RuntimeState) SetReloading(b bool)  { r.isReloading.Store(b) }
 func (r *RuntimeState) IsReloading() bool   { return r.isReloading.Load() }
 func (r *RuntimeState) GetPhase() AppPhase   { return AppPhase(r.phase.Load()) }
 func (r *RuntimeState) SetPhase(p AppPhase)  { r.phase.Store(int32(p)) }
-func (r *RuntimeState) SetTunSwitching(b bool) { r.tunSwitching.Store(b) }
-func (r *RuntimeState) IsTunSwitching() bool   { return r.tunSwitching.Load() }
 
 func (r *RuntimeState) CompareAndSwapPhase(old, new AppPhase) bool {
 	return r.phase.CompareAndSwap(int32(old), int32(new))
