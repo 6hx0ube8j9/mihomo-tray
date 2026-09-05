@@ -7,26 +7,19 @@
     }
   },
   "RT_MANIFEST": {
-    "0000": {
-      "custom": "../main.manifest"
+    "#1": {
+      "custom": true,
+      "src": "../main.manifest"
     }
   },
   "RT_VERSION": {
-    "0000": {
-      "fixed": {
-        "file_version": "1.0.0.0",
-        "product_version": "1.0.0.0"
-      },
-      "info": {
-        "0000": {
-          "CompanyName": "Mihomo Tray",
-          "FileDescription": "Mihomo Tray",
-          "FileVersion": "1.0.0.0",
-          "InternalName": "mihomo-tray.exe",
-          "OriginalFilename": "mihomo-tray.exe",
-          "ProductName": "Mihomo Tray",
-          "ProductVersion": "1.0.0.0"
-        }
+    "#1": {
+      "000004b0": {
+        "CompanyName": "Mihomo Tray",
+        "FileDescription": "Mihomo Tray",
+        "FileVersion": "1.0.0.0",
+        "OriginalFilename": "mihomo-tray.exe",
+        "ProductName": "Mihomo Tray"
       }
     }
   }
