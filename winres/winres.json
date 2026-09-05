@@ -14,12 +14,21 @@
   },
   "RT_VERSION": {
     "#1": {
-      "000004b0": {
-        "CompanyName": "Mihomo Tray",
-        "FileDescription": "Mihomo Tray",
-        "FileVersion": "1.0.0.0",
-        "OriginalFilename": "mihomo-tray.exe",
-        "ProductName": "Mihomo Tray"
+      "0000": {
+        "fixed": {
+          "file_version": "1.0.0.0",
+          "product_version": "1.0.0.0"
+        },
+        "info": {
+          "04b0": {
+            "CompanyName": "Mihomo Tray",
+            "FileDescription": "Mihomo Tray",
+            "FileVersion": "1.0.0.0",
+            "OriginalFilename": "mihomo-tray.exe",
+            "ProductName": "Mihomo Tray",
+            "ProductVersion": "1.0.0.0"
+          }
+        }
       }
     }
   }
