@@ -292,30 +292,38 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		a.Cfg.Set("proxy", strconv.FormatBool(enable))
 		a.lastProxyModify = time.Now()
 		a.syncSystemProxy()
-	case "ToggleTun":
+		
+    case "ToggleTun":
 		enable := cmd.Payload == "true"
 		slog.Info("切换虚拟网卡(TUN)", "目标状态", enable)
 		a.Cfg.Set("tun", strconv.FormatBool(enable))
 		if enable {
-			a.State.SetTunRequestedTime(time.Now())
 			a.setActualTunDevice(a.Cfg.Get("tun_device"))
 		}
 		
-		a.State.MuteAPIWatcher(APIMuteShortPeriod)
+		a.State.SetTunSwitching(true)
+		a.pushUIState()
 		
 		go func() {
-			tunPayload := map[string]interface{}{"enable": enable}
-			if dev := a.Cfg.Get("tun_device"); dev != "" {
-				tunPayload["device"] = dev
-			}
-			if err := a.API.SyncConfigToKernel(ctx, map[string]interface{}{"tun": tunPayload}); err == nil {
-				time.Sleep(150 * time.Millisecond)
+			defer func() {
+				a.State.SetTunSwitching(false)
 				select {
 				case a.apiPollCh <- struct{}{}:
 				default:
 				}
-			} else {
+			}()
+
+			tunPayload := map[string]interface{}{"enable": enable}
+			if dev := a.Cfg.Get("tun_device"); dev != "" {
+				tunPayload["device"] = dev
+			}
+
+			reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			defer cancel()
+			
+			if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"tun": tunPayload}); err != nil {
 				slog.Error("API 切换 TUN 失败", "err", err)
+				a.Cfg.Set("tun", strconv.FormatBool(!enable)) 
 			}
 		}()
 
@@ -543,6 +551,12 @@ func (a *Application) handleTunChange(ctx context.Context) {
 	if a.State.IsExiting() {
 		return
 	}
+	
+	if a.State.IsTunSwitching() {
+		slog.Debug("TUN 正在切换中，忽略底层网卡状态变更事件")
+		return
+	}
+	
 	tunDev := a.getActualTunDevice()
 	alive := sys.IsTunActive(tunDev)
 
@@ -610,7 +624,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		return false
 	}
 
-	queryCtx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+	queryCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
 
 	body, err := a.API.DoRequest(queryCtx, "GET", "/configs", nil)
