@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -12,6 +13,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 
@@ -23,8 +25,8 @@ import (
 )
 
 const (
-	AppMutex    = "Mihomo_Tray_Mutex"
-	ShowUIEvent = "Mihomo_Tray_Mutex_ShowUI"
+	AppMutex    = "Global\\Mihomo_Tray_Mutex"
+	ShowUIEvent = "Global\\Mihomo_Tray_Mutex_ShowUI"
 	MaxLogSize  = 512 * 1024
 )
 
@@ -64,9 +66,7 @@ func (w *rollingLogWriter) rotate() {
 		w.file.Close()
 		w.file = nil
 	}
-
 	_ = os.Remove(w.bakPath)
-
 	renameErr := os.Rename(w.logPath, w.bakPath)
 
 	var file *os.File
@@ -157,6 +157,17 @@ func syncLogLevel(cfgMgr *config.Manager) {
 	}
 }
 
+func getPermissiveSecAttr() *windows.SecurityAttributes {
+	sd, err := windows.SecurityDescriptorFromString("D:(A;;GA;;;WD)")
+	if err != nil {
+		return nil
+	}
+	var sa windows.SecurityAttributes
+	sa.Length = uint32(unsafe.Sizeof(sa))
+	sa.SecurityDescriptor = sd
+	return &sa
+}
+
 func main() {
 	runtime.LockOSThread()
 
@@ -178,8 +189,9 @@ func main() {
 
 	slog.Info("程序启动", "PID", os.Getpid(), "工作目录", baseDir)
 
+	sa := getPermissiveSecAttr()
 	mName, _ := windows.UTF16PtrFromString(AppMutex)
-	hM, err := windows.CreateMutex(nil, false, mName)
+	hM, err := windows.CreateMutex(sa, false, mName)
 	isAlreadyExist := errors.Is(err, windows.ERROR_ALREADY_EXISTS) ||
 		errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
 		err == windows.ERROR_ALREADY_EXISTS ||
@@ -202,15 +214,6 @@ func main() {
 		}
 		return
 	}
-	if hM != 0 {
-		defer windows.CloseHandle(hM)
-	}
-
-	eName, _ := windows.UTF16PtrFromString(ShowUIEvent)
-	hShowUIEvent, _ := windows.CreateEvent(nil, 0, 0, eName)
-	if hShowUIEvent != 0 {
-		defer windows.CloseHandle(hShowUIEvent)
-	}
 
 	isAutostart := false
 	for _, arg := range os.Args[1:] {
@@ -223,10 +226,35 @@ func main() {
 	slog.Debug("启动参数与权限检查", "autostart", isAutostart, "isAdmin", isAdmin())
 
 	if !isAdmin() && !isAutostart {
+		if hM != 0 {
+			windows.CloseHandle(hM)
+			hM = 0
+		}
+
+		if cfgMgr.Get("autostart") == "true" {
+			slog.Debug("尝试通过计划任务执行无感提权启动")
+			cmd := exec.Command("schtasks", "/run", "/tn", "MihomoTrayTask")
+			cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+			if cmd.Run() == nil {
+				slog.Info("计划任务触发成功，当前普通权限进程退出")
+				return 
+			}
+			slog.Warn("计划任务触发失败，将回退至 UAC 弹窗")
+		}
+
 		slog.Warn("权限不足，准备发起提升请求")
 		sys.RunAsAdmin(exePath, baseDir)
-		slog.Info("提权请求已发送，退出普通权限进程")
 		return
+	}
+
+	if hM != 0 {
+		defer windows.CloseHandle(hM)
+	}
+
+	eName, _ := windows.UTF16PtrFromString(ShowUIEvent)
+	hShowUIEvent, _ := windows.CreateEvent(sa, 0, 0, eName)
+	if hShowUIEvent != 0 {
+		defer windows.CloseHandle(hShowUIEvent)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
