@@ -31,16 +31,9 @@ func RunAsAdmin(exe, dir string) {
 		argsPtr, _ = windows.UTF16PtrFromString(strings.Join(os.Args[1:], " "))
 	}
 
-	slog.Debug("发起 UAC 提权请求 (runas)", "exe", exe)
 	err := windows.ShellExecute(0, verb, exePtr, argsPtr, cwdPtr, windows.SW_SHOWNORMAL)
 
-	if err != nil {
-		if errors.Is(err, windows.ERROR_CANCELLED) {
-			slog.Warn("用户取消了 UAC 提权授权")
-		} else {
-			slog.Error("UAC 提权启动失败", "err", err)
-		}
-
+	if err != nil && !errors.Is(err, windows.ERROR_CANCELLED) {
 		title, _ := windows.UTF16PtrFromString("权限请求失败")
 		msg, _ := windows.UTF16PtrFromString("TUN 模式及系统网络接管需要管理员权限，请授权后运行。")
 		_, _ = windows.MessageBox(0, msg, title, mbErrorTopmost)
