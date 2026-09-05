@@ -23,8 +23,12 @@
           "0000": {
             "CompanyName": "Mihomo Tray",
             "FileDescription": "Mihomo Tray",
+            "FileVersion": "1.0.0.0",
+            "InternalName": "mihomo-tray",
+            "LegalCopyright": "Copyright © 2026 Mihomo Tray",
             "OriginalFilename": "mihomo-tray.exe",
-            "ProductName": "Mihomo Tray"
+            "ProductName": "Mihomo Tray",
+            "ProductVersion": "1.0.0.0"
           }
         }
       }
