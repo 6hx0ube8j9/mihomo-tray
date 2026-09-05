@@ -44,7 +44,7 @@ jobs:
             Write-Error "Manifest file not found"
             exit 1
           }
-          & "$GOBIN\go-winres.exe" make --arch ${{ matrix.goarch }}
+          go-winres make --arch ${{ matrix.goarch }}
 
       - name: Build EXE
         shell: pwsh
