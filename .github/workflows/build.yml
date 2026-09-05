@@ -38,7 +38,7 @@ jobs:
         run: |
           go install github.com/tc-hib/go-winres@latest
           $GOBIN = "$(go env GOPATH)\bin"
-          if (!(Test-Path "internal/ui/icons/app.ico")) {
+          if (!(Test-Path "internal/ui/icons/app.png")) {
             Write-Error "Icon file not found"
             exit 1
           }
