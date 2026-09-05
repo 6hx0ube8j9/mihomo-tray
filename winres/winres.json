@@ -5,10 +5,9 @@
     }
   },
   "manifest": {
-    "identity": {
-      "name": "Mihomo Tray"
-    },
-    "custom": "../main.manifest"
+    "custom": {
+      "src": "../main.manifest"
+    }
   },
   "version": {
     "file_version": "1.0.0.0",
