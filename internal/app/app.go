@@ -22,7 +22,6 @@ import (
 const (
 	TunInitGracePeriod = 20 * time.Second
 	TunLostAlarmDelay  = 6 * time.Second
-	APIMuteShortPeriod = 5 * time.Second
 )
 
 const (
@@ -49,6 +48,7 @@ type Application struct {
 	webuiEventCh chan ui.Event
 
 	lastUIState    ui.UIState
+	uiStateMutex   sync.Mutex
 	proxyRepairing atomic.Bool
 
 	actualTunDevice string
@@ -169,7 +169,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 	defer ticker.Stop()
 
 	tryPollAPI := func() {
-		if a.State.GetPhase() == state.PhaseRunning && !a.State.IsAPIWatcherMuted() && !a.State.IsConfigSyncing() {
+		if a.State.GetPhase() == state.PhaseRunning && !a.State.IsConfigSyncing() && !a.State.IsReloading() {
 			if a.pollKernelAPI(ctx) {
 				slog.Debug("内核 API 状态发生变更，已同步刷新 UI")
 				a.pushUIState()
@@ -193,8 +193,8 @@ func (a *Application) eventLoop(ctx context.Context) {
 
 		case event := <-a.kernelEventCh:
 			if event == core.EventKernelReady {
-				slog.Info("内核进程就绪", "阶段", "Running")
-				a.State.SetPhase(state.PhaseRunning)
+				slog.Info("内核进程已拉起，等待 API 服务就绪...")
+				
 				if a.Cfg.Get("tun") == "true" {
 					a.State.SetTunRequestedTime(time.Now())
 				}
@@ -202,14 +202,18 @@ func (a *Application) eventLoop(ctx context.Context) {
 
 				go func() {
 					defer a.State.SetRestarting(false)
-					slog.Debug("正在连接内核 API...")
 					for i := 0; i < 60; i++ {
 						pollCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
 						_, err := a.API.DoRequest(pollCtx, "GET", "/configs", nil)
 						cancel()
+						
 						if err == nil {
-							slog.Info("内核 API 连接成功", "耗时(ms)", (i+1)*250)
-							a.pushUIState()
+							slog.Info("内核 API 端口已响应，等待底层网络栈收敛...", "耗时(ms)", (i+1)*250)
+							time.Sleep(500 * time.Millisecond)
+							
+							slog.Info("内核启动完成，正式进入运行阶段")
+							a.State.SetPhase(state.PhaseRunning)
+							
 							select {
 							case a.apiPollCh <- struct{}{}:
 							default:
@@ -464,6 +468,10 @@ func (a *Application) pushUIState() {
 	if a.State.IsExiting() {
 		return
 	}
+	
+	a.uiStateMutex.Lock()
+	defer a.uiStateMutex.Unlock()
+
 	newState := a.calculateUIState()
 	if newState != a.lastUIState {
 		slog.Debug("刷新 UI 界面状态",
@@ -486,13 +494,14 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 	slog.Info("启动内核配置重载流程")
 	a.State.SetReloading(true)
 	a.State.SetRestarting(false)
-	a.State.MuteAPIWatcher(APIMuteShortPeriod)
 
 	go func() {
 		defer a.State.SetReloading(false)
+		
 		if _, err := a.Cfg.PrepareYAMLForBoot(); err != nil {
 			slog.Error("配置重载前置 YAML 检查失败", "err", err)
 		}
+		
 		reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		_, err := a.API.DoRequest(reqCtx, "PUT", "/configs?force=true", map[string]interface{}{"path": "", "payload": ""})
 		cancel()
@@ -501,9 +510,13 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 			slog.Error("内核配置重载请求执行失败", "err", err)
 			return
 		}
+		
+		time.Sleep(200 * time.Millisecond)
+
 		slog.Info("内核配置重载成功，准备同步应用级参数")
 		a.syncAllConfig(ctx)
 		a.syncSystemProxy()
+		
 		select {
 		case a.apiPollCh <- struct{}{}:
 		default:
@@ -515,12 +528,11 @@ func (a *Application) RestartKernel() {
 	slog.Info("正在执行内核进程结束与重启")
 	a.State.SetRestarting(true)
 	a.State.SetReloading(false)
-	a.Kernel.HaltDaemon()
+	a.Kernel.HaltDaemon()	
 	if _, err := a.Cfg.PrepareYAMLForBoot(); err != nil {
 		slog.Error("进程重启前置 YAML 检查失败", "err", err)
-	}
+	}	
 	a.Kernel.WakeDaemon()
-	a.State.MuteAPIWatcher(APIMuteShortPeriod)
 	a.pushUIState()
 }
 
@@ -578,7 +590,7 @@ func (a *Application) syncAllConfig(ctx context.Context) {
 }
 
 func (a *Application) pollKernelAPI(ctx context.Context) bool {
-	if a.State.IsExiting() || a.State.IsAPIWatcherMuted() || a.State.IsConfigSyncing() {
+	if a.State.IsExiting() || a.State.IsReloading() || a.State.IsConfigSyncing() {
 		return false
 	}
 	
