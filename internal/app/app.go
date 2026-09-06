@@ -92,6 +92,28 @@ func (a *Application) isTunInGracePeriod() bool {
 		time.Since(a.State.GetTunLostTime()) < TunLostAlarmDelay
 }
 
+func (a *Application) reconcileTunState(kernelTunEnabled bool) bool {
+	wantTun := a.Cfg.Get("tun") == "true"
+
+	if wantTun && kernelTunEnabled && a.isTunInGracePeriod() {
+		a.State.SetTunRequestedTime(time.Time{})
+		slog.Debug("TUN 已成功就绪，20秒启动保护提前解除")
+	}
+
+	if kernelTunEnabled != wantTun {
+		if wantTun && !kernelTunEnabled && a.isTunInGracePeriod() {
+			slog.Debug("内核 TUN 模块正在异步初始化，屏蔽瞬时 false 状态，防止 UI 闪烁")
+			return false
+		}
+
+		slog.Info("探测到 TUN 配置发生外部变更，执行本地同步", "本地预期", wantTun, "内核实际", kernelTunEnabled)
+		a.Cfg.Set("tun", fmt.Sprintf("%t", kernelTunEnabled))
+		return true
+	}
+
+	return false
+}
+
 func (a *Application) Bootstrap(ctx context.Context) {
 	slog.Debug("开始初始化后台核心服务")
 	osTaskExists := sys.CheckAutoStartStatus()
@@ -451,6 +473,7 @@ func (a *Application) calculateUIState() ui.UIState {
 		if s.IsProxy {
 			s.IconState = IconProxy
 		} else {
+			slog.Debug("UI 状态结算为默认", "Tun", s.IsTun, "Proxy", s.IsProxy)
 			s.IconState = IconDefault
 		}
 		return s
@@ -528,10 +551,16 @@ func (a *Application) RestartKernel() {
 	slog.Info("正在执行内核进程结束与重启")
 	a.State.SetRestarting(true)
 	a.State.SetReloading(false)
-	a.Kernel.HaltDaemon()	
+	a.Kernel.HaltDaemon()
+	
 	if _, err := a.Cfg.PrepareYAMLForBoot(); err != nil {
 		slog.Error("进程重启前置 YAML 检查失败", "err", err)
-	}	
+	}
+	
+	if a.Cfg.Get("tun") == "true" {
+		a.State.SetTunRequestedTime(time.Now())
+	}
+	
 	a.Kernel.WakeDaemon()
 	a.pushUIState()
 }
@@ -619,15 +648,11 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 			changed = true
 		}
 
-		wantTun := a.Cfg.Get("tun") == "true"
-
-		if resp.Tun.Enable != wantTun {
-			slog.Info("探测到 TUN 配置发生外部变更，执行本地同步", "本地预期", wantTun, "内核实际", resp.Tun.Enable)
-			a.Cfg.Set("tun", fmt.Sprintf("%t", resp.Tun.Enable))
+		if a.reconcileTunState(resp.Tun.Enable) {
 			changed = true
-			wantTun = resp.Tun.Enable
 		}
 
+		wantTun := a.Cfg.Get("tun") == "true"
 		if wantTun {
 			if !a.State.IsTunAlive() && !a.isTunInGracePeriod() {
 				slog.Warn("TUN 核心已开启，但底层虚拟网卡未能按时初始化或已丢失，请检查驱动或权限")
