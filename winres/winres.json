@@ -1,12 +1,12 @@
 {
   "RT_GROUP_ICON": {
     "APP": {
-      "0000": "../internal/ui/icons/app.ico"
+      "0409": "../internal/ui/icons/app.ico"
     }
   },
   "RT_MANIFEST": {
     "#1": {
-      "0000": {
+      "0409": {
         "custom": true,
         "src": "../main.manifest"
       }
@@ -14,13 +14,13 @@
   },
   "RT_VERSION": {
     "#1": {
-      "0000": {
+      "0409": {
         "fixed": {
           "file_version": "1.0.0.0",
           "product_version": "1.0.0.0"
         },
         "info": {
-          "0000": {
+          "0409": {
             "CompanyName": "Mihomo Tray",
             "FileDescription": "Mihomo Tray",
             "FileVersion": "1.0.0.0",
