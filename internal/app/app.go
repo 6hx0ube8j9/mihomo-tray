@@ -94,9 +94,9 @@ func (a *Application) isTunInGracePeriod() bool {
 func (a *Application) reconcileTunState(kernelTunEnabled bool) bool {
 	wantTun := a.Cfg.Get("tun") == "true"
 
-	if wantTun && kernelTunEnabled && a.isTunInGracePeriod() {
+	if wantTun && kernelTunEnabled && a.State.IsTunAlive() && a.isTunInGracePeriod() {
 		a.State.SetTunRequestedTime(time.Time{})
-		slog.Debug("TUN 已成功就绪，20秒启动保护提前解除")
+		slog.Debug("TUN API与底层硬件均已就绪，20秒启动保护提前解除")
 	}
 
 	if kernelTunEnabled != wantTun {
@@ -635,6 +635,18 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 	if json.Unmarshal(body, &resp) == nil {
 		changed := false
 
+		currentActual := a.getActualTunDevice()
+		if resp.Tun.Device != "" && resp.Tun.Device != currentActual {
+			a.setActualTunDevice(resp.Tun.Device)
+			currentActual = resp.Tun.Device
+			changed = true
+		}
+		realAlive := sys.IsTunActive(currentActual)
+		if a.State.IsTunAlive() != realAlive {
+			a.State.SetTunAlive(realAlive)
+			changed = true
+		}
+
 		if resp.Mode != "" && resp.Mode != a.Cfg.Get("mode") {
 			slog.Info("探测到内核路由模式变更，执行本地同步", "旧模式", a.Cfg.Get("mode"), "新模式", resp.Mode)
 			a.Cfg.Set("mode", resp.Mode)
@@ -650,18 +662,6 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 			slog.Warn("TUN 核心已开启，但底层虚拟网卡未能按时初始化或已丢失，请检查驱动或权限")
 		}
 
-		currentActual := a.getActualTunDevice()
-		if resp.Tun.Device != "" && resp.Tun.Device != currentActual {
-			a.setActualTunDevice(resp.Tun.Device)
-			changed = true
-		}
-
-		if changed {
-			realAlive := sys.IsTunActive(a.getActualTunDevice())
-			if a.State.IsTunAlive() != realAlive {
-				a.State.SetTunAlive(realAlive)
-			}
-		}
 		return changed
 	}
 	return false
