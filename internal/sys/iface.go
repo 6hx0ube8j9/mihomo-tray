@@ -2,11 +2,11 @@ package sys
 
 import (
 	"context"
+	"log/slog"
 	"net"
 	"strings"
 	"sync"
 	"time"
-	"log/slog"
 
 	"golang.org/x/sys/windows"
 )
@@ -24,9 +24,10 @@ func IsTunActive(targetDevice string) bool {
 	}
 
 	for _, i := range ifaces {
-		name := strings.ToLower(i.Name)
-		if strings.Contains(name, target) {
-			return true
+		if strings.Contains(strings.ToLower(i.Name), target) {
+			if i.Flags&net.FlagUp != 0 {
+				return true
+			}
 		}
 	}
 
@@ -41,31 +42,36 @@ func WatchNetworkInterfaces(ctx context.Context, eventCh chan<- struct{}) {
 		return
 	}
 
+	select {
+	case eventCh <- struct{}{}:
+	default:
+	}
+
 	notifyCh := make(chan struct{}, 1)
-	
+
 	var closeOnce sync.Once
 	safeCloseSocket := func() {
 		closeOnce.Do(func() {
-			_ = windows.Close(fd)
-			slog.Debug("已释放网络监听 Socket")
+			_ = windows.Closesocket(windows.Handle(fd))
+			slog.Debug("已释放网络监听 Socket (closesocket)")
 		})
 	}
 
 	go func() {
 		const SIO_ADDRESS_LIST_CHANGE = 0x28000017
 		var bytesReturned uint32
-		
+
 		for {
 			err := windows.WSAIoctl(fd, SIO_ADDRESS_LIST_CHANGE, nil, 0, nil, 0, &bytesReturned, nil, 0)
 			if err != nil {
 				slog.Debug("WSAIoctl 监听退出", "err", err)
 				break
 			}
-			
+
 			slog.Debug("底层硬件感知: 网络接口列表发生变化 (WSAIoctl)")
 			select {
 			case notifyCh <- struct{}{}:
-			default: 
+			default:
 			}
 		}
 		close(notifyCh)
@@ -81,7 +87,8 @@ func WatchNetworkInterfaces(ctx context.Context, eventCh chan<- struct{}) {
 				timer.Stop()
 			}
 			safeCloseSocket()
-			for range notifyCh {}
+			for range notifyCh {
+			}
 			return
 
 		case _, ok := <-notifyCh:
@@ -92,13 +99,13 @@ func WatchNetworkInterfaces(ctx context.Context, eventCh chan<- struct{}) {
 			if timer != nil {
 				timer.Stop()
 			}
-			timer = time.NewTimer(100 * time.Millisecond)
+			timer = time.NewTimer(250 * time.Millisecond)
 			timerCh = timer.C
 
 		case <-timerCh:
 			timerCh = nil
 			timer = nil
-			
+
 			select {
 			case <-ctx.Done():
 				safeCloseSocket()
