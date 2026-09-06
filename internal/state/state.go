@@ -14,14 +14,13 @@ const (
 )
 
 type RuntimeState struct {
-	phase        atomic.Int32
-	tunAlive     atomic.Bool
-	proxyActive  atomic.Bool
-	isRestarting atomic.Bool
-	isReloading  atomic.Bool
+	phase         atomic.Int32
+	tunAlive      atomic.Bool
+	proxyActive   atomic.Bool
+	isRestarting  atomic.Bool
+	isReloading   atomic.Bool
 	configSyncing atomic.Bool
 
-	tunStartTime atomic.Int64
 	tunReqTime   atomic.Int64
 	tunLostTime  atomic.Int64
 	apiMuteUntil atomic.Int64
@@ -91,9 +90,6 @@ func (r *RuntimeState) IsAPIWatcherMuted() bool {
 	}
 	return time.Now().Before(until)
 }
-
-func (r *RuntimeState) SetTunStartTime(t time.Time) { r.storeTime(&r.tunStartTime, t) }
-func (r *RuntimeState) GetTunStartTime() time.Time  { return r.loadTime(&r.tunStartTime) }
 
 func (r *RuntimeState) SetTunRequestedTime(t time.Time) { r.storeTime(&r.tunReqTime, t) }
 func (r *RuntimeState) GetTunRequestedTime() time.Time  { return r.loadTime(&r.tunReqTime) }
