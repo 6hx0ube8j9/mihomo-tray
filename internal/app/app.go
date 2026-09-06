@@ -101,8 +101,10 @@ func (a *Application) reconcileTunState(kernelTunEnabled bool) bool {
 
 	if kernelTunEnabled != wantTun {
 		if wantTun && !kernelTunEnabled && a.isTunInGracePeriod() {
-			slog.Debug("内核 TUN 模块正在异步初始化，屏蔽瞬时 false 状态，防止 UI 闪烁")
-			return false
+			if time.Since(a.State.GetTunRequestedTime()) < TunInitGracePeriod {
+				slog.Debug("内核 TUN 模块正在异步初始化，屏蔽瞬时 false 状态，防止 UI 闪烁")
+				return false
+			}
 		}
 
 		slog.Info("探测到 TUN 配置发生外部变更，执行本地同步", "本地预期", wantTun, "内核实际", kernelTunEnabled)
