@@ -152,8 +152,9 @@ func syncLogLevel(cfgMgr *config.Manager) {
 }
 
 func getPermissiveSecAttr() *windows.SecurityAttributes {
-	sd, err := windows.SecurityDescriptorFromString("D:(A;;GA;;;WD)")
+	sd, err := windows.SecurityDescriptorFromString("D:(A;;GA;;;WD)S:(ML;;NW;;;LW)")
 	if err != nil {
+		slog.Error("创建安全描述符失败", "err", err)
 		return nil
 	}
 	var sa windows.SecurityAttributes
@@ -194,14 +195,16 @@ func main() {
 	if isAlreadyExist {
 		slog.Warn("检测到已有实例运行，尝试唤醒现有进程界面")
 		if hM != 0 {
-			windows.CloseHandle(hM)
+			_ = windows.CloseHandle(hM)
 		}
 		eName, _ := windows.UTF16PtrFromString(ShowUIEvent)
 		hEvent, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName)
 		if err == nil && hEvent != 0 {
-			windows.SetEvent(hEvent)
-			windows.CloseHandle(hEvent)
+			_ = windows.SetEvent(hEvent)
+			_ = windows.CloseHandle(hEvent)
 			slog.Info("已成功发送进程唤醒信号")
+		} else {
+			slog.Error("打开唤醒事件句柄失败", "err", err)
 		}
 		return
 	}
@@ -218,20 +221,29 @@ func main() {
 
 	if !isAdmin() && !isAutostart {
 		if hM != 0 {
-			windows.CloseHandle(hM)
+			_ = windows.CloseHandle(hM)
 			hM = 0
 		}
+
 		if cfgMgr.Get("autostart") == "true" {
-			slog.Debug("尝试通过计划任务执行无感提权启动")
-			cmd := exec.Command("schtasks", "/run", "/tn", "MihomoTrayTask")
-			cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
-			if cmd.Run() == nil {
-				slog.Info("计划任务触发成功，当前普通权限进程退出")
-				return
+			if sys.CheckAutoStartStatus() && sys.IsTaskPathValid(exePath) {
+				slog.Debug("尝试通过计划任务执行无感提权启动")
+				schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
+				cmd := exec.Command(schtasksPath, "/Run", "/TN", "MihomoTrayTask")
+				cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+
+				if out, err := cmd.CombinedOutput(); err == nil {
+					slog.Info("计划任务触发成功，当前普通权限进程退出")
+					return
+				} else {
+					slog.Warn("计划任务触发失败，回退至 UAC", "err", err, "output", string(out))
+				}
+			} else {
+				slog.Warn("计划任务不存在或路径不匹配，跳过无感提权")
 			}
-			slog.Warn("计划任务触发失败，将回退至 UAC 弹窗")
 		}
-		slog.Warn("权限不足，准备发起提升请求")
+
+		slog.Warn("权限不足，发起 UAC 提权请求")
 		sys.RunAsAdmin(exePath, baseDir)
 		return
 	}
@@ -290,12 +302,14 @@ func main() {
 
 	slog.Debug("启动后台核心服务")
 	go application.Bootstrap(ctx)
+
 	slog.Debug("进入托盘界面事件循环")
 	trayMenu.Run()
+
 	slog.Debug("托盘循环退出，开始释放资源")
 	cancel()
 	if hShowUIEvent != 0 {
-		windows.SetEvent(hShowUIEvent)
+		_ = windows.SetEvent(hShowUIEvent)
 	}
 
 	runtimeState.ForceExitPhase()
