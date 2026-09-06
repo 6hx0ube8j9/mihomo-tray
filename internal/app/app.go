@@ -87,8 +87,7 @@ func (a *Application) setActualTunDevice(dev string) {
 }
 
 func (a *Application) isTunInGracePeriod() bool {
-	return time.Since(a.State.GetTunStartTime()) < TunInitGracePeriod ||
-		time.Since(a.State.GetTunRequestedTime()) < TunInitGracePeriod ||
+	return time.Since(a.State.GetTunRequestedTime()) < TunInitGracePeriod ||
 		time.Since(a.State.GetTunLostTime()) < TunLostAlarmDelay
 }
 
@@ -581,18 +580,12 @@ func (a *Application) handleTunChange(ctx context.Context) {
 		}
 		
 		go func() {
-			for i := 0; i < 5; i++ {
-				pollCtx, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
-				success := a.pollKernelAPI(pollCtx)
-				cancel()
-				if success {
-					select {
-					case a.apiPollCh <- struct{}{}:
-					default:
-					}
-					return
-				}
+			for i := 0; i < 3; i++ {
 				time.Sleep(300 * time.Millisecond)
+				select {
+				case a.apiPollCh <- struct{}{}:
+				default:
+				}
 			}
 		}()
 		a.pushUIState()
@@ -653,16 +646,8 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		}
 
 		wantTun := a.Cfg.Get("tun") == "true"
-		if wantTun {
-			if !a.State.IsTunAlive() && !a.isTunInGracePeriod() {
-				slog.Warn("TUN 核心已开启，但底层虚拟网卡未能按时初始化或已丢失，请检查驱动或权限")
-			} else if a.State.GetTunStartTime().IsZero() {
-				a.State.SetTunStartTime(time.Now())
-			}
-		} else {
-			if !a.State.GetTunStartTime().IsZero() {
-				a.State.SetTunStartTime(time.Time{})
-			}
+		if wantTun && !a.State.IsTunAlive() && !a.isTunInGracePeriod() {
+			slog.Warn("TUN 核心已开启，但底层虚拟网卡未能按时初始化或已丢失，请检查驱动或权限")
 		}
 
 		currentActual := a.getActualTunDevice()
