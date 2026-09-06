@@ -15,6 +15,9 @@ import (
 var (
 	modWininet            = windows.NewLazySystemDLL("wininet.dll")
 	procInternetSetOption = modWininet.NewProc("InternetSetOptionW")
+
+	modRasapi32        = windows.NewLazySystemDLL("rasapi32.dll")
+	procRasEnumEntries = modRasapi32.NewProc("RasEnumEntriesW")
 )
 
 const (
@@ -33,6 +36,11 @@ const (
 
 	internetSettingsPath = `Software\Microsoft\Windows\CurrentVersion\Internet Settings`
 	connectionsPath      = internetSettingsPath + `\Connections`
+
+	ERROR_SUCCESS          = 0
+	ERROR_BUFFER_TOO_SMALL = 603
+	RAS_MaxEntryName       = 256
+	MAX_PATH               = 260
 )
 
 type internetPerConnOption struct {
@@ -48,6 +56,13 @@ type internetPerConnOptionList struct {
 	pOptions      uintptr
 }
 
+type RasEntryName struct {
+	dwSize      uint32
+	szEntryName [RAS_MaxEntryName + 1]uint16
+	dwFlags     uint32
+	szPhonebook [MAX_PATH + 1]uint16
+}
+
 type ProxyStatus struct {
 	Enabled bool
 	Server  string
@@ -61,7 +76,6 @@ func RefreshWininet() {
 func GetProxyStatus() (ProxyStatus, error) {
 	k, err := registry.OpenKey(registry.CURRENT_USER, internetSettingsPath, registry.QUERY_VALUE)
 	if err != nil {
-		slog.Error("读取系统代理注册表失败", "err", err)
 		return ProxyStatus{}, err
 	}
 	defer k.Close()
@@ -73,6 +87,66 @@ func GetProxyStatus() (ProxyStatus, error) {
 		Enabled: err == nil && val == 1,
 		Server:  server,
 	}, nil
+}
+
+func applyProxyToList(list *internetPerConnOptionList) error {
+	list.pszConnection = nil
+	r, _, err := procInternetSetOption.Call(
+		0,
+		INTERNET_OPTION_PER_CONNECTION_OPTION,
+		uintptr(unsafe.Pointer(list)),
+		uintptr(list.dwSize),
+	)
+	if r == 0 {
+		return fmt.Errorf("InternetSetOptionW 设置 LAN 代理失败: %w", err)
+	}
+
+	var cb uint32 = uint32(unsafe.Sizeof(RasEntryName{}))
+	var cEntries uint32 = 0
+	entry := RasEntryName{dwSize: cb}
+
+	ret, _, _ := procRasEnumEntries.Call(
+		0, 0,
+		uintptr(unsafe.Pointer(&entry)),
+		uintptr(unsafe.Pointer(&cb)),
+		uintptr(unsafe.Pointer(&cEntries)),
+	)
+
+	if ret == ERROR_SUCCESS && cEntries == 1 {
+		list.pszConnection = &entry.szEntryName[0]
+		procInternetSetOption.Call(
+			0,
+			INTERNET_OPTION_PER_CONNECTION_OPTION,
+			uintptr(unsafe.Pointer(list)),
+			uintptr(list.dwSize),
+		)
+		runtime.KeepAlive(&entry)
+	} else if ret == ERROR_BUFFER_TOO_SMALL && cEntries > 0 {
+		entries := make([]RasEntryName, cEntries)
+		entries[0].dwSize = uint32(unsafe.Sizeof(RasEntryName{}))
+
+		ret, _, _ = procRasEnumEntries.Call(
+			0, 0,
+			uintptr(unsafe.Pointer(&entries[0])),
+			uintptr(unsafe.Pointer(&cb)),
+			uintptr(unsafe.Pointer(&cEntries)),
+		)
+
+		if ret == ERROR_SUCCESS {
+			for i := uint32(0); i < cEntries; i++ {
+				list.pszConnection = &entries[i].szEntryName[0]
+				procInternetSetOption.Call(
+					0,
+					INTERNET_OPTION_PER_CONNECTION_OPTION,
+					uintptr(unsafe.Pointer(list)),
+					uintptr(list.dwSize),
+				)
+			}
+		}
+		runtime.KeepAlive(entries)
+	}
+
+	return nil
 }
 
 func SetSystemProxy(enable bool, portStr string) error {
@@ -94,7 +168,6 @@ func SetSystemProxy(enable bool, portStr string) error {
 	var list internetPerConnOptionList
 
 	list.dwSize = uint32(unsafe.Sizeof(list))
-	list.pszConnection = nil
 
 	if !enable {
 		options[0].dwOption = INTERNET_PER_CONN_FLAGS
@@ -103,20 +176,11 @@ func SetSystemProxy(enable bool, portStr string) error {
 		list.dwOptionCount = 1
 		list.pOptions = uintptr(unsafe.Pointer(&options[0]))
 
-		r, _, err := procInternetSetOption.Call(
-			0,
-			INTERNET_OPTION_PER_CONNECTION_OPTION,
-			uintptr(unsafe.Pointer(&list)),
-			uintptr(list.dwSize),
-		)
-		
-		runtime.KeepAlive(&options)
-		
-		if r == 0 {
-			slog.Error("WinINet 关闭代理失败", "err", err)
-			return fmt.Errorf("InternetSetOptionW 关闭代理失败: %w", err)
+		if err := applyProxyToList(&list); err != nil {
+			slog.Error("系统代理关闭失败", "err", err)
+			return err
 		}
-		slog.Debug("底层动作: 系统代理已关闭")
+		slog.Debug("系统代理已关闭")
 	} else {
 		port := strings.TrimSpace(portStr)
 		if port == "" {
@@ -144,24 +208,18 @@ func SetSystemProxy(enable bool, portStr string) error {
 		list.dwOptionCount = 3
 		list.pOptions = uintptr(unsafe.Pointer(&options[0]))
 
-		r, _, err := procInternetSetOption.Call(
-			0,
-			INTERNET_OPTION_PER_CONNECTION_OPTION,
-			uintptr(unsafe.Pointer(&list)),
-			uintptr(list.dwSize),
-		)
+		if err := applyProxyToList(&list); err != nil {
+			slog.Error("系统代理开启失败", "err", err)
+			return err
+		}
 
 		runtime.KeepAlive(serverPtr)
 		runtime.KeepAlive(bypassPtr)
-		runtime.KeepAlive(&options)
 
-		if r == 0 {
-			slog.Error("WinINet 设置代理失败", "err", err)
-			return fmt.Errorf("InternetSetOptionW 设置代理失败: %w", err)
-		}
-		slog.Debug("底层动作: 系统代理已开启", "目标Server", expectedServer)
+		slog.Debug("系统代理已开启", "Server", expectedServer)
 	}
 
+	runtime.KeepAlive(&options)
 	RefreshWininet()
 	return nil
 }
@@ -180,21 +238,20 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 		for _, k := range keys {
 			_ = k.Close()
 		}
-		slog.Debug("系统代理注册表监听已退出清理")
 	}
 	defer cleanup()
 
 	for _, path := range paths {
 		k, err := registry.OpenKey(registry.CURRENT_USER, path, registry.NOTIFY|registry.QUERY_VALUE)
 		if err != nil {
-			slog.Error("启动注册表监听失败 (无法打开键)", "path", path, "err", err)
+			slog.Error("启动注册表监听失败", "path", path, "err", err)
 			continue
 		}
 		keys = append(keys, k)
 
 		event, err := windows.CreateEvent(nil, 0, 0, nil)
 		if err != nil {
-			slog.Error("创建 Windows Event 句柄失败", "err", err)
+			slog.Error("创建系统代理监听事件失败", "err", err)
 			return
 		}
 		handles = append(handles, event)
@@ -204,11 +261,9 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 		return
 	}
 
-	slog.Debug("系统代理注册表监听已启动", "监听路径数量", len(keys))
-
 	cancelEvent, err := windows.CreateEvent(nil, 0, 0, nil)
 	if err != nil {
-		slog.Error("创建 Cancel Event 失败", "err", err)
+		slog.Error("创建监听取消事件失败", "err", err)
 		return
 	}
 	handles = append(handles, cancelEvent)
@@ -235,7 +290,6 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 	for {
 		index, err := windows.WaitForMultipleObjects(handles, false, windows.INFINITE)
 		if err != nil {
-			slog.Error("WaitForMultipleObjects 等待注册表事件出错", "err", err)
 			return
 		}
 
@@ -245,7 +299,6 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 
 		triggeredIdx := int(index - windows.WAIT_OBJECT_0)
 		if triggeredIdx >= 0 && triggeredIdx < len(keys) {
-			slog.Debug("检测到系统代理注册表发生变更")
 			armKey(triggeredIdx)
 		} else {
 			for i := range keys {
