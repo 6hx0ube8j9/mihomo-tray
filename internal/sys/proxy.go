@@ -3,8 +3,10 @@ package sys
 import (
 	"context"
 	"fmt"
-	"strings"
 	"log/slog"
+	"runtime"
+	"strings"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
@@ -16,14 +18,35 @@ var (
 )
 
 const (
-	INTERNET_OPTION_REFRESH          = 37
-	INTERNET_OPTION_SETTINGS_CHANGED = 39
+	INTERNET_OPTION_REFRESH               = 37
+	INTERNET_OPTION_SETTINGS_CHANGED      = 39
+	INTERNET_OPTION_PER_CONNECTION_OPTION = 75
+
+	INTERNET_PER_CONN_FLAGS        = 1
+	INTERNET_PER_CONN_PROXY_SERVER = 2
+	INTERNET_PER_CONN_PROXY_BYPASS = 3
+
+	PROXY_TYPE_DIRECT = 0x00000001
+	PROXY_TYPE_PROXY  = 0x00000002
 
 	defaultProxyOverride = "<local>;localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*"
 
 	internetSettingsPath = `Software\Microsoft\Windows\CurrentVersion\Internet Settings`
 	connectionsPath      = internetSettingsPath + `\Connections`
 )
+
+type internetPerConnOption struct {
+	dwOption uint32
+	dwValue  uintptr
+}
+
+type internetPerConnOptionList struct {
+	dwSize        uint32
+	pszConnection *uint16
+	dwOptionCount uint32
+	dwOptionError uint32
+	pOptions      uintptr
+}
 
 type ProxyStatus struct {
 	Enabled bool
@@ -53,42 +76,91 @@ func GetProxyStatus() (ProxyStatus, error) {
 }
 
 func SetSystemProxy(enable bool, portStr string) error {
-	k, err := registry.OpenKey(registry.CURRENT_USER, internetSettingsPath, registry.QUERY_VALUE|registry.SET_VALUE)
-	if err != nil {
-		slog.Error("打开代理注册表写权限失败", "err", err)
-		return err
-	}
-	defer k.Close()
-
-	currEnable, _, errEnable := k.GetIntegerValue("ProxyEnable")
-	currServer, _, errServer := k.GetStringValue("ProxyServer")
-
-	if !enable {
-		if errEnable == nil && currEnable == 0 {
+	curr, err := GetProxyStatus()
+	if err == nil {
+		if !enable && !curr.Enabled {
 			return nil
 		}
-		slog.Debug("底层动作: 关闭系统代理")
-		_ = k.SetDWordValue("ProxyEnable", 0)
-		RefreshWininet()
-		return nil
+		if enable {
+			port := strings.TrimSpace(portStr)
+			expectedServer := "127.0.0.1:" + port
+			if curr.Enabled && strings.EqualFold(curr.Server, expectedServer) {
+				return nil
+			}
+		}
 	}
 
-	port := strings.TrimSpace(portStr)
-	if port == "" {
-		return fmt.Errorf("proxy port cannot be empty")
-	}
-	expectedServer := "127.0.0.1:" + port
+	var options [3]internetPerConnOption
+	var list internetPerConnOptionList
 
-	if errEnable == nil && currEnable == 1 && errServer == nil && strings.EqualFold(currServer, expectedServer) {
-		return nil
-	}
+	list.dwSize = uint32(unsafe.Sizeof(list))
+	list.pszConnection = nil
 
-	slog.Debug("底层动作: 设置系统代理", "目标Server", expectedServer)
-	_ = k.SetStringValue("ProxyServer", expectedServer)
-	_ = k.SetStringValue("ProxyOverride", defaultProxyOverride)
-	_ = k.SetDWordValue("AutoDetect", 0)
-	_ = k.DeleteValue("AutoConfigURL")
-	_ = k.SetDWordValue("ProxyEnable", 1)
+	if !enable {
+		options[0].dwOption = INTERNET_PER_CONN_FLAGS
+		options[0].dwValue = uintptr(PROXY_TYPE_DIRECT)
+
+		list.dwOptionCount = 1
+		list.pOptions = uintptr(unsafe.Pointer(&options[0]))
+
+		r, _, err := procInternetSetOption.Call(
+			0,
+			INTERNET_OPTION_PER_CONNECTION_OPTION,
+			uintptr(unsafe.Pointer(&list)),
+			uintptr(list.dwSize),
+		)
+		
+		runtime.KeepAlive(&options)
+		
+		if r == 0 {
+			slog.Error("WinINet 关闭代理失败", "err", err)
+			return fmt.Errorf("InternetSetOptionW 关闭代理失败: %w", err)
+		}
+		slog.Debug("底层动作: 系统代理已关闭")
+	} else {
+		port := strings.TrimSpace(portStr)
+		if port == "" {
+			return fmt.Errorf("proxy port cannot be empty")
+		}
+		expectedServer := "127.0.0.1:" + port
+
+		serverPtr, err := windows.UTF16PtrFromString(expectedServer)
+		if err != nil {
+			return fmt.Errorf("构建代理地址字符串失败: %w", err)
+		}
+		bypassPtr, err := windows.UTF16PtrFromString(defaultProxyOverride)
+		if err != nil {
+			return fmt.Errorf("构建绕过白名单字符串失败: %w", err)
+		}
+
+		options[0].dwOption = INTERNET_PER_CONN_FLAGS
+		options[0].dwValue = uintptr(PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY)
+
+		options[1].dwOption = INTERNET_PER_CONN_PROXY_SERVER
+		options[1].dwValue = uintptr(unsafe.Pointer(serverPtr))
+		options[2].dwOption = INTERNET_PER_CONN_PROXY_BYPASS
+		options[2].dwValue = uintptr(unsafe.Pointer(bypassPtr))
+
+		list.dwOptionCount = 3
+		list.pOptions = uintptr(unsafe.Pointer(&options[0]))
+
+		r, _, err := procInternetSetOption.Call(
+			0,
+			INTERNET_OPTION_PER_CONNECTION_OPTION,
+			uintptr(unsafe.Pointer(&list)),
+			uintptr(list.dwSize),
+		)
+
+		runtime.KeepAlive(serverPtr)
+		runtime.KeepAlive(bypassPtr)
+		runtime.KeepAlive(&options)
+
+		if r == 0 {
+			slog.Error("WinINet 设置代理失败", "err", err)
+			return fmt.Errorf("InternetSetOptionW 设置代理失败: %w", err)
+		}
+		slog.Debug("底层动作: 系统代理已开启", "目标Server", expectedServer)
+	}
 
 	RefreshWininet()
 	return nil
@@ -122,6 +194,7 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 
 		event, err := windows.CreateEvent(nil, 0, 0, nil)
 		if err != nil {
+			slog.Error("创建 Windows Event 句柄失败", "err", err)
 			return
 		}
 		handles = append(handles, event)
@@ -133,7 +206,11 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 
 	slog.Debug("系统代理注册表监听已启动", "监听路径数量", len(keys))
 
-	cancelEvent, _ := windows.CreateEvent(nil, 0, 0, nil)
+	cancelEvent, err := windows.CreateEvent(nil, 0, 0, nil)
+	if err != nil {
+		slog.Error("创建 Cancel Event 失败", "err", err)
+		return
+	}
 	handles = append(handles, cancelEvent)
 	cancelIdx := uint32(len(handles) - 1)
 
@@ -179,8 +256,7 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 		if status, err := GetProxyStatus(); err == nil {
 			select {
 			case statusCh <- status:
-			case <-ctx.Done():
-				return
+			default:
 			}
 		}
 	}
