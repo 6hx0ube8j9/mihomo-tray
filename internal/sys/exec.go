@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"syscall"
 
 	"golang.org/x/sys/windows"
 )
@@ -26,16 +27,21 @@ func RunAsAdmin(exe, dir string) {
 	exePtr, _ := windows.UTF16PtrFromString(exe)
 	cwdPtr, _ := windows.UTF16PtrFromString(dir)
 
+	var safeArgs []string
+	for _, arg := range os.Args[1:] {
+		safeArgs = append(safeArgs, syscall.EscapeArg(arg))
+	}
+
 	var argsPtr *uint16
-	if len(os.Args) > 1 {
-		argsPtr, _ = windows.UTF16PtrFromString(strings.Join(os.Args[1:], " "))
+	if len(safeArgs) > 0 {
+		argsPtr, _ = windows.UTF16PtrFromString(strings.Join(safeArgs, " "))
 	}
 
 	err := windows.ShellExecute(0, verb, exePtr, argsPtr, cwdPtr, windows.SW_SHOWNORMAL)
 
 	if err != nil && !errors.Is(err, windows.ERROR_CANCELLED) {
 		title, _ := windows.UTF16PtrFromString("权限请求失败")
-		msg, _ := windows.UTF16PtrFromString("TUN 模式及系统网络接管需要管理员权限，请授权后运行。")
+		msg, _ := windows.UTF16PtrFromString("TUN 模式需要管理员权限，请授权后运行。")
 		_, _ = windows.MessageBox(0, msg, title, mbErrorTopmost)
 	}
 }
