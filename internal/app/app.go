@@ -226,47 +226,47 @@ func (a *Application) eventLoop(ctx context.Context) {
 				go func() {
 					defer a.State.SetRestarting(false)
 					for i := 0; i < 60; i++ {
-						if ctx.Err() != nil {
-							slog.Debug("接收到程序退出信号，立即终止内核启动轮询")
+						if a.State.IsExiting() || ctx.Err() != nil {
 							return
 						}
 
 						pollCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
 						_, err := a.API.DoRequest(pollCtx, "GET", "/configs", nil)
 						cancel()
-						
+
 						if err == nil {
 							slog.Info("内核 API 端口已响应，等待底层网络栈收敛...", "耗时(ms)", (i+1)*250)
-							
+
 							select {
 							case <-ctx.Done():
-								slog.Debug("网络收敛等待期间收到退出信号，终止启动")
 								return
 							case <-time.After(500 * time.Millisecond):
 							}
-							
+
 							slog.Info("内核启动完成，正式进入运行阶段")
 							a.State.SetPhase(state.PhaseRunning)
-							
+
 							select {
 							case a.apiPollCh <- struct{}{}:
 							default:
 							}
 							return
 						}
-						
+
 						select {
 						case <-ctx.Done():
-							slog.Debug("重试等待期间收到退出信号，终止启动")
 							return
 						case <-time.After(250 * time.Millisecond):
 						}
 					}
-					slog.Error("内核 API 连接超时，终止重试请求", "重试次数", 60)
-					a.Kernel.HaltDaemon()
-					a.State.SetPhase(state.PhaseInitializing)
-					a.pushUIState()
-				}()				
+
+					if !a.State.IsExiting() && ctx.Err() == nil {
+						slog.Error("内核 API 连接超时，终止重试请求", "重试次数", 60)
+						a.Kernel.HaltDaemon()
+						a.State.SetPhase(state.PhaseInitializing)
+						a.pushUIState()
+					}
+				}()			
 			} else if event == core.EventKernelExit {
 				if a.State.IsRestarting() {
 					slog.Info("内核已停止，等待重启指令")
