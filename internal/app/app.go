@@ -265,7 +265,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 			a.handleTunChange(ctx)
 
 		case status := <-a.proxyStatusCh:
-			a.handleProxyStatusChange(status)
+			a.handleProxyStatusChange(ctx, status)
 
 		case <-ticker.C:
 			tryPollAPI()
@@ -328,7 +328,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 				tunPayload["device"] = dev
 			}
 
-			reqCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
 
 			if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"tun": tunPayload}); err != nil {
@@ -351,7 +351,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		go func() {
 			defer a.State.SetConfigSyncing(false)
 			
-			reqCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 			defer cancel()
 
 			if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"mode": cmd.Payload}); err != nil {
@@ -399,7 +399,7 @@ func (a *Application) syncSystemProxy() {
 	}
 }
 
-func (a *Application) handleProxyStatusChange(status sys.ProxyStatus) {
+func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.ProxyStatus) {
 	if a.State.IsExiting() {
 		return
 	}
@@ -427,6 +427,11 @@ func (a *Application) handleProxyStatusChange(status sys.ProxyStatus) {
 			defer a.proxyRepairing.Store(false)
 
 			for i := 1; i <= 10; i++ {
+				if a.State.IsExiting() || ctx.Err() != nil {
+					slog.Debug("程序正在退出，终止代理恢复流程")
+					return
+				}
+
 				if a.Cfg.Get("proxy") != "true" {
 					slog.Info("用户已手动关闭系统代理，终止自动恢复流程")
 					return
@@ -436,7 +441,12 @@ func (a *Application) handleProxyStatusChange(status sys.ProxyStatus) {
 				
 				a.syncSystemProxy()
 				
-				time.Sleep(1000 * time.Millisecond)
+				select {
+				case <-ctx.Done():
+					slog.Debug("接收到上下文取消信号，立即终止代理恢复流程")
+					return
+				case <-time.After(1000 * time.Millisecond):
+				}
 
 				cur, err := sys.GetProxyStatus()
 				if err == nil && cur.Enabled && strings.EqualFold(cur.Server, expectedServer) {
