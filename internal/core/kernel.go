@@ -74,14 +74,19 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		default:
 		}
 
-		km.mu.Lock()
+        km.mu.Lock()
 		paused := km.isPaused
 		km.mu.Unlock()
+
 		if paused {
-			time.Sleep(1 * time.Second)
+			select {
+			case <-km.wakeCh:
+			case <-ctx.Done():
+				return
+			}
 			continue
 		}
-
+		
 		localPid := atomic.LoadUint32(&km.currentPid)
 		if localPid != 0 && sys.IsPidRunning(localPid, "mihomo.exe") {
 			select {
