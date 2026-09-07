@@ -16,52 +16,51 @@ const (
 type RuntimeState struct {
 	phase         atomic.Int32
 	tunAlive      atomic.Bool
-	proxyActive   atomic.Bool
 	isRestarting  atomic.Bool
 	isReloading   atomic.Bool
 	configSyncing atomic.Bool
 
-	tunReqTime   atomic.Int64
-	tunLostTime  atomic.Int64
-	apiMuteUntil atomic.Int64
+	tunReqTime  atomic.Int64
+	tunLostTime atomic.Int64
 }
 
 func NewRuntimeState() *RuntimeState {
 	rs := &RuntimeState{}
-	rs.SetPhase(PhaseInitializing)
+	rs.phase.Store(int32(PhaseInitializing))
 	return rs
 }
 
 func (r *RuntimeState) SetConfigSyncing(b bool) { r.configSyncing.Store(b) }
 func (r *RuntimeState) IsConfigSyncing() bool   { return r.configSyncing.Load() }
-func (r *RuntimeState) SetRestarting(b bool) { r.isRestarting.Store(b) }
-func (r *RuntimeState) IsRestarting() bool   { return r.isRestarting.Load() }
-func (r *RuntimeState) SetReloading(b bool)  { r.isReloading.Store(b) }
-func (r *RuntimeState) IsReloading() bool   { return r.isReloading.Load() }
-func (r *RuntimeState) GetPhase() AppPhase   { return AppPhase(r.phase.Load()) }
-func (r *RuntimeState) SetPhase(p AppPhase)  { r.phase.Store(int32(p)) }
+func (r *RuntimeState) SetRestarting(b bool)    { r.isRestarting.Store(b) }
+func (r *RuntimeState) IsRestarting() bool      { return r.isRestarting.Load() }
+func (r *RuntimeState) SetReloading(b bool)     { r.isReloading.Store(b) }
+func (r *RuntimeState) IsReloading() bool      { return r.isReloading.Load() }
 
-func (r *RuntimeState) CompareAndSwapPhase(old, new AppPhase) bool {
-	return r.phase.CompareAndSwap(int32(old), int32(new))
-}
+func (r *RuntimeState) GetPhase() AppPhase { return AppPhase(r.phase.Load()) }
 
-func (r *RuntimeState) ForceExitPhase() {
+func (r *RuntimeState) SetPhase(p AppPhase) {
 	for {
 		curr := r.phase.Load()
 		if AppPhase(curr) == PhaseExiting {
 			return
 		}
-		if r.phase.CompareAndSwap(curr, int32(PhaseExiting)) {
+		if r.phase.CompareAndSwap(curr, int32(p)) {
 			return
 		}
 	}
 }
 
-func (r *RuntimeState) IsExiting() bool            { return r.GetPhase() == PhaseExiting }
-func (r *RuntimeState) SetTunAlive(alive bool)     { r.tunAlive.Store(alive) }
-func (r *RuntimeState) IsTunAlive() bool           { return r.tunAlive.Load() }
-func (r *RuntimeState) SetProxyActive(active bool) { r.proxyActive.Store(active) }
-func (r *RuntimeState) IsProxyActive() bool        { return r.proxyActive.Load() }
+func (r *RuntimeState) ForceExitPhase() {
+	r.phase.Store(int32(PhaseExiting))
+}
+
+func (r *RuntimeState) IsExiting() bool { 
+	return r.GetPhase() == PhaseExiting 
+}
+
+func (r *RuntimeState) SetTunAlive(alive bool) { r.tunAlive.Store(alive) }
+func (r *RuntimeState) IsTunAlive() bool       { return r.tunAlive.Load() }
 
 func (r *RuntimeState) storeTime(target *atomic.Int64, t time.Time) {
 	if t.IsZero() {
@@ -77,18 +76,6 @@ func (r *RuntimeState) loadTime(target *atomic.Int64) time.Time {
 		return time.Time{}
 	}
 	return time.Unix(0, nano).Local()
-}
-
-func (r *RuntimeState) MuteAPIWatcher(d time.Duration) {
-	r.storeTime(&r.apiMuteUntil, time.Now().Add(d))
-}
-
-func (r *RuntimeState) IsAPIWatcherMuted() bool {
-	until := r.loadTime(&r.apiMuteUntil)
-	if until.IsZero() {
-		return false
-	}
-	return time.Now().Before(until)
 }
 
 func (r *RuntimeState) SetTunRequestedTime(t time.Time) { r.storeTime(&r.tunReqTime, t) }
