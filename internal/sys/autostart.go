@@ -74,9 +74,10 @@ func IsTaskPathValid(currentExePath string) bool {
 	schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
 	cmd := exec.Command(schtasksPath, "/Query", "/TN", taskName, "/XML")
 	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+	
 	out, err := cmd.Output()
 	if err != nil {
-		slog.Error("读取计划任务 XML 配置失败", "err", err)
+		slog.Debug("计划任务不存在或无法读取，跳过路径校验", "err", err)
 		return false
 	}
 
