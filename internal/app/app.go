@@ -87,8 +87,13 @@ func (a *Application) setActualTunDevice(dev string) {
 }
 
 func (a *Application) isTunInGracePeriod() bool {
-	return time.Since(a.State.GetTunRequestedTime()) < TunInitGracePeriod ||
-		time.Since(a.State.GetTunLostTime()) < TunLostAlarmDelay
+	reqTime := a.State.GetTunRequestedTime()
+	lostTime := a.State.GetTunLostTime()
+	
+	reqActive := !reqTime.IsZero() && time.Since(reqTime) < TunInitGracePeriod
+	lostActive := !lostTime.IsZero() && time.Since(lostTime) < TunLostAlarmDelay
+
+	return reqActive || lostActive
 }
 
 func (a *Application) reconcileTunState(kernelTunEnabled bool) bool {
