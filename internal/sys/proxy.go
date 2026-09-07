@@ -3,6 +3,8 @@ package sys
 import (
 	"context"
 	"fmt"
+	"net"
+	"time"
 	"log/slog"
 	"runtime"
 	"strings"
@@ -313,4 +315,17 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 			}
 		}
 	}
+}
+
+func IsPortListening(port string) bool {
+	if port == "" {
+		return false
+	}
+
+	conn, dialErr := net.DialTimeout("tcp", "127.0.0.1:"+port, 200*time.Millisecond)
+	if dialErr != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
