@@ -224,23 +224,21 @@ func main() {
 			_ = windows.CloseHandle(hM)
 			hM = 0
 		}
+		
+		if sys.IsTaskPathValid(exePath) {
+			slog.Debug("探测到有效系统计划任务，尝试执行提权启动")
+			schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
+			cmd := exec.Command(schtasksPath, "/Run", "/TN", "MihomoTrayTask")
+			cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 
-		if cfgMgr.Get("autostart") == "true" {
-			if sys.CheckAutoStartStatus() && sys.IsTaskPathValid(exePath) {
-				slog.Debug("尝试通过计划任务执行无感提权启动")
-				schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
-				cmd := exec.Command(schtasksPath, "/Run", "/TN", "MihomoTrayTask")
-				cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
-
-				if out, err := cmd.CombinedOutput(); err == nil {
-					slog.Info("计划任务触发成功，当前普通权限进程退出")
-					return
-				} else {
-					slog.Warn("计划任务触发失败，回退至 UAC", "err", err, "output", string(out))
-				}
+			if out, err := cmd.CombinedOutput(); err == nil {
+				slog.Info("计划任务触发成功，当前普通权限进程退出")
+				return
 			} else {
-				slog.Warn("计划任务不存在或路径不匹配，跳过无感提权")
+				slog.Warn("计划任务触发失败，回退至 UAC", "err", err, "output", string(out))
 			}
+		} else {
+			slog.Debug("系统计划任务未配置或路径失效，跳过提权启动")
 		}
 
 		slog.Warn("权限不足，发起 UAC 提权请求")
