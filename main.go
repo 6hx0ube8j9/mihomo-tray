@@ -228,7 +228,7 @@ func main() {
 		if sys.IsTaskPathValid(exePath) {
 			slog.Debug("探测到有效系统计划任务，尝试执行提权启动")
 			schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
-			cmd := exec.Command(schtasksPath, "/Run", "/TN", "MihomoTrayTask")
+			cmd := exec.Command(schtasksPath, "/Run", "/TN", sys.TaskName)
 			cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 
 			if out, err := cmd.CombinedOutput(); err == nil {
