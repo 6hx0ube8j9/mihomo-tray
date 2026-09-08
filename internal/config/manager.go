@@ -3,11 +3,11 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-	"log/slog"
 )
 
 const (
@@ -28,16 +28,11 @@ const (
 )
 
 type TrayConfig struct {
-	Autostart          string `json:"autostart"`
-	ExternalController string `json:"external-controller"`
-	ExternalUIName     string `json:"external-ui-name"`
-	Mode               string `json:"mode"`
-	Port               string `json:"port"`
-	Proxy              string `json:"proxy"`
-	Secret             string `json:"secret"`
-	Tun                string `json:"tun"`
-	TunDevice          string `json:"tun_device"`    
-	TrayLogLevel       string `json:"tray_log_level"`
+	Autostart    string `json:"autostart"`
+	Mode         string `json:"mode"`
+	Proxy        string `json:"proxy"`
+	Tun          string `json:"tun"`
+	TrayLogLevel string `json:"tray_log_level"`
 }
 
 type Manager struct {
@@ -45,13 +40,20 @@ type Manager struct {
 	exePath string
 	mu      sync.RWMutex
 	yamlMu  sync.Mutex
-	data    TrayConfig
+
+	data TrayConfig
+	runtimeKernelParams map[string]string
 }
 
 func NewManager(baseDir, exePath string) *Manager {
 	return &Manager{
 		baseDir: baseDir,
 		exePath: exePath,
+		runtimeKernelParams: map[string]string{
+			"port":                DefaultMixedPort,
+			"external-controller": DefaultExternalController,
+			"secret":              DefaultSecret,
+		},
 	}
 }
 
@@ -89,18 +91,6 @@ func (m *Manager) EnsureDefault() {
 		m.data.Mode = DefaultMode
 		changed = true
 	}
-	if m.data.Port == "" {
-		m.data.Port = DefaultMixedPort
-		changed = true
-	}
-	if m.data.ExternalController == "" {
-		m.data.ExternalController = DefaultExternalController
-		changed = true
-	}
-	if m.data.Secret == "" {
-		m.data.Secret = DefaultSecret
-		changed = true
-	}
 	if m.data.TrayLogLevel == "" {
 		m.data.TrayLogLevel = "error"
 		changed = true
@@ -118,24 +108,14 @@ func (m *Manager) Get(key string) string {
 	switch key {
 	case "autostart":
 		return m.data.Autostart
-	case "external-controller":
-		return m.data.ExternalController
-	case "external-ui-name":
-		return m.data.ExternalUIName
 	case "mode":
 		return m.data.Mode
-	case "port":
-		return m.data.Port
 	case "proxy":
 		return m.data.Proxy
-	case "secret":
-		return m.data.Secret
 	case "tun":
 		return m.data.Tun
-	case "tun_device":
-		return m.data.TunDevice
 	default:
-		return ""
+		return m.runtimeKernelParams[key]
 	}
 }
 
@@ -156,70 +136,36 @@ func (m *Manager) UpdateBatch(updates map[string]string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	changed := false
+	diskChanged := false
 	for key, value := range updates {
-		if value == "" {
-			switch key {
-			case "mode":
-				value = DefaultMode
-			case "port":
-				value = DefaultMixedPort
-			case "external-controller":
-				value = DefaultExternalController
-			}
-		}
-
 		switch key {
 		case "autostart":
 			if m.data.Autostart != value {
 				m.data.Autostart = value
-				changed = true
-			}
-		case "external-controller":
-			if m.data.ExternalController != value {
-				m.data.ExternalController = value
-				changed = true
-			}
-		case "external-ui-name":
-			if m.data.ExternalUIName != value {
-				m.data.ExternalUIName = value
-				changed = true
+				diskChanged = true
 			}
 		case "mode":
 			if m.data.Mode != value {
 				m.data.Mode = value
-				changed = true
-			}
-		case "port":
-			if m.data.Port != value {
-				m.data.Port = value
-				changed = true
+				diskChanged = true
 			}
 		case "proxy":
 			if m.data.Proxy != value {
 				m.data.Proxy = value
-				changed = true
-			}
-		case "secret":
-			if m.data.Secret != value {
-				m.data.Secret = value
-				changed = true
+				diskChanged = true
 			}
 		case "tun":
 			if m.data.Tun != value {
 				m.data.Tun = value
-				changed = true
+				diskChanged = true
 			}
-		case "tun_device":
-			if m.data.TunDevice != value {
-				m.data.TunDevice = value
-				changed = true
-			}
+		default:
+			m.runtimeKernelParams[key] = value
 		}
 	}
 
-	if changed {
-		slog.Debug("本地配置已变更，执行保存")
+	if diskChanged {
+		slog.Debug("本地用户偏好发生变更，保存至 JSON")
 		m.lockedSave()
 	}
 }
