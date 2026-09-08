@@ -122,29 +122,9 @@ func (a *Application) reconcileTunState(kernelTunEnabled bool) bool {
 
 func (a *Application) Bootstrap(ctx context.Context) {
 	slog.Debug("开始初始化后台核心服务")
-	osTaskExists := sys.CheckAutoStartStatus()
-	cfgMemoryStatus := a.Cfg.Get("autostart") == "true"
-	slog.Debug("检查开机自启状态", "系统任务", osTaskExists, "配置预期", cfgMemoryStatus)
-
-	if osTaskExists {
-		if !sys.IsTaskPathValid(a.Cfg.ExePath()) {
-			slog.Warn("检测到系统自启任务路径不匹配，准备自动修复")
-			if cfgMemoryStatus {
-				sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), true)
-				osTaskExists = true
-				slog.Info("自启任务路径已更新至当前位置")
-			} else {
-				sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), false)
-				osTaskExists = false
-				slog.Info("已清除系统残留的无效自启任务")
-			}
-		}
-	}
-
-	if osTaskExists != cfgMemoryStatus {
-		slog.Debug("同步自启状态至本地配置", "Status", osTaskExists)
-		a.Cfg.Set("autostart", strconv.FormatBool(osTaskExists))
-	}
+	finalAutostart := ResolveAutostart(a.Cfg.Get("autostart"), a.Cfg.ExePath(), a.Cfg.BaseDir())
+	a.Cfg.UpdateBatch(map[string]string{"autostart": finalAutostart})
+	a.Cfg.FlushInitialState()
 
 	if modified, err := a.Cfg.PrepareYAMLForBoot(); err != nil {
 		slog.Error("处理内核 YAML 配置失败", "err", err)
@@ -387,9 +367,20 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		}()
 	case "ToggleAutoStart":
 		enable := cmd.Payload == "true"
-		slog.Info("切换开机自启配置", "目标状态", enable)
+		slog.Info("收到开机自启切换指令", "目标状态", enable)
 		a.Cfg.Set("autostart", cmd.Payload)
-		sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), enable)
+		
+		if enable {
+			sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), true)
+			slog.Info("已通过主动授权覆写并接管开机自启任务")
+		} else {
+			if sys.CheckAutoStartStatus() && !sys.IsTaskPathValid(a.Cfg.ExePath()) {
+				slog.Warn("检测到系统计划任务归属其他路径，安全忽略越权删除操作")
+			} else {
+				sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), false)
+				slog.Info("已清理当前程序的开机自启任务")
+			}
+		}
 	case "OpenBaseDir":
 		baseDir := a.Cfg.BaseDir()
 		slog.Info("打开应用程序目录")
