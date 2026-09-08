@@ -179,7 +179,7 @@ func main() {
 	}
 
 	cfgMgr := config.NewManager(baseDir, exePath)
-	cfgMgr.EnsureDefault()
+	cfgMgr.LoadAndInitMemory()
 	syncLogLevel(cfgMgr)
 
 	slog.Info("程序启动", "PID", os.Getpid(), "工作目录", baseDir)
