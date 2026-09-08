@@ -2,11 +2,10 @@ package sys
 
 import (
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strings"
-	"time"
 	"unsafe"
-	"log/slog"
 
 	"golang.org/x/sys/windows"
 )
@@ -17,7 +16,7 @@ var (
 	procAttachConsole           = modKernel32Proc.NewProc("AttachConsole")
 	procFreeConsole             = modKernel32Proc.NewProc("FreeConsole")
 	procSetConsoleCtrlHandler   = modKernel32Proc.NewProc("SetConsoleCtrlHandler")
-	procGetSystemMetricsProcess = modUser32Process.NewProc("GetSystemMetrics") 
+	procGetSystemMetricsProcess = modUser32Process.NewProc("GetSystemMetrics")
 )
 
 func IsSystemShuttingDown() bool {
@@ -51,7 +50,7 @@ func KillOtherProcessesByName(name string, excludePid uint32) {
 				_ = windows.TerminateProcess(h, 9)
 				_, _ = windows.WaitForSingleObject(h, 2000)
 				windows.CloseHandle(h)
-				slog.Debug("残留进程已彻底终止并释放系统资源", "PID", pe.ProcessID)
+				slog.Debug("残留进程已结束并释放系统资源", "PID", pe.ProcessID)
 			} else {
 				slog.Error("结束残留进程失败 (拒绝访问)", "PID", pe.ProcessID, "err", err)
 			}
@@ -72,8 +71,9 @@ func IsPidRunning(pid uint32, expectedExeName string) bool {
 		return false
 	}
 	defer windows.CloseHandle(h)
+
 	event, err := windows.WaitForSingleObject(h, 0)
-	if err != nil || event != windows.WAIT_TIMEOUT {
+	if err != nil || event != uint32(windows.WAIT_TIMEOUT) {
 		return false
 	}
 
@@ -143,7 +143,7 @@ func SendCtrlBreak(pid uint32) error {
 		slog.Error("附加目标控制台失败 (AttachConsole)", "PID", pid, "err", err)
 		return fmt.Errorf("attachConsole 失败: %w", err)
 	}
-	
+
 	defer procFreeConsole.Call()
 	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
 }
