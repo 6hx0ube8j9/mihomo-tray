@@ -4,10 +4,10 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"sync"
 	"time"
-	"log/slog"
 
 	"mihomo-tray/internal/wintray"
 )
@@ -112,7 +112,7 @@ func (tm *TrayMenu) ListenUIState() {
 			tm.stateMu.Unlock()
 
 			if state.IconState >= 0 && state.IconState < 5 {
-				go tm.trayHost.SetIcon(state.IconState)
+				tm.trayHost.SetIcon(state.IconState)
 			}
 		}
 	}
@@ -120,8 +120,11 @@ func (tm *TrayMenu) ListenUIState() {
 
 func (tm *TrayMenu) sendCommand(action, payload string) {
 	slog.Debug("托盘下发控制指令", "Action", action, "Payload", payload)
+	
 	select {
 	case tm.commandCh <- UICommand{Action: action, Payload: payload}:
+	case <-time.After(500 * time.Millisecond):
+		slog.Warn("下发控制指令超时，应用主事件循环可能正忙", "Action", action)
 	case <-tm.ctx.Done():
 	}
 }
@@ -140,8 +143,6 @@ func (tm *TrayMenu) onLeftClick() {
 
 func (tm *TrayMenu) onRightClick() {
 	tm.sendCommand("ForceSyncAPI", "")
-	time.Sleep(30 * time.Millisecond)
-
 	tm.stateMu.RLock()
 	st := tm.currState
 	tm.stateMu.RUnlock()
@@ -183,7 +184,7 @@ func (tm *TrayMenu) onRightClick() {
 		{
 			Text: "更多",
 			SubMenuItems: []wintray.MenuItem{
-				{ID: IDToggleAutoStart, Text: "开机启动", Checked: st.AutoStart},
+				{ID: IDToggleAutoStart, Text: "开机自启（以管理员运行）", Checked: st.AutoStart},
 				{ID: IDReloadConfig, Text: "重载配置文件"},
 				{ID: IDRestartKernel, Text: "重启核心"},
 				{ID: IDOpenConfigFile, Text: "编辑 config.yaml"},
