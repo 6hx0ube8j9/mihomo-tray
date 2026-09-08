@@ -46,12 +46,12 @@ func KillOtherProcessesByName(name string, excludePid uint32) {
 		exeName := windows.UTF16ToString(pe.ExeFile[:])
 		if strings.EqualFold(exeName, name) && pe.ProcessID != excludePid && pe.ProcessID != currentPid {
 			slog.Debug("发现同名残留进程，准备结束", "目标", name, "PID", pe.ProcessID)
-			h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, pe.ProcessID)
+			h, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, pe.ProcessID)
 			if err == nil {
 				_ = windows.TerminateProcess(h, 9)
+				_, _ = windows.WaitForSingleObject(h, 2000)
 				windows.CloseHandle(h)
-				slog.Debug("残留进程已结束", "PID", pe.ProcessID)
-				time.Sleep(50 * time.Millisecond)
+				slog.Debug("残留进程已彻底终止并释放系统资源", "PID", pe.ProcessID)
 			} else {
 				slog.Error("结束残留进程失败 (拒绝访问)", "PID", pe.ProcessID, "err", err)
 			}
