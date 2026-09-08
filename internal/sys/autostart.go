@@ -18,7 +18,7 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-const taskName = "MihomoTrayTask"
+const TaskName = "MihomoTrayTask"
 
 func ToggleAutoStart(exePath, baseDir string, enable bool) bool {
 	if key, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.SET_VALUE); err == nil {
@@ -29,13 +29,13 @@ func ToggleAutoStart(exePath, baseDir string, enable bool) bool {
 	schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
 
 	if enable {
-		slog.Debug("开始注册计划任务 (XML 模式最高权限)", "目标", taskName)
+		slog.Debug("开始注册计划任务 (XML 模式最高权限)", "目标", TaskName)
 
 		absExe, _ := filepath.Abs(exePath)
 		absBase, _ := filepath.Abs(baseDir)
 
 		xmlContent := generateTaskXML(absExe, "--autostart", absBase)
-		tempXML := filepath.Join(os.TempDir(), fmt.Sprintf("%s.xml", taskName))
+		tempXML := filepath.Join(os.TempDir(), fmt.Sprintf("%s.xml", TaskName))
 
 		if err := writeUTF16LE(tempXML, xmlContent); err != nil {
 			slog.Error("生成计划任务 XML 临时文件失败", "err", err)
@@ -43,7 +43,7 @@ func ToggleAutoStart(exePath, baseDir string, enable bool) bool {
 		}
 		defer os.Remove(tempXML)
 
-		cmd := exec.Command(schtasksPath, "/Create", "/TN", taskName, "/XML", tempXML, "/F")
+		cmd := exec.Command(schtasksPath, "/Create", "/TN", TaskName, "/XML", tempXML, "/F")
 		cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -53,8 +53,8 @@ func ToggleAutoStart(exePath, baseDir string, enable bool) bool {
 		return true
 	}
 
-	slog.Debug("开始注销计划任务", "目标", taskName)
-	cmd := exec.Command(schtasksPath, "/Delete", "/TN", taskName, "/F")
+	slog.Debug("开始注销计划任务", "目标", TaskName)
+	cmd := exec.Command(schtasksPath, "/Delete", "/TN", TaskName, "/F")
 	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 
 	if err := cmd.Run(); err != nil {
@@ -65,14 +65,14 @@ func ToggleAutoStart(exePath, baseDir string, enable bool) bool {
 
 func CheckAutoStartStatus() bool {
 	schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
-	cmd := exec.Command(schtasksPath, "/Query", "/TN", taskName)
+	cmd := exec.Command(schtasksPath, "/Query", "/TN", TaskName)
 	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 	return cmd.Run() == nil
 }
 
 func IsTaskPathValid(currentExePath string) bool {
 	schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
-	cmd := exec.Command(schtasksPath, "/Query", "/TN", taskName, "/XML")
+	cmd := exec.Command(schtasksPath, "/Query", "/TN", TaskName, "/XML")
 	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 	
 	out, err := cmd.Output()
