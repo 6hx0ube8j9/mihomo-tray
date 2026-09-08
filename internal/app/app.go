@@ -615,7 +615,13 @@ func (a *Application) handleTunChange(ctx context.Context) {
 		
 		go func() {
 			for i := 0; i < 3; i++ {
-				time.Sleep(300 * time.Millisecond)
+				select {
+				case <-ctx.Done():
+					slog.Debug("接收到上下文取消信号，立刻终止 TUN 状态轮询")
+					return
+				case <-time.After(300 * time.Millisecond):
+				}
+				
 				select {
 				case a.apiPollCh <- struct{}{}:
 				default:
