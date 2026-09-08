@@ -2,7 +2,7 @@ package app
 
 import (
 	"log/slog"
-	
+
 	"mihomo-tray/internal/sys"
 )
 
@@ -17,28 +17,28 @@ func ResolveAutostart(cfgAutostart, exePath, baseDir string) string {
 		if isMine {
 			if cfgAutostart != "true" {
 				if cfgAutostart == "false" {
-					slog.Info("检测到本地配置要求关闭自启，清除属于自身的系统任务")
+					slog.Info("本地配置禁用开机启动，删除计划任务")
 					sys.ToggleAutoStart(exePath, baseDir, false)
 					return "false"
 				}
-				slog.Info("识别到正确的系统自启任务，自愈恢复本地配置为开启")
+				slog.Info("检测到匹配的计划任务，同步本地配置为启用")
 				return "true"
 			}
 		} else {
 			if cfgAutostart != "false" {
-				slog.Warn("检测到系统自启任务归属其他路径，已自动放弃接管以防越权")
+				slog.Warn("计划任务指向其他路径，跳过同步")
 				return "false"
 			}
 		}
 	} else {
 		if cfgAutostart == "true" {
-			slog.Info("检测到本地配置要求开机自启，补充创建系统任务")
+			slog.Info("本地配置启用开机启动，创建计划任务")
 			sys.ToggleAutoStart(exePath, baseDir, true)
 			return "true"
 		} else if cfgAutostart == "" {
 			return "false"
 		}
 	}
-	
+
 	return cfgAutostart
 }
