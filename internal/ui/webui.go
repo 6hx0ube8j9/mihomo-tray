@@ -234,7 +234,10 @@ func Launch(cfg Config, eventCh chan<- Event) {
 		}
 
 		if p := strings.TrimSpace(cfg.ProxyPort); p != "" {
-			args = append(args, "--proxy-server=127.0.0.1:"+p, "--proxy-bypass-list=<-loopback>")
+			args = append(args,
+				"--proxy-server=127.0.0.1:"+p,
+				"--proxy-bypass-list=127.0.0.1;localhost;<local>",
+			)
 		}
 
 		cmd := exec.Command(browserPath, args...)
