@@ -67,17 +67,13 @@ func IsPidRunning(pid uint32, expectedExeName string) bool {
 		return false
 	}
 
-	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, pid)
 	if err != nil {
 		return false
 	}
 	defer windows.CloseHandle(h)
-
-	var exitCode uint32
-	if err := windows.GetExitCodeProcess(h, &exitCode); err != nil {
-		return false
-	}
-	if exitCode != 259 { // STILL_ACTIVE = 259
+	event, err := windows.WaitForSingleObject(h, 0)
+	if err != nil || event != windows.WAIT_TIMEOUT {
 		return false
 	}
 
