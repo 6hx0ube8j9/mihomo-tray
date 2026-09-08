@@ -197,7 +197,7 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 
 	var prependLines []string
 
-	if !hasMixedPort {
+	if !hasMixedPort && !hasPort {
 		prependLines = append(prependLines, fmt.Sprintf("mixed-port: %s", DefaultMixedPort))
 		modified = true
 		extracted["port"] = DefaultMixedPort
