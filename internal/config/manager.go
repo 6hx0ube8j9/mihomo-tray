@@ -57,49 +57,39 @@ func NewManager(baseDir, exePath string) *Manager {
 	}
 }
 
-func (m *Manager) EnsureDefault() {
+func (m *Manager) LoadAndInitMemory() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	cfgPath := filepath.Join(m.baseDir, ConfigFileName)
-	changed := false
 
 	if f, err := os.Open(cfgPath); err == nil {
 		if decodeErr := json.NewDecoder(f).Decode(&m.data); decodeErr != nil {
-			slog.Error("解析本地配置文件失败，将使用默认值覆盖", "err", decodeErr)
-			changed = true
+			slog.Error("解析本地配置文件失败，内存将使用空状态", "err", decodeErr)
 		}
 		_ = f.Close()
 	} else {
-		slog.Info("未找到配置文件，将创建全新配置", "Path", cfgPath)
-		changed = true
+		slog.Info("未找到配置文件，内存将作为全新配置初始化", "Path", cfgPath)
 	}
 
 	if m.data.Proxy == "" {
 		m.data.Proxy = DefaultProxy
-		changed = true
 	}
 	if m.data.Tun == "" {
 		m.data.Tun = DefaultTun
-		changed = true
-	}
-	if m.data.Autostart == "" {
-		m.data.Autostart = DefaultAutostart
-		changed = true
 	}
 	if m.data.Mode == "" {
 		m.data.Mode = DefaultMode
-		changed = true
 	}
 	if m.data.TrayLogLevel == "" {
 		m.data.TrayLogLevel = "error"
-		changed = true
 	}
+}
 
-	if changed {
-		slog.Debug("本地配置已初始化或补全默认值，执行保存")
-		m.lockedSave()
-	}
+func (m *Manager) FlushInitialState() {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	m.lockedSave()
 }
 
 func (m *Manager) Get(key string) string {
