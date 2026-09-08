@@ -1,13 +1,13 @@
 package sys
 
 import (
+	"log/slog"
 	"runtime"
 	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
-	"log/slog"
 
 	"golang.org/x/sys/windows"
 )
@@ -16,34 +16,41 @@ var (
 	modUser32Window   = windows.NewLazySystemDLL("user32.dll")
 	modKernel32Window = windows.NewLazySystemDLL("kernel32.dll")
 
-	procGetCurrentThread      = modKernel32Window.NewProc("GetCurrentThreadId")
-	procEnumWindows           = modUser32Window.NewProc("EnumWindows")
-	procGetClassName          = modUser32Window.NewProc("GetClassNameW")
-	procIsWindowVisible       = modUser32Window.NewProc("IsWindowVisible")
-	procGetWindowThread       = modUser32Window.NewProc("GetWindowThreadProcessId")
-	procGetWindowText         = modUser32Window.NewProc("GetWindowTextW")
-	procSetWindowPos          = modUser32Window.NewProc("SetWindowPos")
-	procShowWindow            = modUser32Window.NewProc("ShowWindow")
-	procBringToTop            = modUser32Window.NewProc("BringWindowToTop")
-	procGetForeground         = modUser32Window.NewProc("GetForegroundWindow")
-	procAttachThread          = modUser32Window.NewProc("AttachThreadInput")
-	procSwitchToThisWindow    = modUser32Window.NewProc("SwitchToThisWindow")
-	procSystemParametersInfo  = modUser32Window.NewProc("SystemParametersInfoW")
-	procSetProcessDpiContext  = modUser32Window.NewProc("SetProcessDpiAwarenessContext")
-	procSetProcessDPIAware    = modUser32Window.NewProc("SetProcessDPIAware")
-	procGetSystemMetrics      = modUser32Window.NewProc("GetSystemMetrics")
-	procSetForeground         = modUser32Window.NewProc("SetForegroundWindow")
+	procGetCurrentThread     = modKernel32Window.NewProc("GetCurrentThreadId")
+	procEnumWindows          = modUser32Window.NewProc("EnumWindows")
+	procGetClassName         = modUser32Window.NewProc("GetClassNameW")
+	procIsWindowVisible      = modUser32Window.NewProc("IsWindowVisible")
+	procGetWindowThread      = modUser32Window.NewProc("GetWindowThreadProcessId")
+	procGetWindowText        = modUser32Window.NewProc("GetWindowTextW")
+	procSetWindowPos         = modUser32Window.NewProc("SetWindowPos")
+	procShowWindow           = modUser32Window.NewProc("ShowWindow")
+	procBringToTop           = modUser32Window.NewProc("BringWindowToTop")
+	procGetForeground        = modUser32Window.NewProc("GetForegroundWindow")
+	procAttachThread         = modUser32Window.NewProc("AttachThreadInput")
+	procSwitchToThisWindow   = modUser32Window.NewProc("SwitchToThisWindow")
+	procSystemParametersInfo = modUser32Window.NewProc("SystemParametersInfoW")
+	procSetProcessDpiContext = modUser32Window.NewProc("SetProcessDpiAwarenessContext")
+	procSetProcessDPIAware   = modUser32Window.NewProc("SetProcessDPIAware")
+	procGetSystemMetrics     = modUser32Window.NewProc("GetSystemMetrics")
+	procSetForeground        = modUser32Window.NewProc("SetForegroundWindow")
 )
 
 const (
 	SW_RESTORE     = 9
 	SWP_NOSIZE     = 0x0001
 	SWP_NOMOVE     = 0x0002
+	SWP_NOACTIVATE = 0x0010
 	SWP_SHOWWINDOW = 0x0040
 	SWP_SILKY      = SWP_NOSIZE | SWP_NOMOVE | SWP_SHOWWINDOW
+	SWP_SILKY_OFF  = SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE
 )
 
-var cachedWebUIHwnd atomic.Uintptr
+var (
+	hwndTopmost   = ^uintptr(0)
+	hwndNoTopmost = ^uintptr(1)
+
+	cachedWebUIHwnd atomic.Uintptr
+)
 
 func init() {
 	if _, _, err := procSetProcessDpiContext.Call(uintptr(0xfffffffc)); err != nil && uint32(err.(syscall.Errno)) != 0 {
@@ -52,7 +59,7 @@ func init() {
 }
 
 func GetCachedWebUIHwnd() uintptr { return cachedWebUIHwnd.Load() }
-func SetCachedWebUIHwnd(h uintptr)  { cachedWebUIHwnd.Store(h) }
+func SetCachedWebUIHwnd(h uintptr) { cachedWebUIHwnd.Store(h) }
 
 func GetIdealWindowBounds() (winW, winH, winX, winY int) {
 	scrWRet, _, _ := procGetSystemMetrics.Call(0)
@@ -68,49 +75,31 @@ func GetIdealWindowBounds() (winW, winH, winX, winY int) {
 		usableH = int(workArea[3] - workArea[1])
 	}
 
-	if usableW <= 0 { usableW = 1200 }
+	if usableW <= 0 { usableW = 1280 }
 	if usableH <= 0 { usableH = 800 }
 
 	w, h := float64(usableW), float64(usableH)
 	aspectRatio := w / h
 
 	switch {
-	case usableW >= 3840:
-		winW, winH = 1920, 1080
-
-	case aspectRatio > 2.0:
-		winW, winH = 1440, 900
-
-	case aspectRatio <= 1.05:
-		winW = int(w * 0.88)
-		winH = int(h * 0.55)
-		if winW < 850 { winW = 850 }
-		if winH < 650 { winH = 650 }
-
-	case usableW >= 2560:
-		winW, winH = 1600, 960
-
-	case usableW >= 1920:
-		winW, winH = 1280, 800
-
-	case usableW >= 1440:
-		winW, winH = 1150, 720
-
-	case usableW <= 1280:
+	case aspectRatio >= 2.0:
+		winW = int(w * 0.55)
+		winH = int(h * 0.82)
+	case aspectRatio <= 1.15:
 		winW = int(w * 0.92)
-		winH = int(h * 0.88)
-		if winW < 800 { winW = 800 }
-		if winH < 600 { winH = 600 }
-
+		winH = int(h * 0.60)
 	default:
-		winW = int(w * 0.82)
+		winW = int(w * 0.72)
 		winH = int(h * 0.80)
-		if winW < 960 { winW = 960 }
-		if winH < 640 { winH = 640 }
 	}
 
-	if winW > usableW { winW = int(w * 0.95) }
-	if winH > usableH { winH = int(h * 0.95) }
+	if winW < 1000 { winW = 1000 }
+	if winH < 680  { winH = 680 }
+	if winW > 2400 { winW = 2400 }
+	if winH > 1350 { winH = 1350 }
+
+	if winW > usableW { winW = int(w * 0.96) }
+	if winH > usableH { winH = int(h * 0.96) }
 
 	if ret != 0 {
 		winX = int(workArea[0]) + (usableW-winW)/2
@@ -150,6 +139,7 @@ func FindAndFocusAppWindow(exactTitle string, mainPid uint32) bool {
 		var titleBuf [512]uint16
 		procGetWindowText.Call(hwnd, uintptr(unsafe.Pointer(&titleBuf[0])), 512)
 		wndTitle := strings.ToLower(strings.TrimSpace(windows.UTF16ToString(titleBuf[:])))
+
 		if mainPid != 0 && wndPid == mainPid {
 			if wndTitle != "" {
 				foundHwnd = hwnd
@@ -185,33 +175,37 @@ func FindAndFocusAppWindow(exactTitle string, mainPid uint32) bool {
 func FocusWindowSilky(targetHwnd uintptr) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-	
+
 	slog.Debug("附加线程输入以强制置顶窗口 (AttachThreadInput)")
 	currT, _, _ := procGetCurrentThread.Call()
 	foreH, _, _ := procGetForeground.Call()
 	foreT, _, _ := procGetWindowThread.Call(foreH, 0)
 	targT, _, _ := procGetWindowThread.Call(targetHwnd, 0)
+
 	if foreT != currT && foreT != 0 {
 		procAttachThread.Call(foreT, currT, 1)
 	}
 	if targT != 0 && targT != currT {
 		procAttachThread.Call(currT, targT, 1)
 	}
+
 	procShowWindow.Call(targetHwnd, SW_RESTORE)
 	procSwitchToThisWindow.Call(targetHwnd, 1)
 	procSetForeground.Call(targetHwnd)
 	procBringToTop.Call(targetHwnd)
-	procSetWindowPos.Call(targetHwnd, uintptr(0xFFFFFFFFFFFFFFFF), 0, 0, 0, 0, SWP_SILKY)
+	procSetWindowPos.Call(targetHwnd, hwndTopmost, 0, 0, 0, 0, SWP_SILKY)
+
 	if targT != 0 && targT != currT {
 		procAttachThread.Call(currT, targT, 0)
 	}
 	if foreT != currT && foreT != 0 {
 		procAttachThread.Call(foreT, currT, 0)
 	}
+
 	time.AfterFunc(400*time.Millisecond, func() {
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
-		procSetWindowPos.Call(targetHwnd, uintptr(0xFFFFFFFFFFFFFFFE), 0, 0, 0, 0, SWP_SILKY)
+		procSetWindowPos.Call(targetHwnd, hwndNoTopmost, 0, 0, 0, 0, SWP_SILKY_OFF)
 	})
 }
 
