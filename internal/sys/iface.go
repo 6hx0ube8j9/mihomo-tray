@@ -87,8 +87,6 @@ func WatchNetworkInterfaces(ctx context.Context, eventCh chan<- struct{}) {
 				timer.Stop()
 			}
 			safeCloseSocket()
-			for range notifyCh {
-			}
 			return
 
 		case _, ok := <-notifyCh:
