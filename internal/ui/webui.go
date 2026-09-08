@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -15,7 +16,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"log/slog"
 
 	"mihomo-tray/internal/sys"
 )
@@ -36,10 +36,10 @@ type Config struct {
 }
 
 var (
-	chromeDebugPort string
+	chromeDebugPort  string
 	isolatedWebUIPid uint32
-	debugPortMu     sync.Mutex
-	launchMu        sync.Mutex
+	debugPortMu      sync.Mutex
+	launchMu         sync.Mutex
 
 	webuiClient = &http.Client{
 		Transport: &http.Transport{
@@ -61,7 +61,7 @@ func isDebugPortAlive(port string) bool {
 func getFreePort() string {
 	addr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
 	if err != nil {
-		return "52719"
+		return "52819"
 	}
 	l, err := net.ListenTCP("tcp", addr)
 	if err != nil {
@@ -143,7 +143,6 @@ func Launch(cfg Config, eventCh chan<- Event) {
 	}
 
 	finalURL := fmt.Sprintf("http://%s:%s%s?%s#/?%s", host, port, uiPath, query, query)
-	proxyAddr := "127.0.0.1:" + cfg.ProxyPort
 
 	if hwnd := sys.GetCachedWebUIHwnd(); hwnd != 0 {
 		if sys.IsWindowVisible(hwnd) {
@@ -166,10 +165,10 @@ func Launch(cfg Config, eventCh chan<- Event) {
 	}
 	if chromeDebugPort == "" {
 		chromeDebugPort = getFreePort()
-	}	
+	}
 	safeDebugPort := chromeDebugPort
 	debugPortMu.Unlock()
-	
+
 	targetID, targetTitle, found := getWebUITarget(safeDebugPort)
 	if found {
 		slog.Debug("发现存活的调试端口，尝试直接激活标签页", "Port", safeDebugPort, "ID", targetID)
@@ -177,19 +176,18 @@ func Launch(cfg Config, eventCh chan<- Event) {
 			_ = actResp.Body.Close()
 		}
 
-		if targetTitle != "" {
-			windowFound := false
-			for i := 0; i < 5; i++ {
-				if sys.FindAndFocusAppWindow(targetTitle, 0) {
-					windowFound = true
-					break
-				}
-				time.Sleep(50 * time.Millisecond)
+		currentPid := atomic.LoadUint32(&isolatedWebUIPid)
+		windowFound := false
+		for i := 0; i < 5; i++ {
+			if sys.FindAndFocusAppWindow(targetTitle, currentPid) {
+				windowFound = true
+				break
 			}
-			if windowFound {
-				emitEvent(eventCh, EventReady)
-				return
-			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		if windowFound {
+			emitEvent(eventCh, EventReady)
+			return
 		}
 	}
 
@@ -231,9 +229,12 @@ func Launch(cfg Config, eventCh chan<- Event) {
 			"--user-data-dir=" + userDataDir,
 			"--window-size=" + strconv.Itoa(winW) + "," + strconv.Itoa(winH),
 			"--window-position=" + strconv.Itoa(winX) + "," + strconv.Itoa(winY),
-			"--proxy-server=" + proxyAddr,
 			"--no-first-run",
 			"--no-default-browser-check",
+		}
+
+		if p := strings.TrimSpace(cfg.ProxyPort); p != "" {
+			args = append(args, "--proxy-server=127.0.0.1:"+p, "--proxy-bypass-list=<-loopback>")
 		}
 
 		cmd := exec.Command(browserPath, args...)
@@ -268,7 +269,7 @@ func Launch(cfg Config, eventCh chan<- Event) {
 		}
 	} else {
 		slog.Warn("未探测到受支持的浏览器，降级为默认浏览器打开")
-		err := exec.Command("cmd", "/c", "start", "", finalURL).Start()
+		err := sys.ExecuteSystemCommand(finalURL)
 		if err == nil {
 			emitEvent(eventCh, EventReady)
 		} else {
@@ -280,13 +281,15 @@ func Launch(cfg Config, eventCh chan<- Event) {
 }
 
 func Cleanup() {
+	sys.SetCachedWebUIHwnd(0)
+
 	debugPortMu.Lock()
 	safeDebugPort := chromeDebugPort
 	debugPortMu.Unlock()
 	if safeDebugPort == "" {
 		return
 	}
-	
+
 	slog.Debug("通过 DevTools 协议发送关闭请求")
 	apiURL := fmt.Sprintf("http://127.0.0.1:%s/json", safeDebugPort)
 	if resp, err := safeGet(apiURL); err == nil {
