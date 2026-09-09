@@ -121,6 +121,8 @@ func FindAndFocusAppWindow(exactTitle string, mainPid uint32) bool {
 
 	var foundHwnd uintptr
 	targetTitleLower := strings.ToLower(strings.TrimSpace(exactTitle))
+	targetTitleLower = strings.TrimPrefix(targetTitleLower, "http://")
+	targetTitleLower = strings.TrimPrefix(targetTitleLower, "https://")
 
 	cb := windows.NewCallback(func(hwnd uintptr, _ uintptr) uintptr {
 		if !IsWindowVisible(hwnd) {
@@ -129,7 +131,8 @@ func FindAndFocusAppWindow(exactTitle string, mainPid uint32) bool {
 
 		var clsBuf [256]uint16
 		procGetClassName.Call(hwnd, uintptr(unsafe.Pointer(&clsBuf[0])), 256)
-		if !strings.HasPrefix(windows.UTF16ToString(clsBuf[:]), "Chrome_WidgetWin") {
+		clsName := windows.UTF16ToString(clsBuf[:])
+		if !strings.HasPrefix(clsName, "Chrome_WidgetWin") && !strings.HasPrefix(clsName, "MozillaWindowClass") {
 			return 1
 		}
 
@@ -148,15 +151,28 @@ func FindAndFocusAppWindow(exactTitle string, mainPid uint32) bool {
 			}
 		}
 
-		if targetTitleLower != "" {
-			if wndTitle == targetTitleLower ||
-				wndTitle == targetTitleLower+" - google chrome" ||
-				wndTitle == targetTitleLower+" - microsoft edge" ||
-				wndTitle == targetTitleLower+" - brave" ||
-				wndTitle == targetTitleLower+" - vivaldi" {
+		if targetTitleLower != "" && wndTitle != "" {
+			cleanWndTitle := wndTitle
+			suffixes := []string{" - google chrome", " - microsoft edge", " - brave", " - vivaldi"}
+			for _, suffix := range suffixes {
+				if strings.HasSuffix(cleanWndTitle, suffix) {
+					cleanWndTitle = strings.TrimSuffix(cleanWndTitle, suffix)
+					break
+				}
+			}
+
+			if cleanWndTitle == targetTitleLower {
 				foundHwnd = hwnd
 				SetCachedWebUIHwnd(hwnd)
 				return 0
+			}
+
+			if strings.Contains(targetTitleLower, cleanWndTitle) || strings.Contains(cleanWndTitle, targetTitleLower) {
+				if len(cleanWndTitle) >= 5 || strings.Contains(cleanWndTitle, ".") || strings.Contains(cleanWndTitle, ":") {
+					foundHwnd = hwnd
+					SetCachedWebUIHwnd(hwnd)
+					return 0
+				}
 			}
 		}
 		return 1
