@@ -53,6 +53,8 @@ type Application struct {
 
 	actualTunDevice string
 	tunDevMutex     sync.RWMutex
+
+	probeGen atomic.Uint64
 }
 
 func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
@@ -201,36 +203,41 @@ func (a *Application) eventLoop(ctx context.Context) {
 
 		case event := <-a.kernelEventCh:
 			if event == core.EventKernelReady {
-				slog.Info("内核进程已启动，等待 API 就绪")
+				slog.Info("内核进程已启动，若需下载规则集耗时较长，请耐心等待...")
 
 				if a.Cfg.Get("tun") == "true" {
 					a.State.SetTunRequestedTime(time.Now())
 				}
 				a.syncSystemProxy()
+				
+				currentGen := a.probeGen.Add(1)
 
-				go func() {
+				go func(gen uint64) {
 					defer a.State.SetRestarting(false)
-					for i := 0; i < 60; i++ {
+					
+					// 场景 B 容忍期：给予存活的进程最高 3 分钟的下载宽限
+					for i := 0; i < 180; i++ {
 						if a.State.IsExiting() || ctx.Err() != nil {
 							return
 						}
 
-						pollCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+						// 场景 A 拦截网：内核中途异常崩溃，探针发现世代已更替，立即自杀退出
+						if a.probeGen.Load() != gen {
+							slog.Debug("内核已退出或重启，终止陈旧的 API 探针")
+							return
+						}
+
+						if a.State.GetPhase() == state.PhaseRunning {
+							return
+						}
+
+						pollCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 						_, err := a.API.DoRequest(pollCtx, "GET", "/configs", nil)
 						cancel()
 
 						if err == nil {
-							slog.Info("内核 API 已就绪，等待网络配置生效", "elapsed_ms", (i+1)*250)
-
-							select {
-							case <-ctx.Done():
-								return
-							case <-time.After(500 * time.Millisecond):
-							}
-
-							slog.Info("内核启动完成，进入运行状态")
+							slog.Info("内核 API 已就绪，核心网络配置生效")
 							a.State.SetPhase(state.PhaseRunning)
-
 							select {
 							case a.apiPollCh <- struct{}{}:
 							default:
@@ -241,18 +248,21 @@ func (a *Application) eventLoop(ctx context.Context) {
 						select {
 						case <-ctx.Done():
 							return
-						case <-time.After(250 * time.Millisecond):
+						case <-time.After(1 * time.Second):
 						}
 					}
-
-					if !a.State.IsExiting() && ctx.Err() == nil {
-						slog.Error("内核 API 连接超时，停止重试", "retries", 60)
+					
+					if a.probeGen.Load() == gen && !a.State.IsExiting() {
+						slog.Error("内核进程假死 (3分钟未开放 API)，执行强制重启")
 						a.Kernel.HaltDaemon()
 						a.State.SetPhase(state.PhaseInitializing)
 						a.pushUIState()
 					}
-				}()
+				}(currentGen)
+
 			} else if event == core.EventKernelExit {
+				a.probeGen.Add(1)
+				
 				if a.State.IsRestarting() {
 					slog.Info("内核已停止，等待重启指令")
 				} else {
