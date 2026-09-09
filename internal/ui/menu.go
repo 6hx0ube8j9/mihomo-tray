@@ -184,7 +184,7 @@ func (tm *TrayMenu) onRightClick() {
 		{
 			Text: "更多",
 			SubMenuItems: []wintray.MenuItem{
-				{ID: IDToggleAutoStart, Text: "开机自启（以管理员身份运行）", Checked: st.AutoStart},
+				{ID: IDToggleAutoStart, Text: "开机自启（管理员身份）", Checked: st.AutoStart},
 				{ID: IDReloadConfig, Text: "重载配置文件"},
 				{ID: IDRestartKernel, Text: "重启核心"},
 				{ID: IDOpenConfigFile, Text: "编辑 config.yaml"},
