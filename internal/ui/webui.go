@@ -271,7 +271,11 @@ func Launch(cfg Config, eventCh chan<- Event) {
 					}
 				}
 			}
-			slog.Error("获取浏览器窗口句柄超时")
+			
+			slog.Error("获取浏览器窗口句柄超时，清理残留进程防多开")
+			sys.HardKill(mainPid)
+			atomic.StoreUint32(&isolatedWebUIPid, 0)
+			
 			emitEvent(eventCh, EventError)
 			return
 
