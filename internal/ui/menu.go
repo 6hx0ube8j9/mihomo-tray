@@ -79,7 +79,7 @@ func (tm *TrayMenu) Init() {
 		if b, err := iconFs.ReadFile("icons/" + name); err == nil {
 			tm.trayHost.CacheIcon(id, b)
 		} else {
-			slog.Error("加载托盘资源图标失败", "icon", name, "err", err)
+			slog.Error("加载托盘图标失败", "icon", name, "err", err)
 		}
 	}
 
@@ -93,7 +93,7 @@ func (tm *TrayMenu) Run() {
 
 func (tm *TrayMenu) Stop() {
 	if tm.trayHost != nil {
-		slog.Debug("正在发送托盘消息循环安全退出")
+		slog.Debug("正在退出托盘消息循环")
 		tm.trayHost.Stop()
 	}
 }
@@ -119,12 +119,12 @@ func (tm *TrayMenu) ListenUIState() {
 }
 
 func (tm *TrayMenu) sendCommand(action, payload string) {
-	slog.Debug("托盘下发控制指令", "Action", action, "Payload", payload)
+	slog.Debug("发送 UI 命令", "action", action, "payload", payload)
 	
 	select {
 	case tm.commandCh <- UICommand{Action: action, Payload: payload}:
 	case <-time.After(500 * time.Millisecond):
-		slog.Warn("下发控制指令超时，应用主事件循环可能正忙", "Action", action)
+		slog.Warn("发送 UI 命令超时", "action", action)
 	case <-tm.ctx.Done():
 	}
 }
