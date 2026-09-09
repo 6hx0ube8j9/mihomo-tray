@@ -95,7 +95,7 @@ func IsPidRunning(pid uint32, expectedExeName string) bool {
 func CreateKillOnCloseJob() (windows.Handle, error) {
 	h, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
-		slog.Error("创建进程组 (Job Object) 失败", "err", err)
+		slog.Error("创建 Job Object 失败", "err", err)
 		return 0, err
 	}
 	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
@@ -121,11 +121,11 @@ func AssignProcessToJob(hJob windows.Handle, pid int) {
 	}
 	if hp, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(pid)); err == nil {
 		if err := windows.AssignProcessToJobObject(hJob, hp); err != nil {
-			slog.Error("进程加入资源组失败", "PID", pid, "err", err)
+			slog.Error("进程绑定 Job Object 失败", "pid", pid, "err", err)
 		}
 		windows.CloseHandle(hp)
 	} else {
-		slog.Error("获取目标进程句柄失败 (AssignProcess)", "PID", pid, "err", err)
+		slog.Error("获取进程句柄失败", "pid", pid, "err", err)
 	}
 }
 
@@ -140,7 +140,7 @@ func SendCtrlBreak(pid uint32) error {
 
 	r1, _, err := procAttachConsole.Call(uintptr(pid))
 	if r1 == 0 {
-		slog.Error("附加目标控制台失败 (AttachConsole)", "PID", pid, "err", err)
+		slog.Error("附加目标控制台失败", "pid", pid, "err", err)
 		return fmt.Errorf("attachConsole 失败: %w", err)
 	}
 
@@ -152,11 +152,11 @@ func HardKill(pid uint32) {
 	if pid == 0 {
 		return
 	}
-	slog.Debug("强制结束进程 (HardKill)", "PID", pid)
+	slog.Debug("强制终止进程", "pid", pid)
 	if h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, pid); err == nil {
 		_ = windows.TerminateProcess(h, 0)
 		windows.CloseHandle(h)
 	} else {
-		slog.Error("强制结束进程失败", "PID", pid, "err", err)
+		slog.Error("强制终止进程失败", "pid", pid, "err", err)
 	}
 }
