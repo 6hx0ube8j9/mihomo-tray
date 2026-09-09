@@ -204,31 +204,6 @@ func main() {
 	syncLogLevel(cfgMgr)
 
 	slog.Info("程序启动", "PID", os.Getpid(), "工作目录", baseDir)
-	
-	sa := getPermissiveSecAttr()
-	mName, _ := windows.UTF16PtrFromString(AppMutex)
-	hM, err := windows.CreateMutex(sa, false, mName)
-	isAlreadyExist := errors.Is(err, windows.ERROR_ALREADY_EXISTS) ||
-		errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
-		err == windows.ERROR_ALREADY_EXISTS ||
-		err == windows.ERROR_ACCESS_DENIED
-
-	if isAlreadyExist {
-		slog.Warn("检测到已有实例运行，尝试唤醒现有进程界面")
-		if hM != 0 {
-			_ = windows.CloseHandle(hM)
-		}
-		eName, _ := windows.UTF16PtrFromString(ShowUIEvent)
-		hEvent, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName)
-		if err == nil && hEvent != 0 {
-			_ = windows.SetEvent(hEvent)
-			_ = windows.CloseHandle(hEvent)
-			slog.Info("已成功发送进程唤醒信号")
-		} else {
-			slog.Error("打开唤醒事件句柄失败", "err", err)
-		}
-		return
-	}
 
 	isAutostart := false
 	for _, arg := range os.Args[1:] {
