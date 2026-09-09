@@ -152,7 +152,7 @@ func wndProc(hwnd windows.HWND, msg uint32, wParam uintptr, lParam uintptr) uint
 
 	if wmTaskbarCreated != 0 && msg == wmTaskbarCreated {
 		if th != nil {
-			slog.Debug("侦测到任务栏重启，尝试恢复系统托盘图标")
+			slog.Debug("检测到任务栏重建，恢复托盘图标")
 			th.addNotifyIcon()
 		}
 		return 0
@@ -218,30 +218,29 @@ func (th *TrayHost) createWindow() {
 			slog.Error("注册系统托盘窗口类失败", "err", err)
 		}
 	})
+    hwnd, _, err := pCreateWindowExW.Call(
+        0, uintptr(unsafe.Pointer(className)), uintptr(unsafe.Pointer(className)),
+        0, 0, 0, 0, 0, 0, 0, hInstance, 0,
+    )
+    if hwnd == 0 {
+        slog.Error("创建托盘窗口失败", "err", err)
+    } else {
+        slog.Debug("已创建托盘窗口", "hwnd", hwnd)
+    }
 
-	hwnd, _, err := pCreateWindowExW.Call(
-		0, uintptr(unsafe.Pointer(className)), uintptr(unsafe.Pointer(className)),
-		0, 0, 0, 0, 0, 0, 0, hInstance, 0,
-	)
-	if hwnd == 0 {
-		slog.Error("创建系统托盘底层窗口失败", "err", err)
-	} else {
-		slog.Debug("创建 Win32 隐藏窗口", "Hwnd", hwnd)
-	}
-
-	th.hwnd = windows.HWND(hwnd)
-	trayInstances.Store(th.hwnd, th)
-	th.addNotifyIcon()
-	close(th.ready)
+    th.hwnd = windows.HWND(hwnd)
+    trayInstances.Store(th.hwnd, th)
+    th.addNotifyIcon()
+    close(th.ready)
 }
 
 func (th *TrayHost) RunMessageLoop() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-
-	th.createWindow()
 	
-	slog.Debug("成功进入系统托盘 Win32 消息循环阶段 (MessageLoop)")
+	th.createWindow()	
+	
+	slog.Debug("开始运行托盘消息循环")
 
 	var msg struct {
 		HWnd    windows.HWND
@@ -261,7 +260,7 @@ func (th *TrayHost) RunMessageLoop() {
 		pDispatchMessageW.Call(uintptr(unsafe.Pointer(&msg)))
 	}
 	
-	slog.Debug("退出托盘消息循环")
+	slog.Debug("已退出托盘消息循环")
 }
 
 func (th *TrayHost) CacheIcon(id int, icoBytes []byte) {
@@ -404,7 +403,7 @@ func (th *TrayHost) addNotifyIcon() {
 	copy(nid.SzTip[:], tip)
 	nid.SzTip[len(nid.SzTip)-1] = 0
 
-	slog.Debug("调用 Shell_NotifyIconW 挂载托盘区图标")
+	slog.Debug("添加托盘图标")
 	pShell_NotifyIconW.Call(NIM_ADD, uintptr(unsafe.Pointer(&nid)))
 }
 
@@ -429,7 +428,7 @@ func (th *TrayHost) removeNotifyIcon() {
 	nid.HWnd = th.hwnd
 	nid.UID = 1
 
-	slog.Debug("注销托盘区任务图标")
+	slog.Debug("移除托盘图标")
 	pShell_NotifyIconW.Call(NIM_DELETE, uintptr(unsafe.Pointer(&nid)))
 }
 
