@@ -44,15 +44,15 @@ func KillOtherProcessesByName(name string, excludePid uint32) {
 	for {
 		exeName := windows.UTF16ToString(pe.ExeFile[:])
 		if strings.EqualFold(exeName, name) && pe.ProcessID != excludePid && pe.ProcessID != currentPid {
-			slog.Debug("发现同名残留进程，准备结束", "目标", name, "PID", pe.ProcessID)
+			slog.Debug("发现同名残留进程，正在终止", "name", name, "pid", pe.ProcessID)
 			h, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, pe.ProcessID)
 			if err == nil {
 				_ = windows.TerminateProcess(h, 9)
 				_, _ = windows.WaitForSingleObject(h, 2000)
 				windows.CloseHandle(h)
-				slog.Debug("残留进程已结束并释放系统资源", "PID", pe.ProcessID)
+				slog.Debug("已终止同名残留进程", "pid", pe.ProcessID)
 			} else {
-				slog.Error("结束残留进程失败 (拒绝访问)", "PID", pe.ProcessID, "err", err)
+				slog.Error("终止同名残留进程失败", "pid", pe.ProcessID, "err", err)
 			}
 		}
 		if err := windows.Process32Next(snapshot, &pe); err != nil {
@@ -110,7 +110,7 @@ func CreateKillOnCloseJob() (windows.Handle, error) {
 		uint32(unsafe.Sizeof(info)),
 	)
 	if err != nil {
-		slog.Error("配置进程组退出策略失败", "err", err)
+		slog.Error("配置 Job Object 退出策略失败", "err", err)
 	}
 	return h, err
 }
