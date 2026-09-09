@@ -215,13 +215,11 @@ func (a *Application) eventLoop(ctx context.Context) {
 				go func(gen uint64) {
 					defer a.State.SetRestarting(false)
 					
-					// 场景 B 容忍期：给予存活的进程最高 3 分钟的下载宽限
-					for i := 0; i < 180; i++ {
+					for i := 0; i < 600; i++ {
 						if a.State.IsExiting() || ctx.Err() != nil {
 							return
 						}
 
-						// 场景 A 拦截网：内核中途异常崩溃，探针发现世代已更替，立即自杀退出
 						if a.probeGen.Load() != gen {
 							slog.Debug("内核已退出或重启，终止陈旧的 API 探针")
 							return
@@ -253,8 +251,8 @@ func (a *Application) eventLoop(ctx context.Context) {
 					}
 					
 					if a.probeGen.Load() == gen && !a.State.IsExiting() {
-						slog.Error("内核进程假死 (3分钟未开放 API)，执行强制重启")
-						a.Kernel.HaltDaemon()
+						slog.Error("内核进程假死 (10分钟未开放 API)，守护进程已自动熄火挂起，请排查网络")
+						a.Kernel.HaltDaemon() 
 						a.State.SetPhase(state.PhaseInitializing)
 						a.pushUIState()
 					}
