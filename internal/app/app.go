@@ -112,7 +112,7 @@ func (a *Application) reconcileTunState(kernelTunEnabled bool) bool {
 			}
 		}
 
-		slog.Info("探测到 TUN 配置发生外部变更，执行本地同步", "本地预期", wantTun, "内核实际", kernelTunEnabled)
+		slog.Info("TUN 配置发生外部变更", "expected", wantTun, "actual", kernelTunEnabled)
 		a.Cfg.Set("tun", fmt.Sprintf("%t", kernelTunEnabled))
 		return true
 	}
@@ -196,7 +196,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 			return
 
 		case cmd := <-a.UICommandCh:
-			slog.Debug("接收 UI 指令", "Action", cmd.Action, "Payload", cmd.Payload)
+			slog.Debug("收到 UI 指令", "action", cmd.Action, "payload", cmd.Payload)
 			a.handleUICommand(ctx, cmd)
 
 		case event := <-a.kernelEventCh:
@@ -220,7 +220,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 						cancel()
 
 						if err == nil {
-							slog.Info("内核 API 已就绪，等待网络配置生效...", "耗时(ms)", (i+1)*250)
+							slog.Info("内核 API 已就绪，等待网络配置生效", "elapsed_ms", (i+1)*250)
 
 							select {
 							case <-ctx.Done():
@@ -228,7 +228,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 							case <-time.After(500 * time.Millisecond):
 							}
 
-							slog.Info("内核启动完成，正式进入运行阶段")
+							slog.Info("内核启动完成，进入运行状态")
 							a.State.SetPhase(state.PhaseRunning)
 
 							select {
@@ -246,7 +246,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 					}
 
 					if !a.State.IsExiting() && ctx.Err() == nil {
-						slog.Error("内核 API 连接超时，终止重试请求", "重试次数", 60)
+						slog.Error("内核 API 连接超时，停止重试", "retries", 60)
 						a.Kernel.HaltDaemon()
 						a.State.SetPhase(state.PhaseInitializing)
 						a.pushUIState()
@@ -300,20 +300,20 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			BaseDir:   a.Cfg.BaseDir(),
 			UIName:    a.Cfg.Get("external-ui-name"),
 		}
-		slog.Info("启动独立 WebUI 面板", "API", cfg.APIAddr)
+		slog.Info("启动独立 WebUI 面板", "api", cfg.APIAddr)
 		go ui.Launch(cfg, a.webuiEventCh)
 	case "ExitApp":
 		slog.Info("收到退出指令")
 		ui.Cleanup()
 	case "ToggleProxy":
 		enable := cmd.Payload == "true"
-		slog.Info("切换系统代理状态", "目标状态", enable)
+		slog.Info("切换系统代理", "enable", enable)
 		a.Cfg.Set("proxy", strconv.FormatBool(enable))
 		a.syncSystemProxy()
 		
 	case "ToggleTun":
 		enable := cmd.Payload == "true"
-		slog.Info("切换虚拟网卡(TUN)状态", "目标状态", enable)
+		slog.Info("切换 TUN 模式", "enable", enable)
 		a.Cfg.Set("tun", strconv.FormatBool(enable))
 		if enable {
 			a.State.SetTunRequestedTime(time.Now())
@@ -345,7 +345,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		}()
 
 	case "SwitchMode":
-		slog.Info("切换路由模式", "目标模式", cmd.Payload)
+		slog.Info("切换路由模式", "mode", cmd.Payload)
 		a.Cfg.Set("mode", cmd.Payload)
 		
 		a.State.SetConfigSyncing(true)
@@ -367,7 +367,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		}()
 	case "ToggleAutoStart":
 		enable := cmd.Payload == "true"
-		slog.Info("收到开机自启切换指令", "目标状态", enable)
+		slog.Info("切换开机自启", "enable", enable)
 		a.Cfg.Set("autostart", cmd.Payload)
 		
 		if enable {
@@ -400,16 +400,16 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 }
 
 func (a *Application) syncSystemProxy() {
-	enable := a.Cfg.Get("proxy") == "true"
-	port := a.Cfg.Get("port")
-	if enable {
-		slog.Info("系统代理配置已启用", "端口", port)
-	} else {
-		slog.Info("系统代理配置已关闭")
-	}
-	if err := sys.SetSystemProxy(enable, port); err != nil {
-		slog.Error("操作系统代理设置变更失败", "err", err)
-	}
+    enable := a.Cfg.Get("proxy") == "true"
+    port := a.Cfg.Get("port")
+    if enable {
+        slog.Info("系统代理配置已启用", "port", port)
+    } else {
+        slog.Info("系统代理配置已关闭")
+    }
+    if err := sys.SetSystemProxy(enable, port); err != nil {
+        slog.Error("设置系统代理失败", "err", err)
+    }
 }
 
 func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.ProxyStatus) {
@@ -450,7 +450,7 @@ func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.Pr
 					return
 				}
                 
-				slog.Debug("系统代理被外部修改，正在尝试自动恢复", "重试轮次", i)
+				slog.Debug("正在恢复系统代理", "retry", i)
 				a.syncSystemProxy()
 				
 				select {
@@ -509,20 +509,20 @@ func (a *Application) calculateUIState() ui.UIState {
 }
 
 func (a *Application) pushUIState() {
-	if a.State.IsExiting() {
-		return
-	}
-	
-	a.uiStateMutex.Lock()
-	defer a.uiStateMutex.Unlock()
+    if a.State.IsExiting() {
+        return
+    }
+    
+    a.uiStateMutex.Lock()
+    defer a.uiStateMutex.Unlock()
 
-	newState := a.calculateUIState()
-	if newState != a.lastUIState {
-		slog.Debug("刷新 UI 界面状态",
-			"Icon", newState.IconState,
-			"Tun", newState.IsTun,
-			"Proxy", newState.IsProxy,
-			"Mode", newState.Mode)
+    newState := a.calculateUIState()
+    if newState != a.lastUIState {
+        slog.Debug("刷新 UI 状态",
+            "icon", newState.IconState,
+            "tun", newState.IsTun,
+            "proxy", newState.IsProxy,
+            "mode", newState.Mode)
 
 		a.lastUIState = newState
 		select {
@@ -569,7 +569,7 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 }
 
 func (a *Application) RestartKernel() {
-	slog.Info("正在执行内核进程结束与重启")
+	slog.Info("正在重启内核进程")
 	a.State.SetRestarting(true)
 	a.State.SetReloading(false)
 	a.Kernel.HaltDaemon()
@@ -595,7 +595,7 @@ func (a *Application) handleTunChange(ctx context.Context) {
 	alive := sys.IsTunActive(tunDev)
 
 	if a.State.IsTunAlive() != alive {
-		slog.Info("系统虚拟网卡(TUN)可用性发生变更", "网卡设备", tunDev, "活跃状态", alive)
+		slog.Info("TUN 网卡状态变更", "device", tunDev, "active", alive)
 		a.State.SetTunAlive(alive)
 		if !alive {
 			a.State.SetTunLostTime(time.Now())
