@@ -170,7 +170,7 @@ func Launch(cfg Config, eventCh chan<- Event) {
 	debugPortMu.Unlock()
 
 	if isDebugPortAlive(safeDebugPort) {
-		targetID, targetTitle, found := getWebUITarget(safeDebugPort)
+		targetID, _, found := getWebUITarget(safeDebugPort)
 		if found {
 			slog.Debug("复用调试端口激活标签页", "port", safeDebugPort, "id", targetID)
 			if actResp, actErr := safeGet(fmt.Sprintf("http://127.0.0.1:%s/json/activate/%s", safeDebugPort, targetID)); actErr == nil {
