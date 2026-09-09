@@ -62,7 +62,11 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 	absBaseDir, _ := filepath.Abs(km.cfg.BaseDir())
 	currentDelay := 50 * time.Millisecond
 	const maxDelay = 30 * time.Second
+	
 	crashCount := 0
+	
+	quickCrashCount := 0         
+	var firstCrashTime time.Time
 
 	sys.KillOtherProcessesByName("mihomo.exe", 0)
 
@@ -74,13 +78,17 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		default:
 		}
 
-        km.mu.Lock()
+		km.mu.Lock()
 		paused := km.isPaused
 		km.mu.Unlock()
 
 		if paused {
 			select {
 			case <-km.wakeCh:
+				quickCrashCount = 0
+				firstCrashTime = time.Time{}
+				crashCount = 0
+				currentDelay = 50 * time.Millisecond
 			case <-ctx.Done():
 				return
 			}
@@ -126,6 +134,23 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			errMsg := fmt.Sprintf("启动错误: %v", err)
 			km.checkAndWriteLog(absBaseDir, "ERROR", errMsg)
 
+			if firstCrashTime.IsZero() {
+				firstCrashTime = time.Now()
+			}
+			quickCrashCount++
+
+			if quickCrashCount >= 15 {
+				slog.Error("启动失败达到绝对上限，守护进程已熄火挂起，请排查故障后手动启动", "上限次数", 15)
+				km.HaltDaemon()
+				continue
+			}
+
+			if time.Since(firstCrashTime) >= 10*time.Minute {
+				slog.Error("持续启动失败超过 10 分钟，守护进程已熄火挂起", "宽限时长", "10分钟")
+				km.HaltDaemon()
+				continue
+			}
+
 			crashCount++
 			if crashCount >= 3 {
 				slog.Error("连续启动失败达到上限，进入冷却", "failures", crashCount, "cooldown", "15s")
@@ -140,6 +165,9 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 				return
 			case <-time.After(currentDelay):
 			case <-km.wakeCh:
+				quickCrashCount = 0
+				firstCrashTime = time.Time{}
+				crashCount = 0
 				currentDelay = 50 * time.Millisecond
 			}
 			continue
@@ -180,8 +208,11 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		isShutdown := sys.IsSystemShuttingDown()
 		isAppExiting := ctx.Err() != nil || km.st.IsExiting() || isShutdown
 		runDuration := time.Since(startTime)
+		
+		isCrash := waitErr != nil && !isKilledByUs && !isAppExiting
+		wasRunning := km.st.GetPhase() == state.PhaseRunning
 
-		if waitErr != nil && !isKilledByUs && !isAppExiting {
+		if isCrash {
 			shouldLog := runDuration < 5*time.Second
 			if !shouldLog {
 				upperOut := strings.ToUpper(errBuf.String())
@@ -209,10 +240,32 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		default:
 		}
 
-		if runDuration >= 5*time.Second || isKilledByUs || isAppExiting {
-			currentDelay = 600 * time.Millisecond
-			crashCount = 0
-		} else {
+		if isCrash {
+			if wasRunning {
+				quickCrashCount = 0
+				firstCrashTime = time.Time{}
+			}
+
+			if firstCrashTime.IsZero() {
+				firstCrashTime = time.Now()
+			}
+
+			if runDuration < 5*time.Second {
+				quickCrashCount++
+			}
+
+			if quickCrashCount >= 15 {
+				slog.Error("内核频繁秒退达到绝对上限，守护进程已熄火挂起，请排查配置后手动启动", "上限次数", 15)
+				km.HaltDaemon()
+				continue
+			}
+
+			if time.Since(firstCrashTime) >= 10*time.Minute {
+				slog.Error("内核持续异常无法就绪已超过 10 分钟，守护进程已熄火挂起，请排查网络或配置", "宽限时长", "10分钟")
+				km.HaltDaemon()
+				continue
+			}
+
 			crashCount++
 			if crashCount >= 3 {
 				slog.Error("内核频繁异常退出，进入冷却", "failures", crashCount, "cooldown", "15s")
@@ -221,6 +274,11 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			} else {
 				currentDelay = km.calculateBackoff(currentDelay, maxDelay)
 			}
+		} else {
+			quickCrashCount = 0
+			firstCrashTime = time.Time{}
+			crashCount = 0
+			currentDelay = 600 * time.Millisecond
 		}
 
 		select {
@@ -228,6 +286,9 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			return
 		case <-time.After(currentDelay):
 		case <-km.wakeCh:
+			quickCrashCount = 0
+			firstCrashTime = time.Time{}
+			crashCount = 0
 			currentDelay = 50 * time.Millisecond
 		}
 	}
