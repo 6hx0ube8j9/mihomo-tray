@@ -223,7 +223,7 @@ func Launch(cfg Config, eventCh chan<- Event) {
 		_ = os.MkdirAll(userDataDir, 0755)
 		winW, winH, winX, winY := sys.GetIdealWindowBounds()
 
-		args := []string{
+        args := []string{
 			"--app=" + finalURL,
 			"--remote-debugging-port=" + safeDebugPort,
 			"--user-data-dir=" + userDataDir,
@@ -231,8 +231,13 @@ func Launch(cfg Config, eventCh chan<- Event) {
 			"--window-position=" + strconv.Itoa(winX) + "," + strconv.Itoa(winY),
 			"--no-first-run",
 			"--no-default-browser-check",
+			"--disable-extensions", 
+			"--disable-sync", 
+			"--disable-background-networking",
+			"--disable-component-update",
+			"--disk-cache-size=33554432",
 		}
-
+		
 		if p := strings.TrimSpace(cfg.ProxyPort); p != "" {
 			args = append(args,
 				"--proxy-server=127.0.0.1:"+p,
