@@ -65,11 +65,11 @@ func (m *Manager) LoadAndInitMemory() {
 
 	if f, err := os.Open(cfgPath); err == nil {
 		if decodeErr := json.NewDecoder(f).Decode(&m.data); decodeErr != nil {
-			slog.Error("解析本地配置文件失败，内存将使用空状态", "err", decodeErr)
+			slog.Error("解析配置文件失败", "path", cfgPath, "err", decodeErr)
 		}
 		_ = f.Close()
 	} else {
-		slog.Info("未找到配置文件，内存将作为全新配置初始化", "Path", cfgPath)
+		slog.Info("未找到配置文件，使用默认配置", "path", cfgPath)
 	}
 
 	if m.data.Proxy == "" {
@@ -155,7 +155,7 @@ func (m *Manager) UpdateBatch(updates map[string]string) {
 	}
 
 	if diskChanged {
-		slog.Debug("本地用户偏好发生变更，保存至 JSON")
+		slog.Debug("配置发生变更，保存到文件")
 		m.lockedSave()
 	}
 }
@@ -170,7 +170,7 @@ func (m *Manager) PrepareYAMLForBoot() (bool, error) {
 	configPath := filepath.Join(m.baseDir, "config.yaml")
 	content, err := os.ReadFile(configPath)
 	if err != nil {
-		slog.Error("读取内核 YAML 文件失败", "path", configPath, "err", err)
+		slog.Error("读取内核配置文件失败", "path", configPath, "err", err)
 		return false, err
 	}
 
@@ -180,14 +180,14 @@ func (m *Manager) PrepareYAMLForBoot() (bool, error) {
 	outLines, extracted, modified := processYAMLContent(lines, wantMode, wantTun)
 
 	if modified {
-		slog.Debug("正在更新 config.yaml 参数", "Mode", wantMode, "Tun", wantTun)
+		slog.Debug("更新内核配置参数", "mode", wantMode, "tun", wantTun)
 		output := strings.Join(outLines, "\n")
 		if len(output) > 0 && !strings.HasSuffix(output, "\n") {
 			output += "\n"
 		}
 
 		if err := writeTmpAndRename(m.baseDir, configPath, []byte(output)); err != nil {
-			slog.Error("保存内核 YAML 文件失败", "err", err)
+			slog.Error("保存内核配置文件失败", "path", configPath, "err", err)
 			return false, fmt.Errorf("failed to save config.yaml: %w", err)
 		}
 	}
