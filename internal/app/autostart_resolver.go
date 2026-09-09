@@ -17,11 +17,11 @@ func ResolveAutostart(cfgAutostart, exePath, baseDir string) string {
 		if isMine {
 			if cfgAutostart != "true" {
 				if cfgAutostart == "false" {
-					slog.Info("本地配置禁用开机启动，删除计划任务")
+					slog.Info("自启配置为禁用，清除计划任务")
 					sys.ToggleAutoStart(exePath, baseDir, false)
 					return "false"
 				}
-				slog.Info("检测到匹配的计划任务，同步本地配置为启用")
+				slog.Info("检测到已有自启任务，自动启用配置")
 				return "true"
 			}
 		} else {
@@ -32,7 +32,7 @@ func ResolveAutostart(cfgAutostart, exePath, baseDir string) string {
 		}
 	} else {
 		if cfgAutostart == "true" {
-			slog.Info("本地配置启用开机启动，创建计划任务")
+			slog.Info("自启配置为启用，创建计划任务")
 			sys.ToggleAutoStart(exePath, baseDir, true)
 			return "true"
 		} else if cfgAutostart == "" {
