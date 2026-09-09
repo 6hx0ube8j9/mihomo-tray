@@ -29,7 +29,7 @@ func ToggleAutoStart(exePath, baseDir string, enable bool) bool {
 	schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
 
 	if enable {
-		slog.Debug("开始注册计划任务 (XML 模式最高权限)", "目标", TaskName)
+		slog.Debug("注册自启计划任务", "task", TaskName)
 
 		absExe, _ := filepath.Abs(exePath)
 		absBase, _ := filepath.Abs(baseDir)
@@ -38,7 +38,7 @@ func ToggleAutoStart(exePath, baseDir string, enable bool) bool {
 		tempXML := filepath.Join(os.TempDir(), fmt.Sprintf("%s.xml", TaskName))
 
 		if err := writeUTF16LE(tempXML, xmlContent); err != nil {
-			slog.Error("生成计划任务 XML 临时文件失败", "err", err)
+			slog.Error("写入计划任务临时文件失败", "err", err)
 			return false
 		}
 		defer os.Remove(tempXML)
@@ -47,20 +47,20 @@ func ToggleAutoStart(exePath, baseDir string, enable bool) bool {
 		cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 
 		if out, err := cmd.CombinedOutput(); err != nil {
-			slog.Error("通过 XML 导入计划任务失败", "err", err, "output", string(out))
+			slog.Error("导入计划任务失败", "err", err, "output", strings.TrimSpace(string(out)))
 			return false
 		}
 		return true
 	}
 
-	slog.Debug("开始注销计划任务", "目标", TaskName)
-	cmd := exec.Command(schtasksPath, "/Delete", "/TN", TaskName, "/F")
-	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+    slog.Debug("删除自启计划任务", "task", TaskName)
+    cmd := exec.Command(schtasksPath, "/Delete", "/TN", TaskName, "/F")
+    cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 
-	if err := cmd.Run(); err != nil {
-		slog.Debug("注销计划任务命令执行失败 (可能已不存在)", "err", err)
-	}
-	return !CheckAutoStartStatus()
+    if err := cmd.Run(); err != nil {
+        slog.Debug("删除计划任务失败", "task", TaskName, "err", err)
+    }
+    return !CheckAutoStartStatus()
 }
 
 func CheckAutoStartStatus() bool {
@@ -77,7 +77,7 @@ func IsTaskPathValid(currentExePath string) bool {
 	
 	out, err := cmd.Output()
 	if err != nil {
-		slog.Debug("计划任务不存在或无法读取，跳过路径校验", "err", err)
+		slog.Debug("读取计划任务配置失败", "task", TaskName, "err", err)
 		return false
 	}
 
