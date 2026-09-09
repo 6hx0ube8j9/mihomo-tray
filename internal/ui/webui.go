@@ -231,11 +231,16 @@ func Launch(cfg Config, eventCh chan<- Event) {
 			"--window-position=" + strconv.Itoa(winX) + "," + strconv.Itoa(winY),
 			"--no-first-run",
 			"--no-default-browser-check",
-			"--disable-extensions", 
-			"--disable-sync", 
+			"--disable-extensions",
+			"--disable-sync",
 			"--disable-background-networking",
 			"--disable-component-update",
 			"--disk-cache-size=33554432",
+			"--disable-translate",
+			"--hide-crash-restore-bubble",
+			"--disable-background-timer-throttling",
+			"--disable-client-side-phishing-detection",
+			"--disable-default-apps", 
 		}
 		
 		if p := strings.TrimSpace(cfg.ProxyPort); p != "" {
