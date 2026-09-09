@@ -13,13 +13,14 @@ import (
 const mbErrorTopmost = windows.MB_ICONERROR | windows.MB_TOPMOST | windows.MB_SETFOREGROUND
 
 func ExecuteSystemCommand(path string) error {
-	pathPtr, err := windows.UTF16PtrFromString(path)
-	if err != nil {
-		slog.Error("解析执行路径失败", "err", err)
-		return err
-	}
-	slog.Debug("调用 ShellExecute 打开目标", "path", path)
-	return windows.ShellExecute(0, nil, pathPtr, nil, nil, windows.SW_SHOWNORMAL)
+    pathPtr, err := windows.UTF16PtrFromString(path)
+    if err != nil {
+        slog.Error("解析路径失败", "err", err)
+        return err
+    }
+	
+    slog.Debug("打开目标路径", "path", path)
+    return windows.ShellExecute(0, nil, pathPtr, nil, nil, windows.SW_SHOWNORMAL)
 }
 
 func RunAsAdmin(exe, dir string) {
