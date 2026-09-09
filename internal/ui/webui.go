@@ -185,7 +185,7 @@ func Launch(cfg Config, eventCh chan<- Event) {
 
 		currentPid := atomic.LoadUint32(&isolatedWebUIPid)
 		windowFound := false
-		for i := 0; i < 15; i++ {
+		for i := 0; i < 30; i++ {
 			_, liveTitle, isLive := getWebUITarget(safeDebugPort)
 			if isLive && sys.FindAndFocusAppWindow(liveTitle, currentPid) {
 				windowFound = true
