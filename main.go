@@ -203,7 +203,7 @@ func main() {
 	cfgMgr.LoadAndInitMemory()
 	syncLogLevel(cfgMgr)
 
-	slog.Info("程序启动", "PID", os.Getpid(), "工作目录", baseDir)
+	slog.Info("程序启动", "pid", os.Getpid(), "dir", baseDir)
 
 	isAutostart := false
 	for _, arg := range os.Args[1:] {
@@ -212,8 +212,9 @@ func main() {
 			break
 		}
 	}
-
-	slog.Debug("启动参数与权限检查", "autostart", isAutostart, "isAdmin", isAdmin())
+	
+    admin := isAdmin()
+	slog.Debug("启动参数与权限检查", "autostart", isAutostart, "admin", admin)
 
 	if !isAdmin() && !isAutostart {
 		if hM != 0 {
@@ -222,22 +223,22 @@ func main() {
 		}
 		
 		if sys.IsTaskPathValid(exePath) {
-			slog.Debug("探测到有效系统计划任务，尝试执行提权启动")
+			slog.Debug("检测到自启计划任务，尝试提权启动")
 			schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
 			cmd := exec.Command(schtasksPath, "/Run", "/TN", sys.TaskName)
 			cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 
 			if out, err := cmd.CombinedOutput(); err == nil {
-				slog.Info("计划任务触发成功，当前普通权限进程退出")
+				slog.Info("已通过计划任务启动新实例，当前进程退出")
 				return
 			} else {
-				slog.Warn("计划任务触发失败，回退至 UAC", "err", err, "output", string(out))
+				slog.Warn("计划任务启动失败，转为 UAC 提权", "err", err, "output", strings.TrimSpace(string(out)))
 			}
 		} else {
-			slog.Debug("系统计划任务未配置或路径失效，跳过提权启动")
+			slog.Debug("计划任务未配置或路径无效，跳过提权启动")
 		}
 
-		slog.Warn("权限不足，发起 UAC 提权请求")
+		slog.Info("权限不足，请求 UAC 提权")
 		sys.RunAsAdmin(exePath, baseDir)
 		return
 	}
@@ -268,7 +269,7 @@ func main() {
 		defer signal.Stop(sigCh)
 		select {
 		case sig := <-sigCh:
-			slog.Info("接收到系统退出信号，准备清理", "信号", sig)
+			slog.Info("收到系统退出信号", "signal", sig)
 			trayMenu.Stop()
 		case <-ctx.Done():
 			return
@@ -308,14 +309,14 @@ func main() {
 
 	runtimeState.ForceExitPhase()
 	application.SafeShutdown(cancel)
-	slog.Info("程序安全退出完成")
+	slog.Info("程序已安全退出")
 }
 
 func isAdmin() bool {
 	var token windows.Token
 	err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &token)
 	if err != nil {
-		slog.Error("查询 Token 失败", "err", err)
+		slog.Error("获取进程 Token 失败", "err", err)
 		return false
 	}
 	defer token.Close()
