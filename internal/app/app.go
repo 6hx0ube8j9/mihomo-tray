@@ -124,9 +124,17 @@ func (a *Application) reconcileTunState(kernelTunEnabled bool) bool {
 
 func (a *Application) Bootstrap(ctx context.Context) {
 	slog.Debug("开始初始化后台服务")
-	finalAutostart := ResolveAutostart(a.Cfg.Get("autostart"), a.Cfg.ExePath(), a.Cfg.BaseDir())
-	a.Cfg.UpdateBatch(map[string]string{"autostart": finalAutostart})
-	a.Cfg.FlushInitialState()
+
+	currentAutostart := a.Cfg.Get("autostart")
+	finalAutostart := ResolveAutostart(currentAutostart, a.Cfg.ExePath(), a.Cfg.BaseDir())
+	
+	if currentAutostart != finalAutostart {
+		slog.Debug("自启状态与预期不符，修正托盘配置并落盘", "old", currentAutostart, "new", finalAutostart)
+		a.Cfg.UpdateBatch(map[string]string{"autostart": finalAutostart})
+		a.Cfg.FlushInitialState()
+	} else {
+		slog.Debug("托盘配置文件一致，跳过重写")
+	}
 
 	if modified, err := a.Cfg.PrepareYAMLForBoot(); err != nil {
 		slog.Error("检查内核配置文件失败", "err", err)
