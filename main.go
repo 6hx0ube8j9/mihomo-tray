@@ -173,6 +173,27 @@ func main() {
 	baseDir := filepath.Dir(exePath)
 	_ = os.Chdir(baseDir)
 
+	sa := getPermissiveSecAttr()
+	mName, _ := windows.UTF16PtrFromString(AppMutex)
+	hM, err := windows.CreateMutex(sa, false, mName)
+	isAlreadyExist := errors.Is(err, windows.ERROR_ALREADY_EXISTS) ||
+		errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+		err == windows.ERROR_ALREADY_EXISTS ||
+		err == windows.ERROR_ACCESS_DENIED
+
+	if isAlreadyExist {
+		if hM != 0 {
+			_ = windows.CloseHandle(hM)
+		}
+		eName, _ := windows.UTF16PtrFromString(ShowUIEvent)
+		hEvent, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName)
+		if err == nil && hEvent != 0 {
+			_ = windows.SetEvent(hEvent)
+			_ = windows.CloseHandle(hEvent)
+		}
+		return
+	}
+
 	logWriter := initEarlyLogger(baseDir)
 	if logWriter != nil {
 		defer logWriter.Close()
@@ -183,7 +204,7 @@ func main() {
 	syncLogLevel(cfgMgr)
 
 	slog.Info("程序启动", "PID", os.Getpid(), "工作目录", baseDir)
-
+	
 	sa := getPermissiveSecAttr()
 	mName, _ := windows.UTF16PtrFromString(AppMutex)
 	hM, err := windows.CreateMutex(sa, false, mName)
