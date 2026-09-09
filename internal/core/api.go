@@ -84,7 +84,7 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 	}
 
 	if !(method == http.MethodGet && path == "/configs") {
-		slog.Debug("发起内核 API 请求", "Method", method, "Path", path)
+		slog.Debug("发送内核 API 请求", "method", method, "path", path)
 	}	
 		
 	resp, err := c.httpClient.Do(req)
@@ -98,7 +98,7 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return nil, nil
 		}
-		slog.Error("API 异常空响应", "Code", resp.StatusCode)
+		slog.Error("内核 API 响应为空且状态异常", "code", resp.StatusCode)
 		return nil, fmt.Errorf("API Status Error: %d", resp.StatusCode)
 	}
 
@@ -113,7 +113,7 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 			logPath := filepath.Join(c.cfg.BaseDir(), "error.log")
 			_ = os.WriteFile(logPath, body, 0644)
 		}
-		slog.Error("API 返回错误状态码", "Code", resp.StatusCode, "Body", string(body))
+		slog.Error("内核 API 返回错误", "code", resp.StatusCode, "body", strings.TrimSpace(string(body)))
 		return body, fmt.Errorf("API Error: %d, Response: %s", resp.StatusCode, string(body))
 	}
 
