@@ -128,7 +128,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 
 			crashCount++
 			if crashCount >= 3 {
-				slog.Error("连续启动失败触发熔断", "连续失败次数", crashCount, "休眠", "15s")
+				slog.Error("连续启动失败达到上限，进入冷却", "failures", crashCount, "cooldown", "15s")
 				currentDelay = 15 * time.Second
 				crashCount = 0
 			} else {
@@ -215,7 +215,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		} else {
 			crashCount++
 			if crashCount >= 3 {
-				slog.Error("异常秒崩触发熔断机制", "次数", crashCount, "休眠", "15s")
+				slog.Error("内核频繁异常退出，进入冷却", "failures", crashCount, "cooldown", "15s")
 				currentDelay = 15 * time.Second
 				crashCount = 0
 			} else {
@@ -250,10 +250,10 @@ func (km *KernelManager) KillCurrent() {
 	atomic.StoreUint32(&km.currentPid, 0)
 	km.mu.Unlock()
 
-	slog.Info("发送安全退出中断", "PID", pid)
+	slog.Info("发送进程退出信号", "PID", pid)
 
 	if err := sys.SendCtrlBreak(pid); err != nil {
-		slog.Error("安全中断失败，执行强制结束", "PID", pid, "err", err)
+		slog.Error("发送退出信号失败，强制终止进程", "PID", pid, "err", err)
 		_ = proc.Kill()
 		sys.HardKill(pid)
 		sys.KillOtherProcessesByName("mihomo.exe", 0) 
@@ -270,7 +270,7 @@ func (km *KernelManager) KillCurrent() {
 		if exited {
 			slog.Info("内核进程安全退出", "PID", pid)
 		} else {
-			slog.Warn("退出超时，执行强制兜底", "PID", pid)
+			slog.Warn("等待退出超时，强制终止进程", "PID", pid)
 			_ = proc.Kill()
 			sys.HardKill(pid)
 			sys.KillOtherProcessesByName("mihomo.exe", 0)
