@@ -54,6 +54,13 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 	if apiAddr == "" {
 		return nil, fmt.Errorf("api address is empty")
 	}
+
+	if strings.HasPrefix(apiAddr, "0.0.0.0:") {
+		apiAddr = strings.Replace(apiAddr, "0.0.0.0:", "127.0.0.1:", 1)
+	} else if strings.HasPrefix(apiAddr, "[::]:") {
+		apiAddr = strings.Replace(apiAddr, "[::]:", "127.0.0.1:", 1)
+	}
+	
 	if !strings.HasPrefix(apiAddr, "http") {
 		apiAddr = "http://" + apiAddr
 	}
