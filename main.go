@@ -216,7 +216,7 @@ func main() {
     admin := isAdmin()
 	slog.Debug("启动参数与权限检查", "autostart", isAutostart, "admin", admin)
 
-	if !isAdmin() && !isAutostart {
+	if !admin && !isAutostart {
 		if hM != 0 {
 			_ = windows.CloseHandle(hM)
 			hM = 0
