@@ -216,7 +216,7 @@ func SetSystemProxy(enable bool, portStr string) error {
 		runtime.KeepAlive(serverPtr)
 		runtime.KeepAlive(bypassPtr)
 
-		slog.Debug("系统代理已开启", "Server", expectedServer)
+		slog.Debug("系统代理已开启", "server", expectedServer)
 	}
 
 	runtime.KeepAlive(&options)
@@ -244,14 +244,14 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 	for _, path := range paths {
 		k, err := registry.OpenKey(registry.CURRENT_USER, path, registry.NOTIFY|registry.QUERY_VALUE)
 		if err != nil {
-			slog.Error("启动注册表监听失败", "path", path, "err", err)
+			slog.Error("打开注册表项失败", "path", path, "err", err)
 			continue
 		}
 		keys = append(keys, k)
 
 		event, err := windows.CreateEvent(nil, 0, 0, nil)
 		if err != nil {
-			slog.Error("创建系统代理监听事件失败", "err", err)
+			slog.Error("创建代理通知事件失败", "err", err)
 			return
 		}
 		handles = append(handles, event)
@@ -263,7 +263,7 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 
 	cancelEvent, err := windows.CreateEvent(nil, 0, 0, nil)
 	if err != nil {
-		slog.Error("创建监听取消事件失败", "err", err)
+		slog.Error("创建取消事件失败", "err", err)
 		return
 	}
 	handles = append(handles, cancelEvent)
