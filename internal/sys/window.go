@@ -130,6 +130,7 @@ func GetIdealWindowBounds() (winW, winH, winX, winY int) {
 
 func isStandardBrowserWindow(titleLower string) bool {
 	clean := ghostCharReplacer.Replace(titleLower)
+	clean = strings.TrimSpace(clean)
 	brands := []string{
 		"google chrome",
 		"microsoft edge",
@@ -141,7 +142,7 @@ func isStandardBrowserWindow(titleLower string) bool {
 		"chromium",
 	}
 	for _, b := range brands {
-		if strings.Contains(clean, b) {
+		if strings.HasSuffix(clean, b) {
 			return true
 		}
 	}
@@ -233,7 +234,6 @@ func FindAndFocusAppWindow(cdpTitle string, appHostPort string, mainPid uint32) 
 	})
 
 	procEnumWindows.Call(cb, 0)
-
 	var targetHwnd uintptr
 	if pidMatchedHwnd != 0 {
 		targetHwnd = pidMatchedHwnd
