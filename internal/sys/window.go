@@ -237,10 +237,12 @@ func FindAndFocusAppWindow(cdpTitle string, appHostPort string, mainPid uint32) 
 	var targetHwnd uintptr
 	if pidMatchedHwnd != 0 {
 		targetHwnd = pidMatchedHwnd
-	} else if titleMatchedHwnd != 0 {
-		targetHwnd = titleMatchedHwnd
-	} else if anchorMatchedHwnd != 0 {
-		targetHwnd = anchorMatchedHwnd
+	} else if mainPid == 0 {
+		if titleMatchedHwnd != 0 {
+			targetHwnd = titleMatchedHwnd
+		} else if anchorMatchedHwnd != 0 {
+			targetHwnd = anchorMatchedHwnd
+		}
 	}
 
 	if targetHwnd != 0 {
