@@ -269,11 +269,9 @@ func Launch(cfg Config, eventCh chan<- Event) {
 			}()
 
 			realBrowserPid := mainPid
-
 			for i := 0; i < 30; i++ {
 				time.Sleep(100 * time.Millisecond)
-				
-				if realBrowserPid == mainPid {
+				if realBrowserPid == mainPid && i%5 == 0 {
 					if truePid := sys.GetProcessIdByPort(safeDebugPort); truePid != 0 {
 						realBrowserPid = truePid
 						atomic.StoreUint32(&isolatedWebUIPid, realBrowserPid) 
