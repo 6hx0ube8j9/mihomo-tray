@@ -132,6 +132,8 @@ func Launch(cfg Config, eventCh chan<- Event) {
 		host = "127.0.0.1"
 	}
 
+	appHostPort := net.JoinHostPort(host, port)
+
 	uiPath := "/ui/"
 	if cfg.UIName != "" {
 		uiPath = fmt.Sprintf("/ui/%s/", strings.Trim(cfg.UIName, "/"))
@@ -146,7 +148,7 @@ func Launch(cfg Config, eventCh chan<- Event) {
 
 	if hwnd := sys.GetCachedWebUIHwnd(); hwnd != 0 {
 		if sys.IsWindowVisible(hwnd) {
-			slog.Debug("激活已有 WebUI 窗口")
+			slog.Debug("唤醒已隐藏的 WebUI 窗口")
 			sys.FocusWindowSilky(hwnd)
 			emitEvent(eventCh, EventReady)
 			return
@@ -169,38 +171,26 @@ func Launch(cfg Config, eventCh chan<- Event) {
 	safeDebugPort := chromeDebugPort
 	debugPortMu.Unlock()
 
-	if isDebugPortAlive(safeDebugPort) {
-		targetID, _, found := getWebUITarget(safeDebugPort)
-		if found {
-			slog.Debug("复用调试端口激活标签页", "port", safeDebugPort, "id", targetID)
-			if actResp, actErr := safeGet(fmt.Sprintf("http://127.0.0.1:%s/json/activate/%s", safeDebugPort, targetID)); actErr == nil {
-				_ = actResp.Body.Close()
-			}
-		} else {
-			slog.Info("后台浏览器引擎活跃，注入新面板标签页")
-			if newResp, newErr := safeGet(fmt.Sprintf("http://127.0.0.1:%s/json/new?%s", safeDebugPort, url.QueryEscape(finalURL))); newErr == nil {
-				_ = newResp.Body.Close()
-			}
+	targetID, targetTitle, found := getWebUITarget(safeDebugPort)
+	if found {
+		slog.Debug("发现存活的调试端口，尝试直接激活标签页", "Port", safeDebugPort, "ID", targetID)
+		if actResp, actErr := safeGet(fmt.Sprintf("http://127.0.0.1:%s/json/activate/%s", safeDebugPort, targetID)); actErr == nil {
+			_ = actResp.Body.Close()
 		}
 
 		currentPid := atomic.LoadUint32(&isolatedWebUIPid)
 		windowFound := false
 		for i := 0; i < 30; i++ {
-			_, liveTitle, isLive := getWebUITarget(safeDebugPort)
-			if isLive && sys.FindAndFocusAppWindow(liveTitle, currentPid) {
+			if sys.FindAndFocusAppWindow(targetTitle, appHostPort, currentPid) {
 				windowFound = true
 				break
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
-		
 		if windowFound {
 			emitEvent(eventCh, EventReady)
-		} else {
-			slog.Warn("已发送唤醒指令但暂未捕获到窗口 (可能仍在后台加载中)")
-			emitEvent(eventCh, EventReady)
+			return
 		}
-		return
 	}
 
 	type browserInfo struct {
@@ -230,7 +220,7 @@ func Launch(cfg Config, eventCh chan<- Event) {
 	}
 
 	if browserPath != "" {
-		slog.Info("启动独立浏览器运行 WebUI", "browser", browserTag, "port", safeDebugPort)
+		slog.Info("启动独立浏览器进程运行 WebUI", "Browser", browserTag, "DebugPort", safeDebugPort)
 		userDataDir := filepath.Join(cfg.BaseDir, "webcache", browserTag)
 		_ = os.MkdirAll(userDataDir, 0755)
 		winW, winH, winX, winY := sys.GetIdealWindowBounds()
@@ -252,9 +242,9 @@ func Launch(cfg Config, eventCh chan<- Event) {
 			"--hide-crash-restore-bubble",
 			"--disable-background-timer-throttling",
 			"--disable-client-side-phishing-detection",
-			"--disable-default-apps", 
+			"--disable-default-apps",
 		}
-		
+
 		if p := strings.TrimSpace(cfg.ProxyPort); p != "" {
 			args = append(args,
 				"--proxy-server=127.0.0.1:"+p,
@@ -266,28 +256,30 @@ func Launch(cfg Config, eventCh chan<- Event) {
 		if err := cmd.Start(); err == nil {
 			mainPid := uint32(cmd.Process.Pid)
 			atomic.StoreUint32(&isolatedWebUIPid, mainPid)
-			slog.Debug("独立浏览器启动器已执行", "pid", mainPid)
+			slog.Debug("独立浏览器进程已启动", "PID", mainPid)
 
 			go func() {
 				_ = cmd.Wait()
 			}()
 
-			for i := 0; i < 60; i++ {
+			for i := 0; i < 30; i++ {
 				time.Sleep(100 * time.Millisecond)
-				_, liveTitle, isLive := getWebUITarget(safeDebugPort)
+				
+				liveTargetID, liveTitle, isLive := getWebUITarget(safeDebugPort)
 				if isLive {
-					if sys.FindAndFocusAppWindow(liveTitle, mainPid) {
-						slog.Info("已定位并激活 WebUI 窗口")
+					actURL := fmt.Sprintf("http://127.0.0.1:%s/json/activate/%s", safeDebugPort, liveTargetID)
+					if actResp, actErr := safeGet(actURL); actErr == nil {
+						_ = actResp.Body.Close()
+					}
+					
+					if sys.FindAndFocusAppWindow(liveTitle, appHostPort, mainPid) {
+						slog.Info("WebUI 窗口捕获成功")
 						emitEvent(eventCh, EventReady)
 						return
 					}
 				}
 			}
-			
-			slog.Error("获取浏览器窗口句柄超时，执行防御性清理")
-			sys.HardKill(mainPid)
-			atomic.StoreUint32(&isolatedWebUIPid, 0)
-			
+			slog.Error("超时未能捕获浏览器窗口句柄")
 			emitEvent(eventCh, EventError)
 			return
 
@@ -297,7 +289,7 @@ func Launch(cfg Config, eventCh chan<- Event) {
 			return
 		}
 	} else {
-		slog.Warn("未找到受支持的独立浏览器，使用系统默认浏览器打开")
+		slog.Warn("未探测到受支持的浏览器，降级为默认浏览器打开")
 		err := sys.ExecuteSystemCommand(finalURL)
 		if err == nil {
 			emitEvent(eventCh, EventReady)
@@ -319,7 +311,7 @@ func Cleanup() {
 		return
 	}
 
-	slog.Debug("发送 WebUI 页面关闭指令")
+	slog.Debug("通过 DevTools 协议发送关闭请求")
 	apiURL := fmt.Sprintf("http://127.0.0.1:%s/json", safeDebugPort)
 	if resp, err := safeGet(apiURL); err == nil {
 		defer resp.Body.Close()
@@ -338,6 +330,7 @@ func Cleanup() {
 	time.Sleep(500 * time.Millisecond)
 	pid := atomic.LoadUint32(&isolatedWebUIPid)
 	if pid != 0 && sys.IsPidRunning(pid, "") {
+		slog.Warn("正常关闭超时，强制结束浏览器进程", "PID", pid)
 		sys.HardKill(pid)
 	}
 	atomic.StoreUint32(&isolatedWebUIPid, 0)
