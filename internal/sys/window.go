@@ -3,6 +3,8 @@ package sys
 import (
 	"log/slog"
 	"runtime"
+	"os/exec"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
