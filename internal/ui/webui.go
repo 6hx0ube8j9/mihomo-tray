@@ -262,17 +262,27 @@ func Launch(cfg Config, eventCh chan<- Event) {
 				_ = cmd.Wait()
 			}()
 
+			realBrowserPid := mainPid
+
 			for i := 0; i < 30; i++ {
 				time.Sleep(100 * time.Millisecond)
 				
+				if realBrowserPid == mainPid {
+					if truePid := sys.GetProcessIdByPort(safeDebugPort); truePid != 0 {
+						realBrowserPid = truePid
+						atomic.StoreUint32(&isolatedWebUIPid, realBrowserPid) 
+						slog.Debug("通过端口反查锁定真实的独立浏览器进程", "TruePID", realBrowserPid)
+					}
+				}
+
 				liveTargetID, liveTitle, isLive := getWebUITarget(safeDebugPort)
 				if isLive {
 					actURL := fmt.Sprintf("http://127.0.0.1:%s/json/activate/%s", safeDebugPort, liveTargetID)
 					if actResp, actErr := safeGet(actURL); actErr == nil {
 						_ = actResp.Body.Close()
 					}
-					
-					if sys.FindAndFocusAppWindow(liveTitle, appHostPort, mainPid) {
+
+					if sys.FindAndFocusAppWindow(liveTitle, appHostPort, realBrowserPid) {
 						slog.Info("WebUI 窗口捕获成功")
 						emitEvent(eventCh, EventReady)
 						return
