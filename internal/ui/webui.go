@@ -177,8 +177,14 @@ func Launch(cfg Config, eventCh chan<- Event) {
 		if actResp, actErr := safeGet(fmt.Sprintf("http://127.0.0.1:%s/json/activate/%s", safeDebugPort, targetID)); actErr == nil {
 			_ = actResp.Body.Close()
 		}
+		
+		currentPid := sys.GetProcessIdByPort(safeDebugPort)
+		if currentPid != 0 {
+			atomic.StoreUint32(&isolatedWebUIPid, currentPid)
+		} else {
+			currentPid = atomic.LoadUint32(&isolatedWebUIPid)
+		}
 
-		currentPid := atomic.LoadUint32(&isolatedWebUIPid)
 		windowFound := false
 		for i := 0; i < 30; i++ {
 			if sys.FindAndFocusAppWindow(targetTitle, appHostPort, currentPid) {
