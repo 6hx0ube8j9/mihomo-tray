@@ -53,6 +53,16 @@ var (
 	cachedWebUIHwnd atomic.Uintptr
 )
 
+var ghostCharReplacer = strings.NewReplacer(
+	"\u200b", "",
+	"\u200c", "",
+	"\u200d", "",
+	"\u200e", "",
+	"\u200f", "",
+	"\ufeff", "",
+	"\u00a0", " ",
+)
+
 func init() {
 	if _, _, err := procSetProcessDpiContext.Call(uintptr(0xfffffffc)); err != nil && uint32(err.(syscall.Errno)) != 0 {
 		_, _, _ = procSetProcessDPIAware.Call()
@@ -118,16 +128,20 @@ func GetIdealWindowBounds() (winW, winH, winX, winY int) {
 
 
 func isStandardBrowserWindow(titleLower string) bool {
-	suffixes := []string{
-		" - google chrome",
-		" - microsoft edge",
-		" - brave",
-		" - vivaldi",
-		" - firefox",
+	clean := ghostCharReplacer.Replace(titleLower)
+	brands := []string{
+		"google chrome",
+		"microsoft edge",
+		"msedge",
+		"brave",
+		"vivaldi",
+		"firefox",
+		"opera",
+		"chromium",
 	}
 
-	for _, suffix := range suffixes {
-		if strings.HasSuffix(titleLower, suffix) {
+	for _, b := range brands {
+		if strings.Contains(clean, b) {
 			return true
 		}
 	}
@@ -138,7 +152,10 @@ func FindAndFocusAppWindow(cdpTitle string, appHostPort string, mainPid uint32) 
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	var foundHwnd uintptr
+	var pidMatchedHwnd uintptr
+	var titleMatchedHwnd uintptr
+	var anchorMatchedHwnd uintptr
+
 	exactTargetTitle := strings.TrimSpace(cdpTitle)
 	fallbackAnchor := strings.ToLower(strings.TrimSpace(appHostPort))
 
@@ -146,7 +163,7 @@ func FindAndFocusAppWindow(cdpTitle string, appHostPort string, mainPid uint32) 
 		if !IsWindowVisible(hwnd) {
 			return 1
 		}
-		
+
 		owner, _, _ := procGetWindow.Call(hwnd, 4)
 		if owner != 0 {
 			return 1
@@ -167,7 +184,6 @@ func FindAndFocusAppWindow(cdpTitle string, appHostPort string, mainPid uint32) 
 		}
 
 		wndTitleLower := strings.ToLower(wndTitle)
-
 		if isStandardBrowserWindow(wndTitleLower) {
 			return 1
 		}
@@ -175,30 +191,39 @@ func FindAndFocusAppWindow(cdpTitle string, appHostPort string, mainPid uint32) 
 		var wndPid uint32
 		procGetWindowThread.Call(hwnd, uintptr(unsafe.Pointer(&wndPid)))
 
-		if mainPid != 0 && wndPid == mainPid {
-			foundHwnd = hwnd
+		isPidMatch := (mainPid != 0 && wndPid == mainPid)
+		isTitleMatch := (exactTargetTitle != "" && wndTitle == exactTargetTitle)
+		isAnchorMatch := (fallbackAnchor != "" && strings.Contains(wndTitleLower, fallbackAnchor))
+
+		if isPidMatch && (isTitleMatch || isAnchorMatch) {
+			pidMatchedHwnd = hwnd
 			return 0
 		}
 
-		if exactTargetTitle != "" && wndTitle == exactTargetTitle {
-			foundHwnd = hwnd
-			return 0
-		}
-
-		if fallbackAnchor != "" && strings.Contains(wndTitleLower, fallbackAnchor) {
-			foundHwnd = hwnd
-			return 0
+		if isTitleMatch && titleMatchedHwnd == 0 {
+			titleMatchedHwnd = hwnd
+		} else if isAnchorMatch && anchorMatchedHwnd == 0 {
+			anchorMatchedHwnd = hwnd
 		}
 
 		return 1
 	})
 
 	procEnumWindows.Call(cb, 0)
+	
+	var targetHwnd uintptr
 
-    if foundHwnd != 0 {
-		slog.Debug("通过句柄接管目标浏览器进程", "Hwnd", foundHwnd)
-		SetCachedWebUIHwnd(foundHwnd) 
-		FocusWindowSilky(foundHwnd)
+	if pidMatchedHwnd != 0 {
+		targetHwnd = pidMatchedHwnd
+	} else if titleMatchedHwnd != 0 {
+		targetHwnd = titleMatchedHwnd 
+	} else if anchorMatchedHwnd != 0 {
+		targetHwnd = anchorMatchedHwnd   
+	}
+
+	if targetHwnd != 0 {
+		SetCachedWebUIHwnd(targetHwnd)
+		FocusWindowSilky(targetHwnd)
 		return true
 	}
 	return false
