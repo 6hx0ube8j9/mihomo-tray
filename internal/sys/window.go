@@ -33,6 +33,7 @@ var (
 	procSetProcessDPIAware   = modUser32Window.NewProc("SetProcessDPIAware")
 	procGetSystemMetrics     = modUser32Window.NewProc("GetSystemMetrics")
 	procSetForeground        = modUser32Window.NewProc("SetForegroundWindow")
+	procGetWindow            = modUser32Window.NewProc("GetWindow")
 )
 
 const (
@@ -115,17 +116,39 @@ func GetIdealWindowBounds() (winW, winH, winX, winY int) {
 	return
 }
 
-func FindAndFocusAppWindow(exactTitle string, mainPid uint32) bool {
+
+func isStandardBrowserWindow(titleLower string) bool {
+	suffixes := []string{
+		" - google chrome",
+		" - microsoft edge",
+		" - brave",
+		" - vivaldi",
+		" - firefox",
+	}
+
+	for _, suffix := range suffixes {
+		if strings.HasSuffix(titleLower, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func FindAndFocusAppWindow(cdpTitle string, appHostPort string, mainPid uint32) bool {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
 	var foundHwnd uintptr
-	targetTitleLower := strings.ToLower(strings.TrimSpace(exactTitle))
-	targetTitleLower = strings.TrimPrefix(targetTitleLower, "http://")
-	targetTitleLower = strings.TrimPrefix(targetTitleLower, "https://")
+	exactTargetTitle := strings.TrimSpace(cdpTitle)
+	fallbackAnchor := strings.ToLower(strings.TrimSpace(appHostPort))
 
 	cb := windows.NewCallback(func(hwnd uintptr, _ uintptr) uintptr {
 		if !IsWindowVisible(hwnd) {
+			return 1
+		}
+		
+		owner, _, _ := procGetWindow.Call(hwnd, 4)
+		if owner != 0 {
 			return 1
 		}
 
@@ -136,52 +159,45 @@ func FindAndFocusAppWindow(exactTitle string, mainPid uint32) bool {
 			return 1
 		}
 
+		var titleBuf [512]uint16
+		procGetWindowText.Call(hwnd, uintptr(unsafe.Pointer(&titleBuf[0])), 512)
+		wndTitle := strings.TrimSpace(windows.UTF16ToString(titleBuf[:]))
+		if wndTitle == "" {
+			return 1
+		}
+
+		wndTitleLower := strings.ToLower(wndTitle)
+
+		if isStandardBrowserWindow(wndTitleLower) {
+			return 1
+		}
+
 		var wndPid uint32
 		procGetWindowThread.Call(hwnd, uintptr(unsafe.Pointer(&wndPid)))
 
-		var titleBuf [512]uint16
-		procGetWindowText.Call(hwnd, uintptr(unsafe.Pointer(&titleBuf[0])), 512)
-		wndTitle := strings.ToLower(strings.TrimSpace(windows.UTF16ToString(titleBuf[:])))
-
 		if mainPid != 0 && wndPid == mainPid {
-			if wndTitle != "" {
-				foundHwnd = hwnd
-				SetCachedWebUIHwnd(hwnd)
-				return 0
-			}
+			foundHwnd = hwnd
+			return 0
 		}
 
-		if targetTitleLower != "" && wndTitle != "" {
-			cleanWndTitle := wndTitle
-			suffixes := []string{" - google chrome", " - microsoft edge", " - brave", " - vivaldi"}
-			for _, suffix := range suffixes {
-				if strings.HasSuffix(cleanWndTitle, suffix) {
-					cleanWndTitle = strings.TrimSuffix(cleanWndTitle, suffix)
-					break
-				}
-			}
-
-			if cleanWndTitle == targetTitleLower {
-				foundHwnd = hwnd
-				SetCachedWebUIHwnd(hwnd)
-				return 0
-			}
-
-			if strings.Contains(targetTitleLower, cleanWndTitle) || strings.Contains(cleanWndTitle, targetTitleLower) {
-				if len(cleanWndTitle) >= 5 || strings.Contains(cleanWndTitle, ".") || strings.Contains(cleanWndTitle, ":") {
-					foundHwnd = hwnd
-					SetCachedWebUIHwnd(hwnd)
-					return 0
-				}
-			}
+		if exactTargetTitle != "" && wndTitle == exactTargetTitle {
+			foundHwnd = hwnd
+			return 0
 		}
+
+		if fallbackAnchor != "" && strings.Contains(wndTitleLower, fallbackAnchor) {
+			foundHwnd = hwnd
+			return 0
+		}
+
 		return 1
 	})
 
 	procEnumWindows.Call(cb, 0)
 
-	if foundHwnd != 0 {
+    if foundHwnd != 0 {
 		slog.Debug("通过句柄接管目标浏览器进程", "Hwnd", foundHwnd)
+		SetCachedWebUIHwnd(foundHwnd) 
 		FocusWindowSilky(foundHwnd)
 		return true
 	}
