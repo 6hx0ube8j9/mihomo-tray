@@ -126,7 +126,6 @@ func GetIdealWindowBounds() (winW, winH, winX, winY int) {
 	return
 }
 
-
 func isStandardBrowserWindow(titleLower string) bool {
 	clean := ghostCharReplacer.Replace(titleLower)
 	brands := []string{
@@ -139,13 +138,35 @@ func isStandardBrowserWindow(titleLower string) bool {
 		"opera",
 		"chromium",
 	}
-
 	for _, b := range brands {
 		if strings.Contains(clean, b) {
 			return true
 		}
 	}
 	return false
+}
+
+func GetProcessIdByPort(port string) uint32 {
+	cmd := exec.Command("cmd", "/c", "netstat -ano")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	out, err := cmd.Output()
+	if err != nil {
+		return 0
+	}
+
+	targetSearch := ":" + port
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "LISTENING") && strings.Contains(line, targetSearch) {
+			fields := strings.Fields(line)
+			if len(fields) > 0 {
+				pidStr := fields[len(fields)-1]
+				pid, _ := strconv.ParseUint(pidStr, 10, 32)
+				return uint32(pid)
+			}
+		}
+	}
+	return 0
 }
 
 func FindAndFocusAppWindow(cdpTitle string, appHostPort string, mainPid uint32) bool {
@@ -197,7 +218,7 @@ func FindAndFocusAppWindow(cdpTitle string, appHostPort string, mainPid uint32) 
 
 		if isPidMatch && (isTitleMatch || isAnchorMatch) {
 			pidMatchedHwnd = hwnd
-			return 0
+			return 0 
 		}
 
 		if isTitleMatch && titleMatchedHwnd == 0 {
@@ -210,18 +231,18 @@ func FindAndFocusAppWindow(cdpTitle string, appHostPort string, mainPid uint32) 
 	})
 
 	procEnumWindows.Call(cb, 0)
-	
-	var targetHwnd uintptr
 
+	var targetHwnd uintptr
 	if pidMatchedHwnd != 0 {
 		targetHwnd = pidMatchedHwnd
 	} else if titleMatchedHwnd != 0 {
-		targetHwnd = titleMatchedHwnd 
+		targetHwnd = titleMatchedHwnd
 	} else if anchorMatchedHwnd != 0 {
-		targetHwnd = anchorMatchedHwnd   
+		targetHwnd = anchorMatchedHwnd
 	}
 
 	if targetHwnd != 0 {
+		slog.Debug("通过句柄接管目标浏览器进程", "Hwnd", targetHwnd)
 		SetCachedWebUIHwnd(targetHwnd)
 		FocusWindowSilky(targetHwnd)
 		return true
