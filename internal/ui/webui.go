@@ -178,21 +178,24 @@ func Launch(cfg Config, eventCh chan<- Event) {
 			_ = actResp.Body.Close()
 		}
 		
-		currentPid := sys.GetProcessIdByPort(safeDebugPort)
-		if currentPid != 0 {
-			atomic.StoreUint32(&isolatedWebUIPid, currentPid)
-		} else {
-			currentPid = atomic.LoadUint32(&isolatedWebUIPid)
-		}
-
+		realBrowserPid := atomic.LoadUint32(&isolatedWebUIPid)
 		windowFound := false
+
 		for i := 0; i < 30; i++ {
-			if sys.FindAndFocusAppWindow(targetTitle, appHostPort, currentPid) {
+			time.Sleep(100 * time.Millisecond)
+			if i%5 == 0 {
+				if truePid := sys.GetProcessIdByPort(safeDebugPort); truePid != 0 {
+					realBrowserPid = truePid
+					atomic.StoreUint32(&isolatedWebUIPid, realBrowserPid)
+				}
+			}
+
+			if sys.FindAndFocusAppWindow(targetTitle, appHostPort, realBrowserPid) {
 				windowFound = true
 				break
 			}
-			time.Sleep(100 * time.Millisecond)
 		}
+		
 		if windowFound {
 			emitEvent(eventCh, EventReady)
 			return
