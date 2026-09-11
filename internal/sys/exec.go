@@ -68,6 +68,7 @@ func RunAsAdmin(exe, dir string, extraArgs ...string) error {
 			safeArgs = append(safeArgs, syscall.EscapeArg(arg))
 		}
 	}
+
 	for _, arg := range extraArgs {
 		safeArgs = append(safeArgs, syscall.EscapeArg(arg))
 	}
@@ -77,5 +78,14 @@ func RunAsAdmin(exe, dir string, extraArgs ...string) error {
 		argsPtr, _ = windows.UTF16PtrFromString(strings.Join(safeArgs, " "))
 	}
 
-	return windows.ShellExecute(0, verb, exePtr, argsPtr, cwdPtr, windows.SW_SHOWNORMAL)
+	err := windows.ShellExecute(0, verb, exePtr, argsPtr, cwdPtr, windows.SW_SHOWNORMAL)
+
+	if err != nil && !errors.Is(err, windows.ERROR_CANCELLED) {
+		title, _ := windows.UTF16PtrFromString("权限请求失败")
+		msg, _ := windows.UTF16PtrFromString("操作需要管理员权限，请在 UAC 弹窗中授权运行，或检查系统组策略限制。")
+		flags := uint32(windows.MB_ICONERROR | windows.MB_TOPMOST | windows.MB_SETFOREGROUND)
+		windows.MessageBox(0, msg, title, flags)
+	}
+
+	return err
 }
