@@ -72,19 +72,23 @@ func (m *Manager) LoadAndInitMemory() {
 		}
 		_ = f.Close()
 	} else {
-		slog.Info("未找到配置文件，使用内存零值设定", "path", cfgPath)
+		slog.Info("未找到配置文件，使用默认配置", "path", cfgPath)
 	}
 
-	needsSave := false
-
-	if m.data.Tun == "true" && !m.isAdmin {
-		slog.Warn("当前为普通权限，为了防止后续提权意外断网，强制抹除本地 TUN 配置")
-		m.data.Tun = ""
-		needsSave = true
+	if m.data.RunAsAdmin == "" {
+		m.data.RunAsAdmin = "false"
 	}
-
-	if needsSave {
-		m.lockedSave()
+	if m.data.Proxy == "" {
+		m.data.Proxy = DefaultProxy
+	}
+	if m.data.Tun == "" {
+		m.data.Tun = DefaultTun
+	}
+	if m.data.Mode == "" {
+		m.data.Mode = DefaultMode
+	}
+	if m.data.TrayLogLevel == "" {
+		m.data.TrayLogLevel = "error"
 	}
 }
 
@@ -103,10 +107,8 @@ func (m *Manager) Get(key string) string {
 	case "run_as_admin":
 		return m.data.RunAsAdmin
 	case "mode":
-		if m.data.Mode == "" { return DefaultMode }
 		return m.data.Mode
 	case "proxy":
-		if m.data.Proxy == "" { return DefaultProxy }
 		return m.data.Proxy
 	case "tun":
 		return m.data.Tun
