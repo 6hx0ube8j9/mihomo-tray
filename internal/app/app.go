@@ -421,8 +421,30 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			default:
 			}
 		}()
+		
 	case "ToggleAutoStart":
 		enable := cmd.Payload == "true"
+		
+		if !sys.IsAdmin() {
+			slog.Info("普通权限修改开机自启，发起 UAC 提权")
+			arg := "--disable-autostart"
+			if enable {
+				arg = "--enable-autostart"
+			}
+			
+			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), arg, "--restarting")
+			
+			if sys.IsUserCancelled(err) {
+				slog.Info("用户取消提权，保持当前会话")
+			} else if err == nil {
+				os.Exit(0)
+			} else {
+				slog.Error("提权失败", "err", err)
+			}
+			a.pushUIState()
+			return
+		}
+
 		slog.Info("切换开机自启", "enable", enable)
 		a.Cfg.Set("autostart", cmd.Payload)
 
