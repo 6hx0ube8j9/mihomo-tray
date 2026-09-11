@@ -161,13 +161,13 @@ func (tm *TrayMenu) onRightClick() {
 		currModeName = "未知"
 	}
 
-	adminText := "[运行模式: 普通权限]"
+	headerText := "💠 Mihomo Tray (普通模式)"
 	if st.IsAdmin {
-		adminText = "[运行模式: 管理员权限]"
+		headerText = "🛡️ Mihomo Tray (管理员)"
 	}
 
 	items := []wintray.MenuItem{
-		{ID: IDAdminStatus, Text: adminText, Disabled: true},
+		{ID: IDAdminStatus, Text: headerText, Disabled: true},
 		{IsSeparator: true},
 		{ID: IDOpenWebUI, Text: "进入 Web 面板"},
 		{IsSeparator: true},
