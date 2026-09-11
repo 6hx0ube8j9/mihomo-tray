@@ -298,6 +298,11 @@ func (a *Application) eventLoop(ctx context.Context) {
 
 func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 	switch cmd.Action {
+	case "ToggleRunAsAdmin":
+		enable := cmd.Payload == "true"
+		slog.Info("切换每次管理员身份启动", "enable", enable)
+		a.Cfg.Set("run_as_admin", strconv.FormatBool(enable))
+		
 	case "ForceSyncAPI":
 		if a.State.GetPhase() == state.PhaseRunning {
 			if a.pollKernelAPI(ctx) {
@@ -327,8 +332,28 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		a.Cfg.Set("proxy", strconv.FormatBool(enable))
 		a.syncSystemProxy()
 
-	case "ToggleTun":
+    case "ToggleTun":
 		enable := cmd.Payload == "true"
+
+		if enable && !sys.IsAdmin() {
+			msg := "虚拟网卡 (TUN) 路由功能需要接管系统网络，必须以管理员身份运行。\n\n是否立即重启并授权？"
+			if sys.ShowElevationPrompt("权限不足", msg) {
+				slog.Info("请求提权启动以开启 TUN 模式")
+				err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--enable-tun", "--restarting")
+
+				if sys.IsUserCancelled(err) {
+					slog.Info("用户取消了 UAC 提权，保持当前会话")
+				} else if err == nil {
+					slog.Info("提权请求已下发，当前普通进程退出")
+					os.Exit(0)
+				} else {
+					slog.Error("提权失败", "err", err)
+				}
+			}
+			a.pushUIState()
+			return
+		}
+
 		slog.Info("切换 TUN 模式", "enable", enable)
 		a.Cfg.Set("tun", strconv.FormatBool(enable))
 		if enable {
@@ -496,10 +521,12 @@ func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.Pr
 
 func (a *Application) calculateUIState() ui.UIState {
 	s := ui.UIState{
-		IsTun:     a.Cfg.Get("tun") == "true",
-		IsProxy:   a.Cfg.Get("proxy") == "true",
-		Mode:      a.Cfg.Get("mode"),
-		AutoStart: a.Cfg.Get("autostart") == "true",
+		IsTun:      a.Cfg.Get("tun") == "true",
+		IsProxy:    a.Cfg.Get("proxy") == "true",
+		Mode:       a.Cfg.Get("mode"),
+		AutoStart:  a.Cfg.Get("autostart") == "true",
+		RunAsAdmin: a.Cfg.Get("run_as_admin") == "true",
+		IsAdmin:    sys.IsAdmin(),
 	}
 
 	if a.State.IsExiting() || a.State.IsRestarting() || a.State.GetPhase() != state.PhaseRunning {
