@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"exec"
 	"log/slog"
 	"os"
 	"os/signal"
