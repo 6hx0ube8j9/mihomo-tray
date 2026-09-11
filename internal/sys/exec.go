@@ -1,6 +1,7 @@
 package sys
 
 import (
+	"errors"
 	"log/slog"
 	"os"
 	"strings"
