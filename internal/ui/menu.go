@@ -151,36 +151,22 @@ func (tm *TrayMenu) onRightClick() {
 	st := tm.currState
 	tm.stateMu.RUnlock()
 
-	modeNames := map[string]string{
-		"rule":   "规则",
-		"direct": "直连",
-		"global": "全局",
-	}
+	modeNames := map[string]string{"rule": "规则", "direct": "直连", "global": "全局"}
 	currModeName := modeNames[st.Mode]
 	if currModeName == "" {
 		currModeName = "未知"
 	}
 
-	headerText := "💠 Mihomo Tray (普通模式)"
+	adminText := "运行权限：普通"
 	if st.IsAdmin {
-		headerText = "🛡️ Mihomo Tray (管理员)"
+		adminText = "运行权限：管理员"
 	}
 
 	items := []wintray.MenuItem{
-		{ID: IDAdminStatus, Text: headerText, Disabled: true},
-		{IsSeparator: true},
 		{ID: IDOpenWebUI, Text: "进入 Web 面板"},
 		{IsSeparator: true},
-		{
-			ID:      IDToggleProxy,
-			Text:    "系统代理",
-			Checked: st.IsProxy,
-		},
-		{
-			ID:      IDToggleTun,
-			Text:    "虚拟网卡 (TUN)",
-			Checked: st.IsTun,
-		},
+		{ID: IDToggleProxy, Text: "系统代理", Checked: st.IsProxy},
+		{ID: IDToggleTun, Text: "虚拟网卡 (TUN)", Checked: st.IsTun},
 		{IsSeparator: true},
 		{
 			Text: fmt.Sprintf("当前模式: %s", currModeName),
@@ -192,11 +178,18 @@ func (tm *TrayMenu) onRightClick() {
 		},
 		{IsSeparator: true},
 		{ID: IDOpenBaseDir, Text: "打开程序目录"},
+		{IsSeparator: true},
+		{
+			Text: adminText,
+			SubMenuItems: []wintray.MenuItem{
+				{ID: IDToggleAutoStart, Text: "开机自启（自动获取权限）", Checked: st.AutoStart},
+				{ID: IDRunAsAdmin, Text: "以管理员身份启动", Checked: st.RunAsAdmin || st.AutoStart, Disabled: st.AutoStart},
+			},
+		},
+		{IsSeparator: true},
 		{
 			Text: "更多",
 			SubMenuItems: []wintray.MenuItem{
-				{ID: IDToggleAutoStart, Text: "开机自启（自动提权）", Checked: st.AutoStart},
-				{ID: IDRunAsAdmin, Text: "每次以管理员身份启动", Checked: st.RunAsAdmin || st.AutoStart, Disabled: st.AutoStart},
 				{ID: IDReloadConfig, Text: "重载配置文件"},
 				{ID: IDRestartKernel, Text: "重启核心"},
 				{ID: IDOpenConfigFile, Text: "编辑 config.yaml"},
