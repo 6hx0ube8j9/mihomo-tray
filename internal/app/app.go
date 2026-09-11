@@ -415,7 +415,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 	case "ToggleProxy":
 		enable := cmd.Payload == "true"
 		slog.Info("切换系统代理", "enable", enable)
-		a.Cfg.Set("proxy", strconv.FormatBool(enable))
+		a.Cfg.Set("proxy", strconv.FormatBool(enable)) 
+		a.syncSystemProxy()
 
 	case "SwitchMode":
 		slog.Info("切换运行模式", "mode", cmd.Payload)
