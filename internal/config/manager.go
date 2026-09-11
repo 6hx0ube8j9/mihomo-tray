@@ -111,9 +111,6 @@ func (m *Manager) Get(key string) string {
 	case "proxy":
 		return m.data.Proxy
 	case "tun":
-		if m.data.Tun == "true" && !m.isAdmin {
-			return "false"
-		}
 		return m.data.Tun
 	default:
 		return m.runtimeKernelParams[key]
