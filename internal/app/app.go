@@ -445,12 +445,19 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		return
 
 	case "OpenWebUI":
-		slog.Info("打开 Web 控制面板")
-		addr := a.Cfg.Get("external-controller")
-		if addr == "" {
-			addr = "127.0.0.1:9090"
+		if a.State.GetPhase() != state.PhaseRunning {
+			slog.Warn("内核尚未就绪，无法打开 WebUI")
+			break
 		}
-		_ = sys.ExecuteSystemCommand("http://" + addr + "/ui")
+		cfg := ui.Config{
+			APIAddr:   a.Cfg.Get("external-controller"),
+			Secret:    a.Cfg.Get("secret"),
+			ProxyPort: a.Cfg.Get("port"),
+			BaseDir:   a.Cfg.BaseDir(),
+			UIName:    a.Cfg.Get("external-ui-name"),
+		}
+		slog.Info("启动独立 WebUI 面板", "api", cfg.APIAddr)
+		go ui.Launch(cfg, a.webuiEventCh)
 
 	case "OpenBaseDir":
 		slog.Info("打开应用程序目录")
@@ -468,6 +475,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 
 	case "ExitApp":
 		slog.Info("收到退出指令")
+		ui.Cleanup()
 	}
 
 	a.pushUIState()
