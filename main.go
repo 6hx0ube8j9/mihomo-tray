@@ -237,7 +237,25 @@ func main() {
 
 	if !admin && !isAutostart {
 		if isAutostartConfig || isRunAsAdminConfig {
-			slog.Info("配置要求特权，请求 UAC 提权")
+			slog.Info("配置要求特权，正在尝试静默提权或请求 UAC")
+
+			if isAutostartConfig && sys.IsTaskPathValid(exePath) {
+				slog.Debug("检测到自启计划任务，尝试通过计划任务静默提权")
+				schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
+				cmd := exec.Command(schtasksPath, "/Run", "/TN", sys.TaskName)
+				cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+
+				if err := cmd.Run(); err == nil {
+					slog.Info("已成功通过计划任务静默唤起高权限实例，当前进程退出")
+					if hM != 0 {
+						windows.CloseHandle(hM)
+					}
+					os.Exit(0)
+				} else {
+					slog.Warn("计划任务静默启动失败，回退到普通 UAC 提权", "err", err)
+				}
+			}
+			
 			err := sys.RunAsAdmin(exePath, baseDir, "--restarting")
 			
 			if sys.IsUserCancelled(err) {
