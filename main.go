@@ -5,12 +5,10 @@ import (
 	"errors"
 	"log/slog"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 	"unsafe"
@@ -154,7 +152,6 @@ func syncLogLevel(cfgMgr *config.Manager) {
 func getPermissiveSecAttr() *windows.SecurityAttributes {
 	sd, err := windows.SecurityDescriptorFromString("D:(A;;GA;;;WD)S:(ML;;NW;;;LW)")
 	if err != nil {
-		slog.Error("创建安全描述符失败", "err", err)
 		return nil
 	}
 	var sa windows.SecurityAttributes
@@ -223,17 +220,17 @@ func main() {
 		defer logWriter.Close()
 	}
 
-	cfgMgr := config.NewManager(baseDir, exePath)
+	admin := sys.IsAdmin()
+	cfgMgr := config.NewManager(baseDir, exePath, admin)
 	cfgMgr.LoadAndInitMemory()
 	syncLogLevel(cfgMgr)
 
-	slog.Info("程序启动", "pid", os.Getpid(), "dir", baseDir)
+	slog.Info("程序启动", "pid", os.Getpid(), "dir", baseDir, "admin", admin)
 
 	if enableTunArg {
 		cfgMgr.Set("tun", "true")
 	}
 
-	admin := sys.IsAdmin()
 	isAutostartConfig := cfgMgr.Get("autostart") == "true"
 	isRunAsAdminConfig := cfgMgr.Get("run_as_admin") == "true"
 
@@ -327,15 +324,4 @@ func main() {
 	runtimeState.ForceExitPhase()
 	application.SafeShutdown(cancel)
 	slog.Info("程序已安全退出")
-}
-
-func isAdmin() bool {
-	var token windows.Token
-	err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &token)
-	if err != nil {
-		slog.Error("获取进程 Token 失败", "err", err)
-		return false
-	}
-	defer token.Close()
-	return token.IsElevated()
 }
