@@ -176,6 +176,8 @@ func main() {
 	isRestarting := false
 	enableTunArg := false
 	enableRunAsAdminArg := false
+	enableAutostartArg := false
+	disableAutostartArg := false
 
 	for _, arg := range os.Args[1:] {
 		argClean := strings.ToLower(strings.TrimLeft(arg, "-"))
@@ -187,6 +189,10 @@ func main() {
 			enableTunArg = true
 		} else if strings.Contains(argClean, "enable-run-as-admin") {
 			enableRunAsAdminArg = true
+		} else if strings.Contains(argClean, "enable-autostart") {
+			enableAutostartArg = true
+		} else if strings.Contains(argClean, "disable-autostart") {
+			disableAutostartArg = true
 		}
 	}
 
@@ -239,10 +245,18 @@ func main() {
 	if enableRunAsAdminArg {
 		cfgMgr.Set("run_as_admin", "true")
 	}
+	
+	if enableAutostartArg {
+		cfgMgr.Set("autostart", "true")
+		sys.ToggleAutoStart(exePath, baseDir, true)
+	} else if disableAutostartArg {
+		cfgMgr.Set("autostart", "false")
+		sys.ToggleAutoStart(exePath, baseDir, false)
+	}
 
 	isAutostartConfig := cfgMgr.Get("autostart") == "true"
 	isRunAsAdminConfig := cfgMgr.Get("run_as_admin") == "true"
-
+	
 	if !admin && !isAutostart {
 		if isAutostartConfig || isRunAsAdminConfig {
 			slog.Info("配置要求特权，正在尝试静默提权或请求 UAC")
