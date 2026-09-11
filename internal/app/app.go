@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -359,11 +360,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		}
 
 		slog.Info("切换每次管理员身份启动", "enable", enable)
-		val := ""
-		if enable {
-			val = "true"
-		}
-		a.Cfg.Set("run_as_admin", val)
+		a.Cfg.Set("run_as_admin", strconv.FormatBool(enable))
 
 	case "ToggleTun":
 		enable := cmd.Payload == "true"
@@ -384,11 +381,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		}
 
 		slog.Info("切换 TUN 模式", "enable", enable)
-		val := ""
-		if enable {
-			val = "true"
-		}
-		a.Cfg.Set("tun", val)
+		a.Cfg.Set("tun", strconv.FormatBool(enable))
 
 		if enable {
 			a.State.SetTunRequestedTime(time.Now())
@@ -410,11 +403,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 
 			if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"tun": tunPayload}); err != nil {
 				slog.Error("切换 TUN 模式失败", "enable", enable, "err", err)
-				revertVal := ""
-				if !enable {
-					revertVal = "true"
-				}
-				a.Cfg.Set("tun", revertVal)
+				a.Cfg.Set("tun", strconv.FormatBool(!enable))
 			}
 
 			select {
@@ -426,11 +415,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 	case "ToggleProxy":
 		enable := cmd.Payload == "true"
 		slog.Info("切换系统代理", "enable", enable)
-		val := ""
-		if enable {
-			val = "true"
-		}
-		a.Cfg.Set("proxy", val)
+		a.Cfg.Set("proxy", strconv.FormatBool(enable))
 
 	case "SwitchMode":
 		slog.Info("切换运行模式", "mode", cmd.Payload)
