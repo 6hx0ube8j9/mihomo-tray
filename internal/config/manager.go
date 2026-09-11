@@ -29,6 +29,7 @@ const (
 
 type TrayConfig struct {
 	Autostart    string `json:"autostart"`
+	RunAsAdmin   string `json:"run_as_admin"`
 	Mode         string `json:"mode"`
 	Proxy        string `json:"proxy"`
 	Tun          string `json:"tun"`
@@ -38,6 +39,7 @@ type TrayConfig struct {
 type Manager struct {
 	baseDir string
 	exePath string
+	isAdmin bool
 	mu      sync.RWMutex
 	yamlMu  sync.Mutex
 
@@ -45,10 +47,11 @@ type Manager struct {
 	runtimeKernelParams map[string]string
 }
 
-func NewManager(baseDir, exePath string) *Manager {
+func NewManager(baseDir, exePath string, isAdmin bool) *Manager {
 	return &Manager{
 		baseDir: baseDir,
 		exePath: exePath,
+		isAdmin: isAdmin,
 		runtimeKernelParams: map[string]string{
 			"port":                DefaultMixedPort,
 			"external-controller": DefaultExternalController,
@@ -72,6 +75,9 @@ func (m *Manager) LoadAndInitMemory() {
 		slog.Info("未找到配置文件，使用默认配置", "path", cfgPath)
 	}
 
+	if m.data.RunAsAdmin == "" {
+		m.data.RunAsAdmin = "false"
+	}
 	if m.data.Proxy == "" {
 		m.data.Proxy = DefaultProxy
 	}
@@ -98,11 +104,16 @@ func (m *Manager) Get(key string) string {
 	switch key {
 	case "autostart":
 		return m.data.Autostart
+	case "run_as_admin":
+		return m.data.RunAsAdmin
 	case "mode":
 		return m.data.Mode
 	case "proxy":
 		return m.data.Proxy
 	case "tun":
+		if m.data.Tun == "true" && !m.isAdmin {
+			return "false"
+		}
 		return m.data.Tun
 	default:
 		return m.runtimeKernelParams[key]
@@ -132,6 +143,11 @@ func (m *Manager) UpdateBatch(updates map[string]string) {
 		case "autostart":
 			if m.data.Autostart != value {
 				m.data.Autostart = value
+				diskChanged = true
+			}
+		case "run_as_admin":
+			if m.data.RunAsAdmin != value {
+				m.data.RunAsAdmin = value
 				diskChanged = true
 			}
 		case "mode":
