@@ -180,6 +180,12 @@ func (m *Manager) PrepareYAMLForBoot() (bool, error) {
 	wantMode := m.Get("mode")
 	wantTun := m.Get("tun") == "true"
 
+	if wantTun && !m.isAdmin {
+		slog.Warn("当前为普通权限无法开启 TUN，已自动修正本地配置为 false")
+		wantTun = false
+		m.Set("tun", "false")
+	}
+
 	m.yamlMu.Lock()
 	defer m.yamlMu.Unlock()
 
