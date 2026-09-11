@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -299,13 +298,54 @@ func (a *Application) eventLoop(ctx context.Context) {
 
 func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 	switch cmd.Action {
-	case "ToggleRunAsAdmin":
+	case "ToggleAutoStart":
 		enable := cmd.Payload == "true"
 
+		if !sys.IsAdmin() {
+			slog.Info("普通权限修改开机自启，发起 UAC 提权")
+			arg := "--disable-autostart"
+			if enable {
+				arg = "--enable-autostart"
+			}
+			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), arg, "--restarting")
+			
+			if sys.IsUserCancelled(err) {
+				slog.Info("用户取消提权，保持当前会话")
+			} else if err == nil {
+				slog.Info("提权请求已下发，当前普通进程退出")
+				os.Exit(0)
+			} else {
+				slog.Error("提权失败", "err", err)
+			}
+			a.pushUIState()
+			return
+		}
+
+		slog.Info("切换开机自启", "enable", enable)
+		val := ""
+		if enable {
+			val = "true"
+		}
+		a.Cfg.Set("autostart", val)
+
+		if enable {
+			sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), true)
+			slog.Info("已创建开机自启计划任务")
+		} else {
+			if sys.CheckAutoStartStatus() && !sys.IsTaskPathValid(a.Cfg.ExePath()) {
+				slog.Warn("计划任务指向其他程序路径，跳过清理")
+			} else {
+				sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), false)
+				slog.Info("已清除开机自启计划任务")
+			}
+		}
+
+	case "ToggleRunAsAdmin":
+		enable := cmd.Payload == "true"
+		
 		if enable && !sys.IsAdmin() {
 			slog.Info("普通权限勾选以管理员启动，仅请求 UAC 重启，不附带 TUN")
 			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--enable-run-as-admin", "--restarting")
-
 			if sys.IsUserCancelled(err) {
 				slog.Info("用户取消提权，无事发生")
 			} else if err == nil {
@@ -331,7 +371,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		if enable && !sys.IsAdmin() {
 			slog.Info("普通权限请求开启 TUN，发起 UAC 提权")
 			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--enable-tun", "--restarting")
-
 			if sys.IsUserCancelled(err) {
 				slog.Info("用户取消了 UAC 提权，保持当前会话")
 			} else if err == nil {
@@ -371,7 +410,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 
 			if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"tun": tunPayload}); err != nil {
 				slog.Error("切换 TUN 模式失败", "enable", enable, "err", err)
-				
 				revertVal := ""
 				if !enable {
 					revertVal = "true"
@@ -384,49 +422,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			default:
 			}
 		}()
-
-	case "ToggleAutoStart":
-		enable := cmd.Payload == "true"
-
-		if !sys.IsAdmin() {
-			slog.Info("普通权限修改开机自启，发起 UAC 提权")
-			arg := "--disable-autostart"
-			if enable {
-				arg = "--enable-autostart"
-			}
-
-			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), arg, "--restarting")
-
-			if sys.IsUserCancelled(err) {
-				slog.Info("用户取消提权，保持当前会话")
-			} else if err == nil {
-				slog.Info("提权请求已下发，当前普通进程退出")
-				os.Exit(0)
-			} else {
-				slog.Error("提权失败", "err", err)
-			}
-			a.pushUIState()
-			return
-		}
-
-		slog.Info("切换开机自启", "enable", enable)
-		val := ""
-		if enable {
-			val = "true"
-		}
-		a.Cfg.Set("autostart", val)
-
-		if enable {
-			sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), true)
-			slog.Info("已创建开机自启计划任务")
-		} else {
-			if sys.CheckAutoStartStatus() && !sys.IsTaskPathValid(a.Cfg.ExePath()) {
-				slog.Warn("计划任务指向其他程序路径，跳过清理")
-			} else {
-				sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), false)
-				slog.Info("已清除开机自启计划任务")
-			}
-		}
 
 	case "ToggleProxy":
 		enable := cmd.Payload == "true"
@@ -466,42 +461,21 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 
 	case "OpenWebUI":
 		slog.Info("打开 Web 控制面板")
-		_ = sys.ExecuteSystemCommand(a.getWebUIURL())
+		addr := a.Cfg.Get("external-controller")
+		if addr == "" {
+			addr = "127.0.0.1:9090"
+		}
+		_ = sys.ExecuteSystemCommand("http://" + addr + "/ui")
 
 	case "OpenBaseDir":
 		slog.Info("打开应用程序目录")
 		_ = sys.ExecuteSystemCommand(a.Cfg.BaseDir())
 
 	case "ReloadConfig":
-		slog.Info("准备重载配置文件")
-		go func() {
-			reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			defer cancel()
-			if err := a.API.ReloadKernelConfig(reqCtx, ""); err != nil {
-				slog.Error("重载内核配置失败", "err", err)
-			}
-			select {
-			case a.apiPollCh <- struct{}{}:
-			default:
-			}
-		}()
+		a.ReloadConfig(ctx)
 
 	case "RestartKernel":
-		slog.Info("准备重启内核进程")
-		a.State.SetRestarting(true)
-		a.pushUIState()
-
-		go func() {
-			time.Sleep(100 * time.Millisecond)
-			a.stopKernel()
-			time.Sleep(500 * time.Millisecond)
-			select {
-			case a.kernelWakeCh <- struct{}{}:
-			default:
-			}
-			a.State.SetRestarting(false)
-		}()
-		return
+		a.RestartKernel()
 
 	case "OpenConfigFile":
 		slog.Info("打开内核配置文件")
@@ -540,7 +514,7 @@ func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.Pr
 		if status.Enabled {
 			if status.Server != "" && !strings.EqualFold(status.Server, expectedServer) {
 				slog.Warn("系统代理被外部修改，已关闭本地代理", "server", status.Server)
-				a.Cfg.Set("proxy", "false")
+				a.Cfg.Set("proxy", "false") // 对于反向变更，明确写入 false 防止被兜底默认值覆盖
 				a.pushUIState()
 			}
 			return
