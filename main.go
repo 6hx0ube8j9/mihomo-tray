@@ -239,29 +239,34 @@ func main() {
 
 	slog.Info("程序启动", "pid", os.Getpid(), "dir", baseDir, "admin", admin)
 
+	hasValidTask := sys.CheckAutoStartStatus() && sys.IsTaskPathValid(exePath)
+	if hasValidTask && cfgMgr.Get("autostart") != "true" {
+		slog.Info("检测到已有自启任务，自动恢复自启与提权意图")
+		cfgMgr.Set("autostart", "true")
+	}
+
 	if enableTunArg {
 		cfgMgr.Set("tun", "true")
 	}
 	if enableRunAsAdminArg {
 		cfgMgr.Set("run_as_admin", "true")
 	}
-	
 	if enableAutostartArg {
 		cfgMgr.Set("autostart", "true")
 		sys.ToggleAutoStart(exePath, baseDir, true)
 	} else if disableAutostartArg {
-		cfgMgr.Set("autostart", "false")
+		cfgMgr.Set("autostart", "")
 		sys.ToggleAutoStart(exePath, baseDir, false)
 	}
 
 	isAutostartConfig := cfgMgr.Get("autostart") == "true"
 	isRunAsAdminConfig := cfgMgr.Get("run_as_admin") == "true"
-	
+
 	if !admin && !isAutostart {
 		if isAutostartConfig || isRunAsAdminConfig {
 			slog.Info("配置要求特权，正在尝试静默提权或请求 UAC")
 
-			if isAutostartConfig && sys.IsTaskPathValid(exePath) {
+			if isAutostartConfig && hasValidTask {
 				slog.Debug("检测到自启计划任务，尝试通过计划任务静默提权")
 				schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
 				cmd := exec.Command(schtasksPath, "/Run", "/TN", sys.TaskName)
