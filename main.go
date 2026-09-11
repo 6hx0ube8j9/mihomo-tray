@@ -175,6 +175,8 @@ func main() {
 	isAutostart := false
 	isRestarting := false
 	enableTunArg := false
+	enableRunAsAdminArg := false
+
 	for _, arg := range os.Args[1:] {
 		argClean := strings.ToLower(strings.TrimLeft(arg, "-"))
 		if argClean == "autostart" {
@@ -183,6 +185,8 @@ func main() {
 			isRestarting = true
 		} else if strings.Contains(argClean, "enable-tun") {
 			enableTunArg = true
+		} else if strings.Contains(argClean, "enable-run-as-admin") {
+			enableRunAsAdminArg = true
 		}
 	}
 
@@ -231,6 +235,9 @@ func main() {
 
 	if enableTunArg {
 		cfgMgr.Set("tun", "true")
+	}
+	if enableRunAsAdminArg {
+		cfgMgr.Set("run_as_admin", "true")
 	}
 
 	isAutostartConfig := cfgMgr.Get("autostart") == "true"
