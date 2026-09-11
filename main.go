@@ -173,13 +173,37 @@ func main() {
 	baseDir := filepath.Dir(exePath)
 	_ = os.Chdir(baseDir)
 
+	isAutostart := false
+	isRestarting := false
+	enableTunArg := false
+	for _, arg := range os.Args[1:] {
+		argClean := strings.ToLower(strings.TrimLeft(arg, "-"))
+		if argClean == "autostart" {
+			isAutostart = true
+		} else if strings.Contains(argClean, "restarting") {
+			isRestarting = true
+		} else if strings.Contains(argClean, "enable-tun") {
+			enableTunArg = true
+		}
+	}
+
 	sa := getPermissiveSecAttr()
 	mName, _ := windows.UTF16PtrFromString(AppMutex)
-	hM, err := windows.CreateMutex(sa, false, mName)
-	isAlreadyExist := errors.Is(err, windows.ERROR_ALREADY_EXISTS) ||
-		errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
-		err == windows.ERROR_ALREADY_EXISTS ||
-		err == windows.ERROR_ACCESS_DENIED
+
+	var hM windows.Handle
+	var isAlreadyExist bool
+	for i := 0; i < 10; i++ {
+		hM, err = windows.CreateMutex(sa, false, mName)
+		isAlreadyExist = errors.Is(err, windows.ERROR_ALREADY_EXISTS) ||
+			errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+			err == windows.ERROR_ALREADY_EXISTS ||
+			err == windows.ERROR_ACCESS_DENIED
+
+		if !isAlreadyExist || !isRestarting {
+			break
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
 
 	if isAlreadyExist {
 		if hM != 0 {
@@ -205,42 +229,35 @@ func main() {
 
 	slog.Info("程序启动", "pid", os.Getpid(), "dir", baseDir)
 
-	isAutostart := false
-	for _, arg := range os.Args[1:] {
-		if strings.EqualFold(strings.TrimLeft(arg, "-"), "autostart") {
-			isAutostart = true
-			break
-		}
+	if enableTunArg {
+		cfgMgr.Set("tun", "true")
 	}
-	
-    admin := isAdmin()
-	slog.Debug("启动参数与权限检查", "autostart", isAutostart, "admin", admin)
+
+	admin := sys.IsAdmin()
+	isAutostartConfig := cfgMgr.Get("autostart") == "true"
+	isRunAsAdminConfig := cfgMgr.Get("run_as_admin") == "true"
 
 	if !admin && !isAutostart {
-		if hM != 0 {
-			_ = windows.CloseHandle(hM)
-			hM = 0
-		}
-		
-		if sys.IsTaskPathValid(exePath) {
-			slog.Debug("检测到自启计划任务，尝试提权启动")
-			schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
-			cmd := exec.Command(schtasksPath, "/Run", "/TN", sys.TaskName)
-			cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
-
-			if out, err := cmd.CombinedOutput(); err == nil {
-				slog.Info("已通过计划任务启动新实例，当前进程退出")
-				return
+		if isAutostartConfig || isRunAsAdminConfig {
+			slog.Info("配置要求特权，请求 UAC 提权")
+			err := sys.RunAsAdmin(exePath, baseDir, "--restarting")
+			
+			if sys.IsUserCancelled(err) {
+				slog.Info("用户在启动时取消了 UAC，优雅退出")
+				if hM != 0 {
+					windows.CloseHandle(hM)
+				}
+				os.Exit(0)
+			} else if err == nil {
+				slog.Info("提权请求成功，当前普通进程退出")
+				if hM != 0 {
+					windows.CloseHandle(hM)
+				}
+				os.Exit(0)
 			} else {
-				slog.Warn("计划任务启动失败，转为 UAC 提权", "err", err, "output", strings.TrimSpace(string(out)))
+				slog.Error("提权启动失败", "err", err)
 			}
-		} else {
-			slog.Debug("计划任务未配置或路径无效，跳过提权启动")
 		}
-
-		slog.Info("权限不足，请求 UAC 提权")
-		sys.RunAsAdmin(exePath, baseDir)
-		return
 	}
 
 	if hM != 0 {
