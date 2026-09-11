@@ -24,10 +24,12 @@ const (
 	IDModeGlobal
 	IDOpenBaseDir
 	IDToggleAutoStart
+	IDRunAsAdmin
 	IDReloadConfig
 	IDRestartKernel
 	IDOpenConfigFile
 	IDExitApp
+	IDAdminStatus
 )
 
 type UICommand struct {
@@ -36,11 +38,13 @@ type UICommand struct {
 }
 
 type UIState struct {
-	IconState int
-	IsTun     bool
-	IsProxy   bool
-	Mode      string
-	AutoStart bool
+	IconState  int
+	IsTun      bool
+	IsProxy    bool
+	Mode       string
+	AutoStart  bool
+	IsAdmin    bool
+	RunAsAdmin bool
 }
 
 type TrayMenu struct {
@@ -157,7 +161,14 @@ func (tm *TrayMenu) onRightClick() {
 		currModeName = "未知"
 	}
 
+	adminText := "[运行模式: 普通权限]"
+	if st.IsAdmin {
+		adminText = "[运行模式: 管理员权限]"
+	}
+
 	items := []wintray.MenuItem{
+		{ID: IDAdminStatus, Text: adminText, Disabled: true},
+		{IsSeparator: true},
 		{ID: IDOpenWebUI, Text: "进入 Web 面板"},
 		{IsSeparator: true},
 		{
@@ -184,7 +195,8 @@ func (tm *TrayMenu) onRightClick() {
 		{
 			Text: "更多",
 			SubMenuItems: []wintray.MenuItem{
-				{ID: IDToggleAutoStart, Text: "开机自启（管理员身份）", Checked: st.AutoStart},
+				{ID: IDToggleAutoStart, Text: "开机自启（自动提权）", Checked: st.AutoStart},
+				{ID: IDRunAsAdmin, Text: "每次以管理员身份启动", Checked: st.RunAsAdmin || st.AutoStart, Disabled: st.AutoStart},
 				{ID: IDReloadConfig, Text: "重载配置文件"},
 				{ID: IDRestartKernel, Text: "重启核心"},
 				{ID: IDOpenConfigFile, Text: "编辑 config.yaml"},
@@ -219,6 +231,8 @@ func (tm *TrayMenu) onMenuItemClick(id uint32) {
 		tm.sendCommand("OpenBaseDir", "")
 	case IDToggleAutoStart:
 		tm.sendCommand("ToggleAutoStart", strconv.FormatBool(!st.AutoStart))
+	case IDRunAsAdmin:
+		tm.sendCommand("ToggleRunAsAdmin", strconv.FormatBool(!st.RunAsAdmin))
 	case IDReloadConfig:
 		tm.sendCommand("ReloadConfig", "")
 	case IDRestartKernel:
