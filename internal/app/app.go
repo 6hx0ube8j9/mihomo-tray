@@ -136,10 +136,15 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	}
 
 	activeRelPath := a.Cfg.GetActivePath()
-	if modified, err := a.Cfg.PrepareYAMLForPath(activeRelPath); err != nil {
+	if modified, extracted, err := a.Cfg.PrepareYAMLForPath(activeRelPath); err != nil {
 		slog.Error("检查内核配置文件失败", "err", err)
-	} else if modified {
-		slog.Info("已自动修正并同步内核配置文件")
+	} else {
+		if len(extracted) > 0 {
+			a.Cfg.UpdateBatch(extracted)
+		}
+		if modified {
+			slog.Info("已自动修正并同步内核配置文件")
+		}
 	}
 
 	if a.Cfg.Get("tun") == "true" {
@@ -328,14 +333,14 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			}
 
 			absPath := a.Cfg.GetActivePathAbs()
-			
 			if _, err := os.Stat(absPath); err != nil {
 				slog.Error("目标物理文件已丢失或无法读取，中止切换", "path", absPath, "err", err)
 				sys.ShowElevationPrompt("配置文件失效", "无法切换到该配置，目标物理文件已丢失或无读取权限！")
 				return
 			}
 
-			if _, err := a.Cfg.PrepareYAMLForPath(relPath); err != nil {
+			_, extracted, err := a.Cfg.PrepareYAMLForPath(relPath)
+			if err != nil {
 				slog.Error("修补 YAML 核心参数失败", "err", err)
 				return
 			}
@@ -351,6 +356,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			if _, err := a.API.DoRequest(reqCtx, "PUT", "/configs?force=true", payload); err != nil {
 				slog.Error("内核热重载请求失败", "err", err)
 				return
+			}
+
+			if len(extracted) > 0 {
+				a.Cfg.UpdateBatch(extracted)
 			}
 
 			time.Sleep(200 * time.Millisecond)
@@ -651,22 +660,26 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 		defer a.State.SetReloading(false)
 
 		activeRelPath := a.Cfg.GetActivePath()
-		if _, err := a.Cfg.PrepareYAMLForPath(activeRelPath); err != nil {
+		_, extracted, err := a.Cfg.PrepareYAMLForPath(activeRelPath)
+		if err != nil {
 			slog.Error("检查内核配置文件失败", "err", err)
 		}
 
 		reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		
 		absPath := a.Cfg.GetActivePathAbs()
 		safePath := filepath.ToSlash(absPath)
 		payload := map[string]interface{}{"path": safePath}
 		
-		_, err := a.API.DoRequest(reqCtx, "PUT", "/configs?force=true", payload)
+		_, err = a.API.DoRequest(reqCtx, "PUT", "/configs?force=true", payload)
 		cancel()
 
 		if err != nil {
 			slog.Error("重载内核配置失败", "err", err)
 			return
+		}
+
+		if len(extracted) > 0 {
+			a.Cfg.UpdateBatch(extracted)
 		}
 
 		time.Sleep(200 * time.Millisecond)
@@ -684,8 +697,11 @@ func (a *Application) RestartKernel() {
 	a.Kernel.HaltDaemon()
 
 	activeRelPath := a.Cfg.GetActivePath()
-	if _, err := a.Cfg.PrepareYAMLForPath(activeRelPath); err != nil {
+	_, extracted, err := a.Cfg.PrepareYAMLForPath(activeRelPath)
+	if err != nil {
 		slog.Error("检查内核配置文件失败", "err", err)
+	} else if len(extracted) > 0 {
+		a.Cfg.UpdateBatch(extracted)
 	}
 
 	if a.Cfg.Get("tun") == "true" {
