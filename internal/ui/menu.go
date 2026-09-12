@@ -157,7 +157,7 @@ func (tm *TrayMenu) onRightClick() {
 		currModeName = "未知"
 	}
 
-	adminText := "运行权限：标准用户"
+	adminText := "运行权限：普通用户"
 	if st.IsAdmin {
 		adminText = "运行权限：管理员"
 	}
