@@ -133,16 +133,13 @@ func (a *Application) Bootstrap(ctx context.Context) {
 		slog.Debug("自启状态与预期不符，修正托盘配置并落盘", "old", currentAutostart, "new", finalAutostart)
 		a.Cfg.UpdateBatch(map[string]string{"autostart": finalAutostart})
 		a.Cfg.FlushInitialState()
-	} else {
-		slog.Debug("托盘配置文件一致，跳过重写")
 	}
 
-	if modified, err := a.Cfg.PrepareYAMLForBoot(); err != nil {
+	activeRelPath := a.Cfg.GetActivePath()
+	if modified, err := a.Cfg.PrepareYAMLForPath(activeRelPath); err != nil {
 		slog.Error("检查内核配置文件失败", "err", err)
 	} else if modified {
 		slog.Info("已自动修正并同步内核配置文件")
-	} else {
-		slog.Debug("内核配置文件一致，跳过重写")
 	}
 
 	if a.Cfg.Get("tun") == "true" {
@@ -230,7 +227,6 @@ func (a *Application) eventLoop(ctx context.Context) {
 						}
 
 						if a.probeGen.Load() != gen {
-							slog.Debug("内核已退出或重启，终止陈旧的 API 探针")
 							return
 						}
 
@@ -260,7 +256,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 					}
 					
 					if a.probeGen.Load() == gen && !a.State.IsExiting() {
-						slog.Error("内核进程假死 (10分钟未开放 API)，守护进程已自动熄火挂起，请排查网络")
+						slog.Error("内核进程假死，守护进程已自动熄火挂起")
 						a.Kernel.HaltDaemon() 
 						a.State.SetPhase(state.PhaseInitializing)
 						a.pushUIState()
@@ -280,7 +276,6 @@ func (a *Application) eventLoop(ctx context.Context) {
 			a.pushUIState()
 
 		case <-a.tunEventCh:
-			slog.Debug("检测到网卡状态变更")
 			a.handleTunChange(ctx)
 
 		case status := <-a.proxyStatusCh:
@@ -299,15 +294,84 @@ func (a *Application) eventLoop(ctx context.Context) {
 
 func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 	switch cmd.Action {
+	case "RequestAddLocalProfile":
+		go func() {
+			if selectedPath, ok := sys.OpenYAMLFileDialog(); ok {
+				a.UICommandCh <- ui.UICommand{Action: "AddLocalProfile", Payload: selectedPath}
+			}
+		}()
+		return
+
+	case "AddLocalProfile":
+		if err := a.Cfg.PrepareLocalConfig(cmd.Payload); err != nil {
+			slog.Error("导入本地配置失败", "err", err, "path", cmd.Payload)
+			sys.ShowElevationPrompt("配置导入失败", err.Error())
+			break
+		}
+		cmd.Payload = a.Cfg.GetActivePath()
+		fallthrough
+
+	case "SwitchProfile":
+		if a.State.IsProfileSwitching() {
+			slog.Warn("配置切换正在进行中，已阻断并发请求")
+			break
+		}
+		a.State.SetProfileSwitching(true)
+		
+		go func(relPath string) {
+			defer a.State.SetProfileSwitching(false)
+			
+			if relPath != "" {
+				a.Cfg.SetActiveProfile(relPath)
+			} else {
+				relPath = a.Cfg.GetActivePath()
+			}
+
+			absPath := a.Cfg.GetActivePathAbs()
+			if _, err := os.Stat(absPath); os.IsNotExist(err) {
+				slog.Error("目标物理文件已丢失，中止切换", "path", absPath)
+				sys.ShowElevationPrompt("配置文件丢失", "无法切换到该配置，因为磁盘上的目标文件不存在！")
+				return
+			}
+
+			if _, err := a.Cfg.PrepareYAMLForPath(relPath); err != nil {
+				slog.Error("修补 YAML 核心参数失败", "err", err)
+				return
+			}
+
+			reqCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			slog.Info("正在向内核下发切换指令", "target", absPath)
+			
+			payload := map[string]interface{}{"path": absPath, "payload": ""}
+			if _, err := a.API.DoRequest(reqCtx, "PUT", "/configs?force=true", payload); err != nil {
+				slog.Error("内核热重载请求失败", "err", err)
+				return
+			}
+
+			time.Sleep(200 * time.Millisecond)
+			a.syncAllConfig(context.Background())
+			a.syncSystemProxy()
+
+			select {
+			case a.apiPollCh <- struct{}{}:
+			default:
+			}
+			a.pushUIState()
+		}(cmd.Payload)
+
+	case "RemoveProfile":
+		slog.Info("移除本地配置", "path", cmd.Payload)
+		a.Cfg.RemoveProfile(cmd.Payload)
+
 	case "ToggleAutoStart":
 		enable := cmd.Payload == "true"
 
 		if !sys.IsAdmin() {
 			slog.Info("普通权限修改开机自启，发起 UAC 提权")
 			arg := "--disable-autostart"
-			if enable {
-				arg = "--enable-autostart"
-			}
+			if enable { arg = "--enable-autostart" }
 			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), arg, "--restarting")
 			
 			if sys.IsUserCancelled(err) {
@@ -315,29 +379,20 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			} else if err == nil {
 				slog.Info("提权请求已下发，当前普通进程退出")
 				os.Exit(0)
-			} else {
-				slog.Error("提权失败", "err", err)
 			}
 			a.pushUIState()
 			return
 		}
 
-		slog.Info("切换开机自启", "enable", enable)
-		val := ""
-		if enable {
-			val = "true"
-		}
-		a.Cfg.Set("autostart", val)
+		a.Cfg.Set("autostart", strconv.FormatBool(enable))
 
 		if enable {
 			sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), true)
-			slog.Info("已创建开机自启计划任务")
 		} else {
 			if sys.CheckAutoStartStatus() && !sys.IsTaskPathValid(a.Cfg.ExePath()) {
 				slog.Warn("计划任务指向其他程序路径，跳过清理")
 			} else {
 				sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), false)
-				slog.Info("已清除开机自启计划任务")
 			}
 		}
 
@@ -345,42 +400,23 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		enable := cmd.Payload == "true"
 		
 		if enable && !sys.IsAdmin() {
-			slog.Info("普通权限勾选以管理员启动，仅请求 UAC 重启，不附带 TUN")
 			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--enable-run-as-admin", "--restarting")
-			if sys.IsUserCancelled(err) {
-				slog.Info("用户取消提权，无事发生")
-			} else if err == nil {
-				slog.Info("提权请求已下发，当前普通进程退出")
-				os.Exit(0)
-			} else {
-				slog.Error("提权失败", "err", err)
-			}
+			if err == nil { os.Exit(0) }
 			a.pushUIState()
 			return
 		}
-
-		slog.Info("切换每次管理员身份启动", "enable", enable)
 		a.Cfg.Set("run_as_admin", strconv.FormatBool(enable))
 
 	case "ToggleTun":
 		enable := cmd.Payload == "true"
 
 		if enable && !sys.IsAdmin() {
-			slog.Info("普通权限请求开启 TUN，发起 UAC 提权")
 			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--enable-tun", "--restarting")
-			if sys.IsUserCancelled(err) {
-				slog.Info("用户取消了 UAC 提权，保持当前会话")
-			} else if err == nil {
-				slog.Info("提权请求已下发，当前普通进程退出")
-				os.Exit(0)
-			} else {
-				slog.Error("提权失败", "err", err)
-			}
+			if err == nil { os.Exit(0) }
 			a.pushUIState()
 			return
 		}
 
-		slog.Info("切换 TUN 模式", "enable", enable)
 		a.Cfg.Set("tun", strconv.FormatBool(enable))
 
 		if enable {
@@ -402,47 +438,30 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			defer cancel()
 
 			if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"tun": tunPayload}); err != nil {
-				slog.Error("切换 TUN 模式失败", "enable", enable, "err", err)
 				a.Cfg.Set("tun", strconv.FormatBool(!enable))
 			}
-
-			select {
-			case a.apiPollCh <- struct{}{}:
-			default:
-			}
+			select { case a.apiPollCh <- struct{}{}: default: }
 		}()
 
 	case "ToggleProxy":
 		enable := cmd.Payload == "true"
-		slog.Info("切换系统代理", "enable", enable)
 		a.Cfg.Set("proxy", strconv.FormatBool(enable)) 
 		a.syncSystemProxy()
 
 	case "SwitchMode":
-		slog.Info("切换运行模式", "mode", cmd.Payload)
 		a.Cfg.Set("mode", cmd.Payload)
-
 		a.State.SetConfigSyncing(true)
 		go func() {
 			defer a.State.SetConfigSyncing(false)
 			reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
 
-			if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"mode": cmd.Payload}); err != nil {
-				slog.Error("切换模式失败", "mode", cmd.Payload, "err", err)
-			}
-
-			select {
-			case a.apiPollCh <- struct{}{}:
-			default:
-			}
+			_ = a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"mode": cmd.Payload})
+			select { case a.apiPollCh <- struct{}{}: default: }
 		}()
 
 	case "ForceSyncAPI":
-		select {
-		case a.apiPollCh <- struct{}{}:
-		default:
-		}
+		select { case a.apiPollCh <- struct{}{}: default: }
 		return
 
 	case "OpenWebUI":
@@ -457,11 +476,9 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			BaseDir:   a.Cfg.BaseDir(),
 			UIName:    a.Cfg.Get("external-ui-name"),
 		}
-		slog.Info("启动独立 WebUI 面板", "api", cfg.APIAddr)
 		go ui.Launch(cfg, a.webuiEventCh)
 
 	case "OpenBaseDir":
-		slog.Info("打开应用程序目录")
 		_ = sys.ExecuteSystemCommand(a.Cfg.BaseDir())
 
 	case "ReloadConfig":
@@ -471,11 +488,9 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		a.RestartKernel()
 
 	case "OpenConfigFile":
-		slog.Info("打开内核配置文件")
-		_ = sys.ExecuteSystemCommand(filepath.Join(a.Cfg.BaseDir(), "config.yaml"))
+		_ = sys.ExecuteSystemCommand(a.Cfg.GetActivePathAbs())
 
 	case "ExitApp":
-		slog.Info("收到退出指令")
 		ui.Cleanup()
 	}
 
@@ -508,14 +523,13 @@ func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.Pr
 		if status.Enabled {
 			if status.Server != "" && !strings.EqualFold(status.Server, expectedServer) {
 				slog.Warn("系统代理被外部修改，已关闭本地代理", "server", status.Server)
-				a.Cfg.Set("proxy", "false") // 对于反向变更，明确写入 false 防止被兜底默认值覆盖
+				a.Cfg.Set("proxy", "false")
 				a.pushUIState()
 			}
 			return
 		}
 
 		if !a.proxyRepairing.CompareAndSwap(false, true) {
-			slog.Debug("系统代理恢复中，忽略并发的注册表变更事件")
 			return
 		}
 
@@ -523,52 +537,48 @@ func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.Pr
 			defer a.proxyRepairing.Store(false)
 
 			for i := 1; i <= 10; i++ {
-				if a.State.IsExiting() || ctx.Err() != nil {
-					slog.Debug("程序正在退出，终止代理恢复流程")
+				if a.State.IsExiting() || ctx.Err() != nil || a.Cfg.Get("proxy") != "true" {
 					return
 				}
-
-				if a.Cfg.Get("proxy") != "true" {
-					slog.Info("用户已手动关闭系统代理，终止自动恢复流程")
-					return
-				}
-
-				slog.Debug("正在恢复系统代理", "retry", i)
 				a.syncSystemProxy()
 
 				select {
-				case <-ctx.Done():
-					slog.Debug("接收到上下文取消信号，立即终止代理恢复流程")
-					return
+				case <-ctx.Done(): return
 				case <-time.After(1000 * time.Millisecond):
 				}
 
 				cur, err := sys.GetProxyStatus()
 				if err == nil && cur.Enabled && strings.EqualFold(cur.Server, expectedServer) {
-					slog.Info("系统代理自动恢复成功")
 					return
 				}
 			}
-			slog.Warn("系统代理自动恢复失败，停止重试并重置状态")
 			a.Cfg.Set("proxy", "false")
 			a.pushUIState()
 		}()
 		return
 	}
-
-	if status.Enabled {
-		slog.Debug("系统代理发生变更（未托管）", "server", status.Server)
-	}
 }
 
 func (a *Application) calculateUIState() ui.UIState {
 	s := ui.UIState{
-		IsTun:      a.Cfg.Get("tun") == "true",
-		IsProxy:    a.Cfg.Get("proxy") == "true",
-		Mode:       a.Cfg.Get("mode"),
-		AutoStart:  a.Cfg.Get("autostart") == "true",
-		RunAsAdmin: a.Cfg.Get("run_as_admin") == "true",
-		IsAdmin:    sys.IsAdmin(),
+		IsTun:            a.Cfg.Get("tun") == "true",
+		IsProxy:          a.Cfg.Get("proxy") == "true",
+		Mode:             a.Cfg.Get("mode"),
+		AutoStart:        a.Cfg.Get("autostart") == "true",
+		RunAsAdmin:       a.Cfg.Get("run_as_admin") == "true",
+		IsAdmin:          sys.IsAdmin(),
+	}
+
+	activePath := a.Cfg.GetActivePath()
+	profiles := a.Cfg.GetProfiles()
+	s.CanAddProfile = len(profiles) < 5
+	
+	for _, p := range profiles {
+		s.ProfileItems = append(s.ProfileItems, ui.ProfileItem{
+			Name:     config.TruncateMiddle(p.Name),
+			Path:     p.Path,
+			IsActive: p.Path == activePath,
+		})
 	}
 
 	if a.State.IsExiting() || a.State.IsRestarting() || a.State.GetPhase() != state.PhaseRunning {
@@ -594,21 +604,31 @@ func (a *Application) calculateUIState() ui.UIState {
 }
 
 func (a *Application) pushUIState() {
-	if a.State.IsExiting() {
-		return
-	}
+	if a.State.IsExiting() { return }
 
 	a.uiStateMutex.Lock()
 	defer a.uiStateMutex.Unlock()
 
 	newState := a.calculateUIState()
-	if newState != a.lastUIState {
-		slog.Debug("刷新 UI 状态",
-			"icon", newState.IconState,
-			"tun", newState.IsTun,
-			"proxy", newState.IsProxy,
-			"mode", newState.Mode)
+	changed := false
 
+	if newState.IconState != a.lastUIState.IconState || 
+	   newState.IsTun != a.lastUIState.IsTun || 
+	   newState.IsProxy != a.lastUIState.IsProxy || 
+	   newState.Mode != a.lastUIState.Mode || 
+	   len(newState.ProfileItems) != len(a.lastUIState.ProfileItems) {
+		changed = true
+	} else {
+		for i := range newState.ProfileItems {
+			if newState.ProfileItems[i].Path != a.lastUIState.ProfileItems[i].Path ||
+			   newState.ProfileItems[i].IsActive != a.lastUIState.ProfileItems[i].IsActive {
+				changed = true
+				break
+			}
+		}
+	}
+
+	if changed {
 		a.lastUIState = newState
 		select {
 		case a.UIStateCh <- newState:
@@ -627,12 +647,14 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 	go func() {
 		defer a.State.SetReloading(false)
 
-		if _, err := a.Cfg.PrepareYAMLForBoot(); err != nil {
+		activeRelPath := a.Cfg.GetActivePath()
+		if _, err := a.Cfg.PrepareYAMLForPath(activeRelPath); err != nil {
 			slog.Error("检查内核配置文件失败", "err", err)
 		}
 
 		reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		_, err := a.API.DoRequest(reqCtx, "PUT", "/configs?force=true", map[string]interface{}{"path": "", "payload": ""})
+		payload := map[string]interface{}{"path": a.Cfg.GetActivePathAbs(), "payload": ""}
+		_, err := a.API.DoRequest(reqCtx, "PUT", "/configs?force=true", payload)
 		cancel()
 
 		if err != nil {
@@ -641,15 +663,10 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 		}
 
 		time.Sleep(200 * time.Millisecond)
-
-		slog.Info("内核配置重载成功，正在同步状态")
 		a.syncAllConfig(ctx)
 		a.syncSystemProxy()
 
-		select {
-		case a.apiPollCh <- struct{}{}:
-		default:
-		}
+		select { case a.apiPollCh <- struct{}{}: default: }
 	}()
 }
 
@@ -659,7 +676,8 @@ func (a *Application) RestartKernel() {
 	a.State.SetReloading(false)
 	a.Kernel.HaltDaemon()
 
-	if _, err := a.Cfg.PrepareYAMLForBoot(); err != nil {
+	activeRelPath := a.Cfg.GetActivePath()
+	if _, err := a.Cfg.PrepareYAMLForPath(activeRelPath); err != nil {
 		slog.Error("检查内核配置文件失败", "err", err)
 	}
 
@@ -689,16 +707,10 @@ func (a *Application) handleTunChange(ctx context.Context) {
 		go func() {
 			for i := 0; i < 3; i++ {
 				select {
-				case <-ctx.Done():
-					slog.Debug("接收到上下文取消信号，立刻终止 TUN 状态轮询")
-					return
+				case <-ctx.Done(): return
 				case <-time.After(300 * time.Millisecond):
 				}
-
-				select {
-				case a.apiPollCh <- struct{}{}:
-				default:
-				}
+				select { case a.apiPollCh <- struct{}{}: default: }
 			}
 		}()
 		a.pushUIState()
@@ -709,9 +721,7 @@ func (a *Application) syncAllConfig(ctx context.Context) {
 	if a.State.GetPhase() != state.PhaseRunning {
 		return
 	}
-	tunPayload := map[string]interface{}{
-		"enable": a.Cfg.Get("tun") == "true",
-	}
+	tunPayload := map[string]interface{}{"enable": a.Cfg.Get("tun") == "true"}
 	if dev := a.Cfg.Get("tun_device"); dev != "" {
 		tunPayload["device"] = dev
 	}
@@ -719,9 +729,7 @@ func (a *Application) syncAllConfig(ctx context.Context) {
 		"tun":  tunPayload,
 		"mode": a.Cfg.Get("mode"),
 	}
-	if err := a.API.SyncConfigToKernel(ctx, payload); err != nil {
-		slog.Error("同步配置到内核失败", "err", err)
-	}
+	_ = a.API.SyncConfigToKernel(ctx, payload)
 }
 
 func (a *Application) pollKernelAPI(ctx context.Context) bool {
@@ -733,9 +741,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 	defer cancel()
 
 	body, err := a.API.DoRequest(queryCtx, "GET", "/configs", nil)
-	if err != nil {
-		return false
-	}
+	if err != nil { return false }
 
 	var resp struct {
 		Mode string `json:"mode"`
@@ -766,9 +772,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 			changed = true
 		}
 
-		if a.reconcileTunState(resp.Tun.Enable) {
-			changed = true
-		}
+		if a.reconcileTunState(resp.Tun.Enable) { changed = true }
 
 		wantTun := a.Cfg.Get("tun") == "true"
 		if changed && wantTun && !realAlive && !a.isTunInGracePeriod() {
