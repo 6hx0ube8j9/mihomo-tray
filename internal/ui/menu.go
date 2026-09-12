@@ -32,19 +32,33 @@ const (
 	IDAdminStatus
 )
 
+const (
+	IDProfileSwitchBase uint32 = 2000
+	IDProfileRemoveBase uint32 = 2010
+	IDProfileAddLocal   uint32 = 2020
+)
+
 type UICommand struct {
 	Action  string
 	Payload string
 }
 
+type ProfileItem struct {
+	Name     string
+	Path     string
+	IsActive bool
+}
+
 type UIState struct {
-	IconState  int
-	IsTun      bool
-	IsProxy    bool
-	Mode       string
-	AutoStart  bool
-	IsAdmin    bool
-	RunAsAdmin bool
+	IconState     int
+	IsTun         bool
+	IsProxy       bool
+	Mode          string
+	AutoStart     bool
+	IsAdmin       bool
+	RunAsAdmin    bool
+	ProfileItems  []ProfileItem
+	CanAddProfile bool
 }
 
 type TrayMenu struct {
@@ -162,8 +176,44 @@ func (tm *TrayMenu) onRightClick() {
 		adminText = "运行权限：管理员"
 	}
 
+	var switchSubItems []wintray.MenuItem
+	var removeSubItems []wintray.MenuItem
+	activeProfileName := "config.yaml"
+
+	for i, item := range st.ProfileItems {
+		if item.IsActive {
+			activeProfileName = item.Name
+		}
+		
+		switchSubItems = append(switchSubItems, wintray.MenuItem{
+			ID:      IDProfileSwitchBase + uint32(i),
+			Text:    item.Name,
+			Checked: item.IsActive,
+		})
+		
+		removeSubItems = append(removeSubItems, wintray.MenuItem{
+			ID:       IDProfileRemoveBase + uint32(i),
+			Text:     item.Name,
+			Disabled: i == 0 || item.IsActive,
+		})
+	}
+
 	items := []wintray.MenuItem{
 		{ID: IDOpenWebUI, Text: "进入 Web 面板"},
+		{IsSeparator: true},
+		{
+			Text: fmt.Sprintf("切换配置 (%d/5)", len(st.ProfileItems)),
+			SubMenuItems: switchSubItems,
+		},
+		{
+			ID: IDProfileAddLocal,
+			Text: fmt.Sprintf("添加本地配置 (%d/5)", len(st.ProfileItems)),
+			Disabled: !st.CanAddProfile,
+		},
+		{
+			Text: "🗑️ 移除配置",
+			SubMenuItems: removeSubItems,
+		},
 		{IsSeparator: true},
 		{ID: IDToggleProxy, Text: "系统代理", Checked: st.IsProxy},
 		{ID: IDToggleTun, Text: "虚拟网卡 (TUN)", Checked: st.IsTun},
@@ -190,9 +240,9 @@ func (tm *TrayMenu) onRightClick() {
 		{
 			Text: "更多",
 			SubMenuItems: []wintray.MenuItem{
-				{ID: IDReloadConfig, Text: "重载配置文件"},
-				{ID: IDRestartKernel, Text: "重启核心"},
-				{ID: IDOpenConfigFile, Text: "编辑 config.yaml"},
+				{ID: IDReloadConfig, Text: "重载当前配置"},
+				{ID: IDRestartKernel, Text: "重启核心进程"},
+				{ID: IDOpenConfigFile, Text: fmt.Sprintf("📝 编辑 (%s)", activeProfileName)},
 			},
 		},
 		{IsSeparator: true},
@@ -207,7 +257,27 @@ func (tm *TrayMenu) onMenuItemClick(id uint32) {
 	st := tm.currState
 	tm.stateMu.RUnlock()
 
+	if id >= IDProfileSwitchBase && id < IDProfileSwitchBase+5 {
+		idx := int(id - IDProfileSwitchBase)
+		if idx < len(st.ProfileItems) {
+			tm.sendCommand("SwitchProfile", st.ProfileItems[idx].Path)
+		}
+		return
+	}
+
+	if id >= IDProfileRemoveBase && id < IDProfileRemoveBase+5 {
+		idx := int(id - IDProfileRemoveBase)
+		if idx < len(st.ProfileItems) {
+			tm.sendCommand("RemoveProfile", st.ProfileItems[idx].Path)
+		}
+		return
+	}
+
 	switch id {
+	case IDProfileAddLocal:
+		if st.CanAddProfile {
+			tm.sendCommand("RequestAddLocalProfile", "")
+		}
 	case IDOpenWebUI:
 		tm.sendCommand("OpenWebUI", "")
 	case IDToggleProxy:
