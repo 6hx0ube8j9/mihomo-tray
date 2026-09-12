@@ -327,9 +327,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			}
 
 			absPath := a.Cfg.GetActivePathAbs()
-			if _, err := os.Stat(absPath); os.IsNotExist(err) {
-				slog.Error("目标物理文件已丢失，中止切换", "path", absPath)
-				sys.ShowElevationPrompt("配置文件丢失", "无法切换到该配置，因为磁盘上的目标文件不存在！")
+			
+			if _, err := os.Stat(absPath); err != nil {
+				slog.Error("目标物理文件已丢失或无法读取，中止切换", "path", absPath, "err", err)
+				sys.ShowElevationPrompt("配置文件失效", "无法切换到该配置，目标物理文件已丢失或无读取权限！")
 				return
 			}
 
