@@ -25,8 +25,8 @@ func (m *Manager) PrepareYAMLForPath(relPath string) (bool, error) {
 	configPath := filepath.Join(m.baseDir, filepath.FromSlash(relPath))
 	content, err := os.ReadFile(configPath)
 	if err != nil {
-		if os.IsNotExist(err) && relPath == "config.yaml" {
-			slog.Info("基础内核配置文件不存在，将自动生成保底空配置", "path", configPath)
+		if relPath == "config.yaml" {
+			slog.Info("基础内核配置文件缺失或无法读取，将自动生成保底空配置", "path", configPath)
 			content = []byte("")
 		} else {
 			slog.Error("读取内核配置文件失败", "path", configPath, "err", err)
