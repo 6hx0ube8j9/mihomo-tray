@@ -189,8 +189,13 @@ func (m *Manager) PrepareYAMLForBoot() (bool, error) {
 	configPath := filepath.Join(m.baseDir, "config.yaml")
 	content, err := os.ReadFile(configPath)
 	if err != nil {
-		slog.Error("读取内核配置文件失败", "path", configPath, "err", err)
-		return false, err
+		if os.IsNotExist(err) {
+			slog.Info("内核配置文件不存在，将自动生成默认保底配置", "path", configPath)
+			content = []byte("")
+		} else {
+			slog.Error("读取内核配置文件失败", "path", configPath, "err", err)
+			return false, err
+		}
 	}
 
 	rawStr := strings.TrimPrefix(string(content), "\xef\xbb\xbf")
