@@ -5,7 +5,59 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"path/filepath"
+	"log/slog"
 )
+
+func (m *Manager) PrepareYAMLForPath(relPath string) (bool, error) {
+	wantMode := m.Get("mode")
+	wantTun := m.Get("tun") == "true"
+
+	if wantTun && !m.isAdmin {
+		slog.Warn("当前为普通权限无法开启 TUN，已自动修正本地配置为 false")
+		wantTun = false
+		m.Set("tun", "false")
+	}
+
+	m.yamlMu.Lock()
+	defer m.yamlMu.Unlock()
+
+	configPath := filepath.Join(m.baseDir, filepath.FromSlash(relPath))
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) && relPath == "config.yaml" {
+			slog.Info("基础内核配置文件不存在，将自动生成保底空配置", "path", configPath)
+			content = []byte("")
+		} else {
+			slog.Error("读取内核配置文件失败", "path", configPath, "err", err)
+			return false, err
+		}
+	}
+
+	rawStr := strings.TrimPrefix(string(content), "\xef\xbb\xbf")
+	lines := strings.Split(strings.ReplaceAll(rawStr, "\r\n", "\n"), "\n")
+
+	outLines, extracted, modified := processYAMLContent(lines, wantMode, wantTun)
+
+	if modified {
+		slog.Debug("更新内核 YAML 顶层守护控制参数", "mode", wantMode, "tun", wantTun, "target", relPath)
+		output := strings.Join(outLines, "\n")
+		if len(output) > 0 && !strings.HasSuffix(output, "\n") {
+			output += "\n"
+		}
+
+		if err := writeTmpAndRename(m.baseDir, configPath, []byte(output)); err != nil {
+			slog.Error("原子保存落盘修补后的内核配置文件失败", "path", configPath, "err", err)
+			return false, fmt.Errorf("failed to save yaml: %w", err)
+		}
+	}
+
+	if len(extracted) > 0 {
+		m.UpdateBatch(extracted)
+	}
+
+	return modified, nil
+}
 
 func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string, map[string]string, bool) {
 	extracted := make(map[string]string)
@@ -177,13 +229,8 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 		extracted["port"] = portVal
 	}
 
-	if hasExtCtrl {
-		extracted["external-controller"] = extCtrlVal
-	}
-
-	if hasSecret {
-		extracted["secret"] = secretVal
-	}
+	if hasExtCtrl { extracted["external-controller"] = extCtrlVal }
+	if hasSecret { extracted["secret"] = secretVal }
 
 	if hasExtUIName {
 		extracted["external-ui-name"] = extUINameVal
@@ -191,9 +238,7 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 		extracted["external-ui-name"] = ""
 	}
 
-	if tunRootExists {
-		extracted["tun_device"] = tunDeviceVal
-	}
+	if tunRootExists { extracted["tun_device"] = tunDeviceVal }
 
 	var prependLines []string
 
@@ -202,38 +247,30 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 		modified = true
 		extracted["port"] = DefaultMixedPort
 	}
-
 	if !hasMode {
 		modeToSet := DefaultMode
-		if wantMode != "" {
-			modeToSet = wantMode
-		}
+		if wantMode != "" { modeToSet = wantMode }
 		prependLines = append(prependLines, "mode: "+modeToSet)
 		modified = true
 	}
-
 	if !hasExtCtrl {
 		prependLines = append(prependLines, fmt.Sprintf("external-controller: %s", DefaultExternalController))
 		modified = true
 		extracted["external-controller"] = DefaultExternalController
 	}
-
 	if !hasSecret {
 		prependLines = append(prependLines, fmt.Sprintf("secret: '%s'", DefaultSecret))
 		modified = true
 		extracted["secret"] = DefaultSecret
 	}
-
 	if !hasExtUI {
 		prependLines = append(prependLines, fmt.Sprintf("external-ui: '%s'", DefaultExternalUI))
 		modified = true
 	}
-
 	if !hasExtUIUrl {
 		prependLines = append(prependLines, fmt.Sprintf("external-ui-url: '%s'", DefaultExternalUIURL))
 		modified = true
 	}
-
 	if !tunRootExists {
 		prependLines = append(prependLines, "tun:")
 		prependLines = append(prependLines, fmt.Sprintf("  enable: %t", wantTun))
@@ -279,9 +316,7 @@ func cleanVal(s string) string {
 
 func writeTmpAndRename(baseDir, targetPath string, content []byte) error {
 	tmpFile, err := os.CreateTemp(baseDir, "config.*.tmp")
-	if err != nil {
-		return err
-	}
+	if err != nil { return err }
 	tmpName := tmpFile.Name()
 
 	cleaned := false
@@ -292,17 +327,10 @@ func writeTmpAndRename(baseDir, targetPath string, content []byte) error {
 		}
 	}()
 
-	if _, err := tmpFile.Write(content); err != nil {
-		return err
-	}
-	if err := tmpFile.Sync(); err != nil {
-		return err
-	}
-
-	if err := tmpFile.Close(); err != nil {
-		return err
-	}
+	if _, err := tmpFile.Write(content); err != nil { return err }
+	if err := tmpFile.Sync(); err != nil { return err }
+	if err := tmpFile.Close(); err != nil { return err }
+	
 	cleaned = true
-
 	return os.Rename(tmpName, targetPath)
 }
