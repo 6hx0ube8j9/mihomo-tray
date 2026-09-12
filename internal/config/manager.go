@@ -26,12 +26,14 @@ const (
 )
 
 type TrayConfig struct {
-	Autostart    string `json:"autostart"`
-	RunAsAdmin   string `json:"run_as_admin"`
-	Mode         string `json:"mode"`
-	Proxy        string `json:"proxy"`
-	Tun          string `json:"tun"`
-	TrayLogLevel string `json:"tray_log_level"`
+	Autostart    string        `json:"autostart"`
+	RunAsAdmin   string        `json:"run_as_admin"`
+	Mode         string        `json:"mode"`
+	Proxy        string        `json:"proxy"`
+	Tun          string        `json:"tun"`
+	TrayLogLevel string        `json:"tray_log_level"`
+	Active       string        `json:"active"`
+	Items        []ProfileItem `json:"items"`
 }
 
 type Manager struct {
@@ -41,7 +43,7 @@ type Manager struct {
 	mu      sync.RWMutex
 	yamlMu  sync.Mutex
 
-	data TrayConfig
+	data                TrayConfig
 	runtimeKernelParams map[string]string
 }
 
@@ -63,30 +65,70 @@ func (m *Manager) LoadAndInitMemory() {
 	defer m.mu.Unlock()
 
 	cfgPath := filepath.Join(m.baseDir, ConfigFileName)
+	isTainted := false
 
 	if f, err := os.Open(cfgPath); err == nil {
 		if decodeErr := json.NewDecoder(f).Decode(&m.data); decodeErr != nil {
-			slog.Error("解析配置文件失败", "path", cfgPath, "err", decodeErr)
+			slog.Error("解析配置文件失败，触发坏文件降级策略", "path", cfgPath, "err", decodeErr)
+			isTainted = true
 		}
 		_ = f.Close()
 	} else {
-		slog.Info("未找到配置文件，使用默认配置", "path", cfgPath)
+		slog.Info("未找到配置文件，初始化默认配置状态", "path", cfgPath)
+		isTainted = true
 	}
 
-	if m.data.RunAsAdmin == "" {
-		m.data.RunAsAdmin = "false"
+	if len(m.data.Items) == 0 {
+		m.data.Items = []ProfileItem{{Name: "config", Path: "config.yaml"}}
+		isTainted = true
 	}
-	if m.data.Proxy == "" {
-		m.data.Proxy = DefaultProxy
+	if m.data.Items[0].Path != "config.yaml" || m.data.Items[0].Name != "config" {
+		m.data.Items = append([]ProfileItem{{Name: "config", Path: "config.yaml"}}, m.data.Items...)
+		isTainted = true
 	}
-	if m.data.Tun == "" {
-		m.data.Tun = DefaultTun
+	if len(m.data.Items) > 5 {
+		m.data.Items = m.data.Items[:5]
+		isTainted = true
 	}
-	if m.data.Mode == "" {
-		m.data.Mode = DefaultMode
+
+	validItems := []ProfileItem{m.data.Items[0]}
+	for i := 1; i < len(m.data.Items); i++ {
+		itemPath := m.data.Items[i].Path
+		if strings.Contains(itemPath, "..") || filepath.IsAbs(itemPath) {
+			isTainted = true
+			continue
+		}
+		validItems = append(validItems, m.data.Items[i])
 	}
-	if m.data.TrayLogLevel == "" {
-		m.data.TrayLogLevel = "error"
+	m.data.Items = validItems
+
+	activeFound := false
+	for _, item := range m.data.Items {
+		if m.data.Active == item.Path {
+			activeFound = true
+			break
+		}
+	}
+	if !activeFound {
+		m.data.Active = "config.yaml"
+		isTainted = true
+	}
+
+	activeAbs := filepath.Join(m.baseDir, filepath.FromSlash(m.data.Active))
+	if _, err := os.Stat(activeAbs); err != nil {
+		slog.Warn("当前活跃配置物理文件已丢失，执行安全回退", "missing", m.data.Active)
+		m.data.Active = "config.yaml"
+		isTainted = true
+	}
+
+	if m.data.RunAsAdmin == "" { m.data.RunAsAdmin = "false"; isTainted = true }
+	if m.data.Proxy == "" { m.data.Proxy = DefaultProxy; isTainted = true }
+	if m.data.Tun == "" { m.data.Tun = DefaultTun; isTainted = true }
+	if m.data.Mode == "" { m.data.Mode = DefaultMode; isTainted = true }
+	if m.data.TrayLogLevel == "" { m.data.TrayLogLevel = "error"; isTainted = true }
+
+	if isTainted {
+		m.lockedSave()
 	}
 }
 
@@ -96,31 +138,66 @@ func (m *Manager) FlushInitialState() {
 	m.lockedSave()
 }
 
+func (m *Manager) GetActivePathAbs() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return filepath.Join(m.baseDir, filepath.FromSlash(m.data.Active))
+}
+
+func (m *Manager) GetActivePath() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.data.Active
+}
+
+func (m *Manager) GetProfiles() []ProfileItem {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	res := make([]ProfileItem, len(m.data.Items))
+	copy(res, m.data.Items)
+	return res
+}
+
+func (m *Manager) SetActiveProfile(relPath string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.data.Active = relPath
+	m.lockedSave()
+}
+
+func (m *Manager) RemoveProfile(relPath string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if relPath == "config.yaml" || relPath == m.data.Active {
+		return
+	}
+	var newItems []ProfileItem
+	for _, item := range m.data.Items {
+		if item.Path != relPath {
+			newItems = append(newItems, item)
+		}
+	}
+	m.data.Items = newItems
+	m.lockedSave()
+}
+
 func (m *Manager) Get(key string) string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	switch key {
-	case "autostart":
-		return m.data.Autostart
-	case "run_as_admin":
-		return m.data.RunAsAdmin
-	case "mode":
-		return m.data.Mode
-	case "proxy":
-		return m.data.Proxy
-	case "tun":
-		return m.data.Tun
-	default:
-		return m.runtimeKernelParams[key]
+	case "autostart": return m.data.Autostart
+	case "run_as_admin": return m.data.RunAsAdmin
+	case "mode": return m.data.Mode
+	case "proxy": return m.data.Proxy
+	case "tun": return m.data.Tun
+	default: return m.runtimeKernelParams[key]
 	}
 }
 
 func (m *Manager) GetJSON(key string) string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if key == "tray_log_level" {
-		return m.data.TrayLogLevel
-	}
+	if key == "tray_log_level" { return m.data.TrayLogLevel }
 	return ""
 }
 
@@ -136,89 +213,23 @@ func (m *Manager) UpdateBatch(updates map[string]string) {
 	for key, value := range updates {
 		switch key {
 		case "autostart":
-			if m.data.Autostart != value {
-				m.data.Autostart = value
-				diskChanged = true
-			}
+			if m.data.Autostart != value { m.data.Autostart = value; diskChanged = true }
 		case "run_as_admin":
-			if m.data.RunAsAdmin != value {
-				m.data.RunAsAdmin = value
-				diskChanged = true
-			}
+			if m.data.RunAsAdmin != value { m.data.RunAsAdmin = value; diskChanged = true }
 		case "mode":
-			if m.data.Mode != value {
-				m.data.Mode = value
-				diskChanged = true
-			}
+			if m.data.Mode != value { m.data.Mode = value; diskChanged = true }
 		case "proxy":
-			if m.data.Proxy != value {
-				m.data.Proxy = value
-				diskChanged = true
-			}
+			if m.data.Proxy != value { m.data.Proxy = value; diskChanged = true }
 		case "tun":
-			if m.data.Tun != value {
-				m.data.Tun = value
-				diskChanged = true
-			}
+			if m.data.Tun != value { m.data.Tun = value; diskChanged = true }
 		default:
 			m.runtimeKernelParams[key] = value
 		}
 	}
 
 	if diskChanged {
-		slog.Debug("配置发生变更，保存到文件")
 		m.lockedSave()
 	}
-}
-
-func (m *Manager) PrepareYAMLForBoot() (bool, error) {
-	wantMode := m.Get("mode")
-	wantTun := m.Get("tun") == "true"
-
-	if wantTun && !m.isAdmin {
-		slog.Warn("当前为普通权限无法开启 TUN，已自动修正本地配置为 false")
-		wantTun = false
-		m.Set("tun", "false")
-	}
-
-	m.yamlMu.Lock()
-	defer m.yamlMu.Unlock()
-
-	configPath := filepath.Join(m.baseDir, "config.yaml")
-	content, err := os.ReadFile(configPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			slog.Info("内核配置文件不存在，将自动生成默认保底配置", "path", configPath)
-			content = []byte("")
-		} else {
-			slog.Error("读取内核配置文件失败", "path", configPath, "err", err)
-			return false, err
-		}
-	}
-
-	rawStr := strings.TrimPrefix(string(content), "\xef\xbb\xbf")
-	lines := strings.Split(strings.ReplaceAll(rawStr, "\r\n", "\n"), "\n")
-
-	outLines, extracted, modified := processYAMLContent(lines, wantMode, wantTun)
-
-	if modified {
-		slog.Debug("更新内核配置参数", "mode", wantMode, "tun", wantTun)
-		output := strings.Join(outLines, "\n")
-		if len(output) > 0 && !strings.HasSuffix(output, "\n") {
-			output += "\n"
-		}
-
-		if err := writeTmpAndRename(m.baseDir, configPath, []byte(output)); err != nil {
-			slog.Error("保存内核配置文件失败", "path", configPath, "err", err)
-			return false, fmt.Errorf("failed to save config.yaml: %w", err)
-		}
-	}
-
-	if len(extracted) > 0 {
-		m.UpdateBatch(extracted)
-	}
-
-	return modified, nil
 }
 
 func (m *Manager) lockedSave() {
