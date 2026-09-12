@@ -117,8 +117,9 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		}
 
 		errBuf := &tailBuffer{max: 64 * 1024}
-
-		cmd := exec.Command(target, "-d", ".")
+		
+		activeAbs := km.cfg.GetActivePathAbs()
+		cmd := exec.Command(target, "-d", ".", "-f", activeAbs)
 		cmd.Dir = absBaseDir
 
 		const CREATE_DEFAULT_ERROR_MODE = 0x04000000
@@ -126,6 +127,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			HideWindow:    true,
 			CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | CREATE_DEFAULT_ERROR_MODE,
 		}
+		
 		cmd.Stdout = errBuf
 		cmd.Stderr = errBuf
 		startTime := time.Now()
