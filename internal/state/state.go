@@ -14,11 +14,12 @@ const (
 )
 
 type RuntimeState struct {
-	phase         atomic.Int32
-	tunAlive      atomic.Bool
-	isRestarting  atomic.Bool
-	isReloading   atomic.Bool
-	configSyncing atomic.Bool
+	phase            atomic.Int32
+	tunAlive         atomic.Bool
+	isRestarting     atomic.Bool
+	isReloading      atomic.Bool
+	configSyncing    atomic.Bool
+	profileSwitching atomic.Bool
 
 	tunReqTime  atomic.Int64
 	tunLostTime atomic.Int64
@@ -30,12 +31,15 @@ func NewRuntimeState() *RuntimeState {
 	return rs
 }
 
+func (r *RuntimeState) SetProfileSwitching(b bool) { r.profileSwitching.Store(b) }
+func (r *RuntimeState) IsProfileSwitching() bool   { return r.profileSwitching.Load() }
+
 func (r *RuntimeState) SetConfigSyncing(b bool) { r.configSyncing.Store(b) }
 func (r *RuntimeState) IsConfigSyncing() bool   { return r.configSyncing.Load() }
 func (r *RuntimeState) SetRestarting(b bool)    { r.isRestarting.Store(b) }
 func (r *RuntimeState) IsRestarting() bool      { return r.isRestarting.Load() }
 func (r *RuntimeState) SetReloading(b bool)     { r.isReloading.Store(b) }
-func (r *RuntimeState) IsReloading() bool      { return r.isReloading.Load() }
+func (r *RuntimeState) IsReloading() bool       { return r.isReloading.Load() }
 
 func (r *RuntimeState) GetPhase() AppPhase { return AppPhase(r.phase.Load()) }
 
@@ -55,8 +59,8 @@ func (r *RuntimeState) ForceExitPhase() {
 	r.phase.Store(int32(PhaseExiting))
 }
 
-func (r *RuntimeState) IsExiting() bool { 
-	return r.GetPhase() == PhaseExiting 
+func (r *RuntimeState) IsExiting() bool {
+	return r.GetPhase() == PhaseExiting
 }
 
 func (r *RuntimeState) SetTunAlive(alive bool) { r.tunAlive.Store(alive) }
