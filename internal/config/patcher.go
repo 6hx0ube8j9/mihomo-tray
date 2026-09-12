@@ -237,8 +237,6 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 	if !tunRootExists {
 		prependLines = append(prependLines, "tun:")
 		prependLines = append(prependLines, fmt.Sprintf("  enable: %t", wantTun))
-		prependLines = append(prependLines, fmt.Sprintf("  stack: %s", DefaultTunStack))
-		prependLines = append(prependLines, fmt.Sprintf("  auto-route: %t", DefaultTunAutoRoute))
 		modified = true
 		extracted["tun_device"] = ""
 	}
