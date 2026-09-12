@@ -176,7 +176,7 @@ func (tm *TrayMenu) onRightClick() {
 		adminText = "运行权限：管理员"
 	}
 
-	var switchSubItems []wintray.MenuItem
+	var profileListItems []wintray.MenuItem
 	var removeSubItems []wintray.MenuItem
 	activeProfileName := "config.yaml"
 
@@ -185,39 +185,50 @@ func (tm *TrayMenu) onRightClick() {
 			activeProfileName = item.Name
 		}
 		
-		switchSubItems = append(switchSubItems, wintray.MenuItem{
+		displayName := item.Name
+		removeName := item.Name
+		
+		if i == 0 {
+			displayName += " (默认)"
+			removeName += " (默认)"
+		}
+		if item.IsActive {
+			removeName += " (使用中)"
+		}
+
+		profileListItems = append(profileListItems, wintray.MenuItem{
 			ID:      IDProfileSwitchBase + uint32(i),
-			Text:    item.Name,
+			Text:    displayName,
 			Checked: item.IsActive,
 		})
 		
 		removeSubItems = append(removeSubItems, wintray.MenuItem{
 			ID:       IDProfileRemoveBase + uint32(i),
-			Text:     item.Name,
+			Text:     removeName,
 			Disabled: i == 0 || item.IsActive,
 		})
 	}
 
+	profileSubMenu := append(profileListItems, wintray.MenuItem{IsSeparator: true})
+	profileSubMenu = append(profileSubMenu, wintray.MenuItem{
+		ID:   IDOpenConfigFile,
+		Text: fmt.Sprintf("编辑配置 (%s)", activeProfileName),
+	})
+	profileSubMenu = append(profileSubMenu, wintray.MenuItem{
+		ID:       IDProfileAddLocal,
+		Text:     fmt.Sprintf("添加本地配置 (%d/5)", len(st.ProfileItems)),
+		Disabled: !st.CanAddProfile,
+	})
+	profileSubMenu = append(profileSubMenu, wintray.MenuItem{
+		Text:         "移除配置",
+		SubMenuItems: removeSubItems,
+	})
+
 	items := []wintray.MenuItem{
 		{ID: IDOpenWebUI, Text: "进入 Web 面板"},
 		{IsSeparator: true},
-		{
-			Text: fmt.Sprintf("切换配置 (%d/5)", len(st.ProfileItems)),
-			SubMenuItems: switchSubItems,
-		},
-		{
-			ID: IDProfileAddLocal,
-			Text: fmt.Sprintf("添加本地配置 (%d/5)", len(st.ProfileItems)),
-			Disabled: !st.CanAddProfile,
-		},
-		{
-			Text: "🗑️ 移除配置",
-			SubMenuItems: removeSubItems,
-		},
-		{IsSeparator: true},
 		{ID: IDToggleProxy, Text: "系统代理", Checked: st.IsProxy},
 		{ID: IDToggleTun, Text: "虚拟网卡 (TUN)", Checked: st.IsTun},
-		{IsSeparator: true},
 		{
 			Text: fmt.Sprintf("当前模式: %s", currModeName),
 			SubMenuItems: []wintray.MenuItem{
@@ -227,6 +238,10 @@ func (tm *TrayMenu) onRightClick() {
 			},
 		},
 		{IsSeparator: true},
+		{
+			Text: fmt.Sprintf("配置文件: %s", activeProfileName),
+			SubMenuItems: profileSubMenu,
+		},
 		{ID: IDOpenBaseDir, Text: "打开程序目录"},
 		{IsSeparator: true},
 		{
@@ -236,13 +251,11 @@ func (tm *TrayMenu) onRightClick() {
 				{ID: IDRunAsAdmin, Text: "始终以管理员身份运行", Checked: st.RunAsAdmin || st.AutoStart, Disabled: st.AutoStart},
 			},
 		},
-		{IsSeparator: true},
 		{
 			Text: "更多",
 			SubMenuItems: []wintray.MenuItem{
 				{ID: IDReloadConfig, Text: "重载当前配置"},
 				{ID: IDRestartKernel, Text: "重启核心进程"},
-				{ID: IDOpenConfigFile, Text: fmt.Sprintf("📝 编辑 (%s)", activeProfileName)},
 			},
 		},
 		{IsSeparator: true},
