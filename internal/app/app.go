@@ -344,7 +344,9 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 
 			slog.Info("正在向内核下发切换指令", "target", absPath)
 			
-			payload := map[string]interface{}{"path": absPath, "payload": ""}
+			safePath := filepath.ToSlash(absPath)
+			payload := map[string]interface{}{"path": safePath}
+			
 			if _, err := a.API.DoRequest(reqCtx, "PUT", "/configs?force=true", payload); err != nil {
 				slog.Error("内核热重载请求失败", "err", err)
 				return
@@ -653,7 +655,11 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 		}
 
 		reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		payload := map[string]interface{}{"path": a.Cfg.GetActivePathAbs(), "payload": ""}
+		
+		absPath := a.Cfg.GetActivePathAbs()
+		safePath := filepath.ToSlash(absPath)
+		payload := map[string]interface{}{"path": safePath}
+		
 		_, err := a.API.DoRequest(reqCtx, "PUT", "/configs?force=true", payload)
 		cancel()
 
