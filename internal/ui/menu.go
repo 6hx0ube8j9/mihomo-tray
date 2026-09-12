@@ -157,9 +157,9 @@ func (tm *TrayMenu) onRightClick() {
 		currModeName = "未知"
 	}
 
-	adminText := "普通权限运行"
+	adminText := "运行权限:普通"
 	if st.IsAdmin {
-		adminText = "管理员权限运行"
+		adminText = "运行权限:管理员"
 	}
 
 	items := []wintray.MenuItem{
@@ -182,8 +182,8 @@ func (tm *TrayMenu) onRightClick() {
 		{
 			Text: adminText,
 			SubMenuItems: []wintray.MenuItem{
-				{ID: IDToggleAutoStart, Text: "开机自启（自动获取权限）", Checked: st.AutoStart},
-				{ID: IDRunAsAdmin, Text: "始终以管理员身份启动", Checked: st.RunAsAdmin || st.AutoStart, Disabled: st.AutoStart},
+				{ID: IDToggleAutoStart, Text: "开机自启（无弹窗提权）", Checked: st.AutoStart},
+				{ID: IDRunAsAdmin, Text: "以管理员身份运行", Checked: st.RunAsAdmin || st.AutoStart, Disabled: st.AutoStart},
 			},
 		},
 		{IsSeparator: true},
