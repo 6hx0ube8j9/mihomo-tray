@@ -23,8 +23,6 @@ const (
 
 	DefaultExternalUI    = "ui"
 	DefaultExternalUIURL = "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip"
-	DefaultTunStack      = "mixed"
-	DefaultTunAutoRoute  = true
 )
 
 type TrayConfig struct {
