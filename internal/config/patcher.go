@@ -9,7 +9,7 @@ import (
 	"log/slog"
 )
 
-func (m *Manager) PrepareYAMLForPath(relPath string) (bool, error) {
+func (m *Manager) PrepareYAMLForPath(relPath string) (bool, map[string]string, error) {
 	wantMode := m.Get("mode")
 	wantTun := m.Get("tun") == "true"
 
@@ -30,7 +30,7 @@ func (m *Manager) PrepareYAMLForPath(relPath string) (bool, error) {
 			content = []byte("")
 		} else {
 			slog.Error("读取内核配置文件失败", "path", configPath, "err", err)
-			return false, err
+			return false, nil, err
 		}
 	}
 
@@ -48,15 +48,11 @@ func (m *Manager) PrepareYAMLForPath(relPath string) (bool, error) {
 
 		if err := writeTmpAndRename(m.baseDir, configPath, []byte(output)); err != nil {
 			slog.Error("原子保存落盘修补后的内核配置文件失败", "path", configPath, "err", err)
-			return false, fmt.Errorf("failed to save yaml: %w", err)
+			return false, nil, fmt.Errorf("failed to save yaml: %w", err) 
 		}
 	}
 
-	if len(extracted) > 0 {
-		m.UpdateBatch(extracted)
-	}
-
-	return modified, nil
+	return modified, extracted, nil
 }
 
 func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string, map[string]string, bool) {
