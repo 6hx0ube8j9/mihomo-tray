@@ -345,7 +345,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 				return
 			}
 
-			reqCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+            reqCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 			defer cancel()
 
 			slog.Info("正在向内核下发切换指令", "target", absPath)
@@ -354,15 +354,14 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			payload := map[string]interface{}{"path": safePath}
 			
 			if _, err := a.API.DoRequest(reqCtx, "PUT", "/configs?force=true", payload); err != nil {
-				slog.Error("内核热重载请求失败", "err", err)
-				return
+				slog.Warn("内核热重载未完美响应(在端口变更或下载规则时极易发生超时/连接重置，属正常现象)", "err", err)
 			}
 
 			if len(extracted) > 0 {
 				a.Cfg.UpdateBatch(extracted)
 			}
 
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(500 * time.Millisecond)
 			a.syncAllConfig(context.Background())
 			a.syncSystemProxy()
 
@@ -665,7 +664,8 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 			slog.Error("检查内核配置文件失败", "err", err)
 		}
 
-		reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		reqCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		
 		absPath := a.Cfg.GetActivePathAbs()
 		safePath := filepath.ToSlash(absPath)
 		payload := map[string]interface{}{"path": safePath}
@@ -674,15 +674,14 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 		cancel()
 
 		if err != nil {
-			slog.Error("重载内核配置失败", "err", err)
-			return
+			slog.Warn("重载内核配置请求未完美响应", "err", err)
 		}
 
 		if len(extracted) > 0 {
 			a.Cfg.UpdateBatch(extracted)
 		}
 
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
 		a.syncAllConfig(ctx)
 		a.syncSystemProxy()
 
