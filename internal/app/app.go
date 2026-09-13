@@ -679,7 +679,7 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 }
 				
 func (a *Application) ReloadConfig(ctx context.Context) {
-	if a.State.GetReloading() {
+	if a.State.IsReloading() {
 		return
 	}
 	slog.Info("开始执行配置重载事务")
