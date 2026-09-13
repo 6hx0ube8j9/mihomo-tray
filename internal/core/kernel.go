@@ -343,6 +343,10 @@ func (km *KernelManager) KillCurrent() {
 	time.Sleep(250 * time.Millisecond)
 }
 
+func (km *KernelManager) WriteCoreLog(errType, rawMsg string) {
+	km.checkAndWriteLog(km.cfg.BaseDir(), errType, rawMsg)
+}
+
 func (km *KernelManager) checkAndWriteLog(absBaseDir, errType, rawMsg string) {
 	cleanedMsg := rawMsg
 	if idx := strings.Index(rawMsg, "level="); idx != -1 {
