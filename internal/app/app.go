@@ -355,7 +355,17 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 					sys.ShowErrorMessage("切换配置失败", "内核拒绝加载该配置：\n\n"+err.Error())
 				}
 			} else {
+				wasOpen := sys.GetCachedWebUIHwnd() != 0
+
 				ui.Cleanup()
+
+				if wasOpen {
+					slog.Debug("检测到面板原先处于打开状态，正在自动重新拉起新环境")
+					select {
+					case a.UICommandCh <- ui.UICommand{Action: "OpenWebUI"}:
+					default:
+					}
+				}
 			}
 		}(cmd.Payload)
 
