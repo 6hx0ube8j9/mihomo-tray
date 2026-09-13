@@ -314,13 +314,37 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		return
 
 	case "AddLocalProfile":
-		if err := a.Cfg.PrepareLocalConfig(cmd.Payload); err != nil {
-			slog.Error("导入本地配置失败", "err", err, "path", cmd.Payload)
-			sys.ShowElevationPrompt("配置导入失败", err.Error())
+		if a.State.IsProfileSwitching() {
+			slog.Warn("配置操作正在进行中，已阻断并发请求")
 			break
 		}
-		cmd.Payload = a.Cfg.GetActivePath()
-		fallthrough
+		a.State.SetProfileSwitching(true)
+
+		go func(sourcePath string) {
+			defer a.State.SetProfileSwitching(false)
+			defer a.pushUIState()
+
+			targetName, isNewCopy, err := a.Cfg.SafeCopyUntrustedConfig(sourcePath)
+			if err != nil {
+				sys.ShowElevationPrompt("文件读取失败", err.Error())
+				return
+			}
+
+			slog.Info("开始校验并试运行新导入的配置", "target", targetName)
+			
+			if err := a.applyConfigTransaction(context.Background(), targetName); err != nil {
+				if isNewCopy {
+					garbagePath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetName))
+					_ = os.Remove(garbagePath)
+				}
+				sys.ShowElevationPrompt("配置导入失败 (存在语法或网络错误)", err.Error())
+				return
+			}
+
+			a.Cfg.RegisterNewProfile(targetName)
+			slog.Info("新配置导入并应用成功", "name", targetName)
+
+		}(cmd.Payload)
 
 	case "SwitchProfile":
 		if a.State.IsProfileSwitching() {
@@ -341,7 +365,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			slog.Info("开始执行配置切换事务", "target", target)
 			if err := a.applyConfigTransaction(context.Background(), target); err != nil {
 				if strings.Contains(err.Error(), "文件丢失") {
-					sys.ShowElevationPrompt("配置文件失效", err.Error())
+					sys.ShowElevationPrompt("配置文件失效", "物理文件已丢失，将自动从列表中移除该配置。")
+					a.Cfg.RemoveProfile(target)
+				} else {
+					sys.ShowElevationPrompt("切换配置失败", err.Error())
 				}
 			}
 		}(cmd.Payload)
