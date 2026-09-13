@@ -130,10 +130,8 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 				}
 			} else if strings.HasPrefix(trimmed, "external-controller:") {
 				hasExtCtrl = true
-				}
 			} else if strings.HasPrefix(trimmed, "secret:") {
 				hasSecret = true
-				}
 			} else if strings.HasPrefix(trimmed, "external-ui:") {
 				hasExtUI = true
 				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
