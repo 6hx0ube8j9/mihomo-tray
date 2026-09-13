@@ -771,6 +771,20 @@ func (a *Application) RestartKernel() {
 	a.pushUIState()
 }
 
+func (a *Application) restartWebUIIfOpen() {
+	wasOpen := ui.IsActive()
+	
+	ui.Cleanup()
+
+	if wasOpen {
+		slog.Debug("检测到 Web 面板原先处于活跃状态，正在自动重启拉起新环境")
+		select {
+		case a.UICommandCh <- ui.UICommand{Action: "OpenWebUI"}:
+		default:
+		}
+	}
+}
+
 func (a *Application) handleTunChange(ctx context.Context) {
 	if a.State.IsExiting() || a.State.IsConfigSyncing() {
 		return
