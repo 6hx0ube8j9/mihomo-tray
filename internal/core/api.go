@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"log/slog"
 
@@ -22,6 +23,10 @@ type APIClient struct {
 	cfg        *config.Manager
 	st         *state.RuntimeState
 	httpClient *http.Client
+
+	connMu  sync.RWMutex
+	apiAddr string
+	secret  string
 }
 
 func NewAPIClient(cfg *config.Manager, st *state.RuntimeState) *APIClient {
@@ -45,29 +50,48 @@ func NewAPIClient(cfg *config.Manager, st *state.RuntimeState) *APIClient {
 	}
 }
 
+func (c *APIClient) SetEndpoint(addr, secret string) {
+	c.connMu.Lock()
+	defer c.connMu.Unlock()
+	
+	addr = strings.TrimSuffix(addr, "/")
+	if strings.HasPrefix(addr, "0.0.0.0:") {
+		addr = strings.Replace(addr, "0.0.0.0:", "127.0.0.1:", 1)
+	} else if strings.HasPrefix(addr, "[::]:") {
+		addr = strings.Replace(addr, "[::]:", "127.0.0.1:", 1)
+	}
+	if !strings.HasPrefix(addr, "http") && addr != "" {
+		addr = "http://" + addr
+	}
+	
+	c.apiAddr = addr
+	c.secret = secret
+}
+
+func (c *APIClient) GetEndpoint() (string, string) {
+	c.connMu.RLock()
+	defer c.connMu.RUnlock()
+	rawAddr := strings.TrimPrefix(c.apiAddr, "http://")
+	return rawAddr, c.secret
+}
+
 func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload interface{}) ([]byte, error) {
 	if c.st.IsExiting() {
 		return nil, context.Canceled
 	}
 
-	apiAddr := strings.TrimSuffix(c.cfg.Get("external-controller"), "/")
-	if apiAddr == "" {
-		return nil, fmt.Errorf("api address is empty")
+	c.connMu.RLock()
+	targetAddr := c.apiAddr
+	targetSecret := c.secret
+	c.connMu.RUnlock()
+
+	if targetAddr == "" {
+		return nil, fmt.Errorf("api endpoint is not initialized")
 	}
 
-	if strings.HasPrefix(apiAddr, "0.0.0.0:") {
-		apiAddr = strings.Replace(apiAddr, "0.0.0.0:", "127.0.0.1:", 1)
-	} else if strings.HasPrefix(apiAddr, "[::]:") {
-		apiAddr = strings.Replace(apiAddr, "[::]:", "127.0.0.1:", 1)
-	}
-	
-	if !strings.HasPrefix(apiAddr, "http") {
-		apiAddr = "http://" + apiAddr
-	}
-	url := apiAddr + "/" + strings.TrimPrefix(path, "/")
+	url := targetAddr + "/" + strings.TrimPrefix(path, "/")
 
 	var bodyReader io.Reader
-
 	if payload != nil {
 		byteData, err := json.Marshal(payload)
 		if err != nil {
@@ -86,8 +110,8 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 	if bodyReader != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if secret := c.cfg.Get("secret"); secret != "" {
-		req.Header.Set("Authorization", "Bearer "+secret)
+	if targetSecret != "" {
+		req.Header.Set("Authorization", "Bearer "+targetSecret)
 	}
 
 	if !(method == http.MethodGet && path == "/configs") {
