@@ -23,6 +23,10 @@ type RuntimeState struct {
 
 	tunReqTime  atomic.Int64
 	tunLostTime atomic.Int64
+
+	proxyRepairing atomic.Bool
+	probeGen       atomic.Uint64
+	tunDevName     atomic.Value
 }
 
 func NewRuntimeState() *RuntimeState {
@@ -33,13 +37,12 @@ func NewRuntimeState() *RuntimeState {
 
 func (r *RuntimeState) SetProfileSwitching(b bool) { r.profileSwitching.Store(b) }
 func (r *RuntimeState) IsProfileSwitching() bool   { return r.profileSwitching.Load() }
-
-func (r *RuntimeState) SetConfigSyncing(b bool) { r.configSyncing.Store(b) }
-func (r *RuntimeState) IsConfigSyncing() bool   { return r.configSyncing.Load() }
-func (r *RuntimeState) SetRestarting(b bool)    { r.isRestarting.Store(b) }
-func (r *RuntimeState) IsRestarting() bool      { return r.isRestarting.Load() }
-func (r *RuntimeState) SetReloading(b bool)     { r.isReloading.Store(b) }
-func (r *RuntimeState) IsReloading() bool       { return r.isReloading.Load() }
+func (r *RuntimeState) SetConfigSyncing(b bool)    { r.configSyncing.Store(b) }
+func (r *RuntimeState) IsConfigSyncing() bool      { return r.configSyncing.Load() }
+func (r *RuntimeState) SetRestarting(b bool)       { r.isRestarting.Store(b) }
+func (r *RuntimeState) IsRestarting() bool         { return r.isRestarting.Load() }
+func (r *RuntimeState) SetReloading(b bool)        { r.isReloading.Store(b) }
+func (r *RuntimeState) IsReloading() bool          { return r.isReloading.Load() }
 
 func (r *RuntimeState) GetPhase() AppPhase { return AppPhase(r.phase.Load()) }
 
@@ -84,6 +87,19 @@ func (r *RuntimeState) loadTime(target *atomic.Int64) time.Time {
 
 func (r *RuntimeState) SetTunRequestedTime(t time.Time) { r.storeTime(&r.tunReqTime, t) }
 func (r *RuntimeState) GetTunRequestedTime() time.Time  { return r.loadTime(&r.tunReqTime) }
+func (r *RuntimeState) SetTunLostTime(t time.Time)      { r.storeTime(&r.tunLostTime, t) }
+func (r *RuntimeState) GetTunLostTime() time.Time       { return r.loadTime(&r.tunLostTime) }
 
-func (r *RuntimeState) SetTunLostTime(t time.Time) { r.storeTime(&r.tunLostTime, t) }
-func (r *RuntimeState) GetTunLostTime() time.Time  { return r.loadTime(&r.tunLostTime) }
+func (r *RuntimeState) TryAcquireProxyRepair() bool { return r.proxyRepairing.CompareAndSwap(false, true) }
+func (r *RuntimeState) ReleaseProxyRepair()         { r.proxyRepairing.Store(false) }
+
+func (r *RuntimeState) AdvanceProbeGen() uint64 { return r.probeGen.Add(1) }
+func (r *RuntimeState) GetProbeGen() uint64     { return r.probeGen.Load() }
+
+func (r *RuntimeState) SetActualTunDevice(dev string) { r.tunDevName.Store(dev) }
+func (r *RuntimeState) GetActualTunDevice() string {
+	if v := r.tunDevName.Load(); v != nil {
+		return v.(string)
+	}
+	return ""
+}
