@@ -61,3 +61,12 @@ func OpenYAMLFileDialog() (string, bool) {
 	}
 	return "", false
 }
+
+func ShowErrorMessage(title, message string) {
+	titlePtr, _ := windows.UTF16PtrFromString(title)
+	msgPtr, _ := windows.UTF16PtrFromString(message)
+	
+	const flags = windows.MB_OK | windows.MB_ICONWARNING | windows.MB_TOPMOST
+	
+	windows.MessageBox(0, msgPtr, titlePtr, uint32(flags))
+}
