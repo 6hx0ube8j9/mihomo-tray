@@ -136,6 +136,8 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	}
 
 	activeRelPath := a.Cfg.GetActivePath()
+	absPath := a.Cfg.GetActivePathAbs()
+
 	if modified, extracted, err := a.Cfg.PrepareYAMLForPath(activeRelPath); err != nil {
 		slog.Error("检查内核配置文件失败", "err", err)
 	} else {
@@ -146,6 +148,10 @@ func (a *Application) Bootstrap(ctx context.Context) {
 			slog.Info("已自动修正并同步内核配置文件")
 		}
 	}
+
+	apiAddr, apiSecret := a.Cfg.ResolveKernelEndpoint(absPath)
+	a.API.SetEndpoint(apiAddr, apiSecret)
+	
 
 	if a.Cfg.Get("tun") == "true" {
 		a.State.SetTunRequestedTime(time.Now())
@@ -345,7 +351,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 				return
 			}
 
-            reqCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			reqCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 			defer cancel()
 
 			slog.Info("正在向内核下发切换指令", "target", absPath)
@@ -354,7 +360,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			payload := map[string]interface{}{"path": safePath}
 			
 			if _, err := a.API.DoRequest(reqCtx, "PUT", "/configs?force=true", payload); err != nil {
-				slog.Warn("内核热重载未完美响应(在端口变更或下载规则时极易发生超时/连接重置，属正常现象)", "err", err)
+				slog.Warn("内核热重载未完美响应(在网络波动或下载规则时极易发生超时，属正常现象)", "err", err)
 			}
 
 			if len(extracted) > 0 {
@@ -480,10 +486,13 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			slog.Warn("内核尚未就绪，无法打开 WebUI")
 			break
 		}
+		
+		activeApiAddr, activeSecret := a.API.GetEndpoint()
+		
 		cfg := ui.Config{
-			APIAddr:   a.Cfg.Get("external-controller"),
-			Secret:    a.Cfg.Get("secret"),
-			ProxyPort: a.Cfg.Get("port"),
+			APIAddr:   activeApiAddr,
+			Secret:    activeSecret,
+			ProxyPort: a.Cfg.Get("port"), 
 			BaseDir:   a.Cfg.BaseDir(),
 			UIName:    a.Cfg.Get("external-ui-name"),
 		}
@@ -665,7 +674,6 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 		}
 
 		reqCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
-		
 		absPath := a.Cfg.GetActivePathAbs()
 		safePath := filepath.ToSlash(absPath)
 		payload := map[string]interface{}{"path": safePath}
@@ -696,12 +704,17 @@ func (a *Application) RestartKernel() {
 	a.Kernel.HaltDaemon()
 
 	activeRelPath := a.Cfg.GetActivePath()
+	absPath := a.Cfg.GetActivePathAbs()
+	
 	_, extracted, err := a.Cfg.PrepareYAMLForPath(activeRelPath)
 	if err != nil {
 		slog.Error("检查内核配置文件失败", "err", err)
 	} else if len(extracted) > 0 {
 		a.Cfg.UpdateBatch(extracted)
 	}
+
+	apiAddr, apiSecret := a.Cfg.ResolveKernelEndpoint(absPath)
+	a.API.SetEndpoint(apiAddr, apiSecret)
 
 	if a.Cfg.Get("tun") == "true" {
 		a.State.SetTunRequestedTime(time.Now())
