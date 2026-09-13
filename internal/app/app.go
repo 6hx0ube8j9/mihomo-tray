@@ -355,17 +355,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 					sys.ShowErrorMessage("切换配置失败", "内核拒绝加载该配置：\n\n"+err.Error())
 				}
 			} else {
-				wasOpen := sys.GetCachedWebUIHwnd() != 0
-
-				ui.Cleanup()
-
-				if wasOpen {
-					slog.Debug("检测到面板原先处于打开状态，正在自动重新拉起新环境")
-					select {
-					case a.UICommandCh <- ui.UICommand{Action: "OpenWebUI"}:
-					default:
-					}
-				}
+				a.restartWebUIIfOpen()
 			}
 		}(cmd.Payload)
 
@@ -740,6 +730,8 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 
 		if err := a.applyConfigTransaction(ctx, a.Cfg.GetActivePath()); err != nil {
 			sys.ShowErrorMessage("配置重载失败", "内核拒绝加载当前配置文件，请检查语法：\n\n"+err.Error())
+		} else {
+			a.restartWebUIIfOpen()
 		}
 	}()
 }
@@ -769,6 +761,7 @@ func (a *Application) RestartKernel() {
 
 	a.Kernel.WakeDaemon()
 	a.pushUIState()
+	a.restartWebUIIfOpen()
 }
 
 func (a *Application) restartWebUIIfOpen() {
