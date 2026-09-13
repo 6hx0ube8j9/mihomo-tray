@@ -503,7 +503,12 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		a.RestartKernel()
 
 	case "OpenConfigFile":
-		_ = sys.ExecuteSystemCommand(a.Cfg.GetActivePathAbs())
+		absPath := a.Cfg.GetActivePathAbs()
+		if _, err := os.Stat(absPath); os.IsNotExist(err) {
+			sys.ShowErrorMessage("打开失败", "当前配置文件已在本地磁盘丢失！\n请在菜单中切换到其他有效配置。")
+			break
+		}
+		_ = sys.ExecuteSystemCommand(absPath)
 
 	case "ExitApp":
 		ui.Cleanup()
