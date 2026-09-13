@@ -331,51 +331,19 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		
 		go func(relPath string) {
 			defer a.State.SetProfileSwitching(false)
+			defer a.pushUIState()
 			
-			if relPath != "" {
-				a.Cfg.SetActiveProfile(relPath)
-			} else {
-				relPath = a.Cfg.GetActivePath()
+			target := relPath
+			if target == "" { 
+				target = a.Cfg.GetActivePath() 
 			}
-
-			absPath := a.Cfg.GetActivePathAbs()
-			if _, err := os.Stat(absPath); err != nil {
-				slog.Error("目标物理文件已丢失或无法读取，中止切换", "path", absPath, "err", err)
-				sys.ShowElevationPrompt("配置文件失效", "无法切换到该配置，目标物理文件已丢失或无读取权限！")
-				return
-			}
-
-			_, extracted, err := a.Cfg.PrepareYAMLForPath(relPath)
-			if err != nil {
-				slog.Error("修补 YAML 核心参数失败", "err", err)
-				return
-			}
-
-			reqCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-			defer cancel()
-
-			slog.Info("正在向内核下发切换指令", "target", absPath)
 			
-			safePath := filepath.ToSlash(absPath)
-			payload := map[string]interface{}{"path": safePath}
-			
-			if _, err := a.API.DoRequest(reqCtx, "PUT", "/configs?force=true", payload); err != nil {
-				slog.Warn("内核热重载未完美响应(在网络波动或下载规则时极易发生超时，属正常现象)", "err", err)
+			slog.Info("开始执行配置切换事务", "target", target)
+			if err := a.applyConfigTransaction(context.Background(), target); err != nil {
+				if strings.Contains(err.Error(), "文件丢失") {
+					sys.ShowElevationPrompt("配置文件失效", err.Error())
+				}
 			}
-
-			if len(extracted) > 0 {
-				a.Cfg.UpdateBatch(extracted)
-			}
-
-			time.Sleep(500 * time.Millisecond)
-			a.syncAllConfig(context.Background())
-			a.syncSystemProxy()
-
-			select {
-			case a.apiPollCh <- struct{}{}:
-			default:
-			}
-			a.pushUIState()
 		}(cmd.Payload)
 
 	case "RemoveProfile":
@@ -659,41 +627,68 @@ func (a *Application) pushUIState() {
 	}
 }
 
+func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath string) error {
+	absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
+
+	if _, err := os.Stat(absPath); err != nil {
+		return fmt.Errorf("目标物理文件丢失或无法读取: %w", err)
+	}
+
+	_, extracted, err := a.Cfg.PrepareYAMLForPath(targetRelPath)
+	if err != nil {
+		return fmt.Errorf("修补 YAML 核心参数失败: %w", err)
+	}
+
+	isKernelRunning := a.State.GetPhase() == state.PhaseRunning
+
+	if isKernelRunning {
+		reqCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		defer cancel()
+
+		payload := map[string]interface{}{"path": filepath.ToSlash(absPath)}
+		_, err := a.API.DoRequest(reqCtx, "PUT", "/configs?force=true", payload)
+		
+		if err != nil {
+			logMsg := fmt.Errorf("热重载被内核拒绝 | 配置: %s | 原因: %v", targetRelPath, err)
+			a.Kernel.WriteCoreLog("ERROR", logMsg.Error())
+			slog.Error("配置应用失败，事务已回滚，保持原有状态", "target", targetRelPath)
+			return err
+		}
+		slog.Info("内核热重载接受配置，事务提交准备就绪")
+	} else {
+		slog.Info("内核处于停止状态，准备使用新配置唤醒")
+		apiAddr, apiSecret := a.Cfg.ResolveKernelEndpoint(absPath)
+		a.API.SetEndpoint(apiAddr, apiSecret)
+	}
+
+	a.Cfg.SetActiveProfile(targetRelPath)
+	if len(extracted) > 0 {
+		a.Cfg.UpdateBatch(extracted)
+	}
+	a.syncSystemProxy()
+
+	if !isKernelRunning {
+		a.Kernel.WakeDaemon()
+	} else {
+		time.Sleep(500 * time.Millisecond)
+		a.syncAllConfig(ctx)
+		select { case a.apiPollCh <- struct{}{}: default: }
+	}
+
+	return nil
+}
+				
 func (a *Application) ReloadConfig(ctx context.Context) {
-	slog.Info("开始重载内核配置")
+	if a.State.GetReloading() {
+		return
+	}
+	slog.Info("开始执行配置重载事务")
 	a.State.SetReloading(true)
-	a.State.SetRestarting(false)
 
 	go func() {
 		defer a.State.SetReloading(false)
-
-		activeRelPath := a.Cfg.GetActivePath()
-		_, extracted, err := a.Cfg.PrepareYAMLForPath(activeRelPath)
-		if err != nil {
-			slog.Error("检查内核配置文件失败", "err", err)
-		}
-
-		reqCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
-		absPath := a.Cfg.GetActivePathAbs()
-		safePath := filepath.ToSlash(absPath)
-		payload := map[string]interface{}{"path": safePath}
 		
-		_, err = a.API.DoRequest(reqCtx, "PUT", "/configs?force=true", payload)
-		cancel()
-
-		if err != nil {
-			slog.Warn("重载内核配置请求未完美响应", "err", err)
-		}
-
-		if len(extracted) > 0 {
-			a.Cfg.UpdateBatch(extracted)
-		}
-
-		time.Sleep(500 * time.Millisecond)
-		a.syncAllConfig(ctx)
-		a.syncSystemProxy()
-
-		select { case a.apiPollCh <- struct{}{}: default: }
+		_ = a.applyConfigTransaction(ctx, a.Cfg.GetActivePath())
 	}()
 }
 
