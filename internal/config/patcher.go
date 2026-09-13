@@ -66,9 +66,7 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 		portVal       string
 		hasMode       bool
 		hasExtCtrl    bool
-		extCtrlVal    string
 		hasSecret     bool
-		secretVal     string
 		hasExtUI      bool
 		extUIVal      string
 		hasExtUIName  bool
@@ -132,13 +130,9 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 				}
 			} else if strings.HasPrefix(trimmed, "external-controller:") {
 				hasExtCtrl = true
-				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
-					extCtrlVal = cleanVal(parts[1])
 				}
 			} else if strings.HasPrefix(trimmed, "secret:") {
 				hasSecret = true
-				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
-					secretVal = cleanVal(parts[1])
 				}
 			} else if strings.HasPrefix(trimmed, "external-ui:") {
 				hasExtUI = true
