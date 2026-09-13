@@ -53,8 +53,6 @@ func NewManager(baseDir, exePath string, isAdmin bool) *Manager {
 		isAdmin: isAdmin,
 		runtimeKernelParams: map[string]string{
 			"port":                DefaultMixedPort,
-			"external-controller": DefaultExternalController,
-			"secret":              DefaultSecret,
 		},
 	}
 }
