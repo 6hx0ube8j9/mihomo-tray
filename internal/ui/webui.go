@@ -352,3 +352,8 @@ func Cleanup() {
 	}
 	atomic.StoreUint32(&isolatedWebUIPid, 0)
 }
+
+func IsActive() bool {
+	hwnd := sys.GetCachedWebUIHwnd()
+	return hwnd != 0 && sys.IsWindowVisible(hwnd)
+}
