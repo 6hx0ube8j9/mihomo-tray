@@ -719,8 +719,11 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 
 	go func() {
 		defer a.State.SetReloading(false)
+		defer a.pushUIState()
 		
-		_ = a.applyConfigTransaction(ctx, a.Cfg.GetActivePath())
+		if err := a.applyConfigTransaction(ctx, a.Cfg.GetActivePath()); err != nil {
+			sys.ShowErrorMessage("配置重载失败", "内核拒绝加载当前配置文件，请检查语法：\n\n"+err.Error())
+		}
 	}()
 }
 
