@@ -140,12 +140,18 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if method == http.MethodPut && strings.Contains(path, "/configs") {
-			logPath := filepath.Join(c.cfg.BaseDir(), "error.log")
-			_ = os.WriteFile(logPath, body, 0644)
+		errMsg := strings.TrimSpace(string(body))
+		if strings.HasPrefix(errMsg, "{") {
+			var errObj map[string]interface{}
+			if json.Unmarshal([]byte(errMsg), &errObj) == nil {
+				if msg, ok := errObj["message"].(string); ok {
+					errMsg = msg
+				}
+			}
 		}
-		slog.Error("内核 API 返回错误", "code", resp.StatusCode, "body", strings.TrimSpace(string(body)))
-		return body, fmt.Errorf("API Error: %d, Response: %s", resp.StatusCode, string(body))
+		
+		slog.Debug("内核 API 拒绝请求", "code", resp.StatusCode, "detail", errMsg)
+		return nil, fmt.Errorf("API Error %d: %s", resp.StatusCode, errMsg)
 	}
 
 	return body, nil
