@@ -326,7 +326,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 
 			targetName, isNewCopy, err := a.Cfg.SafeCopyUntrustedConfig(sourcePath)
 			if err != nil {
-				sys.ShowElevationPrompt("文件读取失败", err.Error())
+				sys.ShowErrorMessage("导入配置失败", "读取文件时发生系统错误：\n"+err.Error())
 				return
 			}
 
@@ -337,7 +337,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 					garbagePath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetName))
 					_ = os.Remove(garbagePath)
 				}
-				sys.ShowElevationPrompt("配置导入失败 (存在语法或网络错误)", err.Error())
+				sys.ShowErrorMessage("配置导入失败 (存在语法或网络错误)", err.Error())
 				return
 			}
 
@@ -365,10 +365,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			slog.Info("开始执行配置切换事务", "target", target)
 			if err := a.applyConfigTransaction(context.Background(), target); err != nil {
 				if strings.Contains(err.Error(), "文件丢失") {
-					sys.ShowElevationPrompt("配置文件失效", "物理文件已丢失，将自动从列表中移除该配置。")
+					sys.ShowErrorMessage("配置文件失效", "物理文件已丢失，将自动从列表中移除该配置。")
 					a.Cfg.RemoveProfile(target)
 				} else {
-					sys.ShowElevationPrompt("切换配置失败", err.Error())
+					sys.ShowErrorMessage("切换配置失败", err.Error())
 				}
 			}
 		}(cmd.Payload)
