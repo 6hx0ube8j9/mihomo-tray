@@ -354,6 +354,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 				} else {
 					sys.ShowErrorMessage("切换配置失败", "内核拒绝加载该配置：\n\n"+err.Error())
 				}
+			} else {
+				ui.Cleanup()
 			}
 		}(cmd.Payload)
 
