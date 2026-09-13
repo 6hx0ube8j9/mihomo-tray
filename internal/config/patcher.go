@@ -225,9 +225,6 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 		extracted["port"] = portVal
 	}
 
-	if hasExtCtrl { extracted["external-controller"] = extCtrlVal }
-	if hasSecret { extracted["secret"] = secretVal }
-
 	if hasExtUIName {
 		extracted["external-ui-name"] = extUINameVal
 	} else {
@@ -252,12 +249,10 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 	if !hasExtCtrl {
 		prependLines = append(prependLines, fmt.Sprintf("external-controller: %s", DefaultExternalController))
 		modified = true
-		extracted["external-controller"] = DefaultExternalController
 	}
 	if !hasSecret {
 		prependLines = append(prependLines, fmt.Sprintf("secret: '%s'", DefaultSecret))
 		modified = true
-		extracted["secret"] = DefaultSecret
 	}
 	if !hasExtUI {
 		prependLines = append(prependLines, fmt.Sprintf("external-ui: '%s'", DefaultExternalUI))
@@ -329,4 +324,30 @@ func writeTmpAndRename(baseDir, targetPath string, content []byte) error {
 	
 	cleaned = true
 	return os.Rename(tmpName, targetPath)
+}
+
+func (m *Manager) ResolveKernelEndpoint(absPath string) (string, string) {
+	addr := DefaultExternalController
+	secret := DefaultSecret
+
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		slog.Warn("无法读取目标文件，端点提取器返回默认值", "path", absPath)
+		return addr, secret
+	}
+
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "external-controller:") {
+			if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
+				addr = cleanVal(parts[1])
+			}
+		} else if strings.HasPrefix(trimmed, "secret:") {
+			if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
+				secret = cleanVal(parts[1])
+			}
+		}
+	}
+	return addr, secret
 }
