@@ -49,7 +49,6 @@ type Application struct {
 
 	lastUIState  ui.UIState
 	uiStateMutex sync.Mutex
-	
 }
 
 func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
@@ -179,6 +178,9 @@ func (a *Application) eventLoop(ctx context.Context) {
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
+	subTicker := time.NewTicker(10 * time.Minute)
+	defer subTicker.Stop()
+
 	tryPollAPI := func() {
 		if a.State.GetPhase() == state.PhaseRunning && !a.State.IsConfigSyncing() && !a.State.IsReloading() {
 			if a.pollKernelAPI(ctx) {
@@ -283,7 +285,50 @@ func (a *Application) eventLoop(ctx context.Context) {
 		case <-a.apiPollCh:
 			tryPollAPI()
 			a.pushUIState()
+
+		case <-subTicker.C:
+			for _, p := range a.Cfg.GetProfiles() {
+				if p.NeedUpdate() {
+					slog.Debug("后台巡检触发自动更新任务", "name", p.Name)
+					go a.executeRemoteUpdate(ctx, p.Path, false)
+				}
+			}
 		}
+	}
+}
+
+func (a *Application) executeRemoteUpdate(ctx context.Context, targetRelPath string, isManual bool) {
+	if !a.State.TryAcquireProfileLock(targetRelPath) {
+		if isManual {
+			slog.Warn("该订阅正在后台更新，已拦截重复操作", "path", targetRelPath)
+		}
+		return
+	}
+	defer a.State.ReleaseProfileLock(targetRelPath)
+
+	validator := func(tmpPath string) error {
+		exePath := core.GetKernelPath(a.Cfg.BaseDir())
+		return core.ValidateConfig(exePath, a.Cfg.BaseDir(), tmpPath)
+	}
+
+	port := a.Cfg.Get("port")
+	success, err := a.Cfg.UpgradeSubscription(targetRelPath, port, validator)
+
+	if err != nil {
+		if isManual {
+			sys.ShowErrorMessage("订阅更新拦截", err.Error())
+		}
+		slog.Error("订阅更新终止", "path", targetRelPath, "err", err)
+		return
+	}
+
+	if success {
+		slog.Info("订阅更新已完成", "path", targetRelPath)
+		if a.Cfg.GetActivePath() == targetRelPath {
+			slog.Info("活跃配置发生变更，触发内核热重载")
+			_ = a.applyConfigTransaction(context.Background(), targetRelPath)
+		}
+		a.pushUIState()
 	}
 }
 
@@ -308,27 +353,61 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			defer a.State.SetProfileSwitching(false)
 			defer a.pushUIState()
 
-			targetName, isNewCopy, err := a.Cfg.SafeCopyUntrustedConfig(sourcePath)
-			if err != nil {
-				sys.ShowErrorMessage("无法导入配置", "读取文件时发生系统错误：\n"+err.Error())
+			slog.Info("开始沙箱预检新导入的本地配置", "source", sourcePath)
+
+			exePath := core.GetKernelPath(a.Cfg.BaseDir())
+			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), sourcePath); err != nil {
+				sys.ShowErrorMessage("配置导入被拦截", "该文件存在语法错误:\n\n"+err.Error())
 				return
 			}
 
-			slog.Info("开始校验并试运行新导入的配置", "target", targetName)
-
-			if err := a.applyConfigTransaction(context.Background(), targetName); err != nil {
-				if isNewCopy {
-					garbagePath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetName))
-					_ = os.Remove(garbagePath)
-				}
-				sys.ShowErrorMessage("配置导入失败", "文件存在语法错误或内核拒绝加载：\n\n"+err.Error())
+			targetName, _, err := a.Cfg.SafeCopyUntrustedConfig(sourcePath)
+			if err != nil {
+				sys.ShowErrorMessage("导入配置异常", "文件拷贝失败:\n"+err.Error())
 				return
 			}
 
 			a.Cfg.RegisterNewProfile(targetName)
-			slog.Info("新配置导入并应用成功", "name", targetName)
+			slog.Info("新配置已通过预检并入库", "name", targetName)
 
+			if err := a.applyConfigTransaction(context.Background(), targetName); err != nil {
+				sys.ShowErrorMessage("配置应用失败", "内核拒绝切换该配置 (可能是端口冲突)：\n\n"+err.Error())
+			} else {
+				a.restartWebUIIfOpen()
+			}
 		}(cmd.Payload)
+
+	case "AddRemoteProfile":
+		parts := strings.SplitN(cmd.Payload, "|", 4)
+		if len(parts) != 4 {
+			return
+		}
+
+		interval, _ := strconv.Atoi(parts[2])
+		rawName := strings.TrimSpace(parts[0])
+		if rawName == "" {
+			rawName = fmt.Sprintf("%d", time.Now().Unix())
+		}
+
+		safeName := strings.ReplaceAll(rawName, "/", "_")
+		fileName := fmt.Sprintf("%s.yaml", safeName)
+		targetRelPath := filepath.ToSlash(filepath.Join("profiles", fileName))
+
+		newItem := config.ProfileItem{
+			Name:       safeName,
+			Path:       targetRelPath,
+			URL:        strings.TrimSpace(parts[1]),
+			AutoUpdate: parts[3] == "true",
+			Interval:   interval,
+		}
+
+		a.Cfg.UpsertProfile(newItem)
+		go a.executeRemoteUpdate(ctx, targetRelPath, true)
+
+	case "UpdateRemoteProfile":
+		if p, ok := a.Cfg.GetProfileByPath(cmd.Payload); ok {
+			go a.executeRemoteUpdate(ctx, p.Path, true)
+		}
 
 	case "SwitchProfile":
 		if a.State.IsProfileSwitching() {
@@ -773,13 +852,13 @@ func (a *Application) restartWebUIIfOpen() {
 
 	if wasOpen {
 		slog.Debug("检测到 Web 面板原先处于活跃状态，等待内核就绪后拉起新环境")
-		
+
 		go func() {
 			for i := 0; i < 50; i++ {
 				if a.State.IsExiting() {
 					return
 				}
-				
+
 				if a.State.GetPhase() == state.PhaseRunning {
 					slog.Debug("内核已就绪，正在自动重新拉起 Web 面板")
 					select {
