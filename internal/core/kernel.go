@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,7 +12,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"log/slog"
 
 	"golang.org/x/sys/windows"
 
@@ -19,6 +19,12 @@ import (
 	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
 )
+
+const KernelExeName = "mihomo.exe"
+
+func GetKernelPath(baseDir string) string {
+	return filepath.Join(baseDir, KernelExeName)
+}
 
 type KernelEvent int
 
@@ -58,17 +64,16 @@ func (km *KernelManager) Close() {
 }
 
 func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEvent) {
-	target := filepath.Join(km.cfg.BaseDir(), "mihomo.exe")
+	target := GetKernelPath(km.cfg.BaseDir())
 	absBaseDir, _ := filepath.Abs(km.cfg.BaseDir())
 	currentDelay := 50 * time.Millisecond
 	const maxDelay = 30 * time.Second
-	
+
 	crashCount := 0
-	
-	quickCrashCount := 0         
+	quickCrashCount := 0
 	var firstCrashTime time.Time
 
-	sys.KillOtherProcessesByName("mihomo.exe", 0)
+	sys.KillOtherProcessesByName(KernelExeName, 0)
 
 	for {
 		select {
@@ -94,9 +99,10 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			}
 			continue
 		}
-		
+
 		localPid := atomic.LoadUint32(&km.currentPid)
-		if localPid != 0 && sys.IsPidRunning(localPid, "mihomo.exe") {
+		// 使用常数替代硬编码
+		if localPid != 0 && sys.IsPidRunning(localPid, KernelExeName) {
 			select {
 			case <-ctx.Done():
 				km.KillCurrent()
@@ -117,8 +123,8 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		}
 
 		errBuf := &tailBuffer{max: 64 * 1024}
-		
 		activeAbs := km.cfg.GetActivePathAbs()
+
 		cmd := exec.Command(target, "-d", ".", "-f", activeAbs)
 		cmd.Dir = absBaseDir
 
@@ -127,7 +133,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			HideWindow:    true,
 			CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | CREATE_DEFAULT_ERROR_MODE,
 		}
-		
+
 		cmd.Stdout = errBuf
 		cmd.Stderr = errBuf
 		startTime := time.Now()
@@ -174,7 +180,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			}
 			continue
 		}
-		
+
 		slog.Info("启动内核进程", "PID", cmd.Process.Pid)
 
 		km.mu.Lock()
@@ -210,7 +216,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		isShutdown := sys.IsSystemShuttingDown()
 		isAppExiting := ctx.Err() != nil || km.st.IsExiting() || isShutdown
 		runDuration := time.Since(startTime)
-		
+
 		isCrash := waitErr != nil && !isKilledByUs && !isAppExiting
 		wasRunning := km.st.GetPhase() == state.PhaseRunning
 
@@ -319,11 +325,11 @@ func (km *KernelManager) KillCurrent() {
 		slog.Error("发送退出信号失败，强制终止进程", "PID", pid, "err", err)
 		_ = proc.Kill()
 		sys.HardKill(pid)
-		sys.KillOtherProcessesByName("mihomo.exe", 0) 
+		sys.KillOtherProcessesByName(KernelExeName, 0)
 	} else {
 		exited := false
 		for i := 0; i < 100; i++ {
-			if !sys.IsPidRunning(pid, "mihomo.exe") {
+			if !sys.IsPidRunning(pid, KernelExeName) {
 				exited = true
 				break
 			}
@@ -336,7 +342,7 @@ func (km *KernelManager) KillCurrent() {
 			slog.Warn("等待退出超时，强制终止进程", "PID", pid)
 			_ = proc.Kill()
 			sys.HardKill(pid)
-			sys.KillOtherProcessesByName("mihomo.exe", 0)
+			sys.KillOtherProcessesByName(KernelExeName, 0)
 		}
 	}
 
@@ -365,7 +371,7 @@ func (km *KernelManager) checkAndWriteLog(absBaseDir, errType, rawMsg string) {
 	_ = os.MkdirAll(logDir, 0755)
 
 	logPath := filepath.Join(logDir, "core.log")
-	
+
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	finalLog := fmt.Sprintf("[%s] [%s] %s\n----------------------------------------\n", timestamp, errType, rawMsg)
 
@@ -452,7 +458,7 @@ func (km *KernelManager) WakeDaemon() {
 	km.mu.Lock()
 	km.isPaused = false
 	km.mu.Unlock()
-	
+
 	slog.Debug("写入唤醒信号")
 
 	select {
