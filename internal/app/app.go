@@ -414,6 +414,21 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		a.Cfg.UpsertProfile(newItem)
 		go a.executeRemoteUpdate(ctx, targetRelPath, true)
 
+     case "SetProfileInterval":
+		parts := strings.Split(cmd.Payload, "|")
+		if len(parts) == 2 {
+			targetPath := parts[0]
+			interval, err := strconv.Atoi(parts[1])
+			if err == nil {
+				if p, ok := a.Cfg.GetProfileByPath(targetPath); ok {
+					p.Interval = interval
+					p.AutoUpdate = interval > 0
+					a.Cfg.UpsertProfile(p)
+					slog.Info("已修改订阅自动更新频率", "path", targetPath, "interval", interval)
+				}
+			}
+		}
+		
 	case "UpdateRemoteProfile":
 		if p, ok := a.Cfg.GetProfileByPath(cmd.Payload); ok {
 			go a.executeRemoteUpdate(ctx, p.Path, true)
@@ -690,11 +705,31 @@ func (a *Application) calculateUIState() ui.UIState {
 	s.CanAddProfile = len(profiles) < 5
 
 	for _, p := range profiles {
-		s.ProfileItems = append(s.ProfileItems, ui.ProfileItem{
+		item := ui.ProfileItem{
 			Name:     config.TruncateMiddle(p.Name),
 			Path:     p.Path,
 			IsActive: p.Path == activePath,
-		})
+			IsRemote: p.URL != "",
+			Interval: p.Interval,
+		}
+
+		if item.IsRemote {
+			if p.LastUpdate == 0 {
+				item.LastUpdate = "从未更新"
+			} else {
+				diff := time.Since(time.Unix(p.LastUpdate, 0))
+				if diff.Hours() > 24 {
+					item.LastUpdate = fmt.Sprintf("%d 天前", int(diff.Hours()/24))
+				} else if diff.Hours() > 1 {
+					item.LastUpdate = fmt.Sprintf("%d 小时前", int(diff.Hours()))
+				} else if diff.Minutes() > 1 {
+					item.LastUpdate = fmt.Sprintf("%d 分钟前", int(diff.Minutes()))
+				} else {
+					item.LastUpdate = "刚刚"
+				}
+			}
+		}
+		s.ProfileItems = append(s.ProfileItems, item)
 	}
 
 	if a.State.IsExiting() || a.State.IsRestarting() || a.State.GetPhase() != state.PhaseRunning {
@@ -739,7 +774,9 @@ func (a *Application) pushUIState() {
 	} else {
 		for i := range newState.ProfileItems {
 			if newState.ProfileItems[i].Path != a.lastUIState.ProfileItems[i].Path ||
-				newState.ProfileItems[i].IsActive != a.lastUIState.ProfileItems[i].IsActive {
+				newState.ProfileItems[i].IsActive != a.lastUIState.ProfileItems[i].IsActive ||
+				newState.ProfileItems[i].Interval != a.lastUIState.ProfileItems[i].Interval ||
+				newState.ProfileItems[i].LastUpdate != a.lastUIState.ProfileItems[i].LastUpdate {
 				changed = true
 				break
 			}
