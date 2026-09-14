@@ -102,6 +102,7 @@ const (
 	CB_SETCURSEL = 0x014E
 	
 	DEFAULT_GUI_FONT = 17
+	CW_USEDEFAULT    = 0x80000000
 )
 
 type SubDialogResult struct {
@@ -203,7 +204,7 @@ func ShowAddSubDialog() SubDialogResult {
 	hwnd, _, _ := procCreateWindowExW.Call(
 		0, uintptr(unsafe.Pointer(className)), uintptr(unsafe.Pointer(title)),
 		0x10C80000,
-		windows.CW_USEDEFAULT, windows.CW_USEDEFAULT, 400, 240, 0, 0, hInstance, 0,
+		uintptr(CW_USEDEFAULT), uintptr(CW_USEDEFAULT), 400, 240, 0, 0, hInstance, 0,
 	)
 
 	hFont, _, _ := procGetStockObject.Call(DEFAULT_GUI_FONT)
