@@ -740,6 +740,8 @@ func (a *Application) RestartKernel() {
 	slog.Info("正在重启内核进程")
 	a.State.SetRestarting(true)
 	a.State.SetReloading(false)
+	a.State.SetPhase(state.PhaseInitializing)
+
 	a.Kernel.HaltDaemon()
 
 	activeRelPath := a.Cfg.GetActivePath()
@@ -761,6 +763,7 @@ func (a *Application) RestartKernel() {
 
 	a.Kernel.WakeDaemon()
 	a.pushUIState()
+
 	a.restartWebUIIfOpen()
 }
 
