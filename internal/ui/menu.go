@@ -27,15 +27,20 @@ const (
 	IDRunAsAdmin
 	IDReloadConfig
 	IDRestartKernel
-	IDOpenConfigFile
 	IDExitApp
 	IDAdminStatus
 )
 
+// 动态 ID 映射基址 (支持最多 10 个 Profile)
 const (
-	IDProfileSwitchBase uint32 = 2000
-	IDProfileRemoveBase uint32 = 2010
-	IDProfileAddLocal   uint32 = 2020
+	IDProfileSwitchBase   uint32 = 2000 // 2000-2009
+	IDProfileEditBase     uint32 = 2010 // 2010-2019
+	IDProfileRemoveBase   uint32 = 2020 // 2020-2029
+	IDProfileUpdateBase   uint32 = 2030 // 2030-2039
+	IDProfileIntervalBase uint32 = 2100 // 2100-2199 (Profile Index * 10 + Interval Index)
+	
+	IDProfileAddLocal  uint32 = 2200
+	IDProfileAddRemote uint32 = 2201
 )
 
 type UICommand struct {
@@ -44,9 +49,12 @@ type UICommand struct {
 }
 
 type ProfileItem struct {
-	Name     string
-	Path     string
-	IsActive bool
+	Name       string
+	Path       string
+	IsActive   bool
+	IsRemote   bool
+	Interval   int
+	LastUpdate string // 例如 "2 小时前" 或 "从未更新"
 }
 
 type UIState struct {
@@ -100,7 +108,6 @@ func (tm *TrayMenu) Init() {
 			slog.Error("加载托盘图标失败", "icon", name, "err", err)
 		}
 	}
-
 	tm.trayHost.SetIcon(0)
 }
 
@@ -176,8 +183,7 @@ func (tm *TrayMenu) onRightClick() {
 		adminText = "运行权限：管理员"
 	}
 
-	var profileListItems []wintray.MenuItem
-	var removeSubItems []wintray.MenuItem
+	var profileSubMenus []wintray.MenuItem
 	activeProfileName := "config.yaml"
 
 	for i, item := range st.ProfileItems {
@@ -185,50 +191,82 @@ func (tm *TrayMenu) onRightClick() {
 			activeProfileName = item.Name
 		}
 		
-		displayName := item.Name
-		removeName := item.Name
-		
-		if i == 0 {
-			displayName += " (默认)"
-			removeName += " (默认)"
-		}
-		if item.IsActive {
-			removeName += " (使用中)"
+		var itemSubMenu []wintray.MenuItem
+
+		// 1. 切换操作
+		itemSubMenu = append(itemSubMenu, wintray.MenuItem{
+			ID:       IDProfileSwitchBase + uint32(i),
+			Text:     "切换到此配置",
+			Checked:  item.IsActive,
+			Disabled: item.IsActive,
+		})
+		itemSubMenu = append(itemSubMenu, wintray.MenuItem{IsSeparator: true})
+
+		// 2. 远程订阅专有功能
+		if item.IsRemote {
+			itemSubMenu = append(itemSubMenu, wintray.MenuItem{
+				Text:     "上次更新: " + item.LastUpdate,
+				Disabled: true, // 纯信息展示，通过置灰呈现
+			})
+			itemSubMenu = append(itemSubMenu, wintray.MenuItem{
+				ID:   IDProfileUpdateBase + uint32(i),
+				Text: "立即更新",
+			})
+			
+			intervals := []int{1, 3, 5, 7, 0}
+			labels := []string{"每 1 天更新", "每 3 天更新", "每 5 天更新", "每 7 天更新", "禁用自动更新"}
+			
+			for j, val := range intervals {
+				itemSubMenu = append(itemSubMenu, wintray.MenuItem{
+					ID:      IDProfileIntervalBase + uint32(i*10+j),
+					Text:    labels[j],
+					Checked: item.Interval == val,
+				})
+			}
+			itemSubMenu = append(itemSubMenu, wintray.MenuItem{IsSeparator: true})
 		}
 
-		profileListItems = append(profileListItems, wintray.MenuItem{
-			ID:      IDProfileSwitchBase + uint32(i),
-			Text:    displayName,
-			Checked: item.IsActive,
+		// 3. 基础管理操作
+		itemSubMenu = append(itemSubMenu, wintray.MenuItem{
+			ID:   IDProfileEditBase + uint32(i),
+			Text: "编辑配置",
 		})
 		
-		removeSubItems = append(removeSubItems, wintray.MenuItem{
+		itemSubMenu = append(itemSubMenu, wintray.MenuItem{
 			ID:       IDProfileRemoveBase + uint32(i),
-			Text:     removeName,
-			Disabled: i == 0 || item.IsActive,
+			Text:     "从列表移除此配置",
+			Disabled: item.Path == "config.yaml", // config.yaml 不允许移除
+		})
+
+		// 4. 将该项挂载至总列表
+		suffix := " (本地)"
+		if item.IsRemote {
+			suffix = " (订阅)"
+		}
+		
+		profileSubMenus = append(profileSubMenus, wintray.MenuItem{
+			Text:         item.Name + suffix,
+			SubMenuItems: itemSubMenu,
 		})
 	}
 
-	profileSubMenu := append(profileListItems, wintray.MenuItem{IsSeparator: true})
-	profileSubMenu = append(profileSubMenu, wintray.MenuItem{
-		ID:   IDOpenConfigFile,
-		Text: fmt.Sprintf("编辑配置 (%s)", activeProfileName),
-	})
-	profileSubMenu = append(profileSubMenu, wintray.MenuItem{
+	profileSubMenus = append(profileSubMenus, wintray.MenuItem{IsSeparator: true})
+	profileSubMenus = append(profileSubMenus, wintray.MenuItem{
 		ID:       IDProfileAddLocal,
 		Text:     fmt.Sprintf("添加本地配置 (%d/5)", len(st.ProfileItems)),
 		Disabled: !st.CanAddProfile,
 	})
-	profileSubMenu = append(profileSubMenu, wintray.MenuItem{
-		Text:         "移除配置",
-		SubMenuItems: removeSubItems,
+	profileSubMenus = append(profileSubMenus, wintray.MenuItem{
+		ID:       IDProfileAddRemote,
+		Text:     fmt.Sprintf("添加远程订阅 (%d/5)", len(st.ProfileItems)),
+		Disabled: !st.CanAddProfile,
 	})
 
 	items := []wintray.MenuItem{
 		{ID: IDOpenWebUI, Text: "进入 Web 面板"},
 		{IsSeparator: true},
 		{ID: IDToggleProxy, Text: "系统代理", Checked: st.IsProxy},
-		{ID: IDToggleTun, Text: "虚拟网卡 (TUN)", Checked: st.IsTun},
+		{ID: IDToggleTun, Text: "TUN 模式", Checked: st.IsTun},
 		{
 			Text: fmt.Sprintf("当前模式: %s", currModeName),
 			SubMenuItems: []wintray.MenuItem{
@@ -240,8 +278,9 @@ func (tm *TrayMenu) onRightClick() {
 		{IsSeparator: true},
 		{
 			Text: fmt.Sprintf("配置文件: %s", activeProfileName),
-			SubMenuItems: profileSubMenu,
+			SubMenuItems: profileSubMenus,
 		},
+		{IsSeparator: true},
 		{ID: IDOpenBaseDir, Text: "打开程序目录"},
 		{IsSeparator: true},
 		{
@@ -270,7 +309,8 @@ func (tm *TrayMenu) onMenuItemClick(id uint32) {
 	st := tm.currState
 	tm.stateMu.RUnlock()
 
-	if id >= IDProfileSwitchBase && id < IDProfileSwitchBase+5 {
+	// 配置切换
+	if id >= IDProfileSwitchBase && id < IDProfileSwitchBase+10 {
 		idx := int(id - IDProfileSwitchBase)
 		if idx < len(st.ProfileItems) {
 			tm.sendCommand("SwitchProfile", st.ProfileItems[idx].Path)
@@ -278,10 +318,45 @@ func (tm *TrayMenu) onMenuItemClick(id uint32) {
 		return
 	}
 
-	if id >= IDProfileRemoveBase && id < IDProfileRemoveBase+5 {
+	// 编辑配置
+	if id >= IDProfileEditBase && id < IDProfileEditBase+10 {
+		idx := int(id - IDProfileEditBase)
+		if idx < len(st.ProfileItems) {
+			tm.sendCommand("OpenConfigFile", st.ProfileItems[idx].Path) // 注意：需要在 app.go 中接收 Payload 作为目标路径
+		}
+		return
+	}
+
+	// 移除配置
+	if id >= IDProfileRemoveBase && id < IDProfileRemoveBase+10 {
 		idx := int(id - IDProfileRemoveBase)
 		if idx < len(st.ProfileItems) {
 			tm.sendCommand("RemoveProfile", st.ProfileItems[idx].Path)
+		}
+		return
+	}
+
+	// 立即更新订阅
+	if id >= IDProfileUpdateBase && id < IDProfileUpdateBase+10 {
+		idx := int(id - IDProfileUpdateBase)
+		if idx < len(st.ProfileItems) {
+			tm.sendCommand("UpdateRemoteProfile", st.ProfileItems[idx].Path)
+		}
+		return
+	}
+
+	// 调整更新频率
+	if id >= IDProfileIntervalBase && id < IDProfileIntervalBase+100 {
+		offset := int(id - IDProfileIntervalBase)
+		idx := offset / 10
+		intervalIdx := offset % 10
+		
+		if idx < len(st.ProfileItems) {
+			intervals := []int{1, 3, 5, 7, 0}
+			if intervalIdx < len(intervals) {
+				payload := fmt.Sprintf("%s|%d", st.ProfileItems[idx].Path, intervals[intervalIdx])
+				tm.sendCommand("SetProfileInterval", payload)
+			}
 		}
 		return
 	}
@@ -290,6 +365,10 @@ func (tm *TrayMenu) onMenuItemClick(id uint32) {
 	case IDProfileAddLocal:
 		if st.CanAddProfile {
 			tm.sendCommand("RequestAddLocalProfile", "")
+		}
+	case IDProfileAddRemote:
+		if st.CanAddProfile {
+			tm.sendCommand("RequestAddRemoteProfile", "")
 		}
 	case IDOpenWebUI:
 		tm.sendCommand("OpenWebUI", "")
@@ -313,8 +392,6 @@ func (tm *TrayMenu) onMenuItemClick(id uint32) {
 		tm.sendCommand("ReloadConfig", "")
 	case IDRestartKernel:
 		tm.sendCommand("RestartKernel", "")
-	case IDOpenConfigFile:
-		tm.sendCommand("OpenConfigFile", "")
 	case IDExitApp:
 		tm.sendCommand("ExitApp", "")
 		tm.trayHost.Stop()
