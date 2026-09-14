@@ -766,15 +766,30 @@ func (a *Application) RestartKernel() {
 
 func (a *Application) restartWebUIIfOpen() {
 	wasOpen := ui.IsActive()
-	
 	ui.Cleanup()
 
 	if wasOpen {
-		slog.Debug("检测到 Web 面板原先处于活跃状态，正在自动重启拉起新环境")
-		select {
-		case a.UICommandCh <- ui.UICommand{Action: "OpenWebUI"}:
-		default:
-		}
+		slog.Debug("检测到 Web 面板原先处于活跃状态，等待内核就绪后拉起新环境")
+		
+		go func() {
+			for i := 0; i < 50; i++ {
+				if a.State.IsExiting() {
+					return
+				}
+				
+				if a.State.GetPhase() == state.PhaseRunning {
+					slog.Debug("内核已就绪，正在自动重新拉起 Web 面板")
+					select {
+					case a.UICommandCh <- ui.UICommand{Action: "OpenWebUI"}:
+					default:
+					}
+					return
+				}
+
+				time.Sleep(200 * time.Millisecond)
+			}
+			slog.Warn("等待内核就绪超时，自动拉起 Web 面板失败")
+		}()
 	}
 }
 
