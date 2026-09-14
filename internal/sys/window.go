@@ -2,13 +2,12 @@ package sys
 
 import (
 	"log/slog"
-	"runtime"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
-	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -246,7 +245,7 @@ func FindAndFocusAppWindow(cdpTitle string, appHostPort string, mainPid uint32) 
 	}
 
 	if targetHwnd != 0 {
-		slog.Debug("通过句柄接管目标浏览器进程", "Hwnd", targetHwnd)
+		slog.Debug("获取目标窗口句柄并尝试接管", "Hwnd", targetHwnd)
 		SetCachedWebUIHwnd(targetHwnd)
 		FocusWindowSilky(targetHwnd)
 		return true
@@ -262,19 +261,16 @@ func FocusWindowSilky(targetHwnd uintptr) {
 	var forePid uint32
 	foreThread, _, _ := procGetWindowThread.Call(foreHwnd, uintptr(unsafe.Pointer(&forePid)))
 
-	var targetPid uint32
-	targetThread, _, _ := procGetWindowThread.Call(targetHwnd, uintptr(unsafe.Pointer(&targetPid)))
-	
 	currThread, _, _ := procGetCurrentThread.Call()
 	myPid := uint32(os.Getpid())
 
 	attached := false
 	if foreThread != 0 && foreThread != currThread && forePid != myPid {
-		slog.Debug("当前前台为外部程序，附加线程输入以强夺焦点")
+		slog.Debug("附加输入线程以申请前台焦点权限")
 		ret, _, _ := procAttachThread.Call(foreThread, currThread, 1)
 		attached = (ret != 0)
 	} else {
-		slog.Debug("自身已具备前台权限或无须强夺，直接激活目标窗口")
+		slog.Debug("当前进程已具备前台权限，跳过线程附加")
 	}
 
 	procShowWindow.Call(targetHwnd, SW_RESTORE)
