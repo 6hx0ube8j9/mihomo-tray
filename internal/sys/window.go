@@ -258,37 +258,32 @@ func FocusWindowSilky(targetHwnd uintptr) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	slog.Debug("附加线程输入以强制置顶窗口 (AttachThreadInput)")
-	currT, _, _ := procGetCurrentThread.Call()
-	foreH, _, _ := procGetForeground.Call()
-	foreT, _, _ := procGetWindowThread.Call(foreH, 0)
-	targT, _, _ := procGetWindowThread.Call(targetHwnd, 0)
+	foreHwnd, _, _ := procGetForeground.Call()
+	var forePid uint32
+	foreThread, _, _ := procGetWindowThread.Call(foreHwnd, uintptr(unsafe.Pointer(&forePid)))
 
-	if foreT != currT && foreT != 0 {
-		procAttachThread.Call(foreT, currT, 1)
-	}
-	if targT != 0 && targT != currT {
-		procAttachThread.Call(currT, targT, 1)
+	var targetPid uint32
+	targetThread, _, _ := procGetWindowThread.Call(targetHwnd, uintptr(unsafe.Pointer(&targetPid)))
+	
+	currThread, _, _ := procGetCurrentThread.Call()
+	myPid := uint32(os.Getpid())
+
+	attached := false
+	if foreThread != 0 && foreThread != currThread && forePid != myPid {
+		slog.Debug("当前前台为外部程序，附加线程输入以强夺焦点")
+		ret, _, _ := procAttachThread.Call(foreThread, currThread, 1)
+		attached = (ret != 0)
+	} else {
+		slog.Debug("自身已具备前台权限或无须强夺，直接激活目标窗口")
 	}
 
 	procShowWindow.Call(targetHwnd, SW_RESTORE)
-	procSwitchToThisWindow.Call(targetHwnd, 1)
 	procSetForeground.Call(targetHwnd)
 	procBringToTop.Call(targetHwnd)
-	procSetWindowPos.Call(targetHwnd, hwndTopmost, 0, 0, 0, 0, SWP_SILKY)
 
-	if targT != 0 && targT != currT {
-		procAttachThread.Call(currT, targT, 0)
+	if attached {
+		procAttachThread.Call(foreThread, currThread, 0)
 	}
-	if foreT != currT && foreT != 0 {
-		procAttachThread.Call(foreT, currT, 0)
-	}
-
-	time.AfterFunc(400*time.Millisecond, func() {
-		runtime.LockOSThread()
-		defer runtime.UnlockOSThread()
-		procSetWindowPos.Call(targetHwnd, hwndNoTopmost, 0, 0, 0, 0, SWP_SILKY_OFF)
-	})
 }
 
 func IsWindowVisible(hwnd uintptr) bool {
