@@ -40,7 +40,6 @@ var (
 	procGetWindowTextW   = modUser32.NewProc("GetWindowTextW")
 	procSendMessageW     = modUser32.NewProc("SendMessageW")
 	procDestroyWindow    = modUser32.NewProc("DestroyWindow")
-	procGetSystemMetrics = modUser32.NewProc("GetSystemMetrics")
 
 	procGetModuleHandleW = modKernel32.NewProc("GetModuleHandleW")
 	procGetStockObject   = modGdi32.NewProc("GetStockObject")
