@@ -1,6 +1,7 @@
 package state
 
 import (
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -27,12 +28,24 @@ type RuntimeState struct {
 	proxyRepairing atomic.Bool
 	probeGen       atomic.Uint64
 	tunDevName     atomic.Value
+
+	profileLocks sync.Map
 }
 
 func NewRuntimeState() *RuntimeState {
 	rs := &RuntimeState{}
 	rs.phase.Store(int32(PhaseInitializing))
 	return rs
+}
+
+
+func (r *RuntimeState) TryAcquireProfileLock(path string) bool {
+	_, loaded := r.profileLocks.LoadOrStore(path, true)
+	return !loaded // 如果原本没有锁 (未 loaded)，说明抢占成功
+}
+
+func (r *RuntimeState) ReleaseProfileLock(path string) {
+	r.profileLocks.Delete(path)
 }
 
 func (r *RuntimeState) SetProfileSwitching(b bool) { r.profileSwitching.Store(b) }
