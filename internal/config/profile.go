@@ -6,12 +6,34 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type ProfileItem struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
+
+	URL        string `json:"url,omitempty"`
+	AutoUpdate bool   `json:"auto_update,omitempty"`
+	Interval   int    `json:"interval,omitempty"`
+	LastUpdate int64  `json:"last_update,omitempty"`
+
+	Upload   int64 `json:"upload,omitempty"`
+	Download int64 `json:"download,omitempty"`
+	Total    int64 `json:"total,omitempty"`
+	Expire   int64 `json:"expire,omitempty"`
 }
+
+func (p *ProfileItem) NeedUpdate() bool {
+	if p.URL == "" || !p.AutoUpdate || p.Interval <= 0 {
+		return false
+	}
+	
+	nextUpdate := p.LastUpdate + int64(p.Interval*24*3600)
+	
+	return time.Now().Unix() >= nextUpdate
+}
+
 
 func IsInAppTree(appDir, targetPath string) (string, bool) {
 	rel, err := filepath.Rel(appDir, targetPath)
@@ -142,5 +164,22 @@ func (m *Manager) RegisterNewProfile(relPath string) {
 	}
 
 	m.data.Active = relPath
+	m.lockedSave()
+}
+
+func (m *Manager) UpsertProfile(item ProfileItem) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, p := range m.data.Items {
+		if p.Path == item.Path {
+			m.data.Items[i] = item
+			m.lockedSave()
+			return
+		}
+	}
+	m.data.Items = append(m.data.Items, item)
+	if len(m.data.Items) > 5 {  
+		m.data.Items = append(m.data.Items[:1], m.data.Items[2:]...)
+	}
 	m.lockedSave()
 }
