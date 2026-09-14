@@ -342,6 +342,16 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		}()
 		return
 
+    case "RequestAddRemoteProfile":
+		go func() {
+			res := sys.ShowAddSubDialog()
+			if res.OK {
+				payload := fmt.Sprintf("%s|%s|%d|%t", res.Name, res.URL, res.Interval, res.AutoUpdate)
+				a.UICommandCh <- ui.UICommand{Action: "AddRemoteProfile", Payload: payload}
+			}
+		}()
+		return
+		
 	case "AddLocalProfile":
 		if a.State.IsProfileSwitching() {
 			slog.Warn("配置操作正在进行中，已阻断并发请求")
@@ -583,7 +593,12 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		a.RestartKernel()
 
 	case "OpenConfigFile":
-		absPath := a.Cfg.GetActivePathAbs()
+		targetRelPath := cmd.Payload
+		if targetRelPath == "" {
+			targetRelPath = a.Cfg.GetActivePath()
+		}
+		
+		absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
 		if _, err := os.Stat(absPath); os.IsNotExist(err) {
 			sys.ShowErrorMessage("打开失败", "文件不存在或已被删除，无法启动编辑器。")
 			break
