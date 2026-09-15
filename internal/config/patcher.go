@@ -22,10 +22,18 @@ func (m *Manager) PrepareYAMLForPath(relPath string) (bool, map[string]string, e
 	m.yamlMu.Lock()
 	defer m.yamlMu.Unlock()
 
-	sourcePath := filepath.Join(m.baseDir, filepath.FromSlash(relPath))
-	content, err := os.ReadFile(sourcePath)
-	if err != nil {
-		slog.Info("未找到源配置文件，将使用空配置进行生成", "source", relPath)
+	var content []byte
+	var err error
+
+	if relPath != "" {
+		sourcePath := filepath.Join(m.baseDir, filepath.FromSlash(relPath))
+		content, err = os.ReadFile(sourcePath)
+		if err != nil {
+			slog.Warn("底稿文件丢失，将使用保底参数启动内核", "path", sourcePath)
+			content = []byte("")
+		}
+	} else {
+		slog.Info("当前无活跃配置，将使用保底参数启动内核")
 		content = []byte("")
 	}
 
@@ -50,7 +58,6 @@ func (m *Manager) PrepareYAMLForPath(relPath string) (bool, map[string]string, e
 	}
 
 	slog.Debug("已生成运行时配置", "source", relPath, "target", "config.yaml")
-
 	return true, extracted, nil
 }
 
@@ -187,13 +194,11 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 	} else if hasPort {
 		extracted["port"] = portVal
 	}
-
 	if hasExtUIName {
 		extracted["external-ui-name"] = extUINameVal
 	} else {
 		extracted["external-ui-name"] = ""
 	}
-
 	if tunRootExists {
 		extracted["tun_device"] = tunDeviceVal
 	}
@@ -266,10 +271,10 @@ func cleanVal(s string) string {
 }
 
 func writeTmpAndRename(baseDir, targetPath string, content []byte) error {
-	cacheDir := filepath.Join(baseDir, ".cache")
-	_ = os.MkdirAll(cacheDir, 0755)
+	targetDir := filepath.Dir(targetPath)
+	_ = os.MkdirAll(targetDir, 0755)
 
-	tmpFile, err := os.CreateTemp(cacheDir, "config.*.tmp")
+	tmpFile, err := os.CreateTemp(targetDir, "tmp_*.tmp")
 	if err != nil {
 		return err
 	}
