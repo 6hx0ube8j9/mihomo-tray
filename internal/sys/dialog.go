@@ -23,27 +23,26 @@ const (
 )
 
 var (
-	modComdlg32 = windows.NewLazySystemDLL("comdlg32.dll")
-	modUser32   = windows.NewLazySystemDLL("user32.dll")
-	modKernel32 = windows.NewLazySystemDLL("kernel32.dll")
-	modGdi32    = windows.NewLazySystemDLL("gdi32.dll")
+	// [修复冲突] 增加 dlg 前缀，防止与 window.go 中的包级变量重名
+	dlgModComdlg32 = windows.NewLazySystemDLL("comdlg32.dll")
+	dlgModUser32   = windows.NewLazySystemDLL("user32.dll")
+	dlgModKernel32 = windows.NewLazySystemDLL("kernel32.dll")
+	dlgModGdi32    = windows.NewLazySystemDLL("gdi32.dll")
 
-	procGetOpenFileNameW = modComdlg32.NewProc("GetOpenFileNameW")
-
-	procRegisterClassExW = modUser32.NewProc("RegisterClassExW")
-	procCreateWindowExW  = modUser32.NewProc("CreateWindowExW")
-	procDefWindowProcW   = modUser32.NewProc("DefWindowProcW")
-	procGetMessageW      = modUser32.NewProc("GetMessageW")
-	procTranslateMessage = modUser32.NewProc("TranslateMessage")
-	procDispatchMessageW = modUser32.NewProc("DispatchMessageW")
-	procPostQuitMessage  = modUser32.NewProc("PostQuitMessage")
-	procGetWindowTextW   = modUser32.NewProc("GetWindowTextW")
-	procSendMessageW     = modUser32.NewProc("SendMessageW")
-	procDestroyWindow    = modUser32.NewProc("DestroyWindow")
-
-	procGetModuleHandleW = modKernel32.NewProc("GetModuleHandleW")
-	procGetStockObject   = modGdi32.NewProc("GetStockObject")
-	procGetSystemMetrics = modUser32.NewProc("GetSystemMetrics")
+	dlgProcGetOpenFileNameW = dlgModComdlg32.NewProc("GetOpenFileNameW")
+	dlgProcRegisterClassExW = dlgModUser32.NewProc("RegisterClassExW")
+	dlgProcCreateWindowExW  = dlgModUser32.NewProc("CreateWindowExW")
+	dlgProcDefWindowProcW   = dlgModUser32.NewProc("DefWindowProcW")
+	dlgProcGetMessageW      = dlgModUser32.NewProc("GetMessageW")
+	dlgProcTranslateMessage = dlgModUser32.NewProc("TranslateMessage")
+	dlgProcDispatchMessageW = dlgModUser32.NewProc("DispatchMessageW")
+	dlgProcPostQuitMessage  = dlgModUser32.NewProc("PostQuitMessage")
+	dlgProcGetWindowTextW   = dlgModUser32.NewProc("GetWindowTextW")
+	dlgProcSendMessageW     = dlgModUser32.NewProc("SendMessageW")
+	dlgProcDestroyWindow    = dlgModUser32.NewProc("DestroyWindow")
+	dlgProcGetSystemMetrics = dlgModUser32.NewProc("GetSystemMetrics")
+	dlgProcGetModuleHandleW = dlgModKernel32.NewProc("GetModuleHandleW")
+	dlgProcGetStockObject   = dlgModGdi32.NewProc("GetStockObject")
 )
 
 type OPENFILENAMEW struct {
@@ -111,36 +110,41 @@ func OpenYAMLFileDialog() (string, bool) {
 
 	ofn.Flags = 0x00001000 | 0x00000008 | 0x00000004
 
-	ret, _, _ := procGetOpenFileNameW.Call(uintptr(unsafe.Pointer(&ofn)))
+	ret, _, _ := dlgProcGetOpenFileNameW.Call(uintptr(unsafe.Pointer(&ofn)))
 	if ret != 0 {
 		return windows.UTF16ToString(buf), true
 	}
 	return "", false
 }
 
+// 纯通知型：仅包含“确定”按钮的警告框
 func ShowErrorMessage(title, message string) {
 	titlePtr, _ := windows.UTF16PtrFromString(title)
 	msgPtr, _ := windows.UTF16PtrFromString(message)
 	const flags = windows.MB_OK | windows.MB_ICONWARNING | windows.MB_TOPMOST
-	windows.MessageBox(0, msgPtr, titlePtr, uint32(flags))
+	// [修复报错]：忽略返回值
+	_, _ = windows.MessageBox(0, msgPtr, titlePtr, uint32(flags))
 }
 
+// 决策型：包含“确定/取消”按钮的警告框，返回布尔值表示用户的选择
 func ShowConfirmMessage(title, message string) bool {
 	titlePtr, _ := windows.UTF16PtrFromString(title)
 	msgPtr, _ := windows.UTF16PtrFromString(message)
 	const flags = windows.MB_OKCANCEL | windows.MB_ICONWARNING | windows.MB_TOPMOST
 	
-	ret := windows.MessageBox(0, msgPtr, titlePtr, uint32(flags))
+	// [修复报错]：使用双变量接收，丢弃 error
+	ret, _ := windows.MessageBox(0, msgPtr, titlePtr, uint32(flags))
 	return ret == 1
 }
 
+// 通用订阅弹窗：支持新建（传入空值）与编辑（传入现有参数）
 func ShowSubDialog(windowTitle, defName, defUrl string, defInterval int) SubDialogResult {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
 	dlgResult = SubDialogResult{OK: false}
 	className, _ := windows.UTF16PtrFromString("MihomoSubDlgClass")
-	hInstance, _, _ := procGetModuleHandleW.Call(0)
+	hInstance, _, _ := dlgProcGetModuleHandleW.Call(0)
 
 	subDlgClassOnce.Do(func() {
 		type WNDCLASSEX struct {
@@ -157,36 +161,36 @@ func ShowSubDialog(windowTitle, defName, defUrl string, defInterval int) SubDial
 		wc.HInstance = windows.Handle(hInstance)
 		wc.HbrBackground = windows.Handle(5) // COLOR_WINDOW
 		wc.LpszClassName = className
-		procRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
+		dlgProcRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
 	})
 
 	dialogWidth := int32(830)
 	dialogHeight := int32(100)
-	screenWidth, _, _ := procGetSystemMetrics.Call(SM_CXSCREEN)
-	screenHeight, _, _ := procGetSystemMetrics.Call(SM_CYSCREEN)
+	screenWidth, _, _ := dlgProcGetSystemMetrics.Call(SM_CXSCREEN)
+	screenHeight, _, _ := dlgProcGetSystemMetrics.Call(SM_CYSCREEN)
 	posX := (int32(screenWidth) - dialogWidth) / 2
 	posY := (int32(screenHeight) - dialogHeight) / 2
 
 	title, _ := windows.UTF16PtrFromString(windowTitle)
 	
-	hwnd, _, _ := procCreateWindowExW.Call(
+	hwnd, _, _ := dlgProcCreateWindowExW.Call(
 		0, uintptr(unsafe.Pointer(className)), uintptr(unsafe.Pointer(title)),
 		0x10C80000,
 		uintptr(posX), uintptr(posY), uintptr(dialogWidth), uintptr(dialogHeight),
 		0, 0, hInstance, 0,
 	)
 
-	hFont, _, _ := procGetStockObject.Call(DEFAULT_GUI_FONT)
+	hFont, _, _ := dlgProcGetStockObject.Call(DEFAULT_GUI_FONT)
 
 	createControl := func(class, text string, style uint32, x, y, w, h int32, id uintptr) windows.HWND {
 		cCls, _ := windows.UTF16PtrFromString(class)
 		cTxt, _ := windows.UTF16PtrFromString(text)
-		hCtrl, _, _ := procCreateWindowExW.Call(
+		hCtrl, _, _ := dlgProcCreateWindowExW.Call(
 			0, uintptr(unsafe.Pointer(cCls)), uintptr(unsafe.Pointer(cTxt)),
 			uintptr(style|0x50000000),
 			uintptr(x), uintptr(y), uintptr(w), uintptr(h), uintptr(hwnd), id, hInstance, 0,
 		)
-		procSendMessageW.Call(hCtrl, WM_SETFONT, hFont, 1)
+		dlgProcSendMessageW.Call(hCtrl, WM_SETFONT, hFont, 1)
 		return windows.HWND(hCtrl)
 	}
 
@@ -202,10 +206,10 @@ func ShowSubDialog(windowTitle, defName, defUrl string, defInterval int) SubDial
 	comboItems := []string{"每 1 天更新", "每 3 天更新", "每 5 天更新", "每 7 天更新", "禁用自动更新"}
 	for _, item := range comboItems {
 		ptr, _ := windows.UTF16PtrFromString(item)
-		procSendMessageW.Call(uintptr(hIntervalCombo), CB_ADDSTRING, 0, uintptr(unsafe.Pointer(ptr)))
+		dlgProcSendMessageW.Call(uintptr(hIntervalCombo), CB_ADDSTRING, 0, uintptr(unsafe.Pointer(ptr)))
 	}
 	
-	defaultSel := 1
+	defaultSel := 1 // 默认 3 天
 	switch defInterval {
 	case 1:
 		defaultSel = 0
@@ -218,7 +222,7 @@ func ShowSubDialog(windowTitle, defName, defUrl string, defInterval int) SubDial
 	case 0:
 		defaultSel = 4
 	}
-	procSendMessageW.Call(uintptr(hIntervalCombo), CB_SETCURSEL, uintptr(defaultSel), 0)
+	dlgProcSendMessageW.Call(uintptr(hIntervalCombo), CB_SETCURSEL, uintptr(defaultSel), 0)
 
 	createControl("BUTTON", "确定", 0x00000001|0x00010000, 675, 19, 55, 24, 1)
 	createControl("BUTTON", "取消", 0x00010000, 740, 19, 55, 24, 2)
@@ -233,12 +237,12 @@ func ShowSubDialog(windowTitle, defName, defUrl string, defInterval int) SubDial
 	}
 
 	for {
-		r, _, _ := procGetMessageW.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
+		r, _, _ := dlgProcGetMessageW.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
 		if int32(r) <= 0 {
 			break
 		}
-		procTranslateMessage.Call(uintptr(unsafe.Pointer(&msg)))
-		procDispatchMessageW.Call(uintptr(unsafe.Pointer(&msg)))
+		dlgProcTranslateMessage.Call(uintptr(unsafe.Pointer(&msg)))
+		dlgProcDispatchMessageW.Call(uintptr(unsafe.Pointer(&msg)))
 	}
 
 	return dlgResult
@@ -251,13 +255,13 @@ func subDialogProc(hwnd windows.HWND, msg uint32, wParam, lParam uintptr) uintpt
 		if id == 1 {
 			buf := make([]uint16, 4096)
 
-			procGetWindowTextW.Call(uintptr(hName), uintptr(unsafe.Pointer(&buf[0])), 4096)
+			dlgProcGetWindowTextW.Call(uintptr(hName), uintptr(unsafe.Pointer(&buf[0])), 4096)
 			dlgResult.Name = windows.UTF16ToString(buf)
 
-			procGetWindowTextW.Call(uintptr(hUrl), uintptr(unsafe.Pointer(&buf[0])), 4096)
+			dlgProcGetWindowTextW.Call(uintptr(hUrl), uintptr(unsafe.Pointer(&buf[0])), 4096)
 			dlgResult.URL = windows.UTF16ToString(buf)
 
-			idx, _, _ := procSendMessageW.Call(uintptr(hIntervalCombo), CB_GETCURSEL, 0, 0)
+			idx, _, _ := dlgProcSendMessageW.Call(uintptr(hIntervalCombo), CB_GETCURSEL, 0, 0)
 
 			switch idx {
 			case 0:
@@ -281,15 +285,15 @@ func subDialogProc(hwnd windows.HWND, msg uint32, wParam, lParam uintptr) uintpt
 			}
 
 			dlgResult.OK = true
-			procDestroyWindow.Call(uintptr(hwnd))
+			dlgProcDestroyWindow.Call(uintptr(hwnd))
 		} else if id == 2 {
 			dlgResult.OK = false
-			procDestroyWindow.Call(uintptr(hwnd))
+			dlgProcDestroyWindow.Call(uintptr(hwnd))
 		}
 	case WM_DESTROY:
-		procPostQuitMessage.Call(0)
+		dlgProcPostQuitMessage.Call(0)
 		return 0
 	}
-	ret, _, _ := procDefWindowProcW.Call(uintptr(hwnd), uintptr(msg), wParam, lParam)
+	ret, _, _ := dlgProcDefWindowProcW.Call(uintptr(hwnd), uintptr(msg), wParam, lParam)
 	return ret
 }
