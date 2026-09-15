@@ -124,6 +124,15 @@ func ShowErrorMessage(title, message string) {
 	windows.MessageBox(0, msgPtr, titlePtr, uint32(flags))
 }
 
+func ShowConfirmMessage(title, message string) bool {
+	titlePtr, _ := windows.UTF16PtrFromString(title)
+	msgPtr, _ := windows.UTF16PtrFromString(message)
+	const flags = windows.MB_OKCANCEL | windows.MB_ICONWARNING | windows.MB_TOPMOST
+	
+	ret := windows.MessageBox(0, msgPtr, titlePtr, uint32(flags))
+	return ret == 1
+}
+
 func ShowAddSubDialog() SubDialogResult {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
