@@ -381,12 +381,36 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 
 	case "RequestAddRemoteProfile":
 		go func() {
-			res := sys.ShowAddSubDialog()
+			res := sys.ShowSubDialog("添加远程订阅", "", "", 3)
 			if res.OK {
 				payload := fmt.Sprintf("%s|%s|%d|%t", res.Name, res.URL, res.Interval, res.AutoUpdate)
 				a.UICommandCh <- ui.UICommand{Action: "AddRemoteProfile", Payload: payload}
 			}
 		}()
+		return
+
+	case "RequestEditRemoteProfile":
+		targetRelPath := cmd.Payload
+		if p, ok := a.Cfg.GetProfileByPath(targetRelPath); ok {
+			go func(profile config.ProfileItem) {
+				res := sys.ShowSubDialog("编辑订阅信息", profile.Name, profile.URL, profile.Interval)
+				if res.OK {
+					if res.Name != profile.Name || res.URL != profile.URL || res.Interval != profile.Interval {
+						profile.Name = res.Name
+						profile.URL = res.URL
+						profile.Interval = res.Interval
+						profile.AutoUpdate = res.Interval > 0
+						
+						a.Cfg.UpsertProfile(profile)
+						
+						if res.URL != profile.URL {
+							go a.executeRemoteUpdate(context.Background(), profile.Path, true)
+						}
+						a.pushUIState()
+					}
+				}
+			}(p)
+		}
 		return
 
 	case "AddLocalProfile":
