@@ -142,16 +142,20 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	if activePath != "" {
 		if err := a.preflightCheck(activePath); err != nil {
 			if p, ok := a.Cfg.GetProfileByPath(activePath); ok && p.URL != "" {
-				slog.Info("开机检测到活跃订阅丢失，正在尝试后台静默拉取", "path", activePath)
+				slog.Info("开机检测到活跃订阅丢失，正在尝试后台直连静默拉取", "path", activePath)
 				validator := func(tmpPath string) error {
 					exePath := core.GetKernelPath(a.Cfg.BaseDir())
 					return core.ValidateConfig(exePath, a.Cfg.BaseDir(), tmpPath)
 				}
-				success, _ := a.Cfg.UpgradeSubscription(activePath, a.Cfg.Get("port"), validator)
+				
+				success, fetchErr := a.Cfg.UpgradeSubscription(activePath, "", validator)
+				
 				if !success {
-					slog.Warn("静默拉取订阅失败，将进入无配置空转状态")
+					slog.Warn("静默拉取订阅失败，将进入无配置空转状态", "err", fetchErr)
 					a.Cfg.SetActiveProfile("")
 					activePath = ""
+				} else {
+					slog.Info("开机静默拉取成功，底稿已恢复")
 				}
 			} else {
 				slog.Warn("开机检测到活跃本地配置丢失或为空，将进入无配置空转状态")
@@ -515,7 +519,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			
 			if err := a.preflightCheck(target); err != nil {
 				sys.ShowErrorMessage("切换配置被拦截", "目标配置文件已失效或被破坏：\n"+err.Error()+"\n\n系统已将其从列表中移除，您的当前网络未受影响。")
-				a.Cfg.RemoveProfile(target)
 				return
 			}
 
@@ -940,7 +943,6 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 		
 		if err := a.preflightCheck(target); err != nil {
 			sys.ShowErrorMessage("重载配置被拦截", "当前底层文件已丢失或被恶意破坏，为了保护您当前的网络状态，重载请求已被拦截！\n\n系统已清理错误列表，您的网络不受影响。")
-			a.Cfg.RemoveProfile(target)
 			return 
 		}
 
