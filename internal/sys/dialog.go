@@ -43,6 +43,7 @@ var (
 
 	procGetModuleHandleW = modKernel32.NewProc("GetModuleHandleW")
 	procGetStockObject   = modGdi32.NewProc("GetStockObject")
+	procGetSystemMetrics = modUser32.NewProc("GetSystemMetrics")
 )
 
 type OPENFILENAMEW struct {
@@ -133,7 +134,7 @@ func ShowConfirmMessage(title, message string) bool {
 	return ret == 1
 }
 
-func ShowAddSubDialog() SubDialogResult {
+func ShowSubDialog(windowTitle, defName, defUrl string, defInterval int) SubDialogResult {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -166,7 +167,7 @@ func ShowAddSubDialog() SubDialogResult {
 	posX := (int32(screenWidth) - dialogWidth) / 2
 	posY := (int32(screenHeight) - dialogHeight) / 2
 
-	title, _ := windows.UTF16PtrFromString("添加远程订阅")
+	title, _ := windows.UTF16PtrFromString(windowTitle)
 	
 	hwnd, _, _ := procCreateWindowExW.Call(
 		0, uintptr(unsafe.Pointer(className)), uintptr(unsafe.Pointer(title)),
@@ -190,10 +191,10 @@ func ShowAddSubDialog() SubDialogResult {
 	}
 
 	createControl("STATIC", "配置名称:", 0, 15, 22, 60, 20, 0)
-	hName = createControl("EDIT", "", 0x00800000|0x00010000, 80, 20, 100, 22, 0)
+	hName = createControl("EDIT", defName, 0x00800000|0x00010000, 80, 20, 100, 22, 0)
 
 	createControl("STATIC", "订阅链接:", 0, 195, 22, 60, 20, 0)
-	hUrl = createControl("EDIT", "", 0x00800000|0x00010000|0x0080, 260, 20, 220, 22, 0)
+	hUrl = createControl("EDIT", defUrl, 0x00800000|0x00010000|0x0080, 260, 20, 220, 22, 0)
 
 	createControl("STATIC", "更新频率:", 0, 495, 22, 60, 20, 0)
 	hIntervalCombo = createControl("COMBOBOX", "", 0x00200003|0x00010000, 560, 20, 95, 150, 0)
@@ -203,7 +204,21 @@ func ShowAddSubDialog() SubDialogResult {
 		ptr, _ := windows.UTF16PtrFromString(item)
 		procSendMessageW.Call(uintptr(hIntervalCombo), CB_ADDSTRING, 0, uintptr(unsafe.Pointer(ptr)))
 	}
-	procSendMessageW.Call(uintptr(hIntervalCombo), CB_SETCURSEL, 1, 0)
+	
+	defaultSel := 1
+	switch defInterval {
+	case 1:
+		defaultSel = 0
+	case 3:
+		defaultSel = 1
+	case 5:
+		defaultSel = 2
+	case 7:
+		defaultSel = 3
+	case 0:
+		defaultSel = 4
+	}
+	procSendMessageW.Call(uintptr(hIntervalCombo), CB_SETCURSEL, uintptr(defaultSel), 0)
 
 	createControl("BUTTON", "确定", 0x00000001|0x00010000, 675, 19, 55, 24, 1)
 	createControl("BUTTON", "取消", 0x00010000, 740, 19, 55, 24, 2)
