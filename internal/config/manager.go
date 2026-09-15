@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -52,8 +53,23 @@ func NewManager(baseDir, exePath string, isAdmin bool) *Manager {
 		exePath: exePath,
 		isAdmin: isAdmin,
 		runtimeKernelParams: map[string]string{
-			"port":                DefaultMixedPort,
+			"port": DefaultMixedPort,
 		},
+	}
+}
+
+func (m *Manager) ensureDefaultProfileExists() {
+	profilesDir := filepath.Join(m.baseDir, "profiles")
+	_ = os.MkdirAll(profilesDir, 0755)
+
+	defaultPath := filepath.Join(profilesDir, "default.yaml")
+	if _, err := os.Stat(defaultPath); os.IsNotExist(err) {
+		content := fmt.Sprintf("mixed-port: %s\nmode: %s\nexternal-controller: %s\nsecret: '%s'\nexternal-ui: '%s'\nexternal-ui-url: '%s'\ntun:\n  enable: false\n",
+			DefaultMixedPort, DefaultMode, DefaultExternalController, DefaultSecret, DefaultExternalUI, DefaultExternalUIURL)
+		
+		if err := os.WriteFile(defaultPath, []byte(content), 0644); err == nil {
+			slog.Info("已自动生成保底示例配置", "path", defaultPath)
+		}
 	}
 }
 
@@ -76,28 +92,26 @@ func (m *Manager) LoadAndInitMemory() {
 	}
 
 	if len(m.data.Items) == 0 {
-		m.data.Items = []ProfileItem{{Name: "config", Path: "config.yaml"}}
-		isTainted = true
-	}
-	if m.data.Items[0].Path != "config.yaml" || m.data.Items[0].Name != "config" {
-		m.data.Items = append([]ProfileItem{{Name: "config", Path: "config.yaml"}}, m.data.Items...)
-		isTainted = true
-	}
-	if len(m.data.Items) > 5 {
-		m.data.Items = m.data.Items[:5]
+		m.ensureDefaultProfileExists()
+		m.data.Items = []ProfileItem{{Name: "default", Path: filepath.ToSlash(filepath.Join("profiles", "default.yaml"))}}
 		isTainted = true
 	}
 
-	validItems := []ProfileItem{m.data.Items[0]}
-	for i := 1; i < len(m.data.Items); i++ {
-		itemPath := m.data.Items[i].Path
-		if strings.Contains(itemPath, "..") || filepath.IsAbs(itemPath) {
+	var validItems []ProfileItem
+	for _, item := range m.data.Items {
+		if strings.Contains(item.Path, "..") || filepath.IsAbs(item.Path) {
 			isTainted = true
 			continue
 		}
-		validItems = append(validItems, m.data.Items[i])
+		validItems = append(validItems, item)
 	}
 	m.data.Items = validItems
+
+	if len(m.data.Items) == 0 {
+		m.ensureDefaultProfileExists()
+		m.data.Items = []ProfileItem{{Name: "default", Path: filepath.ToSlash(filepath.Join("profiles", "default.yaml"))}}
+		isTainted = true
+	}
 
 	activeFound := false
 	for _, item := range m.data.Items {
@@ -107,14 +121,14 @@ func (m *Manager) LoadAndInitMemory() {
 		}
 	}
 	if !activeFound {
-		m.data.Active = "config.yaml"
+		m.data.Active = m.data.Items[0].Path
 		isTainted = true
 	}
 
 	activeAbs := filepath.Join(m.baseDir, filepath.FromSlash(m.data.Active))
 	if _, err := os.Stat(activeAbs); err != nil {
 		slog.Warn("当前活跃配置物理文件已丢失，执行安全回退", "missing", m.data.Active)
-		m.data.Active = "config.yaml"
+		m.data.Active = m.data.Items[0].Path
 		isTainted = true
 	}
 
@@ -165,9 +179,16 @@ func (m *Manager) SetActiveProfile(relPath string) {
 func (m *Manager) RemoveProfile(relPath string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if relPath == "config.yaml" || relPath == m.data.Active {
+	
+	if relPath == m.data.Active {
+		slog.Warn("拦截删除请求：无法删除正在使用的活跃配置")
 		return
 	}
+	if len(m.data.Items) <= 1 {
+		slog.Warn("拦截删除请求：必须至少保留一个配置")
+		return
+	}
+
 	var newItems []ProfileItem
 	for _, item := range m.data.Items {
 		if item.Path != relPath {
