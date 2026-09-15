@@ -52,9 +52,9 @@ func TruncateMiddle(name string) string {
 
 func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) {
 	m.mu.Lock()
-	if len(m.data.Items) >= 5 {
+	if len(m.data.Items) >= 10 {
 		m.mu.Unlock()
-		return "", false, fmt.Errorf("配置配额已满 (5/5)")
+		return "", false, fmt.Errorf("配置配额已满 (10/10)")
 	}
 	m.mu.Unlock()
 
