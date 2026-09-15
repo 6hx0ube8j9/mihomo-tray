@@ -34,7 +34,6 @@ func (p *ProfileItem) NeedUpdate() bool {
 	return time.Now().Unix() >= nextUpdate
 }
 
-
 func IsInAppTree(appDir, targetPath string) (string, bool) {
 	rel, err := filepath.Rel(appDir, targetPath)
 	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
@@ -72,8 +71,8 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 		return relPath, false, nil
 	}
 
-	profilesDir := filepath.Join(m.baseDir, "profiles")
-	if err := os.MkdirAll(profilesDir, 0755); err != nil {
+	profilesDirAbs := filepath.Join(m.baseDir, ProfilesDir)
+	if err := os.MkdirAll(profilesDirAbs, 0755); err != nil {
 		return "", false, err
 	}
 
@@ -85,14 +84,14 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 
 	finalName := baseName
 	for i := 1; i <= 50; i++ {
-		conflictPath := filepath.Join(profilesDir, finalName+".yaml")
+		conflictPath := filepath.Join(profilesDirAbs, finalName+".yaml")
 		if _, err := os.Stat(conflictPath); os.IsNotExist(err) {
 			break
 		}
 		finalName = fmt.Sprintf("%s_%d", baseName, i)
 	}
 
-	finalRelPath := filepath.ToSlash(filepath.Join("profiles", finalName+".yaml"))
+	finalRelPath := filepath.ToSlash(filepath.Join(ProfilesDir, finalName+".yaml"))
 	dstAbs := filepath.Join(m.baseDir, filepath.FromSlash(finalRelPath))
 
 	srcFile, err := os.Open(absSrc)
@@ -101,9 +100,9 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 	}
 	defer srcFile.Close()
 
-	cacheDir := filepath.Join(m.baseDir, ".cache")
-	_ = os.MkdirAll(cacheDir, 0755)
-	tmpFile, err := os.CreateTemp(cacheDir, "profile.*.tmp")
+	targetDir := filepath.Dir(dstAbs)
+	_ = os.MkdirAll(targetDir, 0755)
+	tmpFile, err := os.CreateTemp(targetDir, "profile.*.tmp")
 	
 	if err != nil {
 		return "", false, err
