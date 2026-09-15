@@ -31,7 +31,7 @@ func (m *Manager) UpgradeSubscription(relPath string, proxyPort string, validato
 	if err != nil {
 		return false, fmt.Errorf("拉取订阅失败: %w", err)
 	}
-	defer os.Remove(fetchRes.TempPath)
+	// defer os.Remove(fetchRes.TempPath)
 
 	if err := validator(fetchRes.TempPath); err != nil {
 		return false, err
