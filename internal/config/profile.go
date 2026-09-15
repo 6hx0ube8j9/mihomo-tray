@@ -78,8 +78,9 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 	}
 
 	baseName := strings.TrimSuffix(filepath.Base(absSrc), filepath.Ext(absSrc))
-	if strings.ToLower(baseName) == "config" {
-		baseName = "config_1"
+	lowerName := strings.ToLower(baseName)
+	if lowerName == "config" || lowerName == "default" {
+		baseName = baseName + "_1"
 	}
 
 	finalName := baseName
@@ -101,7 +102,7 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 	defer srcFile.Close()
 
 	cacheDir := filepath.Join(m.baseDir, ".cache")
-	os.MkdirAll(cacheDir, 0755)
+	_ = os.MkdirAll(cacheDir, 0755)
 	tmpFile, err := os.CreateTemp(cacheDir, "profile.*.tmp")
 	
 	if err != nil {
