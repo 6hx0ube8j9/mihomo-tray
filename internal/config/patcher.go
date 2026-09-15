@@ -2,111 +2,276 @@ package config
 
 import (
 	"fmt"
-	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
-	"time"
 )
 
-type ProfileItem struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
+func (m *Manager) PrepareYAMLForPath(relPath string) (bool, map[string]string, error) {
+	wantMode := m.Get("mode")
+	wantTun := m.Get("tun") == "true"
 
-	URL        string `json:"url,omitempty"`
-	AutoUpdate bool   `json:"auto_update,omitempty"`
-	Interval   int    `json:"interval,omitempty"`
-	LastUpdate int64  `json:"last_update,omitempty"`
-
-	Upload   int64 `json:"upload,omitempty"`
-	Download int64 `json:"download,omitempty"`
-	Total    int64 `json:"total,omitempty"`
-	Expire   int64 `json:"expire,omitempty"`
-}
-
-func (p *ProfileItem) NeedUpdate() bool {
-	if p.URL == "" || !p.AutoUpdate || p.Interval <= 0 {
-		return false
+	if wantTun && !m.isAdmin {
+		slog.Warn("非管理员权限无法开启 TUN，已自动关闭")
+		wantTun = false
+		m.Set("tun", "false")
 	}
-	
-	nextUpdate := p.LastUpdate + int64(p.Interval*24*3600)
-	
-	return time.Now().Unix() >= nextUpdate
-}
 
+	m.yamlMu.Lock()
+	defer m.yamlMu.Unlock()
 
-func IsInAppTree(appDir, targetPath string) (string, bool) {
-	rel, err := filepath.Rel(appDir, targetPath)
-	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
-		return "", false
-	}
-	return filepath.ToSlash(rel), true
-}
-
-func TruncateMiddle(name string) string {
-	r := []rune(name)
-	if len(r) <= 14 {
-		return name
-	}
-	return string(r[:8]) + "..." + string(r[len(r)-6:])
-}
-
-func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) {
-	m.mu.Lock()
-	if len(m.data.Items) >= 5 {
-		m.mu.Unlock()
-		return "", false, fmt.Errorf("配置配额已满 (5/5)")
-	}
-	m.mu.Unlock()
-
-	absSrc, err := filepath.EvalSymlinks(srcPath)
+	sourcePath := filepath.Join(m.baseDir, filepath.FromSlash(relPath))
+	content, err := os.ReadFile(sourcePath)
 	if err != nil {
-		absSrc, err = filepath.Abs(srcPath)
-		if err != nil {
-			return "", false, err
+		slog.Info("未找到源配置文件，将使用空配置进行生成", "source", relPath)
+		content = []byte("")
+	}
+
+	rawStr := strings.TrimPrefix(string(content), "\xef\xbb\xbf")
+	lines := strings.Split(strings.ReplaceAll(rawStr, "\r\n", "\n"), "\n")
+
+	outLines, extracted := processYAMLContent(lines, wantMode, wantTun)
+
+	warningHeader := "# [警告] 此文件由 mihomo-tray 自动生成，作为内核运行时的专属配置。\n" +
+		"# [警告] 请勿直接修改此文件，您的修改将在下次启动或切换配置时被覆盖。\n" +
+		"# [警告] 请在系统托盘菜单中管理您的配置文件。\n\n"
+
+	output := warningHeader + strings.Join(outLines, "\n")
+	if len(output) > 0 && !strings.HasSuffix(output, "\n") {
+		output += "\n"
+	}
+
+	runtimePath := filepath.Join(m.baseDir, "config.yaml")
+	if err := writeTmpAndRename(m.baseDir, runtimePath, []byte(output)); err != nil {
+		slog.Error("写入运行时配置失败", "path", runtimePath, "err", err)
+		return false, nil, fmt.Errorf("failed to save runtime yaml: %w", err)
+	}
+
+	slog.Debug("已生成运行时配置", "source", relPath, "target", "config.yaml")
+
+	return true, extracted, nil
+}
+
+func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string, map[string]string) {
+	extracted := make(map[string]string)
+
+	var (
+		hasMixedPort  bool
+		mixedPortVal  string
+		hasPort       bool
+		portVal       string
+		hasMode       bool
+		hasExtCtrl    bool
+		hasSecret     bool
+		hasExtUI      bool
+		extUIVal      string
+		hasExtUIName  bool
+		extUINameVal  string
+		hasExtUIUrl   bool
+		tunRootExists bool
+		tunRootIndex  int = -1
+		inTun         bool
+		hasTunEnable  bool
+		tunDeviceVal  string
+	)
+
+	outLines := make([]string, len(lines))
+	copy(outLines, lines)
+
+	for i, line := range outLines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+
+		indent := 0
+		prefixLen := 0
+		for _, c := range line {
+			if c == ' ' {
+				indent++
+				prefixLen++
+			} else if c == '\t' {
+				indent += 4
+				prefixLen++
+			} else {
+				break
+			}
+		}
+
+		if indent == 0 {
+			inTun = false
+
+			if strings.HasPrefix(trimmed, "mixed-port:") {
+				hasMixedPort = true
+				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
+					mixedPortVal = cleanVal(parts[1])
+				}
+			} else if strings.HasPrefix(trimmed, "port:") {
+				hasPort = true
+				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
+					portVal = cleanVal(parts[1])
+				}
+			} else if strings.HasPrefix(trimmed, "mode:") {
+				hasMode = true
+				comment := extractComment(line)
+				outLines[i] = fmt.Sprintf("%smode: %s%s", line[:prefixLen], wantMode, comment)
+			} else if strings.HasPrefix(trimmed, "external-controller:") {
+				hasExtCtrl = true
+			} else if strings.HasPrefix(trimmed, "secret:") {
+				hasSecret = true
+			} else if strings.HasPrefix(trimmed, "external-ui:") {
+				hasExtUI = true
+				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
+					extUIVal = cleanVal(parts[1])
+					if extUIVal == "" {
+						comment := extractComment(line)
+						outLines[i] = fmt.Sprintf("%sexternal-ui: '%s'%s", line[:prefixLen], DefaultExternalUI, comment)
+						extUIVal = DefaultExternalUI
+					}
+				}
+			} else if strings.HasPrefix(trimmed, "external-ui-name:") {
+				hasExtUIName = true
+				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
+					extUINameVal = cleanVal(parts[1])
+				}
+			} else if strings.HasPrefix(trimmed, "external-ui-url:") {
+				hasExtUIUrl = true
+			} else if strings.HasPrefix(trimmed, "tun:") {
+				tunRootExists = true
+				tunRootIndex = i
+				inTun = true
+
+				if strings.Contains(trimmed, "{") && strings.Contains(trimmed, "}") {
+					deviceRe := regexp.MustCompile(`device:\s*([^,}]+)`)
+					if match := deviceRe.FindStringSubmatch(trimmed); len(match) > 1 {
+						tunDeviceVal = cleanVal(match[1])
+					}
+
+					enableRe := regexp.MustCompile(`(?i)(enable:\s*)(true|false)`)
+					if enableRe.MatchString(trimmed) {
+						hasTunEnable = true
+						targetEnable := fmt.Sprintf("${1}%t", wantTun)
+						outLines[i] = enableRe.ReplaceAllString(line, targetEnable)
+					} else {
+						hasTunEnable = true
+						injection := fmt.Sprintf("{enable: %t, ", wantTun)
+						newTrimmed := strings.Replace(line, "{", injection, 1)
+						outLines[i] = strings.Replace(newTrimmed, ", }", "}", 1)
+					}
+				}
+			}
+		} else if inTun && indent > 0 {
+			if strings.HasPrefix(trimmed, "enable:") {
+				hasTunEnable = true
+				comment := extractComment(line)
+				outLines[i] = fmt.Sprintf("%senable: %t%s", line[:prefixLen], wantTun, comment)
+			} else if strings.HasPrefix(trimmed, "device:") {
+				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
+					tunDeviceVal = cleanVal(parts[1])
+				}
+			}
 		}
 	}
 
-	relPath, isTree := IsInAppTree(m.baseDir, absSrc)
-	if isTree {
-		return relPath, false, nil
+	if tunRootExists && !hasTunEnable {
+		enableLine := fmt.Sprintf("  enable: %t", wantTun)
+		if tunRootIndex >= 0 && tunRootIndex < len(outLines) {
+			outLines = append(outLines[:tunRootIndex+1], append([]string{enableLine}, outLines[tunRootIndex+1:]...)...)
+		}
 	}
 
-	profilesDir := filepath.Join(m.baseDir, "profiles")
-	if err := os.MkdirAll(profilesDir, 0755); err != nil {
-		return "", false, err
+	if hasMixedPort {
+		extracted["port"] = mixedPortVal
+	} else if hasPort {
+		extracted["port"] = portVal
 	}
 
-	baseName := strings.TrimSuffix(filepath.Base(absSrc), filepath.Ext(absSrc))
-	lowerName := strings.ToLower(baseName)
-	if lowerName == "config" || lowerName == "default" {
-		baseName = baseName + "_1"
+	if hasExtUIName {
+		extracted["external-ui-name"] = extUINameVal
+	} else {
+		extracted["external-ui-name"] = ""
 	}
 
-	finalName := baseName
-	for i := 1; i <= 50; i++ {
-		conflictPath := filepath.Join(profilesDir, finalName+".yaml")
-		if _, err := os.Stat(conflictPath); os.IsNotExist(err) {
+	if tunRootExists {
+		extracted["tun_device"] = tunDeviceVal
+	}
+
+	var prependLines []string
+
+	if !hasMixedPort {
+		prependLines = append(prependLines, fmt.Sprintf("mixed-port: %s", DefaultMixedPort))
+		extracted["port"] = DefaultMixedPort
+	}
+	if !hasMode {
+		modeToSet := DefaultMode
+		if wantMode != "" {
+			modeToSet = wantMode
+		}
+		prependLines = append(prependLines, "mode: "+modeToSet)
+	}
+	if !hasExtCtrl {
+		prependLines = append(prependLines, fmt.Sprintf("external-controller: %s", DefaultExternalController))
+	}
+	if !hasSecret {
+		prependLines = append(prependLines, fmt.Sprintf("secret: '%s'", DefaultSecret))
+	}
+	if !hasExtUI {
+		prependLines = append(prependLines, fmt.Sprintf("external-ui: '%s'", DefaultExternalUI))
+	}
+	if !hasExtUIUrl {
+		prependLines = append(prependLines, fmt.Sprintf("external-ui-url: '%s'", DefaultExternalUIURL))
+	}
+	if !tunRootExists {
+		prependLines = append(prependLines, "tun:")
+		prependLines = append(prependLines, fmt.Sprintf("  enable: %t", wantTun))
+		extracted["tun_device"] = ""
+	}
+
+	if len(prependLines) > 0 {
+		outLines = append(prependLines, outLines...)
+	}
+
+	return outLines, extracted
+}
+
+func extractComment(line string) string {
+	inSingle, inDouble := false, false
+	for i, char := range line {
+		if char == '\'' && !inDouble {
+			inSingle = !inSingle
+		} else if char == '"' && !inSingle {
+			inDouble = !inDouble
+		} else if char == '#' && !inSingle && !inDouble {
+			return " " + strings.TrimSpace(line[i:])
+		}
+	}
+	return ""
+}
+
+func cleanVal(s string) string {
+	inSingle, inDouble := false, false
+	for i, char := range s {
+		if char == '\'' && !inDouble {
+			inSingle = !inSingle
+		} else if char == '"' && !inSingle {
+			inDouble = !inDouble
+		} else if char == '#' && !inSingle && !inDouble {
+			s = s[:i]
 			break
 		}
-		finalName = fmt.Sprintf("%s_%d", baseName, i)
 	}
+	return strings.Trim(strings.TrimSpace(s), " \"'")
+}
 
-	finalRelPath := filepath.ToSlash(filepath.Join("profiles", finalName+".yaml"))
-	dstAbs := filepath.Join(m.baseDir, filepath.FromSlash(finalRelPath))
-
-	srcFile, err := os.Open(absSrc)
-	if err != nil {
-		return "", false, err
-	}
-	defer srcFile.Close()
-
-	cacheDir := filepath.Join(m.baseDir, ".cache")
+func writeTmpAndRename(baseDir, targetPath string, content []byte) error {
+	cacheDir := filepath.Join(baseDir, ".cache")
 	_ = os.MkdirAll(cacheDir, 0755)
-	tmpFile, err := os.CreateTemp(cacheDir, "profile.*.tmp")
-	
+
+	tmpFile, err := os.CreateTemp(cacheDir, "config.*.tmp")
 	if err != nil {
-		return "", false, err
+		return err
 	}
 	tmpName := tmpFile.Name()
 
@@ -118,72 +283,42 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 		}
 	}()
 
-	limitReader := io.LimitReader(srcFile, 15*1024*1024)
-	if _, err := io.Copy(tmpFile, limitReader); err != nil {
-		return "", false, err
+	if _, err := tmpFile.Write(content); err != nil {
+		return err
 	}
-
-	var extra [1]byte
-	if n, _ := srcFile.Read(extra[:]); n > 0 {
-		return "", false, fmt.Errorf("目标文件体积超过 15MB 限制")
-	}
-
 	if err := tmpFile.Sync(); err != nil {
-		return "", false, err
+		return err
 	}
 	if err := tmpFile.Close(); err != nil {
-		return "", false, err
+		return err
 	}
+
 	cleaned = true
-
-	if err := os.Rename(tmpName, dstAbs); err != nil {
-		return "", false, err
-	}
-
-	return finalRelPath, true, nil
+	return os.Rename(tmpName, targetPath)
 }
 
-func (m *Manager) RegisterNewProfile(relPath string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (m *Manager) ResolveKernelEndpoint(absPath string) (string, string) {
+	addr := DefaultExternalController
+	secret := DefaultSecret
 
-	for _, item := range m.data.Items {
-		if item.Path == relPath {
-			m.data.Active = relPath
-			m.lockedSave()
-			return
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		slog.Warn("提取 API 端点失败，将使用默认参数", "path", absPath)
+		return addr, secret
+	}
+
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "external-controller:") {
+			if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
+				addr = cleanVal(parts[1])
+			}
+		} else if strings.HasPrefix(trimmed, "secret:") {
+			if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
+				secret = cleanVal(parts[1])
+			}
 		}
 	}
-
-	baseName := filepath.Base(relPath)
-	displayName := strings.TrimSuffix(baseName, filepath.Ext(baseName))
-
-	m.data.Items = append(m.data.Items, ProfileItem{
-		Name: displayName,
-		Path: relPath,
-	})
-
-	if len(m.data.Items) > 5 {
-		m.data.Items = append(m.data.Items[:1], m.data.Items[2:]...)
-	}
-
-	m.data.Active = relPath
-	m.lockedSave()
-}
-
-func (m *Manager) UpsertProfile(item ProfileItem) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for i, p := range m.data.Items {
-		if p.Path == item.Path {
-			m.data.Items[i] = item
-			m.lockedSave()
-			return
-		}
-	}
-	m.data.Items = append(m.data.Items, item)
-	if len(m.data.Items) > 5 {  
-		m.data.Items = append(m.data.Items[:1], m.data.Items[2:]...)
-	}
-	m.lockedSave()
+	return addr, secret
 }
