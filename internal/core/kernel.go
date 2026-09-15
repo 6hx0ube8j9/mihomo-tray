@@ -101,7 +101,6 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		}
 
 		localPid := atomic.LoadUint32(&km.currentPid)
-		// 使用常数替代硬编码
 		if localPid != 0 && sys.IsPidRunning(localPid, KernelExeName) {
 			select {
 			case <-ctx.Done():
@@ -123,9 +122,10 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		}
 
 		errBuf := &tailBuffer{max: 64 * 1024}
-		activeAbs := km.cfg.GetActivePathAbs()
+		
+		runtimeAbs := filepath.Join(absBaseDir, "config.yaml")
 
-		cmd := exec.Command(target, "-d", ".", "-f", activeAbs)
+		cmd := exec.Command(target, "-d", ".", "-f", runtimeAbs)
 		cmd.Dir = absBaseDir
 
 		const CREATE_DEFAULT_ERROR_MODE = 0x04000000
