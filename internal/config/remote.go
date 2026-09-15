@@ -51,6 +51,8 @@ func (m *Manager) UpgradeSubscription(relPath string, proxyPort string, validato
 }
 
 func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*FetchResult, error) {
+	subURL = strings.TrimSpace(subURL)
+
 	transport := &http.Transport{Proxy: http.ProxyFromEnvironment}
 
 	if proxyPort != "" {
@@ -64,14 +66,14 @@ func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*FetchRes
 		Transport: transport,
 	}
 
-    req, err := http.NewRequest("GET", subURL, nil)
+	req, err := http.NewRequest("GET", subURL, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7")
+	req.Header.Set("User-Agent", "clash-verge/v1.7.7 clash-meta")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Connection", "keep-alive")
 
 	resp, err := client.Do(req)
 	
