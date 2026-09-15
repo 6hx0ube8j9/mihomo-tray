@@ -3,11 +3,11 @@ package config
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
-	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -21,7 +21,6 @@ type FetchResult struct {
 	Expire   int64
 }
 
-
 func (m *Manager) UpgradeSubscription(relPath string, proxyPort string, validator func(tmpPath string) error) (bool, error) {
 	item, ok := m.GetProfileByPath(relPath)
 	if !ok || item.URL == "" {
@@ -32,7 +31,12 @@ func (m *Manager) UpgradeSubscription(relPath string, proxyPort string, validato
 	if err != nil {
 		return false, fmt.Errorf("拉取订阅失败: %w", err)
 	}
-	// defer os.Remove(fetchRes.TempPath)
+
+	defer func() {
+		if _, err := os.Stat(fetchRes.TempPath); err == nil {
+			_ = os.Remove(fetchRes.TempPath)
+		}
+	}()
 
 	if err := validator(fetchRes.TempPath); err != nil {
 		return false, err
@@ -53,7 +57,7 @@ func (m *Manager) UpgradeSubscription(relPath string, proxyPort string, validato
 
 func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*FetchResult, error) {
 	subURL = strings.TrimSpace(subURL)
-	slog.Info("准备拉取远程订阅", "URL_LENGTH", len(subURL), "FULL_URL", subURL)
+	slog.Info("准备拉取远程订阅", "url", subURL)
 
 	transport := &http.Transport{Proxy: http.ProxyFromEnvironment}
 
@@ -78,7 +82,6 @@ func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*FetchRes
 	req.Header.Set("Connection", "keep-alive")
 
 	resp, err := client.Do(req)
-	
 	if err != nil {
 		return nil, err
 	}
@@ -89,21 +92,23 @@ func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*FetchRes
 	}
 
 	cacheDir := filepath.Join(m.baseDir, ".cache")
-	os.MkdirAll(cacheDir, 0755)
-	tmpFile, err := os.CreateTemp(cacheDir, "sub_*.tmp")
+	_ = os.MkdirAll(cacheDir, 0755)
 	
+	tmpFile, err := os.CreateTemp(cacheDir, "sub_*.tmp")
 	if err != nil {
 		return nil, err
 	}
+	tmpName := tmpFile.Name()
+
 	defer tmpFile.Close()
 
 	limitReader := io.LimitReader(resp.Body, 15*1024*1024)
 	if _, err := io.Copy(tmpFile, limitReader); err != nil {
-		os.Remove(tmpFile.Name())
+		_ = os.Remove(tmpName)
 		return nil, err
 	}
 
-	res := &FetchResult{TempPath: tmpFile.Name()}
+	res := &FetchResult{TempPath: tmpName}
 
 	if userInfo := resp.Header.Get("subscription-userinfo"); userInfo != "" {
 		parts := strings.Split(userInfo, ";")
@@ -128,7 +133,6 @@ func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*FetchRes
 	return res, nil
 }
 
-
 func (m *Manager) CommitRemoteProfile(tempPath string, targetRelPath string, item ProfileItem) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -150,7 +154,6 @@ func (m *Manager) CommitRemoteProfile(tempPath string, targetRelPath string, ite
 
 	if !found {
 		m.data.Items = append(m.data.Items, item)
-
 		if len(m.data.Items) > 5 {
 			m.data.Items = append(m.data.Items[:1], m.data.Items[2:]...)
 		}
