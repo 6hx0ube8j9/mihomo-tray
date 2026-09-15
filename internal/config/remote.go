@@ -69,7 +69,7 @@ func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*FetchRes
 		return nil, err
 	}
 	
-	req.Header.Set("User-Agent", "clash-verge/v1.7.7 clash-meta")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36 ClashforWindows/0.20.39 mihomo/1.18.0 clash-meta")
 
 	resp, err := client.Do(req)
 	if err != nil {
