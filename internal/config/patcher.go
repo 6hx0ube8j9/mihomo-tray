@@ -309,7 +309,7 @@ func writeTmpAndRename(baseDir, targetPath string, content []byte) error {
 	defer func() {
 		if !cleaned {
 			_ = tmpFile.Close()
-			//_ = os.Remove(tmpName)
+			_ = os.Remove(tmpName)
 		}
 	}()
 
