@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"slog"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
