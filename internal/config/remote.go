@@ -91,10 +91,10 @@ func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*FetchRes
 		return nil, fmt.Errorf("远端服务器返回异常状态码: %d", resp.StatusCode)
 	}
 
-	cacheDir := filepath.Join(m.baseDir, ".cache")
-	_ = os.MkdirAll(cacheDir, 0755)
+	profilesDirAbs := filepath.Join(m.baseDir, ProfilesDir)
+	_ = os.MkdirAll(profilesDirAbs, 0755)
 	
-	tmpFile, err := os.CreateTemp(cacheDir, "sub_*.tmp")
+	tmpFile, err := os.CreateTemp(profilesDirAbs, "sub_*.tmp")
 	if err != nil {
 		return nil, err
 	}
