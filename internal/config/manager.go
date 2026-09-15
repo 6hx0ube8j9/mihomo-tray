@@ -12,6 +12,7 @@ import (
 
 const (
 	ConfigFileName = "mihomo-tray.json"
+	ProfilesDir    = "profiles"
 
 	DefaultAutostart          = "false"
 	DefaultProxy              = "false"
@@ -59,10 +60,10 @@ func NewManager(baseDir, exePath string, isAdmin bool) *Manager {
 }
 
 func (m *Manager) ensureDefaultProfileExists() {
-	profilesDir := filepath.Join(m.baseDir, "profiles")
-	_ = os.MkdirAll(profilesDir, 0755)
+	profilesDirAbs := filepath.Join(m.baseDir, ProfilesDir)
+	_ = os.MkdirAll(profilesDirAbs, 0755)
 
-	defaultPath := filepath.Join(profilesDir, "default.yaml")
+	defaultPath := filepath.Join(profilesDirAbs, "default.yaml")
 	if _, err := os.Stat(defaultPath); os.IsNotExist(err) {
 		content := fmt.Sprintf("mixed-port: %s\nmode: %s\nexternal-controller: %s\nsecret: '%s'\nexternal-ui: '%s'\nexternal-ui-url: '%s'\ntun:\n  enable: false\n",
 			DefaultMixedPort, DefaultMode, DefaultExternalController, DefaultSecret, DefaultExternalUI, DefaultExternalUIURL)
@@ -76,6 +77,8 @@ func (m *Manager) ensureDefaultProfileExists() {
 func (m *Manager) LoadAndInitMemory() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	m.ensureDefaultProfileExists()
 
 	cfgPath := filepath.Join(m.baseDir, ConfigFileName)
 	isTainted := false
@@ -91,15 +94,11 @@ func (m *Manager) LoadAndInitMemory() {
 		isTainted = true
 	}
 
-	if len(m.data.Items) == 0 {
-		m.ensureDefaultProfileExists()
-		m.data.Items = []ProfileItem{{Name: "default", Path: filepath.ToSlash(filepath.Join("profiles", "default.yaml"))}}
-		isTainted = true
-	}
-
 	var validItems []ProfileItem
 	for _, item := range m.data.Items {
-		if strings.Contains(item.Path, "..") || filepath.IsAbs(item.Path) {
+		rel := filepath.ToSlash(item.Path)
+		if !strings.HasPrefix(rel, ProfilesDir+"/") || strings.Contains(rel, "..") || filepath.IsAbs(rel) {
+			slog.Warn("拦截并清理不合规的遗留配置", "path", item.Path)
 			isTainted = true
 			continue
 		}
@@ -108,8 +107,7 @@ func (m *Manager) LoadAndInitMemory() {
 	m.data.Items = validItems
 
 	if len(m.data.Items) == 0 {
-		m.ensureDefaultProfileExists()
-		m.data.Items = []ProfileItem{{Name: "default", Path: filepath.ToSlash(filepath.Join("profiles", "default.yaml"))}}
+		m.data.Items = []ProfileItem{{Name: "default", Path: filepath.ToSlash(filepath.Join(ProfilesDir, "default.yaml"))}}
 		isTainted = true
 	}
 
