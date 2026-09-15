@@ -20,7 +20,10 @@ import (
 	"mihomo-tray/internal/sys"
 )
 
-const KernelExeName = "mihomo.exe"
+const (
+	KernelExeName     = "mihomo.exe"
+	RuntimeConfigName = "config.yaml"
+)
 
 func GetKernelPath(baseDir string) string {
 	return filepath.Join(baseDir, KernelExeName)
@@ -123,7 +126,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 
 		errBuf := &tailBuffer{max: 64 * 1024}
 		
-		runtimeAbs := filepath.Join(absBaseDir, "config.yaml")
+		runtimeAbs := filepath.Join(absBaseDir, RuntimeConfigName)
 
 		cmd := exec.Command(target, "-d", ".", "-f", runtimeAbs)
 		cmd.Dir = absBaseDir
@@ -189,7 +192,6 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		km.mu.Unlock()
 
 		sys.AssignProcessToJob(km.hJob, cmd.Process.Pid)
-		slog.Debug("子进程绑定 Job Object 成功", "PID", cmd.Process.Pid)
 
 		select {
 		case <-ctx.Done():
@@ -319,10 +321,7 @@ func (km *KernelManager) KillCurrent() {
 	atomic.StoreUint32(&km.currentPid, 0)
 	km.mu.Unlock()
 
-	slog.Info("发送进程退出信号", "PID", pid)
-
 	if err := sys.SendCtrlBreak(pid); err != nil {
-		slog.Error("发送退出信号失败，强制终止进程", "PID", pid, "err", err)
 		_ = proc.Kill()
 		sys.HardKill(pid)
 		sys.KillOtherProcessesByName(KernelExeName, 0)
@@ -336,16 +335,12 @@ func (km *KernelManager) KillCurrent() {
 			time.Sleep(100 * time.Millisecond)
 		}
 
-		if exited {
-			slog.Info("内核进程安全退出", "PID", pid)
-		} else {
-			slog.Warn("等待退出超时，强制终止进程", "PID", pid)
+		if !exited {
 			_ = proc.Kill()
 			sys.HardKill(pid)
 			sys.KillOtherProcessesByName(KernelExeName, 0)
 		}
 	}
-
 	time.Sleep(250 * time.Millisecond)
 }
 
@@ -371,7 +366,6 @@ func (km *KernelManager) checkAndWriteLog(absBaseDir, errType, rawMsg string) {
 	_ = os.MkdirAll(logDir, 0755)
 
 	logPath := filepath.Join(logDir, "core.log")
-
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	finalLog := fmt.Sprintf("[%s] [%s] %s\n----------------------------------------\n", timestamp, errType, rawMsg)
 
@@ -458,9 +452,6 @@ func (km *KernelManager) WakeDaemon() {
 	km.mu.Lock()
 	km.isPaused = false
 	km.mu.Unlock()
-
-	slog.Debug("写入唤醒信号")
-
 	select {
 	case km.wakeCh <- struct{}{}:
 	default:
