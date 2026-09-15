@@ -184,7 +184,7 @@ func ShowAddSubDialog() SubDialogResult {
 	hName = createControl("EDIT", "", 0x00800000|0x00010000, 80, 20, 100, 22, 0)
 
 	createControl("STATIC", "订阅链接:", 0, 195, 22, 60, 20, 0)
-	hUrl = createControl("EDIT", "", 0x00800000|0x00010000, 260, 20, 220, 22, 0)
+	hUrl = createControl("EDIT", "", 0x00800000|0x00010000|0x0080, 260, 20, 220, 22, 0)
 
 	createControl("STATIC", "更新频率:", 0, 495, 22, 60, 20, 0)
 	hIntervalCombo = createControl("COMBOBOX", "", 0x00200003|0x00010000, 560, 20, 95, 150, 0)
@@ -225,12 +225,12 @@ func subDialogProc(hwnd windows.HWND, msg uint32, wParam, lParam uintptr) uintpt
 	case WM_COMMAND:
 		id := wParam & 0xFFFF
 		if id == 1 {
-			buf := make([]uint16, 1024)
+			buf := make([]uint16, 4096)
 
-			procGetWindowTextW.Call(uintptr(hName), uintptr(unsafe.Pointer(&buf[0])), 1024)
+			procGetWindowTextW.Call(uintptr(hName), uintptr(unsafe.Pointer(&buf[0])), 4096)
 			dlgResult.Name = windows.UTF16ToString(buf)
 
-			procGetWindowTextW.Call(uintptr(hUrl), uintptr(unsafe.Pointer(&buf[0])), 1024)
+			procGetWindowTextW.Call(uintptr(hUrl), uintptr(unsafe.Pointer(&buf[0])), 4096)
 			dlgResult.URL = windows.UTF16ToString(buf)
 
 			idx, _, _ := procSendMessageW.Call(uintptr(hIntervalCombo), CB_GETCURSEL, 0, 0)
