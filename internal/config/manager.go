@@ -2,7 +2,6 @@ package config
 
 import (
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -59,26 +58,9 @@ func NewManager(baseDir, exePath string, isAdmin bool) *Manager {
 	}
 }
 
-func (m *Manager) ensureDefaultProfileExists() {
-	profilesDirAbs := filepath.Join(m.baseDir, ProfilesDir)
-	_ = os.MkdirAll(profilesDirAbs, 0755)
-
-	defaultPath := filepath.Join(profilesDirAbs, "default.yaml")
-	if _, err := os.Stat(defaultPath); os.IsNotExist(err) {
-		content := fmt.Sprintf("mixed-port: %s\nmode: %s\nexternal-controller: %s\nsecret: '%s'\nexternal-ui: '%s'\nexternal-ui-url: '%s'\ntun:\n  enable: false\n",
-			DefaultMixedPort, DefaultMode, DefaultExternalController, DefaultSecret, DefaultExternalUI, DefaultExternalUIURL)
-		
-		if err := os.WriteFile(defaultPath, []byte(content), 0644); err == nil {
-			slog.Info("已自动生成保底示例配置", "path", defaultPath)
-		}
-	}
-}
-
 func (m *Manager) LoadAndInitMemory() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	m.ensureDefaultProfileExists()
 
 	cfgPath := filepath.Join(m.baseDir, ConfigFileName)
 	isTainted := false
@@ -95,38 +77,26 @@ func (m *Manager) LoadAndInitMemory() {
 	}
 
 	var validItems []ProfileItem
+	activeFound := false
+
 	for _, item := range m.data.Items {
 		rel := filepath.ToSlash(item.Path)
 		if !strings.HasPrefix(rel, ProfilesDir+"/") || strings.Contains(rel, "..") || filepath.IsAbs(rel) {
-			slog.Warn("拦截并清理不合规的遗留配置", "path", item.Path)
+			slog.Warn("清理不合规的遗留配置", "path", item.Path)
 			isTainted = true
 			continue
 		}
 		validItems = append(validItems, item)
+		
+		if m.data.Active == item.Path {
+			activeFound = true
+		}
 	}
 	m.data.Items = validItems
 
-	if len(m.data.Items) == 0 {
-		m.data.Items = []ProfileItem{{Name: "default", Path: filepath.ToSlash(filepath.Join(ProfilesDir, "default.yaml"))}}
-		isTainted = true
-	}
-
-	activeFound := false
-	for _, item := range m.data.Items {
-		if m.data.Active == item.Path {
-			activeFound = true
-			break
-		}
-	}
-	if !activeFound {
-		m.data.Active = m.data.Items[0].Path
-		isTainted = true
-	}
-
-	activeAbs := filepath.Join(m.baseDir, filepath.FromSlash(m.data.Active))
-	if _, err := os.Stat(activeAbs); err != nil {
-		slog.Warn("当前活跃配置物理文件已丢失，执行安全回退", "missing", m.data.Active)
-		m.data.Active = m.data.Items[0].Path
+	// 如果活跃配置不在合法列表中，进入“空转”状态 (无配置打勾)
+	if !activeFound && m.data.Active != "" {
+		m.data.Active = ""
 		isTainted = true
 	}
 
@@ -150,6 +120,9 @@ func (m *Manager) FlushInitialState() {
 func (m *Manager) GetActivePathAbs() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	if m.data.Active == "" {
+		return ""
+	}
 	return filepath.Join(m.baseDir, filepath.FromSlash(m.data.Active))
 }
 
@@ -179,12 +152,8 @@ func (m *Manager) RemoveProfile(relPath string) {
 	defer m.mu.Unlock()
 	
 	if relPath == m.data.Active {
-		slog.Warn("拦截删除请求：无法删除正在使用的活跃配置")
-		return
-	}
-	if len(m.data.Items) <= 1 {
-		slog.Warn("拦截删除请求：必须至少保留一个配置")
-		return
+		slog.Info("正在移除当前活跃配置，进入空转状态")
+		m.data.Active = ""
 	}
 
 	var newItems []ProfileItem
