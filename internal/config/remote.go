@@ -52,6 +52,7 @@ func (m *Manager) UpgradeSubscription(relPath string, proxyPort string, validato
 
 func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*FetchResult, error) {
 	subURL = strings.TrimSpace(subURL)
+	slog.Info("准备拉取远程订阅", "URL_LENGTH", len(subURL), "FULL_URL", subURL)
 
 	transport := &http.Transport{Proxy: http.ProxyFromEnvironment}
 
