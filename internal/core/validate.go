@@ -25,7 +25,7 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 			errMsg = err.Error()
 		}
 
-		return fmt.Errorf("沙箱预检失败: %s", errMsg)
+		return fmt.Errorf("沙箱预检被拦截: %s", errMsg)
 	}
 
 	return nil
