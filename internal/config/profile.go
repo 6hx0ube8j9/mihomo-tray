@@ -100,7 +100,10 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 	}
 	defer srcFile.Close()
 
-	tmpFile, err := os.CreateTemp(m.baseDir, "profile.*.tmp")
+	cacheDir := filepath.Join(m.baseDir, ".cache")
+	os.MkdirAll(cacheDir, 0755)
+	tmpFile, err := os.CreateTemp(cacheDir, "profile.*.tmp")
+	
 	if err != nil {
 		return "", false, err
 	}
