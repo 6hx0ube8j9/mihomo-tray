@@ -31,7 +31,7 @@ const (
 	IDAdminStatus
 )
 
-// 动态 ID 映射基址 (支持最多 10 个 Profile)
+// 动态 ID 映射基址
 const (
 	IDProfileSwitchBase   uint32 = 2000 // 2000-2009
 	IDProfileEditBase     uint32 = 2010 // 2010-2019
@@ -54,7 +54,7 @@ type ProfileItem struct {
 	IsActive   bool
 	IsRemote   bool
 	Interval   int
-	LastUpdate string // 例如 "2 小时前" 或 "从未更新"
+	LastUpdate string
 }
 
 type UIState struct {
@@ -184,7 +184,7 @@ func (tm *TrayMenu) onRightClick() {
 	}
 
 	var profileSubMenus []wintray.MenuItem
-	activeProfileName := "config.yaml"
+	activeProfileName := "默认保底配置" // [优化] 空转状态下，不要暴露底层的 config.yaml
 
 	for i, item := range st.ProfileItems {
 		if item.IsActive {
@@ -226,19 +226,17 @@ func (tm *TrayMenu) onRightClick() {
 			itemSubMenu = append(itemSubMenu, wintray.MenuItem{IsSeparator: true})
 		}
 
-		// 3. 基础管理操作
 		itemSubMenu = append(itemSubMenu, wintray.MenuItem{
 			ID:   IDProfileEditBase + uint32(i),
-			Text: "编辑配置",
+			Text: "编辑配置底稿",
 		})
 		
 		itemSubMenu = append(itemSubMenu, wintray.MenuItem{
 			ID:       IDProfileRemoveBase + uint32(i),
-			Text:     "从列表移除此配置",
-			Disabled: item.Path == "config.yaml", // config.yaml 不允许移除
+			Text:     "删除此配置",
+			Disabled: item.IsActive, 
 		})
 
-		// 4. 将该项挂载至总列表
 		suffix := " (本地)"
 		if item.IsRemote {
 			suffix = " (订阅)"
@@ -251,14 +249,15 @@ func (tm *TrayMenu) onRightClick() {
 	}
 
 	profileSubMenus = append(profileSubMenus, wintray.MenuItem{IsSeparator: true})
+	
 	profileSubMenus = append(profileSubMenus, wintray.MenuItem{
 		ID:       IDProfileAddLocal,
-		Text:     fmt.Sprintf("添加本地配置 (%d/5)", len(st.ProfileItems)),
+		Text:     fmt.Sprintf("添加本地配置 (%d/10)", len(st.ProfileItems)),
 		Disabled: !st.CanAddProfile,
 	})
 	profileSubMenus = append(profileSubMenus, wintray.MenuItem{
 		ID:       IDProfileAddRemote,
-		Text:     fmt.Sprintf("添加远程订阅 (%d/5)", len(st.ProfileItems)),
+		Text:     fmt.Sprintf("添加远程订阅 (%d/10)", len(st.ProfileItems)),
 		Disabled: !st.CanAddProfile,
 	})
 
@@ -309,7 +308,6 @@ func (tm *TrayMenu) onMenuItemClick(id uint32) {
 	st := tm.currState
 	tm.stateMu.RUnlock()
 
-	// 配置切换
 	if id >= IDProfileSwitchBase && id < IDProfileSwitchBase+10 {
 		idx := int(id - IDProfileSwitchBase)
 		if idx < len(st.ProfileItems) {
@@ -318,16 +316,14 @@ func (tm *TrayMenu) onMenuItemClick(id uint32) {
 		return
 	}
 
-	// 编辑配置
 	if id >= IDProfileEditBase && id < IDProfileEditBase+10 {
 		idx := int(id - IDProfileEditBase)
 		if idx < len(st.ProfileItems) {
-			tm.sendCommand("OpenConfigFile", st.ProfileItems[idx].Path) // 注意：需要在 app.go 中接收 Payload 作为目标路径
+			tm.sendCommand("OpenConfigFile", st.ProfileItems[idx].Path) 
 		}
 		return
 	}
 
-	// 移除配置
 	if id >= IDProfileRemoveBase && id < IDProfileRemoveBase+10 {
 		idx := int(id - IDProfileRemoveBase)
 		if idx < len(st.ProfileItems) {
@@ -336,7 +332,6 @@ func (tm *TrayMenu) onMenuItemClick(id uint32) {
 		return
 	}
 
-	// 立即更新订阅
 	if id >= IDProfileUpdateBase && id < IDProfileUpdateBase+10 {
 		idx := int(id - IDProfileUpdateBase)
 		if idx < len(st.ProfileItems) {
@@ -345,7 +340,6 @@ func (tm *TrayMenu) onMenuItemClick(id uint32) {
 		return
 	}
 
-	// 调整更新频率
 	if id >= IDProfileIntervalBase && id < IDProfileIntervalBase+100 {
 		offset := int(id - IDProfileIntervalBase)
 		idx := offset / 10
