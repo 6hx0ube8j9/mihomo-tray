@@ -67,6 +67,24 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	}
 }
 
+func (a *Application) preflightCheck(relPath string) error {
+	if relPath == "" {
+		return fmt.Errorf("配置路径为空")
+	}
+	absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(relPath))
+	fi, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("底层物理配置文件已丢失")
+		}
+		return fmt.Errorf("无法读取配置文件: %w", err)
+	}
+	if fi.Size() == 0 {
+		return fmt.Errorf("配置文件已损坏 (0 字节)")
+	}
+	return nil
+}
+
 func (a *Application) getActualTunDevice() string {
 	if dev := a.State.GetActualTunDevice(); dev != "" {
 		return dev
@@ -119,9 +137,31 @@ func (a *Application) Bootstrap(ctx context.Context) {
 		a.Cfg.FlushInitialState()
 	}
 
-	// [核心重构]：开机强制对齐流水线
-	activeRelPath := a.Cfg.GetActivePath()
-	if _, extracted, err := a.Cfg.PrepareYAMLForPath(activeRelPath); err != nil {
+	activePath := a.Cfg.GetActivePath()
+
+	if activePath != "" {
+		if err := a.preflightCheck(activePath); err != nil {
+			if p, ok := a.Cfg.GetProfileByPath(activePath); ok && p.URL != "" {
+				slog.Info("开机检测到活跃订阅丢失，正在尝试后台静默拉取", "path", activePath)
+				validator := func(tmpPath string) error {
+					exePath := core.GetKernelPath(a.Cfg.BaseDir())
+					return core.ValidateConfig(exePath, a.Cfg.BaseDir(), tmpPath)
+				}
+				success, _ := a.Cfg.UpgradeSubscription(activePath, a.Cfg.Get("port"), validator)
+				if !success {
+					slog.Warn("静默拉取订阅失败，将进入无配置空转状态")
+					a.Cfg.SetActiveProfile("")
+					activePath = ""
+				}
+			} else {
+				slog.Warn("开机检测到活跃本地配置丢失或为空，将进入无配置空转状态")
+				a.Cfg.SetActiveProfile("")
+				activePath = ""
+			}
+		}
+	}
+
+	if _, extracted, err := a.Cfg.PrepareYAMLForPath(activePath); err != nil {
 		slog.Error("开机生成核心运行配置失败", "err", err)
 	} else {
 		if len(extracted) > 0 {
@@ -129,8 +169,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 		}
 	}
 
-	// 严格从最终缝合生成的 config.yaml 提取 API 参数
-	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), "config.yaml")
+	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), core.RuntimeConfigName)
 	apiAddr, apiSecret := a.Cfg.ResolveKernelEndpoint(runtimeAbs)
 	a.API.SetEndpoint(apiAddr, apiSecret)
 
@@ -340,7 +379,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		}()
 		return
 
-    case "RequestAddRemoteProfile":
+	case "RequestAddRemoteProfile":
 		go func() {
 			res := sys.ShowAddSubDialog()
 			if res.OK {
@@ -349,7 +388,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			}
 		}()
 		return
-		
+
 	case "AddLocalProfile":
 		if a.State.IsProfileSwitching() {
 			slog.Warn("配置操作正在进行中，已阻断并发请求")
@@ -399,7 +438,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 
 		safeName := strings.ReplaceAll(rawName, "/", "_")
 		fileName := fmt.Sprintf("%s.yaml", safeName)
-		targetRelPath := filepath.ToSlash(filepath.Join("profiles", fileName))
+		targetRelPath := filepath.ToSlash(filepath.Join(config.ProfilesDir, fileName))
 
 		newItem := config.ProfileItem{
 			Name:       safeName,
@@ -412,7 +451,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		a.Cfg.UpsertProfile(newItem)
 		go a.executeRemoteUpdate(ctx, targetRelPath, true)
 
-     case "SetProfileInterval":
+	case "SetProfileInterval":
 		parts := strings.Split(cmd.Payload, "|")
 		if len(parts) == 2 {
 			targetPath := parts[0]
@@ -426,7 +465,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 				}
 			}
 		}
-		
+
 	case "UpdateRemoteProfile":
 		if p, ok := a.Cfg.GetProfileByPath(cmd.Payload); ok {
 			go a.executeRemoteUpdate(ctx, p.Path, true)
@@ -449,13 +488,15 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			}
 
 			slog.Info("开始执行配置切换事务", "target", target)
+			
+			if err := a.preflightCheck(target); err != nil {
+				sys.ShowErrorMessage("切换配置被拦截", "目标配置文件已失效或被破坏：\n"+err.Error()+"\n\n系统已将其从列表中移除，您的当前网络未受影响。")
+				a.Cfg.RemoveProfile(target)
+				return
+			}
+
 			if err := a.applyConfigTransaction(context.Background(), target); err != nil {
-				if strings.Contains(err.Error(), "底稿文件丢失") {
-					sys.ShowErrorMessage("配置文件失效", "找不到该配置，它可能已被删除。系统已自动为您清理列表。")
-					a.Cfg.RemoveProfile(target)
-				} else {
-					sys.ShowErrorMessage("切换配置失败", "内核拒绝加载该配置：\n\n"+err.Error())
-				}
+				sys.ShowErrorMessage("切换配置失败", "内核拒绝加载该配置：\n\n"+err.Error())
 			} else {
 				a.restartWebUIIfOpen()
 			}
@@ -611,11 +652,12 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			targetRelPath = a.Cfg.GetActivePath()
 		}
 		
-		absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
-		if _, err := os.Stat(absPath); os.IsNotExist(err) {
-			sys.ShowErrorMessage("打开失败", "底稿文件不存在或已被删除，无法启动编辑器。")
+		if err := a.preflightCheck(targetRelPath); err != nil {
+			sys.ShowErrorMessage("打开失败", "底稿文件不存在或已损坏，无法启动编辑器。\n\n"+err.Error())
 			break
 		}
+
+		absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
 		_ = sys.ExecuteSystemCommand(absPath)
 
 	case "ExitApp":
@@ -706,7 +748,7 @@ func (a *Application) calculateUIState() ui.UIState {
 		item := ui.ProfileItem{
 			Name:     config.TruncateMiddle(p.Name),
 			Path:     p.Path,
-			IsActive: p.Path == activePath,
+			IsActive: p.Path == activePath && activePath != "",
 			IsRemote: p.URL != "",
 			Interval: p.Interval,
 		}
@@ -793,18 +835,12 @@ func (a *Application) pushUIState() {
 }
 
 func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath string) error {
-	absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
-
-	if _, err := os.Stat(absPath); err != nil {
-		return fmt.Errorf("目标底稿文件丢失或无法读取: %w", err)
-	}
-
 	_, extracted, err := a.Cfg.PrepareYAMLForPath(targetRelPath)
 	if err != nil {
 		return fmt.Errorf("生成运行时配置失败: %w", err)
 	}
 
-	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), "config.yaml")
+	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), core.RuntimeConfigName)
 	isKernelRunning := a.State.GetPhase() == state.PhaseRunning
 
 	if isKernelRunning {
@@ -858,7 +894,15 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 		defer a.State.SetReloading(false)
 		defer a.pushUIState()
 
-		if err := a.applyConfigTransaction(ctx, a.Cfg.GetActivePath()); err != nil {
+		target := a.Cfg.GetActivePath()
+		
+		if err := a.preflightCheck(target); err != nil {
+			sys.ShowErrorMessage("重载配置被拦截", "当前底层文件已丢失或被恶意破坏，为了保护您当前的网络状态，重载请求已被拦截！\n\n系统已清理错误列表，您的网络不受影响。")
+			a.Cfg.RemoveProfile(target)
+			return 
+		}
+
+		if err := a.applyConfigTransaction(ctx, target); err != nil {
 			sys.ShowErrorMessage("配置重载失败", "内核拒绝加载当前配置文件，请检查语法：\n\n"+err.Error())
 		} else {
 			a.restartWebUIIfOpen()
@@ -876,14 +920,18 @@ func (a *Application) RestartKernel() {
 
 	activeRelPath := a.Cfg.GetActivePath()
 	
-	// [核心重构]：重启内核也必须强制对齐生成一次 config.yaml
+	if activeRelPath != "" && a.preflightCheck(activeRelPath) != nil {
+		a.Cfg.SetActiveProfile("")
+		activeRelPath = ""
+	}
+
 	if _, extracted, err := a.Cfg.PrepareYAMLForPath(activeRelPath); err != nil {
 		slog.Error("生成运行时配置文件失败", "err", err)
 	} else if len(extracted) > 0 {
 		a.Cfg.UpdateBatch(extracted)
 	}
 
-	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), "config.yaml")
+	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), core.RuntimeConfigName)
 	apiAddr, apiSecret := a.Cfg.ResolveKernelEndpoint(runtimeAbs)
 	a.API.SetEndpoint(apiAddr, apiSecret)
 
