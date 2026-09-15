@@ -154,7 +154,7 @@ func (m *Manager) CommitRemoteProfile(tempPath string, targetRelPath string, ite
 
 	if !found {
 		m.data.Items = append(m.data.Items, item)
-		if len(m.data.Items) > 5 {
+		if len(m.data.Items) > 10 {
 			m.data.Items = append(m.data.Items[:1], m.data.Items[2:]...)
 		}
 	}
