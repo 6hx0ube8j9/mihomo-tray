@@ -164,7 +164,7 @@ func (m *Manager) RegisterNewProfile(relPath string) {
 		Path: relPath,
 	})
 
-	if len(m.data.Items) > 5 {
+	if len(m.data.Items) > 10 {
 		m.data.Items = append(m.data.Items[:1], m.data.Items[2:]...)
 	}
 
@@ -183,7 +183,7 @@ func (m *Manager) UpsertProfile(item ProfileItem) {
 		}
 	}
 	m.data.Items = append(m.data.Items, item)
-	if len(m.data.Items) > 5 {  
+	if len(m.data.Items) > 10 {  
 		m.data.Items = append(m.data.Items[:1], m.data.Items[2:]...)
 	}
 	m.lockedSave()
