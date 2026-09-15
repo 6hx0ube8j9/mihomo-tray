@@ -81,20 +81,22 @@ func (m *Manager) LoadAndInitMemory() {
 
 	for _, item := range m.data.Items {
 		rel := filepath.ToSlash(item.Path)
-		if !strings.HasPrefix(rel, ProfilesDir+"/") || strings.Contains(rel, "..") || filepath.IsAbs(rel) {
-			slog.Warn("清理不合规的遗留配置", "path", item.Path)
+
+		if filepath.Dir(rel) != ProfilesDir || strings.Contains(rel, "..") || filepath.IsAbs(rel) {
+			slog.Warn("清理不合规的遗留或深层目录配置", "path", item.Path)
 			isTainted = true
 			continue
 		}
+		
 		validItems = append(validItems, item)
 		
 		if m.data.Active == item.Path {
 			activeFound = true
 		}
 	}
+	
 	m.data.Items = validItems
 
-	// 如果活跃配置不在合法列表中，进入“空转”状态 (无配置打勾)
 	if !activeFound && m.data.Active != "" {
 		m.data.Active = ""
 		isTainted = true
