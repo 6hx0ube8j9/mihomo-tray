@@ -298,7 +298,10 @@ func cleanVal(s string) string {
 }
 
 func writeTmpAndRename(baseDir, targetPath string, content []byte) error {
-	tmpFile, err := os.CreateTemp(baseDir, "config.*.tmp")
+	cacheDir := filepath.Join(baseDir, ".cache")
+	os.MkdirAll(cacheDir, 0755)
+	
+	tmpFile, err := os.CreateTemp(cacheDir, "config.*.tmp")
 	if err != nil { return err }
 	tmpName := tmpFile.Name()
 
