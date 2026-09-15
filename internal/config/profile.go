@@ -66,9 +66,11 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 		}
 	}
 
-	relPath, isTree := IsInAppTree(m.baseDir, absSrc)
+    relPath, isTree := IsInAppTree(m.baseDir, absSrc)
 	if isTree {
-		return relPath, false, nil
+		if filepath.Dir(filepath.ToSlash(relPath)) == ProfilesDir {
+			return relPath, false, nil
+		}
 	}
 
 	profilesDirAbs := filepath.Join(m.baseDir, ProfilesDir)
