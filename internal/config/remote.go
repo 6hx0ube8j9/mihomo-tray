@@ -66,14 +66,13 @@ func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*FetchRes
 
 	req, err := http.NewRequest("GET", subURL, nil)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36 ClashforWindows/0.20.39 mihomo/1.18.0 clash-meta")
-	
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-	req.Header.Set("Cache-Control", "no-cache")
+
+	req.Header.Set("User-Agent", "clash-verge/v1.7.7 clash-meta")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Connection", "keep-alive")
+	req.Header.Set("Accept-Encoding", "gzip, deflate") 
 
 	resp, err := client.Do(req)
 	
