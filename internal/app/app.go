@@ -503,8 +503,26 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		}(cmd.Payload)
 
 	case "RemoveProfile":
-		slog.Info("移除本地配置", "path", cmd.Payload)
-		a.Cfg.RemoveProfile(cmd.Payload)
+		targetPath := cmd.Payload
+		
+		if targetPath == a.Cfg.GetActivePath() {
+			slog.Warn("尝试删除活跃配置，已将其静默拦截")
+			break
+		}
+
+		if !sys.ShowConfirmMessage("确认删除", "是否确定要删除该配置文件？\n\n此操作将同时删除本地硬盘上的物理文件，且不可恢复！") {
+			slog.Info("用户取消了删除操作", "path", targetPath)
+			break
+		}
+
+		slog.Info("删除配置文件", "path", targetPath)
+
+		absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetPath))
+		if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
+			slog.Warn("清理物理底层文件失败，文件可能被占用", "path", absPath, "err", err)
+		}
+
+		a.Cfg.RemoveProfile(targetPath)
 
 	case "ToggleAutoStart":
 		enable := cmd.Payload == "true"
