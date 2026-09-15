@@ -119,21 +119,19 @@ func (a *Application) Bootstrap(ctx context.Context) {
 		a.Cfg.FlushInitialState()
 	}
 
+	// [核心重构]：开机强制对齐流水线
 	activeRelPath := a.Cfg.GetActivePath()
-	absPath := a.Cfg.GetActivePathAbs()
-
-	if modified, extracted, err := a.Cfg.PrepareYAMLForPath(activeRelPath); err != nil {
-		slog.Error("检查内核配置文件失败", "err", err)
+	if _, extracted, err := a.Cfg.PrepareYAMLForPath(activeRelPath); err != nil {
+		slog.Error("开机生成核心运行配置失败", "err", err)
 	} else {
 		if len(extracted) > 0 {
 			a.Cfg.UpdateBatch(extracted)
 		}
-		if modified {
-			slog.Info("已自动修正并同步内核配置文件")
-		}
 	}
 
-	apiAddr, apiSecret := a.Cfg.ResolveKernelEndpoint(absPath)
+	// 严格从最终缝合生成的 config.yaml 提取 API 参数
+	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), "config.yaml")
+	apiAddr, apiSecret := a.Cfg.ResolveKernelEndpoint(runtimeAbs)
 	a.API.SetEndpoint(apiAddr, apiSecret)
 
 	if a.Cfg.Get("tun") == "true" {
@@ -452,7 +450,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 
 			slog.Info("开始执行配置切换事务", "target", target)
 			if err := a.applyConfigTransaction(context.Background(), target); err != nil {
-				if strings.Contains(err.Error(), "文件丢失") {
+				if strings.Contains(err.Error(), "底稿文件丢失") {
 					sys.ShowErrorMessage("配置文件失效", "找不到该配置，它可能已被删除。系统已自动为您清理列表。")
 					a.Cfg.RemoveProfile(target)
 				} else {
@@ -615,7 +613,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		
 		absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
 		if _, err := os.Stat(absPath); os.IsNotExist(err) {
-			sys.ShowErrorMessage("打开失败", "文件不存在或已被删除，无法启动编辑器。")
+			sys.ShowErrorMessage("打开失败", "底稿文件不存在或已被删除，无法启动编辑器。")
 			break
 		}
 		_ = sys.ExecuteSystemCommand(absPath)
@@ -798,33 +796,34 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 	absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
 
 	if _, err := os.Stat(absPath); err != nil {
-		return fmt.Errorf("目标物理文件丢失或无法读取: %w", err)
+		return fmt.Errorf("目标底稿文件丢失或无法读取: %w", err)
 	}
 
 	_, extracted, err := a.Cfg.PrepareYAMLForPath(targetRelPath)
 	if err != nil {
-		return fmt.Errorf("修补 YAML 核心参数失败: %w", err)
+		return fmt.Errorf("生成运行时配置失败: %w", err)
 	}
 
+	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), "config.yaml")
 	isKernelRunning := a.State.GetPhase() == state.PhaseRunning
 
 	if isKernelRunning {
 		reqCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 		defer cancel()
 
-		payload := map[string]interface{}{"path": filepath.ToSlash(absPath)}
+		payload := map[string]interface{}{"path": filepath.ToSlash(runtimeAbs)}
 		_, err := a.API.DoRequest(reqCtx, "PUT", "/configs?force=true", payload)
 
 		if err != nil {
 			logMsg := fmt.Errorf("热重载被内核拒绝 | 配置: %s | 原因: %v", targetRelPath, err)
 			a.Kernel.WriteCoreLog("ERROR", logMsg.Error())
-			slog.Error("配置应用失败，事务已回滚，保持原有状态", "target", targetRelPath)
+			slog.Error("配置应用失败，事务已回滚", "target", targetRelPath)
 			return err
 		}
 		slog.Info("内核热重载接受配置，事务提交准备就绪")
 	} else {
 		slog.Info("内核处于停止状态，准备使用新配置唤醒")
-		apiAddr, apiSecret := a.Cfg.ResolveKernelEndpoint(absPath)
+		apiAddr, apiSecret := a.Cfg.ResolveKernelEndpoint(runtimeAbs)
 		a.API.SetEndpoint(apiAddr, apiSecret)
 	}
 
@@ -876,16 +875,16 @@ func (a *Application) RestartKernel() {
 	a.Kernel.HaltDaemon()
 
 	activeRelPath := a.Cfg.GetActivePath()
-	absPath := a.Cfg.GetActivePathAbs()
-
-	_, extracted, err := a.Cfg.PrepareYAMLForPath(activeRelPath)
-	if err != nil {
-		slog.Error("检查内核配置文件失败", "err", err)
+	
+	// [核心重构]：重启内核也必须强制对齐生成一次 config.yaml
+	if _, extracted, err := a.Cfg.PrepareYAMLForPath(activeRelPath); err != nil {
+		slog.Error("生成运行时配置文件失败", "err", err)
 	} else if len(extracted) > 0 {
 		a.Cfg.UpdateBatch(extracted)
 	}
 
-	apiAddr, apiSecret := a.Cfg.ResolveKernelEndpoint(absPath)
+	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), "config.yaml")
+	apiAddr, apiSecret := a.Cfg.ResolveKernelEndpoint(runtimeAbs)
 	a.API.SetEndpoint(apiAddr, apiSecret)
 
 	if a.Cfg.Get("tun") == "true" {
