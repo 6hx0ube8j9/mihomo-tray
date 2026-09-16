@@ -125,29 +125,36 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 	}()
 }
 
+func (a *Application) SyncRuntimeConfig() {
+	activePath := a.Cfg.GetActivePath()
+	if activePath == "" {
+		return
+	}
+
+	if err := a.Cfg.ValidatePhysicalFile(activePath); err != nil {
+		slog.Warn("底稿校验失败，已自动剥离失效配置", "path", activePath, "err", err)
+		a.Cfg.SetActiveProfile("")
+		return
+	}
+
+	if _, extracted, err := a.Cfg.PrepareYAMLForPath(activePath); err != nil {
+		slog.Error("自动同步运行时配置失败", "err", err)
+	} else if len(extracted) > 0 {
+		a.Cfg.UpdateBatch(extracted)
+	}
+}
+
 func (a *Application) RestartKernel() {
 	slog.Info("正在重启内核进程")
 	a.State.SetRestarting(true)
 	a.State.SetReloading(false)
 	a.State.SetPhase(state.PhaseInitializing)
-
 	a.Kernel.HaltDaemon()
-
-	activeRelPath := a.Cfg.GetActivePath()
-
-	if activeRelPath != "" && a.Cfg.ValidatePhysicalFile(activeRelPath) != nil {
-		a.Cfg.SetActiveProfile("")
-		activeRelPath = ""
-	}
-
-	if _, extracted, err := a.Cfg.PrepareYAMLForPath(activeRelPath); err != nil {
-		slog.Error("生成运行时配置文件失败", "err", err)
-	} else if len(extracted) > 0 {
-		a.Cfg.UpdateBatch(extracted)
-	}
+	a.SyncRuntimeConfig()
 
 	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), core.RuntimeConfigName)
 	apiAddr, apiSecret := a.Cfg.ResolveKernelEndpoint(runtimeAbs)
+
 	a.API.SetEndpoint(apiAddr, apiSecret)
 
 	if a.Cfg.Get("tun") == "true" {
