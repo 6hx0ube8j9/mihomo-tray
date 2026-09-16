@@ -11,7 +11,7 @@ import (
 	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
-	"mihomo-tray/internal/ui"
+	"mihomo-tray/internal/tray"
 	"mihomo-tray/internal/webui"
 )
 
@@ -26,11 +26,11 @@ type Application struct {
 	proxyStatusCh chan sys.ProxyStatus
 	apiPollCh     chan struct{}
 
-	UIStateCh    chan ui.UIState
-	UICommandCh  chan ui.UICommand
+	UIStateCh    chan tray.UIState
+	UICommandCh  chan tray.UICommand
 	webuiEventCh chan webui.Event
 
-	lastUIState  ui.UIState
+	lastUIState  tray.UIState
 	uiStateMutex sync.Mutex
 }
 
@@ -44,8 +44,8 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 		tunEventCh:    make(chan struct{}, 1),
 		proxyStatusCh: make(chan sys.ProxyStatus, 5),
 		apiPollCh:     make(chan struct{}, 1),
-		UIStateCh:     make(chan ui.UIState, 1),
-		UICommandCh:   make(chan ui.UICommand, 10),
+		UIStateCh:     make(chan tray.UIState, 1),    // [修正] 已替换为 tray
+		UICommandCh:   make(chan tray.UICommand, 10), // [修正] 已替换为 tray
 		webuiEventCh:  make(chan webui.Event, 1),
 	}
 }
