@@ -273,7 +273,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 						}
 
 						pollCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-						_, err := a.API.DoRequest(pollCtx, "GET", "/configs", nil)
+						_, err := a.API.DoRequest(pollCtx, "GET", "/version", nil)
 						cancel()
 
 						if err == nil {
