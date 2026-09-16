@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -28,9 +29,16 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 		a.uiStateMutex.Unlock()
 
 		go func() {
-			view.RunProfileManager(items, func(action, payload string) {
+			runtime.LockOSThread()
+			defer runtime.UnlockOSThread()
+
+			err := view.RunProfileManager(items, func(action, payload string) {
 				a.UICommandCh <- tray.UICommand{Action: action, Payload: payload}
 			})
+			
+			if err != nil {
+				slog.Error("配置面板启动失败", "err", err)
+			}
 		}()
 		return
 
