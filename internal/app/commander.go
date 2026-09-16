@@ -333,7 +333,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 		return
 
 	case "OpenWebUI":
-		a.openWebUI()
+		a.OpenWebUI()
 
 	case "OpenBaseDir":
 		_ = sys.ExecuteSystemCommand(a.Cfg.BaseDir())
@@ -365,7 +365,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 	a.pushUIState()
 }
 
-func (a *Application) openWebUI() {
+func (a *Application) OpenWebUI() {
 	if a.State.GetPhase() != state.PhaseRunning {
 		slog.Warn("内核尚未就绪，无法打开 WebUI")
 		return
