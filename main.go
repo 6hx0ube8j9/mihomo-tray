@@ -21,7 +21,7 @@ import (
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
-	"mihomo-tray/internal/ui"
+	"mihomo-tray/internal/tray"
 )
 
 const (
@@ -318,7 +318,7 @@ func main() {
 
 	runtimeState := state.NewRuntimeState()
 	application := app.NewApplication(cfgMgr, runtimeState)
-	trayMenu := ui.NewTrayMenu(ctx, cancel, application.UICommandCh, application.UIStateCh)
+	trayMenu := tray.NewTrayMenu(ctx, cancel, application.UICommandCh, application.UIStateCh)
 
 	slog.Debug("初始化系统托盘")
 	trayMenu.Init()
