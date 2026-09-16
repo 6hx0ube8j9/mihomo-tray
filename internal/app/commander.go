@@ -77,7 +77,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 
 			exePath := core.GetKernelPath(a.Cfg.BaseDir())
 			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), sourcePath); err != nil {
-				sys.ShowErrorMessage("配置导入被拦截", "该文件存在语法错误:\n\n"+err.Error())
+				sys.ShowErrorMessage("导入失败", "配置文件存在错误：\n\n"+err.Error())
 				return
 			}
 
@@ -163,7 +163,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 			slog.Info("开始执行配置切换事务", "target", target)
 
 			if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
-				sys.ShowErrorMessage("切换配置被拦截", "目标配置文件已失效或被破坏：\n"+err.Error()+"\n\n系统已将其从列表中移除，您的当前网络未受影响。")
+				sys.ShowErrorMessage("切换配置失败", "目标文件不存在或被损坏：\n"+err.Error())
 				return
 			}
 
@@ -182,7 +182,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 			break
 		}
 
-		if !sys.ShowConfirmMessage("确认删除", "是否确定要删除该配置文件？\n\n此操作将同时删除本地硬盘上的物理文件，且不可恢复！") {
+		if !sys.ShowConfirmMessage("确认删除", "确定要删除此配置文件吗？\n\n此操作不可恢复，本地物理文件将被同时删除。") {
 			slog.Info("用户取消了删除操作", "path", targetPath)
 			break
 		}
@@ -343,7 +343,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 		}
 
 		if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
-			sys.ShowErrorMessage("打开失败", "底稿文件不存在或已损坏，无法启动编辑器。\n\n"+err.Error())
+			sys.ShowErrorMessage("打开失败", "配置文件不存在或已损坏：\n\n"+err.Error())
 			break
 		}
 
