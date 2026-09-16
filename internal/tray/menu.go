@@ -29,17 +29,12 @@ const (
 	IDRestartKernel
 	IDExitApp
 	IDAdminStatus
+	
+	IDOpenProfileManager
 )
 
 const (
-	IDProfileSwitchBase   uint32 = 2000 // 2000-2009
-	IDProfileEditYAMLBase uint32 = 2010 // 2010-2019
-	IDProfileEditSubBase  uint32 = 2020 // 2020-2029
-	IDProfileRemoveBase   uint32 = 2030 // 2030-2039
-	IDProfileUpdateBase   uint32 = 2040 // 2040-2049
-	
-	IDProfileAddLocal  uint32 = 2200
-	IDProfileAddRemote uint32 = 2201
+	IDProfileSwitchBase uint32 = 2000 // 2000-2009
 )
 
 type UICommand struct {
@@ -182,67 +177,24 @@ func (tm *TrayMenu) onRightClick() {
 		adminText = "运行权限：管理员"
 	}
 
-	var profileSubMenus []wintray.MenuItem
-
+	var switchSubMenus []wintray.MenuItem
 	for i, item := range st.ProfileItems {
-		var itemSubMenu []wintray.MenuItem
-
-		itemSubMenu = append(itemSubMenu, wintray.MenuItem{
-			ID:       IDProfileSwitchBase + uint32(i),
-			Text:     "切换到此配置",
-			Checked:  item.IsActive,
-			Disabled: item.IsActive,
-		})
-		itemSubMenu = append(itemSubMenu, wintray.MenuItem{IsSeparator: true})
-
-		if item.IsRemote {
-			itemSubMenu = append(itemSubMenu, wintray.MenuItem{
-				Text:     "上次更新: " + item.LastUpdate,
-				Disabled: true,
-			})
-			itemSubMenu = append(itemSubMenu, wintray.MenuItem{
-				ID:   IDProfileUpdateBase + uint32(i),
-				Text: "立即更新订阅",
-			})
-			itemSubMenu = append(itemSubMenu, wintray.MenuItem{
-				ID:   IDProfileEditSubBase + uint32(i),
-				Text: "编辑订阅信息",
-			})
-		}
-
-		itemSubMenu = append(itemSubMenu, wintray.MenuItem{
-			ID:   IDProfileEditYAMLBase + uint32(i),
-			Text: "编辑配置.yaml",
-		})
-		
-		itemSubMenu = append(itemSubMenu, wintray.MenuItem{
-			ID:       IDProfileRemoveBase + uint32(i),
-			Text:     "彻底删除此配置",
-			Disabled: item.IsActive,
-		})
-
 		suffix := " (本地)"
 		if item.IsRemote {
 			suffix = " (订阅)"
 		}
-		
-		profileSubMenus = append(profileSubMenus, wintray.MenuItem{
-			Text:         item.Name + suffix,
-			Checked:      item.IsActive,
-			SubMenuItems: itemSubMenu,
+		switchSubMenus = append(switchSubMenus, wintray.MenuItem{
+			ID:      IDProfileSwitchBase + uint32(i),
+			Text:    item.Name + suffix,
+			Checked: item.IsActive,
 		})
 	}
 
-	profileSubMenus = append(profileSubMenus, wintray.MenuItem{IsSeparator: true})
-	
-	profileSubMenus = append(profileSubMenus, wintray.MenuItem{
-		Text:     fmt.Sprintf("添加配置文件 (%d/10)", len(st.ProfileItems)),
-		Disabled: !st.CanAddProfile,
-		SubMenuItems: []wintray.MenuItem{
-			{ID: IDProfileAddLocal, Text: "本地配置"},
-			{ID: IDProfileAddRemote, Text: "远程订阅"},
-		},
-	})
+	if len(switchSubMenus) == 0 {
+		switchSubMenus = append(switchSubMenus, wintray.MenuItem{
+			Text: "暂无配置", Disabled: true,
+		})
+	}
 
 	items := []wintray.MenuItem{
 		{ID: IDOpenWebUI, Text: "进入 Web 面板"},
@@ -258,9 +210,10 @@ func (tm *TrayMenu) onRightClick() {
 			},
 		},
 		{IsSeparator: true},
+		{ID: IDOpenProfileManager, Text: "配置面板"},
 		{
-			Text: "管理配置文件",
-			SubMenuItems: profileSubMenus,
+			Text: "切换配置文件",
+			SubMenuItems: switchSubMenus,
 		},
 		{IsSeparator: true},
 		{ID: IDOpenBaseDir, Text: "打开程序目录"},
@@ -299,47 +252,9 @@ func (tm *TrayMenu) onMenuItemClick(id uint32) {
 		return
 	}
 
-	if id >= IDProfileEditYAMLBase && id < IDProfileEditYAMLBase+10 {
-		idx := int(id - IDProfileEditYAMLBase)
-		if idx < len(st.ProfileItems) {
-			tm.sendCommand("OpenConfigFile", st.ProfileItems[idx].Path) 
-		}
-		return
-	}
-	
-	if id >= IDProfileEditSubBase && id < IDProfileEditSubBase+10 {
-		idx := int(id - IDProfileEditSubBase)
-		if idx < len(st.ProfileItems) {
-			tm.sendCommand("RequestEditRemoteProfile", st.ProfileItems[idx].Path) 
-		}
-		return
-	}
-
-	if id >= IDProfileRemoveBase && id < IDProfileRemoveBase+10 {
-		idx := int(id - IDProfileRemoveBase)
-		if idx < len(st.ProfileItems) {
-			tm.sendCommand("RemoveProfile", st.ProfileItems[idx].Path)
-		}
-		return
-	}
-
-	if id >= IDProfileUpdateBase && id < IDProfileUpdateBase+10 {
-		idx := int(id - IDProfileUpdateBase)
-		if idx < len(st.ProfileItems) {
-			tm.sendCommand("UpdateRemoteProfile", st.ProfileItems[idx].Path)
-		}
-		return
-	}
-
 	switch id {
-	case IDProfileAddLocal:
-		if st.CanAddProfile {
-			tm.sendCommand("RequestAddLocalProfile", "")
-		}
-	case IDProfileAddRemote:
-		if st.CanAddProfile {
-			tm.sendCommand("RequestAddRemoteProfile", "")
-		}
+	case IDOpenProfileManager:
+		tm.sendCommand("OpenProfileManager", "")
 	case IDOpenWebUI:
 		tm.sendCommand("OpenWebUI", "")
 	case IDToggleProxy:
