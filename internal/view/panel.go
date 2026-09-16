@@ -1,12 +1,12 @@
 package view
 
 import (
-	"fmt"
+    "fmt"
 
-	"github.com/lxn/walk"
-	. "github.com/lxn/walk/declarative"
+    "github.com/tailscale/walk"
+    . "github.com/tailscale/walk/declarative"
 
-	"mihomo-tray/internal/tray"
+    "mihomo-tray/internal/tray"
 )
 
 type ProfileModel struct {
