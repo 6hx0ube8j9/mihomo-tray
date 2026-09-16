@@ -12,6 +12,7 @@ import (
 	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
 	"mihomo-tray/internal/ui"
+	"mihomo-tray/internal/webui"
 )
 
 type Application struct {
@@ -27,7 +28,7 @@ type Application struct {
 
 	UIStateCh    chan ui.UIState
 	UICommandCh  chan ui.UICommand
-	webuiEventCh chan ui.Event
+	webuiEventCh chan webui.Event
 
 	lastUIState  ui.UIState
 	uiStateMutex sync.Mutex
@@ -45,7 +46,7 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 		apiPollCh:     make(chan struct{}, 1),
 		UIStateCh:     make(chan ui.UIState, 1),
 		UICommandCh:   make(chan ui.UICommand, 10),
-		webuiEventCh:  make(chan ui.Event, 1),
+		webuiEventCh:  make(chan webui.Event, 1),
 	}
 }
 
@@ -64,7 +65,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	activePath := a.Cfg.GetActivePath()
 
 	if activePath != "" {
-		if err := a.preflightCheck(activePath); err != nil {
+		if err := a.Cfg.ValidatePhysicalFile(activePath); err != nil {
 			if p, ok := a.Cfg.GetProfileByPath(activePath); ok && p.URL != "" {
 				slog.Info("开机检测到活跃订阅丢失，正在尝试后台直连静默拉取", "path", activePath)
 				validator := func(tmpPath string) error {
@@ -158,7 +159,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 	for {
 		select {
 		case event := <-a.webuiEventCh:
-			if event == ui.EventError {
+			if event == webui.EventError {
 				slog.Error("WebUI 启动或运行异常")
 			}
 		case <-ctx.Done():
