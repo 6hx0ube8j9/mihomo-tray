@@ -1,0 +1,87 @@
+package view
+
+import (
+	"github.com/tailscale/walk"
+	. "github.com/tailscale/walk/declarative"
+)
+
+func ShowSubscriptionEditor(title, defaultName, defaultUrl string, defaultInterval int) (string, string, int, bool) {
+	if panelApp == nil {
+		return "", "", 0, false
+	}
+
+	type result struct {
+		name, url string
+		interval  int
+		ok        bool
+	}
+	resCh := make(chan result)
+
+	panelApp.Synchronize(func() {
+		var dlg *walk.Dialog
+		var nameEdit *walk.LineEdit
+		var urlEdit *walk.LineEdit
+		var intervalEdit *walk.NumberEdit
+		var acceptButton *walk.PushButton
+
+		var outName, outUrl string
+		var outInterval int
+		var accepted bool
+
+		err := Dialog{
+			AssignTo: &dlg,
+			Title:    title,
+			MinSize:  Size{Width: 420, Height: 200},
+			Layout:   VBox{},
+			Children: []Widget{
+				Composite{
+					Layout: Grid{Columns: 2},
+					Children: []Widget{
+						Label{Text: "配置名称:"},
+						LineEdit{AssignTo: &nameEdit, Text: defaultName},
+
+						Label{Text: "订阅链接:"},
+						LineEdit{AssignTo: &urlEdit, Text: defaultUrl},
+
+						Label{Text: "更新间隔(天):"},
+						NumberEdit{AssignTo: &intervalEdit, Value: float64(defaultInterval), MinValue: 0, MaxValue: 30},
+					},
+				},
+				Composite{
+					Layout: HBox{},
+					Children: []Widget{
+						HSpacer{},
+						PushButton{
+							AssignTo: &acceptButton,
+							Text:     "确定",
+							OnClicked: func() {
+								outName = nameEdit.Text()
+								outUrl = urlEdit.Text()
+								outInterval = int(intervalEdit.Value())
+								accepted = true
+								dlg.Accept()
+							},
+						},
+						PushButton{
+							Text: "取消",
+							OnClicked: func() {
+								dlg.Cancel()
+							},
+						},
+					},
+				},
+			},
+		}.Create(panelWindow)
+
+		if err != nil {
+			resCh <- result{ok: false}
+			return
+		}
+
+		dlg.Run()
+		resCh <- result{outName, outUrl, outInterval, accepted}
+	})
+
+	res := <-resCh
+	return res.name, res.url, res.interval, res.ok
+}
