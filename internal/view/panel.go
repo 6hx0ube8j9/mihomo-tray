@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime"
+	"runtime/debug"
 	"sync"
 
 	"github.com/tailscale/walk"
@@ -227,16 +228,29 @@ func RunProfileManager(items []tray.ProfileItem, dispatch func(action, payload s
 		return fmt.Errorf("walk UI 引擎未就绪")
 	}
 
-	// 跨线程安全投递渲染数据
+	var syncErr error
 	panelApp.Synchronize(func() {
+		defer func() {
+			if r := recover(); r != nil {
+				syncErr = fmt.Errorf("panic: %v\n%s", r, string(debug.Stack()))
+				slog.Error("渲染配置面板时发生致命崩溃", "err", syncErr)
+			}
+		}()
+
+		if panelModel == nil {
+			return
+		}
 		panelModel.Items = items
 		panelModel.PublishRowsReset()
-		tableView.SetCurrentIndex(-1)
 
-		if !panelWindow.Visible() {
+		if tableView != nil {
+			tableView.SetCurrentIndex(-1)
+		}
+
+		if panelWindow != nil && !panelWindow.Visible() {
 			panelWindow.Show()
 		}
 	})
 
-	return nil
+	return syncErr
 }
