@@ -1,7 +1,6 @@
 package core
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -39,12 +38,12 @@ const (
 type KernelManager struct {
 	cfg        *config.Manager
 	st         *state.RuntimeState
+	logger     *CoreLogger
 	hJob       windows.Handle
 	currentPid uint32
 	activeProc *os.Process
 	mu         sync.Mutex
 	killMu     sync.Mutex
-	lastError  string
 	isPaused   bool
 	wakeCh     chan struct{}
 }
@@ -53,6 +52,7 @@ func NewKernelManager(cfg *config.Manager, st *state.RuntimeState) *KernelManage
 	km := &KernelManager{
 		cfg:    cfg,
 		st:     st,
+		logger: NewCoreLogger(cfg.BaseDir()),
 		wakeCh: make(chan struct{}, 1),
 	}
 	km.hJob, _ = sys.CreateKillOnCloseJob()
@@ -124,8 +124,8 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		case <-time.After(300 * time.Millisecond):
 		}
 
-		errBuf := &tailBuffer{max: 64 * 1024}
-		
+		errBuf := NewTailBuffer(64 * 1024)
+
 		runtimeAbs := filepath.Join(absBaseDir, RuntimeConfigName)
 
 		cmd := exec.Command(target, "-d", ".", "-f", runtimeAbs)
@@ -143,7 +143,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 
 		if err := cmd.Start(); err != nil {
 			errMsg := fmt.Sprintf("启动错误: %v", err)
-			km.checkAndWriteLog(absBaseDir, "ERROR", errMsg)
+			km.logger.WriteLog("ERROR", errMsg)
 
 			if firstCrashTime.IsZero() {
 				firstCrashTime = time.Now()
@@ -232,7 +232,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 			if shouldLog {
 				rawErr := strings.TrimSpace(errBuf.String())
 				errMsg := fmt.Sprintf("内核崩溃 | %v | %s", waitErr, rawErr)
-				km.checkAndWriteLog(absBaseDir, "ERROR", errMsg)
+				km.logger.WriteLog("ERROR", errMsg)
 			}
 		}
 
@@ -344,101 +344,12 @@ func (km *KernelManager) KillCurrent() {
 	time.Sleep(250 * time.Millisecond)
 }
 
-func (km *KernelManager) WriteCoreLog(errType, rawMsg string) {
-	km.checkAndWriteLog(km.cfg.BaseDir(), errType, rawMsg)
-}
-
-func (km *KernelManager) checkAndWriteLog(absBaseDir, errType, rawMsg string) {
-	cleanedMsg := rawMsg
-	if idx := strings.Index(rawMsg, "level="); idx != -1 {
-		cleanedMsg = rawMsg[idx:]
-	}
-
-	km.mu.Lock()
-	if km.lastError == cleanedMsg {
-		km.mu.Unlock()
-		return
-	}
-	km.lastError = cleanedMsg
-	km.mu.Unlock()
-
-	logDir := filepath.Join(absBaseDir, "logs")
-	_ = os.MkdirAll(logDir, 0755)
-
-	logPath := filepath.Join(logDir, "core.log")
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	finalLog := fmt.Sprintf("[%s] [%s] %s\n----------------------------------------\n", timestamp, errType, rawMsg)
-
-	fi, err := os.Stat(logPath)
-	if err == nil && fi.Size()+int64(len(finalLog)) > 25*1024 {
-		var keepData []byte
-		f, err := os.Open(logPath)
-		if err == nil {
-			offset := fi.Size() - 5*1024
-			if offset < 0 {
-				offset = 0
-			}
-			keepData = make([]byte, fi.Size()-offset)
-			_, _ = f.ReadAt(keepData, offset)
-			f.Close()
-
-			if offset > 0 {
-				if idx := bytes.IndexByte(keepData, '\n'); idx != -1 {
-					keepData = keepData[idx+1:]
-				}
-			}
-		}
-
-		notice := fmt.Sprintf("[%s] --- 日志大小已超限，仅保留最新部分 ---\n...\n", timestamp)
-		combined := append(append([]byte(notice), keepData...), []byte(finalLog)...)
-		_ = os.WriteFile(logPath, combined, 0644)
-		return
-	}
-
-	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	_, _ = f.WriteString(finalLog)
-}
-
 func (km *KernelManager) calculateBackoff(current, max time.Duration) time.Duration {
 	next := current * 2
 	if next > max {
 		return max
 	}
 	return next
-}
-
-type tailBuffer struct {
-	mu  sync.Mutex
-	buf []byte
-	max int
-}
-
-func (t *tailBuffer) Write(p []byte) (int, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.buf = append(t.buf, p...)
-	if len(t.buf) > t.max {
-		newBuf := make([]byte, t.max)
-		copy(newBuf, t.buf[len(t.buf)-t.max:])
-		t.buf = newBuf
-	}
-	return len(p), nil
-}
-
-func (t *tailBuffer) String() string {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return string(t.buf)
-}
-
-func (t *tailBuffer) Len() int {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return len(t.buf)
 }
 
 func (km *KernelManager) HaltDaemon() {
@@ -455,5 +366,17 @@ func (km *KernelManager) WakeDaemon() {
 	select {
 	case km.wakeCh <- struct{}{}:
 	default:
+	}
+}
+
+func (km *KernelManager) IsPaused() bool {
+	km.mu.Lock()
+	defer km.mu.Unlock()
+	return km.isPaused
+}
+
+func (km *KernelManager) WriteCoreLog(errType, rawMsg string) {
+	if km.logger != nil {
+		km.logger.WriteLog(errType, rawMsg)
 	}
 }
