@@ -113,6 +113,11 @@ func RunProfileManager(items []tray.ProfileItem, dispatch func(action, payload s
 				Model: model,
 
 				OnCurrentIndexChanged: func() {
+					if tv == nil || actionSwitch == nil || actionDelete == nil || 
+						actionEditText == nil || actionEditSub == nil || actionUpdate == nil {
+						return
+					}
+
 					idx := tv.CurrentIndex()
 
 					if idx < 0 || idx >= len(model.Items) {
