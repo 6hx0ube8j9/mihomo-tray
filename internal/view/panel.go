@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/lxn/walk"
-    "github.com/lxn/walk/declarative"
+    . "github.com/lxn/walk/declarative"
 
 	"mihomo-tray/internal/tray"
 )
