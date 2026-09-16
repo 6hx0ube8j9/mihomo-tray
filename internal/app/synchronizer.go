@@ -175,50 +175,40 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 	queryCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
 	defer cancel()
 
-	body, err := a.API.DoRequest(queryCtx, "GET", "/configs", nil)
+	resp, err := a.API.GetKernelStatus(queryCtx)
 	if err != nil {
 		return false
 	}
 
-	var resp struct {
-		Mode string `json:"mode"`
-		Tun  struct {
-			Enable bool   `json:"enable"`
-			Device string `json:"device"`
-		} `json:"tun"`
+	changed := false
+	currentActual := a.getActualTunDevice()
+	
+	if resp.Tun.Device != "" && resp.Tun.Device != currentActual {
+		a.State.SetActualTunDevice(resp.Tun.Device)
+		currentActual = resp.Tun.Device
+		changed = true
+	}
+	
+	realAlive := sys.IsTunActive(currentActual)
+	if a.State.IsTunAlive() != realAlive {
+		a.State.SetTunAlive(realAlive)
+		changed = true
 	}
 
-	if json.Unmarshal(body, &resp) == nil {
-		changed := false
-
-		currentActual := a.getActualTunDevice()
-		if resp.Tun.Device != "" && resp.Tun.Device != currentActual {
-			a.State.SetActualTunDevice(resp.Tun.Device)
-			currentActual = resp.Tun.Device
-			changed = true
-		}
-		realAlive := sys.IsTunActive(currentActual)
-		if a.State.IsTunAlive() != realAlive {
-			a.State.SetTunAlive(realAlive)
-			changed = true
-		}
-
-		if resp.Mode != "" && resp.Mode != a.Cfg.Get("mode") {
-			slog.Info("内核路由模式已变更", "from", a.Cfg.Get("mode"), "to", resp.Mode)
-			a.Cfg.Set("mode", resp.Mode)
-			changed = true
-		}
-
-		if a.reconcileTunState(resp.Tun.Enable) {
-			changed = true
-		}
-
-		wantTun := a.Cfg.Get("tun") == "true"
-		if changed && wantTun && !realAlive && !a.isTunInGracePeriod() {
-			slog.Warn("TUN 网卡未就绪或已断开，检查驱动与权限", "device", currentActual)
-		}
-
-		return changed
+	if resp.Mode != "" && resp.Mode != a.Cfg.Get("mode") {
+		slog.Info("内核路由模式已变更", "from", a.Cfg.Get("mode"), "to", resp.Mode)
+		a.Cfg.Set("mode", resp.Mode)
+		changed = true
 	}
-	return false
+
+	if a.reconcileTunState(resp.Tun.Enable) {
+		changed = true
+	}
+
+	wantTun := a.Cfg.Get("tun") == "true"
+	if changed && wantTun && !realAlive && !a.isTunInGracePeriod() {
+		slog.Warn("TUN 网卡未就绪或已断开，检查驱动与权限", "device", currentActual)
+	}
+
+	return changed
 }
