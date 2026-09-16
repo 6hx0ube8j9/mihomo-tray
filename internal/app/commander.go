@@ -72,11 +72,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			defer a.pushUIState()
 
 			slog.Info("开始沙箱预检新导入的本地配置", "source", sourcePath)
-            
-			exePath := filepath.Join(a.Cfg.BaseDir(), "mihomo.exe") // 简化，若有 core.GetKernelPath 请导入 core
-			if err := a.preflightCheck(sourcePath); err != nil { // 用 validator 更合适，这里按你原代码逻辑
-                // 此处原本调用的 core.ValidateConfig，可以在 transaction.go 里的预检完成
-				sys.ShowErrorMessage("配置导入被拦截", "该文件存在错误:\n\n"+err.Error())
+
+			exePath := core.GetKernelPath(a.Cfg.BaseDir())
+			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), sourcePath); err != nil {
+				sys.ShowErrorMessage("配置导入被拦截", "该文件存在语法错误:\n\n"+err.Error())
 				return
 			}
 
@@ -90,7 +89,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			slog.Info("新配置已通过预检并入库", "name", targetName)
 
 			if err := a.applyConfigTransaction(context.Background(), targetName); err != nil {
-				sys.ShowErrorMessage("配置应用失败", "内核拒绝切换该配置:\n\n"+err.Error())
+				sys.ShowErrorMessage("配置应用失败", "内核拒绝切换该配置 (可能是端口冲突)：\n\n"+err.Error())
 			} else {
 				a.restartWebUIIfOpen()
 			}
