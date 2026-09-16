@@ -181,7 +181,7 @@ func (a *Application) restartWebUIIfOpen() {
 				if a.State.GetPhase() == state.PhaseRunning {
 					slog.Debug("内核已就绪，正在自动重新拉起 Web 面板")
 					
-					a.openWebUI() 
+					a.OpenWebUI() 
 					
 					return
 				}
