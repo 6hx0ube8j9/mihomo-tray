@@ -7,7 +7,7 @@ import (
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
-	"mihomo-tray/internal/ui"
+	"mihomo-tray/internal/tray"
 )
 
 const (
@@ -18,8 +18,8 @@ const (
 	IconDefault
 )
 
-func (a *Application) calculateUIState() ui.UIState {
-	s := ui.UIState{
+func (a *Application) calculateUIState() tray.UIState {
+	s := tray.UIState{
 		IsTun:      a.Cfg.Get("tun") == "true",
 		IsProxy:    a.Cfg.Get("proxy") == "true",
 		Mode:       a.Cfg.Get("mode"),
@@ -33,7 +33,7 @@ func (a *Application) calculateUIState() ui.UIState {
 	s.CanAddProfile = len(profiles) < 5
 
 	for _, p := range profiles {
-		item := ui.ProfileItem{
+		item := tray.ProfileItem{
 			Name:     config.TruncateMiddle(p.Name),
 			Path:     p.Path,
 			IsActive: p.Path == activePath && activePath != "",
