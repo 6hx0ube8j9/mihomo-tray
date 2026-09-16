@@ -131,16 +131,6 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		case <-time.After(300 * time.Millisecond):
 		}
 
-		errBuf := NewTailBuffer(64 * 1024)
-
-		runtimeAbs := filepath.Join(absBaseDir, RuntimeConfigName)
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(300 * time.Millisecond):
-		}
-
 		km.mu.Lock()
 		hook := km.preStartHook
 		km.mu.Unlock()
