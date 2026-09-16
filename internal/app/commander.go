@@ -15,14 +15,28 @@ import (
 	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
 	"mihomo-tray/internal/tray"
+	"mihomo-tray/internal/view"
 	"mihomo-tray/internal/webui"
 )
 
 func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 	switch cmd.Action {
+	case "OpenProfileManager":
+		a.uiStateMutex.Lock()
+		items := make([]tray.ProfileItem, len(a.lastUIState.ProfileItems))
+		copy(items, a.lastUIState.ProfileItems)
+		a.uiStateMutex.Unlock()
+
+		go func() {
+			view.RunProfileManager(items, func(action, payload string) {
+				a.UICommandCh <- tray.UICommand{Action: action, Payload: payload}
+			})
+		}()
+		return
+
 	case "RequestAddLocalProfile":
 		go func() {
-			if selectedPath, ok := sys.OpenYAMLFileDialog(); ok {
+			if selectedPath, ok := view.OpenYAMLFileDialog(); ok {
 				a.UICommandCh <- tray.UICommand{Action: "AddLocalProfile", Payload: selectedPath}
 			}
 		}()
@@ -30,7 +44,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 
 	case "RequestAddRemoteProfile":
 		go func() {
-			res := sys.ShowSubDialog("添加远程订阅", "", "", 3)
+			res := view.ShowSubDialog("添加远程订阅", "", "", 3)
 			if res.OK {
 				payload := fmt.Sprintf("%s|%s|%d|%t", res.Name, res.URL, res.Interval, res.AutoUpdate)
 				a.UICommandCh <- tray.UICommand{Action: "AddRemoteProfile", Payload: payload}
@@ -42,7 +56,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 		targetRelPath := cmd.Payload
 		if p, ok := a.Cfg.GetProfileByPath(targetRelPath); ok {
 			go func(profile config.ProfileItem) {
-				res := sys.ShowSubDialog("编辑订阅信息", profile.Name, profile.URL, profile.Interval)
+				res := view.ShowSubDialog("编辑订阅信息", profile.Name, profile.URL, profile.Interval)
 				if res.OK {
 					if res.Name != profile.Name || res.URL != profile.URL || res.Interval != profile.Interval {
 						profile.Name = res.Name
@@ -77,13 +91,13 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 
 			exePath := core.GetKernelPath(a.Cfg.BaseDir())
 			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), sourcePath); err != nil {
-				sys.ShowErrorMessage("导入失败", "配置文件存在错误：\n\n"+err.Error())
+				view.ShowErrorMessage("导入失败", "配置文件存在错误：\n\n"+err.Error())
 				return
 			}
 
 			targetName, _, err := a.Cfg.SafeCopyUntrustedConfig(sourcePath)
 			if err != nil {
-				sys.ShowErrorMessage("导入配置异常", "文件拷贝失败:\n"+err.Error())
+				view.ShowErrorMessage("导入配置异常", "文件拷贝失败:\n"+err.Error())
 				return
 			}
 
@@ -91,7 +105,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 			slog.Info("新配置已通过预检并入库", "name", targetName)
 
 			if err := a.applyConfigTransaction(context.Background(), targetName); err != nil {
-				sys.ShowErrorMessage("配置应用失败", "内核拒绝切换该配置 (可能是端口冲突)：\n\n"+err.Error())
+				view.ShowErrorMessage("配置应用失败", "内核拒绝切换该配置 (可能是端口冲突)：\n\n"+err.Error())
 			} else {
 				a.restartWebUIIfOpen()
 			}
@@ -163,12 +177,12 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 			slog.Info("开始执行配置切换事务", "target", target)
 
 			if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
-				sys.ShowErrorMessage("配置切换失败", "目标文件不存在或被损坏：\n"+err.Error())
+				view.ShowErrorMessage("配置切换失败", "目标文件不存在或被损坏：\n"+err.Error())
 				return
 			}
 
 			if err := a.applyConfigTransaction(context.Background(), target); err != nil {
-				sys.ShowErrorMessage("配置切换失败", "内核拒绝加载该配置：\n\n"+err.Error())
+				view.ShowErrorMessage("配置切换失败", "内核拒绝加载该配置：\n\n"+err.Error())
 			} else {
 				a.restartWebUIIfOpen()
 			}
@@ -182,7 +196,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 			break
 		}
 
-		if !sys.ShowConfirmMessage("确认删除", "确定要删除此配置文件吗？\n\n此操作不可恢复，本地物理文件将被同时删除。") {
+		if !view.ShowConfirmMessage("确认删除", "确定要删除此配置文件吗？\n\n此操作不可恢复，本地物理文件将被同时删除。") {
 			slog.Info("用户取消了删除操作", "path", targetPath)
 			break
 		}
@@ -343,7 +357,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 		}
 
 		if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
-			sys.ShowErrorMessage("打开失败", "配置文件不存在或已损坏：\n\n"+err.Error())
+			view.ShowErrorMessage("打开失败", "配置文件不存在或已损坏：\n\n"+err.Error())
 			break
 		}
 
