@@ -10,7 +10,7 @@ import (
 	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
-	"mihomo-tray/internal/ui"
+	"mihomo-tray/internal/tray"
 	"mihomo-tray/internal/webui"
 )
 
@@ -175,7 +175,7 @@ func (a *Application) restartWebUIIfOpen() {
 				if a.State.GetPhase() == state.PhaseRunning {
 					slog.Debug("内核已就绪，正在自动重新拉起 Web 面板")
 					select {
-					case a.UICommandCh <- ui.UICommand{Action: "OpenWebUI"}:
+					case a.UICommandCh <- tray.UICommand{Action: "OpenWebUI"}:
 					default:
 					}
 					return
