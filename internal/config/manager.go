@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -227,6 +228,27 @@ func (m *Manager) lockedSave() {
 	}
 	cfgPath := filepath.Join(m.baseDir, ConfigFileName)
 	_ = writeTmpAndRename(m.baseDir, cfgPath, b)
+}
+
+func (m *Manager) ValidatePhysicalFile(relPath string) error {
+	if relPath == "" {
+		return fmt.Errorf("配置路径为空")
+	}
+	
+	absPath := filepath.Join(m.baseDir, filepath.FromSlash(relPath))
+	fi, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("底层物理配置文件已丢失")
+		}
+		return fmt.Errorf("无法读取配置文件: %w", err)
+	}
+	
+	if fi.Size() == 0 {
+		return fmt.Errorf("配置文件已损坏 (0 字节)")
+	}
+	
+	return nil
 }
 
 func (m *Manager) BaseDir() string { return m.baseDir }
