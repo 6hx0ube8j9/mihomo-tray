@@ -25,7 +25,7 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 			errMsg = err.Error()
 		}
 
-		return fmt.Errorf("配置预检失败: %s", errMsg)
+		return fmt.Errorf("预检失败: %s", errMsg)
 	}
 
 	return nil
