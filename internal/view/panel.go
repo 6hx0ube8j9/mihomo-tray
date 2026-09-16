@@ -51,7 +51,65 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	return ""
 }
 
+package view
+
+import (
+    "fmt"
+
+    "github.com/tailscale/walk"
+    . "github.com/tailscale/walk/declarative"
+
+    "mihomo-tray/internal/tray"
+)
+
+type ProfileModel struct {
+	walk.TableModelBase
+	Items []tray.ProfileItem
+}
+
+func (m *ProfileModel) RowCount() int {
+	return len(m.Items)
+}
+
+func (m *ProfileModel) Value(row, col int) interface{} {
+	item := m.Items[row]
+
+	switch col {
+	case 0: // 状态
+		if item.IsActive {
+			return "[使用中]"
+		}
+		return ""
+	case 1: 
+		return item.Name
+	case 2:
+		if item.IsRemote {
+			return "(远程订阅)"
+		}
+		return "(本地)"
+	case 3:
+		if !item.IsRemote {
+			return "-"
+		}
+		if item.Interval > 0 {
+			return fmt.Sprintf("%d 天", item.Interval)
+		}
+		return "禁用自动更新"
+	case 4:
+		if !item.IsRemote {
+			return "-"
+		}
+		return item.LastUpdate
+	}
+	return ""
+}
+
 func RunProfileManager(items []tray.ProfileItem, dispatch func(action, payload string)) error {
+	app, err := walk.InitApp()
+	if err != nil {
+		return fmt.Errorf("初始化 walk App 失败: %w", err)
+	}
+
 	var mw *walk.MainWindow
 	var tv *walk.TableView
 
@@ -62,8 +120,7 @@ func RunProfileManager(items []tray.ProfileItem, dispatch func(action, payload s
 	var actionDelete *walk.Action
 
 	model := &ProfileModel{Items: items}
-
-	err := MainWindow{
+	err = MainWindow{
 		AssignTo: &mw,
 		Title:    "配置面板",
 		MinSize:  Size{Width: 600, Height: 300},
@@ -181,8 +238,7 @@ func RunProfileManager(items []tray.ProfileItem, dispatch func(action, payload s
 					},
 				},
 			},
-		},
-	}.Create()
+		}.Create()
 
 	if err != nil {
 		return err
@@ -190,6 +246,9 @@ func RunProfileManager(items []tray.ProfileItem, dispatch func(action, payload s
 
 	tv.SetCurrentIndex(-1)
 
-	mw.Run()
+	mw.Show()
+	app.Run()
+	
 	return nil
 }
+
