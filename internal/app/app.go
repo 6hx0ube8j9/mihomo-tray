@@ -233,6 +233,15 @@ func (a *Application) eventLoop(ctx context.Context) {
 					slog.Info("内核已停止，等待重启指令")
 				} else {
 					slog.Warn("内核异常退出，重置运行状态")
+
+					activePath := a.Cfg.GetActivePath()
+					if activePath != "" {
+						if _, extracted, err := a.Cfg.PrepareYAMLForPath(activePath); err != nil {
+							slog.Debug("自动同步配置底稿失败", "err", err)
+						} else if len(extracted) > 0 {
+							a.Cfg.UpdateBatch(extracted)
+						}
+					}
 				}
 				a.State.SetPhase(state.PhaseInitializing)
 			}
