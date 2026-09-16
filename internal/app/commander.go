@@ -14,16 +14,16 @@ import (
 	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
-	"mihomo-tray/internal/ui"
+	"mihomo-tray/internal/tray"
 	"mihomo-tray/internal/webui"
 )
 
-func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
+func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 	switch cmd.Action {
 	case "RequestAddLocalProfile":
 		go func() {
 			if selectedPath, ok := sys.OpenYAMLFileDialog(); ok {
-				a.UICommandCh <- ui.UICommand{Action: "AddLocalProfile", Payload: selectedPath}
+				a.UICommandCh <- tray.UICommand{Action: "AddLocalProfile", Payload: selectedPath}
 			}
 		}()
 		return
@@ -33,7 +33,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			res := sys.ShowSubDialog("添加远程订阅", "", "", 3)
 			if res.OK {
 				payload := fmt.Sprintf("%s|%s|%d|%t", res.Name, res.URL, res.Interval, res.AutoUpdate)
-				a.UICommandCh <- ui.UICommand{Action: "AddRemoteProfile", Payload: payload}
+				a.UICommandCh <- tray.UICommand{Action: "AddRemoteProfile", Payload: payload}
 			}
 		}()
 		return
