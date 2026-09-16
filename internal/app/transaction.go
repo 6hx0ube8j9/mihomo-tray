@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -12,25 +11,8 @@ import (
 	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
 	"mihomo-tray/internal/ui"
+	"mihomo-tray/internal/webui"
 )
-
-func (a *Application) preflightCheck(relPath string) error {
-	if relPath == "" {
-		return fmt.Errorf("配置路径为空")
-	}
-	absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(relPath))
-	fi, err := os.Stat(absPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("底层物理配置文件已丢失")
-		}
-		return fmt.Errorf("无法读取配置文件: %w", err)
-	}
-	if fi.Size() == 0 {
-		return fmt.Errorf("配置文件已损坏 (0 字节)")
-	}
-	return nil
-}
 
 func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath string) error {
 	_, extracted, err := a.Cfg.PrepareYAMLForPath(targetRelPath)
@@ -129,7 +111,7 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 
 		target := a.Cfg.GetActivePath()
 
-		if err := a.preflightCheck(target); err != nil {
+		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
 			sys.ShowErrorMessage("重载配置被拦截", "当前底层文件已丢失或被恶意破坏，为了保护您当前的网络状态，重载请求已被拦截！\n\n系统已清理错误列表，您的网络不受影响。")
 			return
 		}
@@ -152,7 +134,7 @@ func (a *Application) RestartKernel() {
 
 	activeRelPath := a.Cfg.GetActivePath()
 
-	if activeRelPath != "" && a.preflightCheck(activeRelPath) != nil {
+	if activeRelPath != "" && a.Cfg.ValidatePhysicalFile(activeRelPath) != nil {
 		a.Cfg.SetActiveProfile("")
 		activeRelPath = ""
 	}
@@ -178,8 +160,8 @@ func (a *Application) RestartKernel() {
 }
 
 func (a *Application) restartWebUIIfOpen() {
-	wasOpen := ui.IsActive()
-	ui.Cleanup()
+	wasOpen := webui.IsActive()
+	webui.Cleanup()
 
 	if wasOpen {
 		slog.Debug("检测到 Web 面板原先处于活跃状态，等待内核就绪后拉起新环境")
