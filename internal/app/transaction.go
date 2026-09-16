@@ -112,12 +112,13 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 		target := a.Cfg.GetActivePath()
 
 		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
-			sys.ShowErrorMessage("重载配置被拦截", "当前底层文件已丢失或被恶意破坏，为了保护您当前的网络状态，重载请求已被拦截！\n\n系统已清理错误列表，您的网络不受影响。")
+
+			sys.ShowErrorMessage("重载失败", "配置文件不存在或损坏，请检查文件")
 			return
 		}
 
 		if err := a.applyConfigTransaction(ctx, target); err != nil {
-			sys.ShowErrorMessage("配置重载失败", "内核拒绝加载当前配置文件，请检查语法：\n\n"+err.Error())
+			sys.ShowErrorMessage("重载失败", "当前配置文件存在错误，请检查：\n\n"+err.Error())
 		} else {
 			a.restartWebUIIfOpen()
 		}
