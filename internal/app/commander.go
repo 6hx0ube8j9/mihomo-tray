@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -29,15 +28,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 		a.uiStateMutex.Unlock()
 
 		go func() {
-			runtime.LockOSThread()
-			defer runtime.UnlockOSThread()
-
-			defer func() {
-				if r := recover(); r != nil {
-					slog.Error("配置面板发生致命崩溃 (Panic)！已被拦截", "err", r)
-				}
-			}()
-
 			err := view.RunProfileManager(items, func(action, payload string) {
 				a.UICommandCh <- tray.UICommand{Action: action, Payload: payload}
 			})
@@ -58,9 +48,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 
 	case "RequestAddRemoteProfile":
 		go func() {
-			res := view.ShowSubDialog("添加远程订阅", "", "", 3)
-			if res.OK {
-				payload := fmt.Sprintf("%s|%s|%d|%t", res.Name, res.URL, res.Interval, res.AutoUpdate)
+			name, url, interval, ok := view.ShowSubscriptionEditor("添加远程订阅", "", "", 3)
+			if ok {
+				autoUpdate := interval > 0
+				payload := fmt.Sprintf("%s|%s|%d|%t", name, url, interval, autoUpdate)
 				a.UICommandCh <- tray.UICommand{Action: "AddRemoteProfile", Payload: payload}
 			}
 		}()
@@ -70,17 +61,19 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 		targetRelPath := cmd.Payload
 		if p, ok := a.Cfg.GetProfileByPath(targetRelPath); ok {
 			go func(profile config.ProfileItem) {
-				res := view.ShowSubDialog("编辑订阅信息", profile.Name, profile.URL, profile.Interval)
-				if res.OK {
-					if res.Name != profile.Name || res.URL != profile.URL || res.Interval != profile.Interval {
-						profile.Name = res.Name
-						profile.URL = res.URL
-						profile.Interval = res.Interval
-						profile.AutoUpdate = res.Interval > 0
+				name, url, interval, ok := view.ShowSubscriptionEditor("编辑订阅信息", profile.Name, profile.URL, profile.Interval)
+				if ok {
+					if name != profile.Name || url != profile.URL || interval != profile.Interval {
+						oldURL := profile.URL 
+
+						profile.Name = name
+						profile.URL = url
+						profile.Interval = interval
+						profile.AutoUpdate = interval > 0
 
 						a.Cfg.UpsertProfile(profile)
 
-						if res.URL != profile.URL {
+						if url != oldURL {
 							go a.executeRemoteUpdate(context.Background(), profile.Path, true)
 						}
 						a.pushUIState()
@@ -209,7 +202,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 			slog.Warn("尝试删除活跃配置，已将其静默拦截")
 			break
 		}
-
+		
 		if !view.ShowConfirmMessage("确认删除", "确定要删除此配置文件吗？\n\n此操作不可恢复，本地物理文件将被同时删除。") {
 			slog.Info("用户取消了删除操作", "path", targetPath)
 			break
