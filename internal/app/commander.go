@@ -333,21 +333,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 		return
 
 	case "OpenWebUI":
-		if a.State.GetPhase() != state.PhaseRunning {
-			slog.Warn("内核尚未就绪，无法打开 WebUI")
-			break
-		}
-
-		activeApiAddr, activeSecret := a.API.GetEndpoint()
-
-		cfg := webui.Config{
-			APIAddr:   activeApiAddr,
-			Secret:    activeSecret,
-			ProxyPort: a.Cfg.Get("port"),
-			BaseDir:   a.Cfg.BaseDir(),
-			UIName:    a.Cfg.Get("external-ui-name"),
-		}
-		go webui.Launch(cfg, a.webuiEventCh)
+		a.openWebUI()
 
 	case "OpenBaseDir":
 		_ = sys.ExecuteSystemCommand(a.Cfg.BaseDir())
@@ -377,4 +363,22 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 	}
 
 	a.pushUIState()
+}
+
+func (a *Application) openWebUI() {
+	if a.State.GetPhase() != state.PhaseRunning {
+		slog.Warn("内核尚未就绪，无法打开 WebUI")
+		return
+	}
+
+	activeApiAddr, activeSecret := a.API.GetEndpoint()
+
+	cfg := webui.Config{
+		APIAddr:   activeApiAddr,
+		Secret:    activeSecret,
+		ProxyPort: a.Cfg.Get("port"),
+		BaseDir:   a.Cfg.BaseDir(),
+		UIName:    a.Cfg.Get("external-ui-name"),
+	}
+	go webui.Launch(cfg, a.webuiEventCh)
 }
