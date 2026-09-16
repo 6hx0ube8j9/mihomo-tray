@@ -90,13 +90,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 		}
 	}
 
-	if _, extracted, err := a.Cfg.PrepareYAMLForPath(activePath); err != nil {
-		slog.Error("开机生成核心运行配置失败", "err", err)
-	} else {
-		if len(extracted) > 0 {
-			a.Cfg.UpdateBatch(extracted)
-		}
-	}
+	a.SyncRuntimeConfig()
 
 	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), core.RuntimeConfigName)
 	apiAddr, apiSecret := a.Cfg.ResolveKernelEndpoint(runtimeAbs)
@@ -110,6 +104,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	a.pushUIState()
 
 	slog.Debug("启动网卡监听与守护任务")
+	a.Kernel.SetPreStartHook(a.SyncRuntimeConfig)
 	go a.Kernel.RunDaemon(ctx, a.kernelEventCh)
 	go sys.WatchNetworkInterfaces(ctx, a.tunEventCh)
 	go sys.WatchProxyRegistry(ctx, a.proxyStatusCh)
@@ -233,15 +228,6 @@ func (a *Application) eventLoop(ctx context.Context) {
 					slog.Info("内核已停止，等待重启指令")
 				} else {
 					slog.Warn("内核异常退出，重置运行状态")
-
-					activePath := a.Cfg.GetActivePath()
-					if activePath != "" {
-						if _, extracted, err := a.Cfg.PrepareYAMLForPath(activePath); err != nil {
-							slog.Debug("自动同步配置底稿失败", "err", err)
-						} else if len(extracted) > 0 {
-							a.Cfg.UpdateBatch(extracted)
-						}
-					}
 				}
 				a.State.SetPhase(state.PhaseInitializing)
 			}
