@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+const DefaultUserAgent = "clash-verge/v1.7.7 clash-meta"
+
 type FetchResult struct {
 	TempPath string
 	Upload   int64
@@ -68,7 +70,7 @@ func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*FetchRes
 	}
 
 	client := &http.Client{
-		Timeout:   30 * time.Second,
+		Timeout:   90 * time.Second,
 		Transport: transport,
 	}
 
@@ -77,7 +79,7 @@ func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*FetchRes
 		return nil, err
 	}
 
-	req.Header.Set("User-Agent", "clash-verge/v1.7.7 clash-meta")
+	req.Header.Set("User-Agent", DefaultUserAgent)
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Connection", "keep-alive")
 
@@ -93,19 +95,21 @@ func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*FetchRes
 
 	profilesDirAbs := filepath.Join(m.baseDir, ProfilesDir)
 	_ = os.MkdirAll(profilesDirAbs, 0755)
-	
+
 	tmpFile, err := os.CreateTemp(profilesDirAbs, "sub_*.tmp")
 	if err != nil {
 		return nil, err
 	}
 	tmpName := tmpFile.Name()
 
-	defer tmpFile.Close()
-
 	limitReader := io.LimitReader(resp.Body, 15*1024*1024)
-	if _, err := io.Copy(tmpFile, limitReader); err != nil {
+	_, copyErr := io.Copy(tmpFile, limitReader)
+
+	tmpFile.Close()
+
+	if copyErr != nil {
 		_ = os.Remove(tmpName)
-		return nil, err
+		return nil, copyErr
 	}
 
 	res := &FetchResult{TempPath: tmpName}
