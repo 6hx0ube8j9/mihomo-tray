@@ -32,10 +32,16 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 			runtime.LockOSThread()
 			defer runtime.UnlockOSThread()
 
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("配置面板发生致命崩溃 (Panic)！已被拦截", "err", r)
+				}
+			}()
+
 			err := view.RunProfileManager(items, func(action, payload string) {
 				a.UICommandCh <- tray.UICommand{Action: action, Payload: payload}
 			})
-			
+
 			if err != nil {
 				slog.Error("配置面板启动失败", "err", err)
 			}
