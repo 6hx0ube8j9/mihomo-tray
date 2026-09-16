@@ -44,8 +44,8 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 		tunEventCh:    make(chan struct{}, 1),
 		proxyStatusCh: make(chan sys.ProxyStatus, 5),
 		apiPollCh:     make(chan struct{}, 1),
-		UIStateCh:     make(chan tray.UIState, 1),    // [修正] 已替换为 tray
-		UICommandCh:   make(chan tray.UICommand, 10), // [修正] 已替换为 tray
+		UIStateCh:     make(chan tray.UIState, 1),
+		UICommandCh:   make(chan tray.UICommand, 10),
 		webuiEventCh:  make(chan webui.Event, 1),
 	}
 }
