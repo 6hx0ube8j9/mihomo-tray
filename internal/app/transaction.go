@@ -10,6 +10,7 @@ import (
 	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/view"
+	"mihomo-tray/internal/tray"
 	"mihomo-tray/internal/webui"
 )
 
