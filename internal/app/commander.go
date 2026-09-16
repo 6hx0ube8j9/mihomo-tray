@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"mihomo-tray/internal/config"
+	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
 	"mihomo-tray/internal/ui"
+	"mihomo-tray/internal/webui"
 )
 
 func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
@@ -160,7 +162,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 
 			slog.Info("开始执行配置切换事务", "target", target)
 
-			if err := a.preflightCheck(target); err != nil {
+			if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
 				sys.ShowErrorMessage("切换配置被拦截", "目标配置文件已失效或被破坏：\n"+err.Error()+"\n\n系统已将其从列表中移除，您的当前网络未受影响。")
 				return
 			}
@@ -316,14 +318,14 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 
 		activeApiAddr, activeSecret := a.API.GetEndpoint()
 
-		cfg := ui.Config{
+		cfg := webui.Config{
 			APIAddr:   activeApiAddr,
 			Secret:    activeSecret,
 			ProxyPort: a.Cfg.Get("port"),
 			BaseDir:   a.Cfg.BaseDir(),
 			UIName:    a.Cfg.Get("external-ui-name"),
 		}
-		go ui.Launch(cfg, a.webuiEventCh)
+		go webui.Launch(cfg, a.webuiEventCh)
 
 	case "OpenBaseDir":
 		_ = sys.ExecuteSystemCommand(a.Cfg.BaseDir())
@@ -340,7 +342,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			targetRelPath = a.Cfg.GetActivePath()
 		}
 
-		if err := a.preflightCheck(targetRelPath); err != nil {
+		if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
 			sys.ShowErrorMessage("打开失败", "底稿文件不存在或已损坏，无法启动编辑器。\n\n"+err.Error())
 			break
 		}
@@ -349,7 +351,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		_ = sys.ExecuteSystemCommand(absPath)
 
 	case "ExitApp":
-		ui.Cleanup()
+		webui.Cleanup()
 	}
 
 	a.pushUIState()
