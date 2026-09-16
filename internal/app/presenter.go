@@ -6,6 +6,7 @@ import (
 
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/state"
+	"mihomo-tray/internal/sys"
 	"mihomo-tray/internal/ui"
 )
 
@@ -24,7 +25,7 @@ func (a *Application) calculateUIState() ui.UIState {
 		Mode:       a.Cfg.Get("mode"),
 		AutoStart:  a.Cfg.Get("autostart") == "true",
 		RunAsAdmin: a.Cfg.Get("run_as_admin") == "true",
-		IsAdmin:    a.State.IsAdmin(), // 如果使用 sys.IsAdmin()，请补充 "mihomo-tray/internal/sys" 导入
+		IsAdmin:    sys.IsAdmin(), 
 	}
 
 	activePath := a.Cfg.GetActivePath()
