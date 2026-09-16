@@ -7,7 +7,8 @@ import (
 	"log/slog"
 	"strings"
 	"time"
-
+	
+    "mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
 )
 
