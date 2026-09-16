@@ -319,7 +319,7 @@ func (th *TrayHost) ShowContextMenu(items []MenuItem) {
 	pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
 	pSetForegroundWindow.Call(uintptr(th.hwnd))
 
-	flags := uintptr(TPM_LEFTALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY)
+	flags := uintptr(TPM_RIGHTALIGN | TPM_BOTTOMALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY)
 	r, _, _ := pTrackPopupMenu.Call(hMenu, flags, uintptr(pt.X), uintptr(pt.Y), 0, uintptr(th.hwnd), 0)
 	pPostMessageW.Call(uintptr(th.hwnd), 0, 0, 0)
 
