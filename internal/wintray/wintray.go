@@ -90,8 +90,6 @@ const (
 	MF_SEPARATOR = 0x00000800
 
 	TPM_LEFTALIGN   = 0x0000
-	TPM_RIGHTALIGN  = 0x0008  
-	TPM_BOTTOMALIGN = 0x0020  
 	TPM_RIGHTBUTTON = 0x0002
 	TPM_RETURNCMD   = 0x0100
 	TPM_NONOTIFY    = 0x0080
@@ -321,7 +319,7 @@ func (th *TrayHost) ShowContextMenu(items []MenuItem) {
 	pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
 	pSetForegroundWindow.Call(uintptr(th.hwnd))
 
-	flags := uintptr(TPM_RIGHTALIGN | TPM_BOTTOMALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY)
+	flags := uintptr(TPM_LEFTALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY)
 	r, _, _ := pTrackPopupMenu.Call(hMenu, flags, uintptr(pt.X), uintptr(pt.Y), 0, uintptr(th.hwnd), 0)
 	pPostMessageW.Call(uintptr(th.hwnd), 0, 0, 0)
 
