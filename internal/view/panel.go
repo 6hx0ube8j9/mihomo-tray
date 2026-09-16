@@ -54,7 +54,7 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 }
 
 var (
-	panelApp       *walk.App
+	panelApp       *walk.Application
 	panelWindow    *walk.MainWindow
 	tableView      *walk.TableView
 	panelModel     *ProfileModel
@@ -91,10 +91,6 @@ func RunProfileManager(items []tray.ProfileItem, dispatch func(action, payload s
 				MinSize:  Size{Width: 600, Height: 300},
 				Size:     Size{Width: 640, Height: 350},
 				Layout:   VBox{},
-				OnClosing: func(canceled *bool, reason walk.CloseReason) {
-					*canceled = true
-					panelWindow.Hide()
-				},
 				Children: []Widget{
 					Composite{
 						Layout: HBox{MarginsZero: true},
@@ -133,7 +129,6 @@ func RunProfileManager(items []tray.ProfileItem, dispatch func(action, payload s
 						},
 						Model: panelModel,
 
-						// 防闪退的判空保护
 						OnCurrentIndexChanged: func() {
 							if tableView == nil || actionSwitch == nil {
 								return
@@ -216,6 +211,11 @@ func RunProfileManager(items []tray.ProfileItem, dispatch func(action, payload s
 				return
 			}
 
+			panelWindow.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
+				*canceled = true
+				panelWindow.Hide()
+			})
+
 			close(readyChan)
 			app.Run()
 		}()
@@ -227,6 +227,7 @@ func RunProfileManager(items []tray.ProfileItem, dispatch func(action, payload s
 		return fmt.Errorf("walk UI 引擎未就绪")
 	}
 
+	// 跨线程安全投递渲染数据
 	panelApp.Synchronize(func() {
 		panelModel.Items = items
 		panelModel.PublishRowsReset()
