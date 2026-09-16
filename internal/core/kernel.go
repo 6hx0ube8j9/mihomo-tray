@@ -46,6 +46,13 @@ type KernelManager struct {
 	killMu     sync.Mutex
 	isPaused   bool
 	wakeCh     chan struct{}
+	preStartHook func()
+}
+
+func (km *KernelManager) SetPreStartHook(hook func()) {
+	km.mu.Lock()
+	km.preStartHook = hook
+	km.mu.Unlock()
 }
 
 func NewKernelManager(cfg *config.Manager, st *state.RuntimeState) *KernelManager {
@@ -126,6 +133,22 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 
 		errBuf := NewTailBuffer(64 * 1024)
 
+		runtimeAbs := filepath.Join(absBaseDir, RuntimeConfigName)
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(300 * time.Millisecond):
+		}
+
+		km.mu.Lock()
+		hook := km.preStartHook
+		km.mu.Unlock()
+		if hook != nil {
+			hook()
+		}
+
+		errBuf := NewTailBuffer(64 * 1024)
 		runtimeAbs := filepath.Join(absBaseDir, RuntimeConfigName)
 
 		cmd := exec.Command(target, "-d", ".", "-f", runtimeAbs)
