@@ -9,8 +9,7 @@ import (
 
 	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/state"
-	"mihomo-tray/internal/sys"
-	"mihomo-tray/internal/tray"
+	"mihomo-tray/internal/view"
 	"mihomo-tray/internal/webui"
 )
 
@@ -82,7 +81,7 @@ func (a *Application) executeRemoteUpdate(ctx context.Context, targetRelPath str
 
 	if err != nil {
 		if isManual {
-			sys.ShowErrorMessage("订阅更新拦截", err.Error())
+			view.ShowErrorMessage("订阅更新拦截", err.Error())
 		}
 		slog.Error("订阅更新终止", "path", targetRelPath, "err", err)
 		return
@@ -112,13 +111,12 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 		target := a.Cfg.GetActivePath()
 
 		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
-
-			sys.ShowErrorMessage("重载失败", "配置文件不存在或损坏，请检查文件")
+			view.ShowErrorMessage("重载失败", "配置文件不存在或损坏，请检查文件")
 			return
 		}
 
 		if err := a.applyConfigTransaction(ctx, target); err != nil {
-			sys.ShowErrorMessage("重载失败", "当前配置文件存在错误，请检查：\n\n"+err.Error())
+			view.ShowErrorMessage("重载失败", "当前配置文件存在错误，请检查：\n\n"+err.Error())
 		} else {
 			a.restartWebUIIfOpen()
 		}
