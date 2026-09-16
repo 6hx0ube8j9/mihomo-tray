@@ -346,7 +346,7 @@ func main() {
 				}
 				slog.Info("收到外部进程唤醒信号")
 				select {
-				case application.UICommandCh <- ui.UICommand{Action: "OpenWebUI"}:
+				case application.UICommandCh <- tray.UICommand{Action: "OpenWebUI"}:
 					time.Sleep(200 * time.Millisecond)
 				case <-ctx.Done():
 					return
