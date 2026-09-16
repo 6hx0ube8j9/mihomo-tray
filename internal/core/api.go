@@ -27,6 +27,14 @@ type APIClient struct {
 	secret  string
 }
 
+type KernelStatus struct {
+	Mode string `json:"mode"`
+	Tun  struct {
+		Enable bool   `json:"enable"`
+		Device string `json:"device"`
+	} `json:"tun"`
+}
+
 func NewAPIClient(cfg *config.Manager, st *state.RuntimeState) *APIClient {
 	return &APIClient{
 		cfg: cfg,
@@ -161,4 +169,18 @@ func (c *APIClient) SyncConfigToKernel(ctx context.Context, payload map[string]i
 	}
 	_, err := c.DoRequest(ctx, http.MethodPatch, "/configs", payload)
 	return err
+}
+
+func (c *APIClient) GetKernelStatus(ctx context.Context) (*KernelStatus, error) {
+	body, err := c.DoRequest(ctx, "GET", "/configs", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var status KernelStatus
+	if err := json.Unmarshal(body, &status); err != nil {
+		return nil, fmt.Errorf("解析内核状态失败: %w", err)
+	}
+
+	return &status, nil
 }
