@@ -19,6 +19,7 @@ var (
 const (
 	smCXScreen = 0
 	smCYScreen = 1
+	swHide     = 0
 	swRestore  = 9
 )
 
@@ -41,7 +42,7 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	switch col {
 	case 0:
 		if item.IsActive {
-			return "正在使用"
+			return "🟢 正在使用" 
 		}
 		return " "
 	case 1:
@@ -72,8 +73,17 @@ func centerWindow(win *walk.Dialog) {
 	if win == nil {
 		return
 	}
-	cx := getSystemMetrics(smCXScreen)
-	cy := getSystemMetrics(smCYScreen)
+	
+	cxLog := getSystemMetrics(smCXScreen)
+	cyLog := getSystemMetrics(smCYScreen)
+
+	dpi := win.DPI()
+	if dpi == 0 {
+		dpi = 96
+	}
+
+	cx := cxLog * int(dpi) / 96
+	cy := cyLog * int(dpi) / 96
 
 	bounds := win.Bounds()
 	newX := (cx - bounds.Width) / 2
@@ -105,10 +115,10 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 			var actionUpdate *walk.Action
 			var actionDelete *walk.Action
 
-			err := Dialog{ //
+			err := Dialog{
 				AssignTo: &e.panelWindow,
 				Title:    "管理配置",
-				MinSize:  Size{Width: 700, Height: 450},
+				MinSize:  Size{Width: 700, Height: 450}, 
 				Size:     Size{Width: 750, Height: 500}, 
 				Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
 				Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}},
@@ -134,8 +144,8 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 					TableView{
 						AssignTo: &e.tableView,
 						Columns: []TableViewColumn{
-							{Title: "状态", Width: 80},
-							{Title: "名称", Width: 220},
+							{Title: "状态", Width: 100},
+							{Title: "名称", Width: 200},
 							{Title: "类型", Width: 90},
 							{Title: "更新频率", Width: 110},
 							{Title: "上次更新", Width: 140},
@@ -214,7 +224,7 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 						},
 					},
 				},
-			}.Create(e.mw)
+			}.Create(e.mw) 
 
 			if err != nil {
 				slog.Error("创建配置面板主窗口失败", "err", err)
@@ -225,7 +235,7 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 
 			e.panelWindow.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 				*canceled = true
-				e.panelWindow.Hide()
+				procShowWindow.Call(uintptr(e.panelWindow.Handle()), swHide)
 			})
 		}
 
