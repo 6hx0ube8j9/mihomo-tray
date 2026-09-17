@@ -1,15 +1,7 @@
 {
   "RT_GROUP_ICON": {
     "APP": {
-      "0409": "../internal/ui/icons/app.ico"
-    }
-  },
-  "RT_MANIFEST": {
-    "#1": {
-      "0409": {
-        "custom": true,
-        "src": "../main.manifest"
-      }
+      "0409": "internal/ui/icons/app.ico"
     }
   },
   "RT_VERSION": {
