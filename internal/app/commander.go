@@ -14,45 +14,40 @@ import (
 	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
-	"mihomo-tray/internal/tray"
-	"mihomo-tray/internal/view"
+	"mihomo-tray/internal/ui"
 	"mihomo-tray/internal/webui"
 )
 
-func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
+func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 	switch cmd.Action {
 	case "OpenProfileManager":
 		a.uiStateMutex.Lock()
-		items := make([]tray.ProfileItem, len(a.lastUIState.ProfileItems))
+		items := make([]ui.ProfileItem, len(a.lastUIState.ProfileItems))
 		copy(items, a.lastUIState.ProfileItems)
 		a.uiStateMutex.Unlock()
 
-		go func() {
-			err := view.RunProfileManager(items, func(action, payload string) {
-				a.UICommandCh <- tray.UICommand{Action: action, Payload: payload}
-			})
-
-			if err != nil {
-				slog.Error("配置面板启动失败", "err", err)
-			}
-		}()
+		if a.ShowProfileManager != nil {
+			a.ShowProfileManager(items)
+		}
 		return
 
 	case "RequestAddLocalProfile":
 		go func() {
-			if selectedPath, ok := view.OpenYAMLFileDialog(); ok {
-				a.UICommandCh <- tray.UICommand{Action: "AddLocalProfile", Payload: selectedPath}
+			if selectedPath, ok := ui.OpenYAMLFileDialog(); ok {
+				a.UICommandCh <- ui.UICommand{Action: "AddLocalProfile", Payload: selectedPath}
 			}
 		}()
 		return
 
 	case "RequestAddRemoteProfile":
 		go func() {
-			name, url, interval, ok := view.ShowSubscriptionEditor("添加远程订阅", "", "", 3)
-			if ok {
-				autoUpdate := interval > 0
-				payload := fmt.Sprintf("%s|%s|%d|%t", name, url, interval, autoUpdate)
-				a.UICommandCh <- tray.UICommand{Action: "AddRemoteProfile", Payload: payload}
+			if a.ShowSubscriptionEditor != nil {
+				name, url, interval, ok := a.ShowSubscriptionEditor("添加远程订阅", "", "", 3)
+				if ok {
+					autoUpdate := interval > 0
+					payload := fmt.Sprintf("%s|%s|%d|%t", name, url, interval, autoUpdate)
+					a.UICommandCh <- ui.UICommand{Action: "AddRemoteProfile", Payload: payload}
+				}
 			}
 		}()
 		return
@@ -61,22 +56,24 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 		targetRelPath := cmd.Payload
 		if p, ok := a.Cfg.GetProfileByPath(targetRelPath); ok {
 			go func(profile config.ProfileItem) {
-				name, url, interval, ok := view.ShowSubscriptionEditor("编辑订阅信息", profile.Name, profile.URL, profile.Interval)
-				if ok {
-					if name != profile.Name || url != profile.URL || interval != profile.Interval {
-						oldURL := profile.URL 
+				if a.ShowSubscriptionEditor != nil {
+					name, url, interval, ok := a.ShowSubscriptionEditor("编辑订阅信息", profile.Name, profile.URL, profile.Interval)
+					if ok {
+						if name != profile.Name || url != profile.URL || interval != profile.Interval {
+							oldURL := profile.URL
 
-						profile.Name = name
-						profile.URL = url
-						profile.Interval = interval
-						profile.AutoUpdate = interval > 0
+							profile.Name = name
+							profile.URL = url
+							profile.Interval = interval
+							profile.AutoUpdate = interval > 0
 
-						a.Cfg.UpsertProfile(profile)
+							a.Cfg.UpsertProfile(profile)
 
-						if url != oldURL {
-							go a.executeRemoteUpdate(context.Background(), profile.Path, true)
+							if url != oldURL {
+								go a.executeRemoteUpdate(context.Background(), profile.Path, true)
+							}
+							a.pushUIState()
 						}
-						a.pushUIState()
 					}
 				}
 			}(p)
@@ -98,13 +95,13 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 
 			exePath := core.GetKernelPath(a.Cfg.BaseDir())
 			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), sourcePath); err != nil {
-				view.ShowErrorMessage("导入失败", "配置文件存在错误：\n\n"+err.Error())
+				ui.ShowErrorMessage("导入失败", "配置文件存在错误：\n\n"+err.Error())
 				return
 			}
 
 			targetName, _, err := a.Cfg.SafeCopyUntrustedConfig(sourcePath)
 			if err != nil {
-				view.ShowErrorMessage("导入配置异常", "文件拷贝失败:\n"+err.Error())
+				ui.ShowErrorMessage("导入配置异常", "文件拷贝失败:\n"+err.Error())
 				return
 			}
 
@@ -112,7 +109,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 			slog.Info("新配置已通过预检并入库", "name", targetName)
 
 			if err := a.applyConfigTransaction(context.Background(), targetName); err != nil {
-				view.ShowErrorMessage("配置应用失败", "内核拒绝切换该配置 (可能是端口冲突)：\n\n"+err.Error())
+				ui.ShowErrorMessage("配置应用失败", "内核拒绝切换该配置 (可能是端口冲突)：\n\n"+err.Error())
 			} else {
 				a.restartWebUIIfOpen()
 			}
@@ -184,12 +181,12 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 			slog.Info("开始执行配置切换事务", "target", target)
 
 			if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
-				view.ShowErrorMessage("配置切换失败", "目标文件不存在或被损坏：\n"+err.Error())
+				ui.ShowErrorMessage("配置切换失败", "目标文件不存在或被损坏：\n"+err.Error())
 				return
 			}
 
 			if err := a.applyConfigTransaction(context.Background(), target); err != nil {
-				view.ShowErrorMessage("配置切换失败", "内核拒绝加载该配置：\n\n"+err.Error())
+				ui.ShowErrorMessage("配置切换失败", "内核拒绝加载该配置：\n\n"+err.Error())
 			} else {
 				a.restartWebUIIfOpen()
 			}
@@ -202,8 +199,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 			slog.Warn("尝试删除活跃配置，已将其静默拦截")
 			break
 		}
-		
-		if !view.ShowConfirmMessage("确认删除", "确定要删除此配置文件吗？\n\n此操作不可恢复，本地物理文件将被同时删除。") {
+
+		if !ui.ShowConfirmMessage("确认删除", "确定要删除此配置文件吗？\n\n此操作不可恢复，本地物理文件将被同时删除。") {
 			slog.Info("用户取消了删除操作", "path", targetPath)
 			break
 		}
@@ -350,7 +347,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd tray.UICommand) {
 		}
 
 		if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
-			view.ShowErrorMessage("打开失败", "配置文件不存在或已损坏：\n\n"+err.Error())
+			ui.ShowErrorMessage("打开失败", "配置文件不存在或已损坏：\n\n"+err.Error())
 			break
 		}
 
