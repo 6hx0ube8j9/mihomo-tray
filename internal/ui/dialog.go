@@ -6,19 +6,16 @@ import (
 )
 
 const (
-	MB_OK          = 0x00000000
-	MB_OKCANCEL    = 0x00000001
-	MB_ICONWARNING = 0x00000030
-	MB_TOPMOST     = 0x00040000
+	MB_OK            = 0x00000000
+	MB_OKCANCEL      = 0x00000001
+	MB_ICONWARNING   = 0x00000030
+	MB_TOPMOST       = 0x00040000
 	MB_SETFOREGROUND = 0x00010000
 )
 
 var (
 	dlgModComdlg32          = windows.NewLazySystemDLL("comdlg32.dll")
 	dlgProcGetOpenFileNameW = dlgModComdlg32.NewProc("GetOpenFileNameW")
-	
-	dlgModUser32            = windows.NewLazySystemDLL("user32.dll")
-	procGetForegroundWindow = dlgModUser32.NewProc("GetForegroundWindow")
 )
 
 type OPENFILENAMEW struct {
@@ -63,10 +60,7 @@ func OpenYAMLFileDialog() (string, bool) {
 	ofn.LpstrTitle = title
 
 	ofn.Flags = 0x00001000 | 0x00000008 | 0x00000004
-
-	// 将文件选择器也绑定到当前前台窗口
-	hwnd, _, _ := procGetForegroundWindow.Call()
-	ofn.HwndOwner = windows.HWND(hwnd)
+	ofn.HwndOwner = 0
 
 	ret, _, _ := dlgProcGetOpenFileNameW.Call(uintptr(unsafe.Pointer(&ofn)))
 	if ret != 0 {
@@ -79,17 +73,13 @@ func ShowErrorMessage(title, message string) {
 	titlePtr, _ := windows.UTF16PtrFromString(title)
 	msgPtr, _ := windows.UTF16PtrFromString(message)
 	const flags = MB_OK | MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND
-	
-	hwnd, _, _ := procGetForegroundWindow.Call()
-	_, _ = windows.MessageBox(windows.HWND(hwnd), msgPtr, titlePtr, uint32(flags))
+	_, _ = windows.MessageBox(0, msgPtr, titlePtr, uint32(flags))
 }
 
 func ShowConfirmMessage(title, message string) bool {
 	titlePtr, _ := windows.UTF16PtrFromString(title)
 	msgPtr, _ := windows.UTF16PtrFromString(message)
 	const flags = MB_OKCANCEL | MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND
-	
-	hwnd, _, _ := procGetForegroundWindow.Call()
-	ret, _ := windows.MessageBox(windows.HWND(hwnd), msgPtr, titlePtr, uint32(flags))
+	ret, _ := windows.MessageBox(0, msgPtr, titlePtr, uint32(flags))
 	return ret == 1
 }
