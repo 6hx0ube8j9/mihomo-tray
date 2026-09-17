@@ -5,6 +5,8 @@ import (
 	. "github.com/tailscale/walk/declarative"
 )
 
+var isSubscriptionEditorOpen bool
+
 func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string, defaultInterval int) (string, string, int, bool) {
 	if e.app == nil || e.mw == nil {
 		return "", "", 0, false
@@ -18,6 +20,12 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 	resCh := make(chan result)
 
 	e.app.Synchronize(func() {
+		if isSubscriptionEditorOpen {
+			resCh <- result{ok: false}
+			return
+		}
+		isSubscriptionEditorOpen = true
+
 		var dlg *walk.Dialog
 		var nameEdit *walk.LineEdit
 		var urlEdit *walk.LineEdit
@@ -27,6 +35,11 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 		var outName, outUrl string
 		var outInterval int
 		var accepted bool
+
+		var owner walk.Form = e.mw
+		if e.panelWindow != nil && e.panelWindow.Visible() {
+			owner = e.panelWindow
+		}
 
 		err := Dialog{
 			AssignTo: &dlg,
@@ -71,12 +84,17 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 					},
 				},
 			},
-		}.Create(e.mw)
+		}.Create(owner)
 
 		if err != nil {
+			isSubscriptionEditorOpen = false
 			resCh <- result{ok: false}
 			return
 		}
+
+		dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
+			isSubscriptionEditorOpen = false
+		})
 
 		dlg.Run()
 		resCh <- result{outName, outUrl, outInterval, accepted}
