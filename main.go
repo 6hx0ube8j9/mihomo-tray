@@ -21,7 +21,7 @@ import (
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
-	"mihomo-tray/internal/tray"
+	"mihomo-tray/internal/ui"
 )
 
 const (
@@ -318,10 +318,12 @@ func main() {
 
 	runtimeState := state.NewRuntimeState()
 	application := app.NewApplication(cfgMgr, runtimeState)
-	trayMenu := tray.NewTrayMenu(ctx, cancel, application.UICommandCh, application.UIStateCh)
+	
+	slog.Debug("初始化系统托盘与大一统 UI 引擎")
+	uiEngine := ui.NewUIEngine(ctx, cancel, application.UICommandCh, application.UIStateCh)
 
-	slog.Debug("初始化系统托盘")
-	trayMenu.Init()
+	application.ShowProfileManager = uiEngine.ShowProfileManager
+	application.ShowSubscriptionEditor = uiEngine.ShowSubscriptionEditor
 
 	go func() {
 		sigCh := make(chan os.Signal, 1)
@@ -330,7 +332,7 @@ func main() {
 		select {
 		case sig := <-sigCh:
 			slog.Info("收到系统退出信号", "signal", sig)
-			trayMenu.Stop()
+			cancel()
 		case <-ctx.Done():
 			return
 		}
@@ -355,10 +357,12 @@ func main() {
 	slog.Debug("启动后台核心服务")
 	go application.Bootstrap(ctx)
 
-	slog.Debug("进入托盘界面事件循环")
-	trayMenu.Run()
+	slog.Debug("进入全局 UI 引擎事件循环 (独占主线程)")
+	if err := uiEngine.Run(); err != nil {
+		slog.Error("UI 引擎启动失败", "err", err)
+	}
 
-	slog.Debug("托盘循环退出，开始释放资源")
+	slog.Debug("UI 循环退出，开始释放资源")
 	cancel()
 	if hShowUIEvent != 0 {
 		_ = windows.SetEvent(hShowUIEvent)
