@@ -186,6 +186,7 @@ func (m *Manager) UpsertProfile(item ProfileItem) {
 	if len(m.data.Items) > 10 {  
 		m.data.Items = append(m.data.Items[:1], m.data.Items[2:]...)
 	}
+
 	if m.data.Active == "" {
 		m.data.Active = item.Path
 	}
