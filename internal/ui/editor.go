@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"net/url"
 	"strings"
 
 	"github.com/tailscale/walk"
@@ -22,7 +23,6 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 	resCh := make(chan result)
 
 	e.app.Synchronize(func() {
-		// 拦截并发多开请求
 		if isSubscriptionEditorOpen {
 			resCh <- result{ok: false}
 			return
@@ -72,19 +72,21 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 							Text:     "确定",
 							OnClicked: func() {
 								name := strings.TrimSpace(nameEdit.Text())
-								url := strings.TrimSpace(urlEdit.Text())
+								inputUrl := strings.TrimSpace(urlEdit.Text())
 
-								if name == "" {
-									ShowErrorMessage("输入错误", "配置名称不能为空！")
-									return
-								}
-								if url == "" {
+								if inputUrl == "" {
 									ShowErrorMessage("输入错误", "订阅链接不能为空！")
 									return
 								}
 
+								u, err := url.ParseRequestURI(inputUrl)
+								if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+									ShowErrorMessage("输入错误", "请输入有效且合法的 HTTP/HTTPS 订阅链接！")
+									return
+								}
+
 								outName = name
-								outUrl = url
+								outUrl = inputUrl
 								outInterval = int(intervalEdit.Value())
 								accepted = true
 								dlg.Accept()
