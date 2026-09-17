@@ -8,7 +8,6 @@ import (
 	. "github.com/tailscale/walk/declarative"
 )
 
-// ProfileModel 现在直接使用 ui 包内的 ProfileItem
 type ProfileModel struct {
 	walk.TableModelBase
 	Items []ProfileItem
