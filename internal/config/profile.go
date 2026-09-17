@@ -150,8 +150,6 @@ func (m *Manager) RegisterNewProfile(relPath string) {
 
 	for _, item := range m.data.Items {
 		if item.Path == relPath {
-			m.data.Active = relPath
-			m.lockedSave()
 			return
 		}
 	}
@@ -168,7 +166,9 @@ func (m *Manager) RegisterNewProfile(relPath string) {
 		m.data.Items = append(m.data.Items[:1], m.data.Items[2:]...)
 	}
 
-	m.data.Active = relPath
+	if m.data.Active == "" {
+		m.data.Active = relPath
+	}
 	m.lockedSave()
 }
 
@@ -185,6 +185,9 @@ func (m *Manager) UpsertProfile(item ProfileItem) {
 	m.data.Items = append(m.data.Items, item)
 	if len(m.data.Items) > 10 {  
 		m.data.Items = append(m.data.Items[:1], m.data.Items[2:]...)
+	}
+	if m.data.Active == "" {
+		m.data.Active = item.Path
 	}
 	m.lockedSave()
 }
