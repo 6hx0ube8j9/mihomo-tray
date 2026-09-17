@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"log/slog"
+	"unsafe"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
@@ -14,6 +15,9 @@ var (
 	procGetSystemMetrics    = user32DLL.NewProc("GetSystemMetrics")
 	procSetForegroundWindow = user32DLL.NewProc("SetForegroundWindow")
 	procShowWindow          = user32DLL.NewProc("ShowWindow")
+	
+	procGetWindowRect       = user32DLL.NewProc("GetWindowRect")
+	procSetWindowPos        = user32DLL.NewProc("SetWindowPos")
 )
 
 const (
@@ -23,9 +27,35 @@ const (
 	swRestore  = 9
 )
 
-func getSystemMetrics(index int) int {
-	ret, _, _ := procGetSystemMetrics.Call(uintptr(index))
-	return int(ret)
+type RECT struct {
+	Left, Top, Right, Bottom int32
+}
+
+func centerWindow(win *walk.Dialog) {
+	if win == nil {
+		return
+	}
+	
+	cx, _, _ := procGetSystemMetrics.Call(uintptr(smCXScreen))
+	cy, _, _ := procGetSystemMetrics.Call(uintptr(smCYScreen))
+
+	var r RECT
+	procGetWindowRect.Call(uintptr(win.Handle()), uintptr(unsafe.Pointer(&r)))
+
+	width := int(r.Right - r.Left)
+	height := int(r.Bottom - r.Top)
+
+	newX := (int(cx) - width) / 2
+	newY := (int(cy) - height) / 2
+
+	if newX < 0 {
+		newX = 0
+	}
+	if newY < 0 {
+		newY = 0
+	}
+
+	procSetWindowPos.Call(uintptr(win.Handle()), 0, uintptr(newX), uintptr(newY), 0, 0, 0x0005)
 }
 
 type ProfileModel struct {
@@ -44,7 +74,7 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 		if item.IsActive {
 			return "✔️ 正在使用" 
 		}
-		return ""
+		return " "
 	case 1:
 		return item.Name
 	case 2:
@@ -67,41 +97,6 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 		return item.LastUpdate
 	}
 	return ""
-}
-
-func centerWindow(win *walk.Dialog) {
-	if win == nil {
-		return
-	}
-	
-	cxLog := getSystemMetrics(smCXScreen)
-	cyLog := getSystemMetrics(smCYScreen)
-
-	dpi := win.DPI()
-	if dpi == 0 {
-		dpi = 96
-	}
-
-	cx := cxLog * int(dpi) / 96
-	cy := cyLog * int(dpi) / 96
-
-	bounds := win.Bounds()
-	newX := (cx - bounds.Width) / 2
-	newY := (cy - bounds.Height) / 2
-
-	if newX < 0 {
-		newX = 0
-	}
-	if newY < 0 {
-		newY = 0
-	}
-
-	win.SetBounds(walk.Rectangle{
-		X:      newX,
-		Y:      newY,
-		Width:  bounds.Width,
-		Height: bounds.Height,
-	})
 }
 
 func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
