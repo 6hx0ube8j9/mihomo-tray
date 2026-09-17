@@ -244,3 +244,23 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 		e.panelWindow.SetFocus()
 	})
 }
+
+func (e *UIEngine) RefreshPanelData(items []ProfileItem) {
+	if e.app == nil || e.panelWindow == nil || !e.panelWindow.Visible() {
+		return
+	}
+	
+	e.app.Synchronize(func() {
+		idx := -1
+		if e.tableView != nil {
+			idx = e.tableView.CurrentIndex()
+		}
+
+		e.panelModel.Items = items
+		e.panelModel.PublishRowsReset()
+
+		if e.tableView != nil && idx >= 0 && idx < len(items) {
+			e.tableView.SetCurrentIndex(idx)
+		}
+	})
+}
