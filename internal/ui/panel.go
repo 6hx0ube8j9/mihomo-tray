@@ -12,19 +12,26 @@ import (
 
 var (
 	user32DLL               = windows.NewLazySystemDLL("user32.dll")
-	procGetSystemMetrics    = user32DLL.NewProc("GetSystemMetrics")
 	procSetForegroundWindow = user32DLL.NewProc("SetForegroundWindow")
 	procShowWindow          = user32DLL.NewProc("ShowWindow")
 	
-	procGetWindowRect       = user32DLL.NewProc("GetWindowRect")
-	procSetWindowPos        = user32DLL.NewProc("SetWindowPos")
+	procGetWindowRect        = user32DLL.NewProc("GetWindowRect")
+	procSetWindowPos         = user32DLL.NewProc("SetWindowPos")
+	procSystemParametersInfo = user32DLL.NewProc("SystemParametersInfoW")
+
+	procGetWindowLong = user32DLL.NewProc("GetWindowLongW")
+	procSetWindowLong = user32DLL.NewProc("SetWindowLongW")
 )
 
 const (
-	smCXScreen = 0
-	smCYScreen = 1
 	swHide     = 0
 	swRestore  = 9
+
+	spiGetWorkArea = 48
+	
+	gwlStyle      = -16
+	wsMinimizeBox = 0x00020000
+	wsMaximizeBox = 0x00010000
 )
 
 type RECT struct {
@@ -36,8 +43,11 @@ func centerWindow(win *walk.Dialog) {
 		return
 	}
 	
-	cx, _, _ := procGetSystemMetrics.Call(uintptr(smCXScreen))
-	cy, _, _ := procGetSystemMetrics.Call(uintptr(smCYScreen))
+	var workArea RECT
+	procSystemParametersInfo.Call(uintptr(spiGetWorkArea), 0, uintptr(unsafe.Pointer(&workArea)), 0)
+
+	cx := int(workArea.Right - workArea.Left)
+	cy := int(workArea.Bottom - workArea.Top)
 
 	var r RECT
 	procGetWindowRect.Call(uintptr(win.Handle()), uintptr(unsafe.Pointer(&r)))
@@ -45,8 +55,8 @@ func centerWindow(win *walk.Dialog) {
 	width := int(r.Right - r.Left)
 	height := int(r.Bottom - r.Top)
 
-	newX := (int(cx) - width) / 2
-	newY := (int(cy) - height) / 2
+	newX := int(workArea.Left) + (cx - width)/2
+	newY := int(workArea.Top) + (cy - height)/2
 
 	if newX < 0 {
 		newX = 0
@@ -225,6 +235,10 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 				slog.Error("创建配置面板主窗口失败", "err", err)
 				return
 			}
+
+			hwnd := e.panelWindow.Handle()
+			style, _, _ := procGetWindowLong.Call(uintptr(hwnd), uintptr(gwlStyle))
+			procSetWindowLong.Call(uintptr(hwnd), uintptr(gwlStyle), style|wsMinimizeBox|wsMaximizeBox)
 
 			centerWindow(e.panelWindow)
 
