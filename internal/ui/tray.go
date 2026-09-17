@@ -30,7 +30,7 @@ func (e *UIEngine) updateTrayState(state UIState) {
 	
 	e.addSeparator()
 
-	e.addAction("配置面板", func() { e.sendCommand("OpenProfileManager", "") })
+	e.addAction("管理配置", func() { e.sendCommand("OpenProfileManager", "") })
 	
 	switchMenu := e.addSubMenu("切换配置文件")
 	if len(state.ProfileItems) == 0 {
@@ -41,9 +41,9 @@ func (e *UIEngine) updateTrayState(state UIState) {
 	} else {
 		for _, item := range state.ProfileItems {
 			targetPath := item.Path
-			suffix := " (本地)"
+			suffix := " - 本地配置"
 			if item.IsRemote {
-				suffix = " (订阅)"
+				suffix = " - 远程订阅"
 			}
 			e.addCheckableSubAction(switchMenu, item.Name+suffix, item.IsActive, func() {
 				e.sendCommand("SwitchProfile", targetPath)
