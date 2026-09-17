@@ -134,6 +134,7 @@ func (e *UIEngine) listenState() {
 					e.ni.SetIcon(e.icons[state.IconState])
 				}
 				e.updateTrayState(state)
+				e.RefreshPanelData(state.Profiles)
 			})
 		}
 	}
