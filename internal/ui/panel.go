@@ -19,7 +19,6 @@ var (
 const (
 	smCXScreen = 0
 	smCYScreen = 1
-	swHide     = 0
 	swRestore  = 9
 )
 
@@ -42,16 +41,16 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	switch col {
 	case 0:
 		if item.IsActive {
-			return "[使用中]"
+			return "正在使用"
 		}
-		return ""
+		return " "
 	case 1:
 		return item.Name
 	case 2:
 		if item.IsRemote {
-			return "(远程订阅)"
+			return "远程订阅"
 		}
-		return "(本地)"
+		return "本地配置"
 	case 3:
 		if !item.IsRemote {
 			return "-"
@@ -69,7 +68,7 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	return ""
 }
 
-func centerWindow(win *walk.MainWindow) {
+func centerWindow(win *walk.Dialog) {
 	if win == nil {
 		return
 	}
@@ -106,121 +105,116 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 			var actionUpdate *walk.Action
 			var actionDelete *walk.Action
 
-			err := MainWindow{
+			err := Dialog{ //
 				AssignTo: &e.panelWindow,
 				Title:    "管理配置",
-				MinSize:  Size{Width: 700, Height: 300}, 
-				Size:     Size{Width: 750, Height: 350},
+				MinSize:  Size{Width: 700, Height: 450},
+				Size:     Size{Width: 750, Height: 500}, 
 				Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
-				Layout:   VBox{MarginsZero: true},
+				Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}},
 				Children: []Widget{
 					Composite{
-						Layout: VBox{Margins: Margins{Left: 15, Top: 12, Right: 15, Bottom: 15}},
+						Layout: HBox{MarginsZero: true},
 						Children: []Widget{
-							Composite{
-								Layout: HBox{MarginsZero: true},
-								Children: []Widget{
-									PushButton{
-										Text: "➕ 添加远程订阅",
-										OnClicked: func() {
-											e.sendCommand("RequestAddRemoteProfile", "")
-										},
-									},
-									PushButton{
-										Text: "📂 导入本地配置",
-										OnClicked: func() {
-											e.sendCommand("RequestAddLocalProfile", "")
-										},
-									},
-									HSpacer{},
+							PushButton{
+								Text: "➕ 添加远程订阅",
+								OnClicked: func() {
+									e.sendCommand("RequestAddRemoteProfile", "")
 								},
 							},
-							TableView{
-								AssignTo: &e.tableView,
-								Columns: []TableViewColumn{
-									{Title: "状态", Width: 80},
-									{Title: "名称", Width: 220},
-									{Title: "类型", Width: 90},
-									{Title: "更新频率", Width: 110},
-									{Title: "上次更新", Width: 140},
+							PushButton{
+								Text: "📂 导入本地配置",
+								OnClicked: func() {
+									e.sendCommand("RequestAddLocalProfile", "")
 								},
-								Model: e.panelModel,
+							},
+							HSpacer{},
+						},
+					},
+					TableView{
+						AssignTo: &e.tableView,
+						Columns: []TableViewColumn{
+							{Title: "状态", Width: 80},
+							{Title: "名称", Width: 220},
+							{Title: "类型", Width: 90},
+							{Title: "更新频率", Width: 110},
+							{Title: "上次更新", Width: 140},
+						},
+						Model: e.panelModel,
 
-								OnCurrentIndexChanged: func() {
-									if e.tableView == nil || actionSwitch == nil {
-										return
-									}
-									idx := e.tableView.CurrentIndex()
-									if idx < 0 || idx >= len(e.panelModel.Items) {
-										actionSwitch.SetEnabled(false)
-										actionEditText.SetEnabled(false)
-										actionEditSub.SetEnabled(false)
-										actionUpdate.SetEnabled(false)
-										actionDelete.SetEnabled(false)
-										return
-									}
+						OnCurrentIndexChanged: func() {
+							if e.tableView == nil || actionSwitch == nil {
+								return
+							}
+							idx := e.tableView.CurrentIndex()
+							if idx < 0 || idx >= len(e.panelModel.Items) {
+								actionSwitch.SetEnabled(false)
+								actionEditText.SetEnabled(false)
+								actionEditSub.SetEnabled(false)
+								actionUpdate.SetEnabled(false)
+								actionDelete.SetEnabled(false)
+								return
+							}
 
-									item := e.panelModel.Items[idx]
-									actionSwitch.SetEnabled(!item.IsActive)
-									actionDelete.SetEnabled(!item.IsActive)
-									actionEditText.SetEnabled(true)
-									actionEditSub.SetEnabled(item.IsRemote)
-									actionUpdate.SetEnabled(item.IsRemote)
+							item := e.panelModel.Items[idx]
+							actionSwitch.SetEnabled(!item.IsActive)
+							actionDelete.SetEnabled(!item.IsActive)
+							actionEditText.SetEnabled(true)
+							actionEditSub.SetEnabled(item.IsRemote)
+							actionUpdate.SetEnabled(item.IsRemote)
+						},
+
+						ContextMenuItems: []MenuItem{
+							Action{
+								AssignTo: &actionSwitch,
+								Text:     "✔️ 切换配置",
+								OnTriggered: func() {
+									if idx := e.tableView.CurrentIndex(); idx >= 0 {
+										e.sendCommand("SwitchProfile", e.panelModel.Items[idx].Path)
+									}
 								},
-
-								ContextMenuItems: []MenuItem{
-									Action{
-										AssignTo: &actionSwitch,
-										Text:     "✔️ 切换配置",
-										OnTriggered: func() {
-											if idx := e.tableView.CurrentIndex(); idx >= 0 {
-												e.sendCommand("SwitchProfile", e.panelModel.Items[idx].Path)
-											}
-										},
-									},
-									Action{
-										AssignTo: &actionEditText,
-										Text:     "📝 编辑文本",
-										OnTriggered: func() {
-											if idx := e.tableView.CurrentIndex(); idx >= 0 {
-												e.sendCommand("OpenConfigFile", e.panelModel.Items[idx].Path)
-											}
-										},
-									},
-									Action{
-										AssignTo: &actionEditSub,
-										Text:     "⚙️ 编辑订阅",
-										OnTriggered: func() {
-											if idx := e.tableView.CurrentIndex(); idx >= 0 {
-												e.sendCommand("RequestEditRemoteProfile", e.panelModel.Items[idx].Path)
-											}
-										},
-									},
-									Action{
-										AssignTo: &actionUpdate,
-										Text:     "🔄 立即更新",
-										OnTriggered: func() {
-											if idx := e.tableView.CurrentIndex(); idx >= 0 {
-												e.sendCommand("UpdateRemoteProfile", e.panelModel.Items[idx].Path)
-											}
-										},
-									},
-									Separator{},
-									Action{
-										AssignTo: &actionDelete,
-										Text:     "❌ 删除配置",
-										OnTriggered: func() {
-											if idx := e.tableView.CurrentIndex(); idx >= 0 {
-												e.sendCommand("RemoveProfile", e.panelModel.Items[idx].Path)
-											}
-										},
-									},
+							},
+							Action{
+								AssignTo: &actionEditText,
+								Text:     "📝 编辑文本",
+								OnTriggered: func() {
+									if idx := e.tableView.CurrentIndex(); idx >= 0 {
+										e.sendCommand("OpenConfigFile", e.panelModel.Items[idx].Path)
+									}
+								},
+							},
+							Action{
+								AssignTo: &actionEditSub,
+								Text:     "⚙️ 编辑订阅",
+								OnTriggered: func() {
+									if idx := e.tableView.CurrentIndex(); idx >= 0 {
+										e.sendCommand("RequestEditRemoteProfile", e.panelModel.Items[idx].Path)
+									}
+								},
+							},
+							Action{
+								AssignTo: &actionUpdate,
+								Text:     "🔄 立即更新",
+								OnTriggered: func() {
+									if idx := e.tableView.CurrentIndex(); idx >= 0 {
+										e.sendCommand("UpdateRemoteProfile", e.panelModel.Items[idx].Path)
+									}
+								},
+							},
+							Separator{},
+							Action{
+								AssignTo: &actionDelete,
+								Text:     "❌ 删除配置",
+								OnTriggered: func() {
+									if idx := e.tableView.CurrentIndex(); idx >= 0 {
+										e.sendCommand("RemoveProfile", e.panelModel.Items[idx].Path)
+									}
 								},
 							},
 						},
 					},
 				},
-			}.Create()
+			}.Create(e.mw)
 
 			if err != nil {
 				slog.Error("创建配置面板主窗口失败", "err", err)
@@ -231,7 +225,7 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 
 			e.panelWindow.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 				*canceled = true
-				procShowWindow.Call(uintptr(e.panelWindow.Handle()), swHide)
+				e.panelWindow.Hide()
 			})
 		}
 
