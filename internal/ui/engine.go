@@ -32,7 +32,7 @@ type UIEngine struct {
 	icons   []*walk.Icon
 	iconDir string
 
-	panelWindow *walk.MainWindow
+	panelWindow *walk.Dialog
 	tableView   *walk.TableView
 	panelModel  *ProfileModel
 
