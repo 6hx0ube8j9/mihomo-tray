@@ -71,7 +71,7 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 					},
 				},
 			},
-		}.Create(e.mw) 
+		}.Create(e.mw)
 
 		if err != nil {
 			resCh <- result{ok: false}
