@@ -9,6 +9,21 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+var (
+	user32DLL            = windows.NewLazySystemDLL("user32.dll")
+	procGetSystemMetrics = user32DLL.NewProc("GetSystemMetrics")
+)
+
+const (
+	smCXScreen = 0
+	smCYScreen = 1
+)
+
+func getSystemMetrics(index int) int {
+	ret, _, _ := procGetSystemMetrics.Call(uintptr(index))
+	return int(ret)
+}
+
 type ProfileModel struct {
 	walk.TableModelBase
 	Items []ProfileItem
@@ -54,8 +69,8 @@ func centerWindow(win *walk.MainWindow) {
 	if win == nil {
 		return
 	}
-	cx := int(windows.GetSystemMetrics(windows.SM_CXSCREEN))
-	cy := int(windows.GetSystemMetrics(windows.SM_CYSCREEN))
+	cx := getSystemMetrics(smCXScreen)
+	cy := getSystemMetrics(smCYScreen)
 
 	bounds := win.Bounds()
 	newX := (cx - bounds.Width) / 2
@@ -90,10 +105,10 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 			err := MainWindow{
 				AssignTo: &e.panelWindow,
 				Title:    "Mihomo 配置管理面板",
-				MinSize: Size{Width: 750, Height: 450},
-				Size:    Size{Width: 850, Height: 550},
-				Font: Font{Family: "Microsoft YaHei", PointSize: 10},
-				Layout: VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}},
+				MinSize:  Size{Width: 750, Height: 450},
+				Size:     Size{Width: 850, Height: 550},
+				Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
+				Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}},
 				Children: []Widget{
 					Composite{
 						Layout: HBox{MarginsZero: true},
@@ -213,8 +228,9 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 			}
 
 			centerWindow(e.panelWindow)
+
 			e.panelWindow.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-				if reason == walk.CloseUser {
+				if reason == walk.CloseReasonUnknown {
 					*canceled = true
 					go e.app.Synchronize(func() {
 						e.panelWindow.Hide()
