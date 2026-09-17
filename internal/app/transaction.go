@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -62,7 +63,7 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 	return nil
 }
 
-func (a *Application) executeRemoteUpdate(ctx context.Context, targetRelPath string, isManual bool) {
+func (a *Application) executeRemoteUpdate(ctx context.Context, targetRelPath string, isManual bool, isNew bool) {
 	if !a.State.TryAcquireProfileLock(targetRelPath) {
 		if isManual {
 			slog.Warn("该订阅正在后台更新，已拦截重复操作", "path", targetRelPath)
@@ -84,6 +85,14 @@ func (a *Application) executeRemoteUpdate(ctx context.Context, targetRelPath str
 			ui.ShowErrorMessage("订阅更新拦截", err.Error())
 		}
 		slog.Error("订阅更新终止", "path", targetRelPath, "err", err)
+		
+		if isNew {
+			slog.Info("全新订阅拉取失败，执行事务回滚清理", "path", targetRelPath)
+			absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
+			_ = os.Remove(absPath)
+			a.Cfg.RemoveProfile(targetRelPath)
+			a.pushUIState()
+		}
 		return
 	}
 
