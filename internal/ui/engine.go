@@ -64,7 +64,7 @@ func (e *UIEngine) Run() error {
 		return fmt.Errorf("创建母体窗口失败: %w", err)
 	}
 
-	e.ni, err = walk.NewNotifyIcon(e.mw)
+	e.ni, err = walk.NewNotifyIcon()
 	if err != nil {
 		return fmt.Errorf("创建托盘图标失败: %w", err)
 	}
