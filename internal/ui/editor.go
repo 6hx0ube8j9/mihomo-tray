@@ -47,7 +47,7 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 		err := Dialog{
 			AssignTo: &dlg,
 			Title:    title,
-			MinSize:  Size{Width: 420, Height: 200},
+			MinSize:  Size{Width: 450, Height: 220},
 			Layout:   VBox{},
 			Children: []Widget{
 				Composite{
@@ -59,8 +59,20 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 						Label{Text: "订阅链接:"},
 						LineEdit{AssignTo: &urlEdit, Text: defaultUrl},
 
-						Label{Text: "更新间隔(天):"},
-						NumberEdit{AssignTo: &intervalEdit, Value: float64(defaultInterval), MinValue: 0, MaxValue: 30},
+						Label{Text: "更新频率:"},
+						Composite{
+							Layout: HBox{MarginsZero: true},
+							Children: []Widget{
+								NumberEdit{
+									AssignTo: &intervalEdit, 
+									Value: float64(defaultInterval), 
+									MinValue: 0, 
+									MaxValue: 30,
+								},
+								Label{Text: "天 (填 0 为禁用自动更新)"},
+								HSpacer{},
+							},
+						},
 					},
 				},
 				Composite{
