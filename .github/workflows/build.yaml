@@ -34,7 +34,7 @@ jobs:
       - name: Generate Windows Resources
         shell: pwsh
         run: |
-          if (!(Test-Path "internal/tray/icons/app.ico")) {
+          if (!(Test-Path "internal/ui/icons/app.ico")) {
             Write-Error "Icon file not found"
             exit 1
           }
