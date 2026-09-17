@@ -106,13 +106,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			}
 
 			a.Cfg.RegisterNewProfile(targetName)
-			slog.Info("新配置已通过预检并入库", "name", targetName)
-
-			if err := a.applyConfigTransaction(context.Background(), targetName); err != nil {
-				ui.ShowErrorMessage("配置应用失败", "内核拒绝切换该配置 (可能是端口冲突)：\n\n"+err.Error())
-			} else {
-				a.restartWebUIIfOpen()
-			}
+			slog.Info("新配置已通过预检并入库，当前配置状态保持不变", "name", targetName)
 		}(cmd.Payload)
 
 	case "AddRemoteProfile":
