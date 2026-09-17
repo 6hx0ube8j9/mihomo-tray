@@ -2,8 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"log/slog"
-
 	"github.com/tailscale/walk"
 )
 
@@ -20,10 +18,16 @@ func (e *UIEngine) updateTrayState(state UIState) {
 	e.addCheckableAction("系统代理", state.IsProxy, func() { e.sendCommand("ToggleProxy", fmt.Sprintf("%t", !state.IsProxy)) })
 	e.addCheckableAction("TUN 模式", state.IsTun, func() { e.sendCommand("ToggleTun", fmt.Sprintf("%t", !state.IsTun)) })
 
-	modeMenu := e.addSubMenu(fmt.Sprintf("路由模式: %s", getModeName(state.Mode)))
+	modeNames := map[string]string{"rule": "规则", "direct": "直连", "global": "全局"}
+	currModeName := modeNames[state.Mode]
+	if currModeName == "" {
+		currModeName = "未知"
+	}
+	modeMenu := e.addSubMenu(fmt.Sprintf("路由模式: %s", currModeName))
 	e.addCheckableSubAction(modeMenu, "规则", state.Mode == "rule", func() { e.sendCommand("SwitchMode", "rule") })
 	e.addCheckableSubAction(modeMenu, "直连", state.Mode == "direct", func() { e.sendCommand("SwitchMode", "direct") })
 	e.addCheckableSubAction(modeMenu, "全局", state.Mode == "global", func() { e.sendCommand("SwitchMode", "global") })
+	
 	e.addSeparator()
 
 	e.addAction("配置面板", func() { e.sendCommand("OpenProfileManager", "") })
@@ -36,7 +40,6 @@ func (e *UIEngine) updateTrayState(state UIState) {
 		switchMenu.Actions().Add(emptyAction)
 	} else {
 		for _, item := range state.ProfileItems {
-			// 闭包捕获变量
 			targetPath := item.Path
 			suffix := " (本地)"
 			if item.IsRemote {
@@ -47,8 +50,8 @@ func (e *UIEngine) updateTrayState(state UIState) {
 			})
 		}
 	}
+	
 	e.addSeparator()
-
 	e.addAction("打开程序目录", func() { e.sendCommand("OpenBaseDir", "") })
 	e.addSeparator()
 
@@ -61,7 +64,6 @@ func (e *UIEngine) updateTrayState(state UIState) {
 	e.addCheckableSubAction(adminMenu, "开机自启（管理员）", state.AutoStart, func() {
 		e.sendCommand("ToggleAutoStart", fmt.Sprintf("%t", !state.AutoStart))
 	})
-	
 	runAdminAction := e.addCheckableSubAction(adminMenu, "始终以管理员身份运行", state.RunAsAdmin || state.AutoStart, func() {
 		e.sendCommand("ToggleRunAsAdmin", fmt.Sprintf("%t", !state.RunAsAdmin))
 	})
@@ -70,22 +72,12 @@ func (e *UIEngine) updateTrayState(state UIState) {
 	moreMenu := e.addSubMenu("更多")
 	e.addActionTo(moreMenu, "重载当前配置", func() { e.sendCommand("ReloadConfig", "") })
 	e.addActionTo(moreMenu, "重启内核", func() { e.sendCommand("RestartKernel", "") })
+	
 	e.addSeparator()
-
 	e.addAction("退出程序", func() { 
 		e.sendCommand("ExitApp", "") 
-		e.app.Synchronize(func() { e.mw.Close() })
+		e.app.Synchronize(func() { e.mw.Close() }) 
 	})
-}
-
-
-func getModeName(mode string) string {
-	switch mode {
-	case "rule": return "规则"
-	case "direct": return "直连"
-	case "global": return "全局"
-	default: return "未知"
-	}
 }
 
 func (e *UIEngine) addAction(text string, onTriggered func()) *walk.Action {
