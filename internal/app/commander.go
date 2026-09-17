@@ -155,6 +155,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 
 	case "SwitchProfile":
 		if a.State.IsProfileSwitching() {
+			slog.Warn("操作过快或正在处理中，已阻断并发请求，强制刷新 UI 纠正残留")
+			a.pushUIState()
 			break
 		}
 		a.State.SetProfileSwitching(true)
@@ -168,15 +170,17 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 				target = a.Cfg.GetActivePath()
 			}
 
+			slog.Info("开始执行配置切换事务", "target", target)
+
 			if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
-				ui.ShowErrorMessage("切换失败", "目标配置不存在或已损坏：\n"+err.Error())
+				go ui.ShowErrorMessage("切换失败", "目标配置无法读取或已丢失：\n"+err.Error())
 				return
 			}
 
 			exePath := core.GetKernelPath(a.Cfg.BaseDir())
 			absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(target))
 			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), absPath); err != nil {
-				ui.ShowErrorMessage("加载中止", "该配置存在语法错误，拒绝加载：\n\n"+err.Error())
+				go ui.ShowErrorMessage("加载中止", "该配置存在语法错误，拒绝加载：\n\n"+err.Error())
 				return
 			}
 
@@ -185,9 +189,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			a.pushUIState() 
 
 			if err := a.applyConfigTransaction(context.Background(), target); err != nil {
-				ui.ShowErrorMessage("内核重启异常", "运行时发生错误：\n\n"+err.Error())
-				a.Cfg.SetActiveProfile(oldActive)
-				a.pushUIState()
+				go ui.ShowErrorMessage("内核重启异常", "运行时发生错误：\n\n"+err.Error())
+				a.Cfg.SetActiveProfile(oldActive) 
 			} else {
 				a.restartWebUIIfOpen()
 			}
