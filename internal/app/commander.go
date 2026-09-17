@@ -70,7 +70,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 							a.Cfg.UpsertProfile(profile)
 
 							if url != oldURL {
-								go a.executeRemoteUpdate(context.Background(), profile.Path, true)
+								go a.executeRemoteUpdate(context.Background(), profile.Path, true, false)
 							}
 							a.pushUIState()
 						}
@@ -139,8 +139,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			Interval:   interval,
 		}
 
+		_, exists := a.Cfg.GetProfileByPath(targetRelPath)
+
 		a.Cfg.UpsertProfile(newItem)
-		go a.executeRemoteUpdate(ctx, targetRelPath, true)
+		go a.executeRemoteUpdate(ctx, targetRelPath, true, !exists)
 
 	case "SetProfileInterval":
 		parts := strings.Split(cmd.Payload, "|")
@@ -159,7 +161,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 
 	case "UpdateRemoteProfile":
 		if p, ok := a.Cfg.GetProfileByPath(cmd.Payload); ok {
-			go a.executeRemoteUpdate(ctx, p.Path, true)
+			go a.executeRemoteUpdate(ctx, p.Path, true, false)
 		}
 
 	case "SwitchProfile":
