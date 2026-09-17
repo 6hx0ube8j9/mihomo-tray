@@ -126,6 +126,11 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 		})
 
 		dlg.Run()
+		
+		if owner != nil {
+			procSetForegroundWindow.Call(uintptr(owner.Handle()))
+		}
+		
 		resCh <- result{outName, outUrl, outInterval, accepted}
 	})
 
