@@ -6,6 +6,7 @@ import (
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
+	"golang.org/x/sys/windows"
 )
 
 type ProfileModel struct {
@@ -49,6 +50,32 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	return ""
 }
 
+func centerWindow(win *walk.MainWindow) {
+	if win == nil {
+		return
+	}
+	cx := int(windows.GetSystemMetrics(windows.SM_CXSCREEN))
+	cy := int(windows.GetSystemMetrics(windows.SM_CYSCREEN))
+
+	bounds := win.Bounds()
+	newX := (cx - bounds.Width) / 2
+	newY := (cy - bounds.Height) / 2
+
+	if newX < 0 {
+		newX = 0
+	}
+	if newY < 0 {
+		newY = 0
+	}
+
+	win.SetBounds(walk.Rectangle{
+		X:      newX,
+		Y:      newY,
+		Width:  bounds.Width,
+		Height: bounds.Height,
+	})
+}
+
 func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 	e.app.Synchronize(func() {
 		if e.panelWindow == nil {
@@ -62,10 +89,11 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 
 			err := MainWindow{
 				AssignTo: &e.panelWindow,
-				Title:    "配置面板",
-				MinSize:  Size{Width: 600, Height: 300},
-				Size:     Size{Width: 640, Height: 350},
-				Layout:   VBox{},
+				Title:    "Mihomo 配置管理面板",
+				MinSize: Size{Width: 750, Height: 450},
+				Size:    Size{Width: 850, Height: 550},
+				Font: Font{Family: "Microsoft YaHei", PointSize: 10},
+				Layout: VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}},
 				Children: []Widget{
 					Composite{
 						Layout: HBox{MarginsZero: true},
@@ -74,14 +102,12 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 								Text: "➕ 添加远程订阅",
 								OnClicked: func() {
 									e.sendCommand("RequestAddRemoteProfile", "")
-									e.panelWindow.Hide()
 								},
 							},
 							PushButton{
 								Text: "📂 导入本地配置",
 								OnClicked: func() {
 									e.sendCommand("RequestAddLocalProfile", "")
-									e.panelWindow.Hide()
 								},
 							},
 							HSpacer{},
@@ -96,11 +122,11 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 					TableView{
 						AssignTo: &e.tableView,
 						Columns: []TableViewColumn{
-							{Title: "状态", Width: 65},
-							{Title: "名称", Width: 180},
-							{Title: "类型", Width: 80},
-							{Title: "更新频率", Width: 100},
-							{Title: "上次更新", Width: 120},
+							{Title: "状态", Width: 80},
+							{Title: "名称", Width: 220},
+							{Title: "类型", Width: 90},
+							{Title: "更新频率", Width: 110},
+							{Title: "上次更新", Width: 140},
 						},
 						Model: e.panelModel,
 
@@ -186,9 +212,14 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 				return
 			}
 
+			centerWindow(e.panelWindow)
 			e.panelWindow.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-				*canceled = true
-				e.panelWindow.Hide()
+				if reason == walk.CloseUser {
+					*canceled = true
+					go e.app.Synchronize(func() {
+						e.panelWindow.Hide()
+					})
+				}
 			})
 		}
 
@@ -199,6 +230,7 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 		}
 
 		if !e.panelWindow.Visible() {
+			centerWindow(e.panelWindow)
 			e.panelWindow.Show()
 		}
 		e.panelWindow.SetFocus()
