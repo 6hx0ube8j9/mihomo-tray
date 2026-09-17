@@ -70,17 +70,9 @@ func (e *UIEngine) Run() error {
 	}
 	e.ni.SetVisible(true)
 	e.ni.SetToolTip("Mihomo Tray")
-
-	e.ni.MouseDown().Attach(func(x, y int, button walk.MouseButton) {
+	e.ni.MouseUp().Attach(func(x, y int, button walk.MouseButton) {
 		if button == walk.LeftButton {
-			e.clickMu.Lock()
-			if time.Since(e.lastClick) > 300*time.Millisecond {
-				e.lastClick = time.Now()
-				e.clickMu.Unlock()
-				e.sendCommand("OpenWebUI", "")
-			} else {
-				e.clickMu.Unlock()
-			}
+			e.sendCommand("OpenWebUI", "")
 		}
 	})
 
