@@ -17,6 +17,8 @@ import (
 //go:embed icons/*.ico
 var iconFs embed.FS
 
+var globalUIEngine *UIEngine
+
 type UIEngine struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -39,12 +41,24 @@ type UIEngine struct {
 }
 
 func NewUIEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- UICommand, stateCh <-chan UIState) *UIEngine {
-	return &UIEngine{
+	e := &UIEngine{
 		ctx:       ctx,
 		cancel:    cancel,
 		commandCh: cmdCh,
 		stateCh:   stateCh,
 	}
+	globalUIEngine = e
+	return e
+}
+
+func (e *UIEngine) getActiveWindow() walk.Form {
+	if e.panelWindow != nil && e.panelWindow.Visible() {
+		return e.panelWindow
+	}
+	if e.mw != nil {
+		return e.mw
+	}
+	return nil
 }
 
 func (e *UIEngine) Run() error {
