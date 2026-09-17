@@ -254,7 +254,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 			for _, p := range a.Cfg.GetProfiles() {
 				if p.NeedUpdate() {
 					slog.Debug("后台巡检触发自动更新任务", "name", p.Name)
-					go a.executeRemoteUpdate(ctx, p.Path, false)
+					go a.executeRemoteUpdate(ctx, p.Path, false, false)
 				}
 			}
 		}
