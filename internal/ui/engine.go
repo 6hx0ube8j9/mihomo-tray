@@ -18,6 +18,10 @@ type UIEngine struct {
 	app       *walk.Application
 	mw        *walk.MainWindow
 	ni        *walk.NotifyIcon
+
+	panelWindow *walk.MainWindow
+	tableView   *walk.TableView
+	panelModel  *ProfileModel
 }
 
 func NewUIEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- UICommand, stateCh <-chan UIState) *UIEngine {
