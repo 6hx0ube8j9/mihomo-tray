@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"strings"
+
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
 )
@@ -20,6 +22,7 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 	resCh := make(chan result)
 
 	e.app.Synchronize(func() {
+		// 拦截并发多开请求
 		if isSubscriptionEditorOpen {
 			resCh <- result{ok: false}
 			return
@@ -68,8 +71,20 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 							AssignTo: &acceptButton,
 							Text:     "确定",
 							OnClicked: func() {
-								outName = nameEdit.Text()
-								outUrl = urlEdit.Text()
+								name := strings.TrimSpace(nameEdit.Text())
+								url := strings.TrimSpace(urlEdit.Text())
+
+								if name == "" {
+									ShowErrorMessage("输入错误", "配置名称不能为空！")
+									return
+								}
+								if url == "" {
+									ShowErrorMessage("输入错误", "订阅链接不能为空！")
+									return
+								}
+
+								outName = name
+								outUrl = url
 								outInterval = int(intervalEdit.Value())
 								accepted = true
 								dlg.Accept()
