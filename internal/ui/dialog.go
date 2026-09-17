@@ -17,13 +17,6 @@ const (
 var (
 	dlgModComdlg32          = windows.NewLazySystemDLL("comdlg32.dll")
 	dlgProcGetOpenFileNameW = dlgModComdlg32.NewProc("GetOpenFileNameW")
-
-	dlgModUser32                 = windows.NewLazySystemDLL("user32.dll")
-	procGetForegroundWindow      = dlgModUser32.NewProc("GetForegroundWindow")
-	procGetWindowThreadProcessId = dlgModUser32.NewProc("GetWindowThreadProcessId")
-
-	dlgModKernel32          = windows.NewLazySystemDLL("kernel32.dll")
-	procGetCurrentProcessId = dlgModKernel32.NewProc("GetCurrentProcessId")
 )
 
 type OPENFILENAMEW struct {
@@ -53,14 +46,9 @@ type OPENFILENAMEW struct {
 }
 
 func getSafeOwnerHWND() windows.HWND {
-	hwnd, _, _ := procGetForegroundWindow.Call()
-	if hwnd != 0 {
-		var activeWindowPID uint32
-		procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&activeWindowPID)))
-
-		currentPID, _, _ := procGetCurrentProcessId.Call()
-		if activeWindowPID == uint32(currentPID) {
-			return windows.HWND(hwnd)
+	if globalUIEngine != nil {
+		if globalUIEngine.panelWindow != nil && globalUIEngine.panelWindow.Visible() {
+			return windows.HWND(globalUIEngine.panelWindow.Handle())
 		}
 	}
 	return 0
