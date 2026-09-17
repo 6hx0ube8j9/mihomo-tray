@@ -5,7 +5,7 @@
     }
   },
   "RT_MANIFEST": {
-    "#1": {
+    "APP": {
       "0409": {
         "custom": true,
         "src": "../main.manifest"
@@ -13,7 +13,7 @@
     }
   },
   "RT_VERSION": {
-    "#1": {
+    "APP": {
       "0409": {
         "fixed": {
           "file_version": "1.0.0.0",
