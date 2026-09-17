@@ -227,7 +227,11 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 
 			e.panelWindow.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 				*canceled = true
-				e.panelWindow.Hide()
+				go e.app.Synchronize(func() {
+					if e.panelWindow != nil {
+						e.panelWindow.Hide()
+					}
+				})
 			})
 		}
 
