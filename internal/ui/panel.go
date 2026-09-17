@@ -19,6 +19,7 @@ var (
 const (
 	smCXScreen = 0
 	smCYScreen = 1
+	swHide     = 0
 	swRestore  = 9
 )
 
@@ -107,14 +108,14 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 
 			err := MainWindow{
 				AssignTo: &e.panelWindow,
-				Title:    "Mihomo 配置管理面板",
-				MinSize:  Size{Width: 750, Height: 450},
-				Size:     Size{Width: 850, Height: 550},
+				Title:    "管理配置",
+				MinSize:  Size{Width: 700, Height: 300}, 
+				Size:     Size{Width: 750, Height: 350},
 				Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
 				Layout:   VBox{MarginsZero: true},
 				Children: []Widget{
 					Composite{
-						Layout: VBox{Margins: Margins{Left: 15, Top: 30, Right: 15, Bottom: 15}},
+						Layout: VBox{Margins: Margins{Left: 15, Top: 12, Right: 15, Bottom: 15}},
 						Children: []Widget{
 							Composite{
 								Layout: HBox{MarginsZero: true},
@@ -230,11 +231,7 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 
 			e.panelWindow.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 				*canceled = true
-				go e.app.Synchronize(func() {
-					if e.panelWindow != nil {
-						e.panelWindow.Hide()
-					}
-				})
+				procShowWindow.Call(uintptr(e.panelWindow.Handle()), swHide)
 			})
 		}
 
