@@ -29,7 +29,6 @@ const (
 
 	spiGetWorkArea = 48
 	
-	gwlStyle      = -16
 	wsMinimizeBox = 0x00020000
 	wsMaximizeBox = 0x00010000
 )
@@ -237,6 +236,7 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 			}
 
 			hwnd := e.panelWindow.Handle()
+			gwlStyle := int32(-16) 
 			style, _, _ := procGetWindowLong.Call(uintptr(hwnd), uintptr(gwlStyle))
 			procSetWindowLong.Call(uintptr(hwnd), uintptr(gwlStyle), style|wsMinimizeBox|wsMaximizeBox)
 
