@@ -2,7 +2,6 @@ package ui
 
 import (
 	"unsafe"
-
 	"golang.org/x/sys/windows"
 )
 
@@ -18,6 +17,28 @@ var (
 	dlgModComdlg32          = windows.NewLazySystemDLL("comdlg32.dll")
 	dlgProcGetOpenFileNameW = dlgModComdlg32.NewProc("GetOpenFileNameW")
 )
+
+func syncExec(f func()) {
+	if globalUIEngine == nil || globalUIEngine.app == nil {
+		f()
+		return
+	}
+	done := make(chan struct{})
+	globalUIEngine.app.Synchronize(func() {
+		f()
+		close(done)
+	})
+	<-done
+}
+
+func getSafeOwnerHWND() windows.HWND {
+	if globalUIEngine != nil {
+		if globalUIEngine.panelWindow != nil && globalUIEngine.panelWindow.Visible() {
+			return windows.HWND(globalUIEngine.panelWindow.Handle())
+		}
+	}
+	return 0
+}
 
 type OPENFILENAMEW struct {
 	LStructSize       uint32
@@ -45,52 +66,54 @@ type OPENFILENAMEW struct {
 	FlagsEx           uint32
 }
 
-func getSafeOwnerHWND() windows.HWND {
-	if globalUIEngine != nil {
-		if globalUIEngine.panelWindow != nil && globalUIEngine.panelWindow.Visible() {
-			return windows.HWND(globalUIEngine.panelWindow.Handle())
-		}
-	}
-	return 0
-}
-
 func OpenYAMLFileDialog() (string, bool) {
-	var ofn OPENFILENAMEW
-	ofn.LStructSize = uint32(unsafe.Sizeof(ofn))
+	var path string
+	var accepted bool
 
-	filterStr := "YAML 配置文件 (*.yaml;*.yml)\x00*.yaml;*.yml\x00所有文件 (*.*)\x00*.*\x00\x00"
-	filter, _ := windows.UTF16PtrFromString(filterStr)
-	ofn.LpstrFilter = filter
+	syncExec(func() {
+		var ofn OPENFILENAMEW
+		ofn.LStructSize = uint32(unsafe.Sizeof(ofn))
 
-	buf := make([]uint16, windows.MAX_PATH)
-	ofn.LpstrFile = &buf[0]
-	ofn.NMaxFile = windows.MAX_PATH
+		filterStr := "YAML 配置文件 (*.yaml;*.yml)\x00*.yaml;*.yml\x00所有文件 (*.*)\x00*.*\x00\x00"
+		filter, _ := windows.UTF16PtrFromString(filterStr)
+		ofn.LpstrFilter = filter
 
-	title, _ := windows.UTF16PtrFromString("选择本地 YAML 配置文件")
-	ofn.LpstrTitle = title
+		buf := make([]uint16, windows.MAX_PATH)
+		ofn.LpstrFile = &buf[0]
+		ofn.NMaxFile = windows.MAX_PATH
 
-	ofn.Flags = 0x00001000 | 0x00000008 | 0x00000004
+		title, _ := windows.UTF16PtrFromString("选择本地 YAML 配置文件")
+		ofn.LpstrTitle = title
 
-	ofn.HwndOwner = getSafeOwnerHWND()
+		ofn.Flags = 0x00001000 | 0x00000008 | 0x00000004
+		ofn.HwndOwner = getSafeOwnerHWND()
 
-	ret, _, _ := dlgProcGetOpenFileNameW.Call(uintptr(unsafe.Pointer(&ofn)))
-	if ret != 0 {
-		return windows.UTF16ToString(buf), true
-	}
-	return "", false
+		ret, _, _ := dlgProcGetOpenFileNameW.Call(uintptr(unsafe.Pointer(&ofn)))
+		if ret != 0 {
+			path = windows.UTF16ToString(buf)
+			accepted = true
+		}
+	})
+	return path, accepted
 }
 
 func ShowErrorMessage(title, message string) {
-	titlePtr, _ := windows.UTF16PtrFromString(title)
-	msgPtr, _ := windows.UTF16PtrFromString(message)
-	const flags = MB_OK | MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND
-	_, _ = windows.MessageBox(getSafeOwnerHWND(), msgPtr, titlePtr, uint32(flags))
+	syncExec(func() {
+		titlePtr, _ := windows.UTF16PtrFromString(title)
+		msgPtr, _ := windows.UTF16PtrFromString(message)
+		const flags = MB_OK | MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND
+		_, _ = windows.MessageBox(getSafeOwnerHWND(), msgPtr, titlePtr, uint32(flags))
+	})
 }
 
 func ShowConfirmMessage(title, message string) bool {
-	titlePtr, _ := windows.UTF16PtrFromString(title)
-	msgPtr, _ := windows.UTF16PtrFromString(message)
-	const flags = MB_OKCANCEL | MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND
-	ret, _ := windows.MessageBox(getSafeOwnerHWND(), msgPtr, titlePtr, uint32(flags))
+	var ret int32
+	syncExec(func() {
+		titlePtr, _ := windows.UTF16PtrFromString(title)
+		msgPtr, _ := windows.UTF16PtrFromString(message)
+		const flags = MB_OKCANCEL | MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND
+		retVal, _ := windows.MessageBox(getSafeOwnerHWND(), msgPtr, titlePtr, uint32(flags))
+		ret = int32(retVal)
+	})
 	return ret == 1
 }
