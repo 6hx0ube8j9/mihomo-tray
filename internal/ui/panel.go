@@ -10,13 +10,16 @@ import (
 )
 
 var (
-	user32DLL            = windows.NewLazySystemDLL("user32.dll")
-	procGetSystemMetrics = user32DLL.NewProc("GetSystemMetrics")
+	user32DLL               = windows.NewLazySystemDLL("user32.dll")
+	procGetSystemMetrics    = user32DLL.NewProc("GetSystemMetrics")
+	procSetForegroundWindow = user32DLL.NewProc("SetForegroundWindow")
+	procShowWindow          = user32DLL.NewProc("ShowWindow")
 )
 
 const (
 	smCXScreen = 0
 	smCYScreen = 1
+	swRestore  = 9
 )
 
 func getSystemMetrics(index int) int {
@@ -244,7 +247,11 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 		if !e.panelWindow.Visible() {
 			centerWindow(e.panelWindow)
 			e.panelWindow.Show()
+		} else {
+			procShowWindow.Call(uintptr(e.panelWindow.Handle()), swRestore)
 		}
+		
+		procSetForegroundWindow.Call(uintptr(e.panelWindow.Handle()))
 		e.panelWindow.SetFocus()
 	})
 }
