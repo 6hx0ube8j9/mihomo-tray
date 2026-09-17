@@ -25,14 +25,21 @@ func (a *Application) calculateUIState() ui.UIState {
 		Mode:       a.Cfg.Get("mode"),
 		AutoStart:  a.Cfg.Get("autostart") == "true",
 		RunAsAdmin: a.Cfg.Get("run_as_admin") == "true",
-		IsAdmin:    sys.IsAdmin(), 
+		IsAdmin:    sys.IsAdmin(),
 	}
 
 	activePath := a.Cfg.GetActivePath()
 	profiles := a.Cfg.GetProfiles()
 	s.CanAddProfile = len(profiles) < 5
 
+	seenPaths := make(map[string]bool)
+
 	for _, p := range profiles {
+		if seenPaths[p.Path] {
+			continue
+		}
+		seenPaths[p.Path] = true
+
 		item := ui.ProfileItem{
 			Name:       config.TruncateMiddle(p.Name),
 			Path:       p.Path,
