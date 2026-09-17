@@ -5,15 +5,12 @@
     }
   },
   "RT_MANIFEST": {
-    "1": {
-      "0409": {
-        "custom": true,
-        "src": "../main.manifest"
-      }
+    "#1": {
+      "0409": "../main.manifest"
     }
   },
   "RT_VERSION": {
-    "1": {
+    "#1": {
       "0409": {
         "fixed": {
           "file_version": "1.0.0.0",
