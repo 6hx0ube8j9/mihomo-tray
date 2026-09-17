@@ -108,7 +108,8 @@ func (e *UIEngine) addCheckableSubAction(menu *walk.Menu, text string, checked b
 
 func (e *UIEngine) addSubMenu(text string) *walk.Menu {
 	subMenu, _ := walk.NewMenu()
-	subAction, _ := walk.NewMenuAction(subMenu)
+	subAction := walk.NewMenuAction(subMenu) 
+	
 	subAction.SetText(text)
 	e.ni.ContextMenu().Actions().Add(subAction)
 	return subMenu
