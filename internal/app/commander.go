@@ -176,13 +176,21 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 
 			slog.Info("开始执行配置切换事务", "target", target)
 
+			oldActive := a.Cfg.GetActivePath()
+			a.Cfg.SetActiveProfile(target)
+			a.pushUIState()
+
 			if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
 				ui.ShowErrorMessage("配置切换失败", "目标文件不存在或被损坏：\n"+err.Error())
+				a.Cfg.SetActiveProfile(oldActive)
+				a.pushUIState()
 				return
 			}
 
 			if err := a.applyConfigTransaction(context.Background(), target); err != nil {
 				ui.ShowErrorMessage("配置切换失败", "内核拒绝加载该配置：\n\n"+err.Error())
+				a.Cfg.SetActiveProfile(oldActive)
+				a.pushUIState()
 			} else {
 				a.restartWebUIIfOpen()
 			}
