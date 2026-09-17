@@ -18,26 +18,19 @@ var (
 	procGetWindowRect        = user32DLL.NewProc("GetWindowRect")
 	procSetWindowPos         = user32DLL.NewProc("SetWindowPos")
 	procSystemParametersInfo = user32DLL.NewProc("SystemParametersInfoW")
-
-	procGetWindowLong = user32DLL.NewProc("GetWindowLongW")
-	procSetWindowLong = user32DLL.NewProc("SetWindowLongW")
 )
 
 const (
 	swHide     = 0
 	swRestore  = 9
-
 	spiGetWorkArea = 48
-	
-	wsMinimizeBox = 0x00020000
-	wsMaximizeBox = 0x00010000
 )
 
 type RECT struct {
 	Left, Top, Right, Bottom int32
 }
 
-func centerWindow(win *walk.Dialog) {
+func centerWindow(win *walk.MainWindow) {
 	if win == nil {
 		return
 	}
@@ -45,24 +38,23 @@ func centerWindow(win *walk.Dialog) {
 	var workArea RECT
 	procSystemParametersInfo.Call(uintptr(spiGetWorkArea), 0, uintptr(unsafe.Pointer(&workArea)), 0)
 
+	dpi := win.DPI()
+	if dpi == 0 {
+		dpi = 96
+	}
+
+	bounds := win.Bounds()
+	physWidth := int(bounds.Width) * int(dpi) / 96
+	physHeight := int(bounds.Height) * int(dpi) / 96
+
 	cx := int(workArea.Right - workArea.Left)
 	cy := int(workArea.Bottom - workArea.Top)
 
-	var r RECT
-	procGetWindowRect.Call(uintptr(win.Handle()), uintptr(unsafe.Pointer(&r)))
+	newX := int(workArea.Left) + (cx - physWidth)/2
+	newY := int(workArea.Top) + (cy - physHeight)/2
 
-	width := int(r.Right - r.Left)
-	height := int(r.Bottom - r.Top)
-
-	newX := int(workArea.Left) + (cx - width)/2
-	newY := int(workArea.Top) + (cy - height)/2
-
-	if newX < 0 {
-		newX = 0
-	}
-	if newY < 0 {
-		newY = 0
-	}
+	if newX < 0 { newX = 0 }
+	if newY < 0 { newY = 0 }
 
 	procSetWindowPos.Call(uintptr(win.Handle()), 0, uintptr(newX), uintptr(newY), 0, 0, 0x0005)
 }
@@ -119,7 +111,7 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 			var actionUpdate *walk.Action
 			var actionDelete *walk.Action
 
-			err := Dialog{
+			err := MainWindow{
 				AssignTo: &e.panelWindow,
 				Title:    "管理配置",
 				MinSize:  Size{Width: 700, Height: 300}, 
@@ -228,20 +220,14 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 						},
 					},
 				},
-			}.Create(e.mw) 
+			}.Create() 
 
 			if err != nil {
 				slog.Error("创建配置面板主窗口失败", "err", err)
 				return
 			}
 
-			hwnd := e.panelWindow.Handle()
-			gwlStyle := int32(-16) 
-			style, _, _ := procGetWindowLong.Call(uintptr(hwnd), uintptr(gwlStyle))
-			procSetWindowLong.Call(uintptr(hwnd), uintptr(gwlStyle), style|wsMinimizeBox|wsMaximizeBox)
-
 			centerWindow(e.panelWindow)
-
 			e.panelWindow.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 				*canceled = true
 				procShowWindow.Call(uintptr(e.panelWindow.Handle()), swHide)
