@@ -42,16 +42,16 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	switch col {
 	case 0:
 		if item.IsActive {
-			return "🟢 正在使用" 
+			return "✔️ 正在使用" 
 		}
-		return " "
+		return ""
 	case 1:
 		return item.Name
 	case 2:
 		if item.IsRemote {
 			return "远程订阅"
 		}
-		return "本地配置"
+		return "本地配置" 
 	case 3:
 		if !item.IsRemote {
 			return "-"
@@ -118,10 +118,10 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 			err := Dialog{
 				AssignTo: &e.panelWindow,
 				Title:    "管理配置",
-				MinSize:  Size{Width: 700, Height: 450}, 
-				Size:     Size{Width: 750, Height: 500}, 
+				MinSize:  Size{Width: 700, Height: 300}, 
+				Size:     Size{Width: 750, Height: 350}, 
 				Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
-				Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}},
+				Layout:   VBox{Margins: Margins{Left: 15, Top: 8, Right: 15, Bottom: 15}}, 
 				Children: []Widget{
 					Composite{
 						Layout: HBox{MarginsZero: true},
@@ -144,7 +144,7 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 					TableView{
 						AssignTo: &e.tableView,
 						Columns: []TableViewColumn{
-							{Title: "状态", Width: 100},
+							{Title: "状态", Width: 100}, 
 							{Title: "名称", Width: 200},
 							{Title: "类型", Width: 90},
 							{Title: "更新频率", Width: 110},
@@ -271,8 +271,11 @@ func (e *UIEngine) RefreshPanelData(items []ProfileItem) {
 		e.panelModel.Items = items
 		e.panelModel.PublishRowsReset()
 
-		if e.tableView != nil && idx >= 0 && idx < len(items) {
-			e.tableView.SetCurrentIndex(idx)
+		if e.tableView != nil {
+			if idx >= 0 && idx < len(items) {
+				e.tableView.SetCurrentIndex(idx)
+			}
+			e.tableView.Invalidate()
 		}
 	})
 }
