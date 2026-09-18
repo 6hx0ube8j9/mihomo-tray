@@ -14,10 +14,6 @@ func centerWindow(win *walk.MainWindow) {
 	}
 	
 	monitor := walk.PrimaryMonitor()
-	if monitor == nil {
-		return
-	}
-	
 	workArea := monitor.WorkArea()
 	bounds := win.Bounds()
 	
