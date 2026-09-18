@@ -75,8 +75,7 @@ func (e *UIEngine) updateTrayState(state UIState) {
 	
 	e.addSeparator()
 	e.addAction("退出程序", func() { 
-		e.sendCommand("ExitApp", "") 
-		e.app.Synchronize(func() { e.mw.Close() }) 
+		e.sendCommand("ExitApp", "")
 	})
 }
 
