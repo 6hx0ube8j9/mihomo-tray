@@ -89,8 +89,17 @@ func (e *UIEngine) Run() error {
 
 	e.ni.Dispose()
 	e.mw.Dispose()
+	
+	for _, icon := range e.icons {
+		if icon != nil {
+			icon.Dispose()
+		}
+	}
+
 	if e.iconDir != "" {
-		os.RemoveAll(e.iconDir)
+		if err := os.RemoveAll(e.iconDir); err != nil {
+			slog.Error("清理临时图标失败", "err", err)
+		}
 	}
 	return nil
 }
