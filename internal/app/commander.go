@@ -92,13 +92,13 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 
 			exePath := core.GetKernelPath(a.Cfg.BaseDir())
 			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), sourcePath); err != nil {
-				ui.ShowErrorMessage("导入失败", "配置文件存在错误：\n\n"+err.Error())
+				ui.ShowErrorMessage(nil, "导入失败", "配置文件存在错误：\n\n"+err.Error())
 				return
 			}
 
 			targetName, _, err := a.Cfg.SafeCopyUntrustedConfig(sourcePath)
 			if err != nil {
-				ui.ShowErrorMessage("导入异常", "文件拷贝失败:\n"+err.Error())
+				ui.ShowErrorMessage(nil, "导入异常", "文件拷贝失败:\n"+err.Error())
 				return
 			}
 			a.Cfg.RegisterNewProfile(targetName)
@@ -173,14 +173,14 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			slog.Info("开始执行配置切换事务", "target", target)
 
 			if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
-				go ui.ShowErrorMessage("切换失败", "目标配置无法读取或已丢失：\n"+err.Error())
+				go ui.ShowErrorMessage(nil, "切换失败", "目标配置无法读取或已丢失：\n"+err.Error())
 				return
 			}
 
 			exePath := core.GetKernelPath(a.Cfg.BaseDir())
 			absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(target))
 			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), absPath); err != nil {
-				go ui.ShowErrorMessage("加载中止", "该配置存在语法错误，拒绝加载：\n\n"+err.Error())
+				go ui.ShowErrorMessage(nil, "加载中止", "该配置存在语法错误，拒绝加载：\n\n"+err.Error())
 				return
 			}
 
@@ -189,7 +189,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			a.pushUIState() 
 
 			if err := a.applyConfigTransaction(context.Background(), target); err != nil {
-				go ui.ShowErrorMessage("内核重启异常", "运行时发生错误：\n\n"+err.Error())
+				go ui.ShowErrorMessage(nil, "内核重启异常", "运行时发生错误：\n\n"+err.Error())
 				a.Cfg.SetActiveProfile(oldActive) 
 			} else {
 				a.restartWebUIIfOpen()
@@ -204,7 +204,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			break
 		}
 
-		if !ui.ShowConfirmMessage("确认删除", "确定要删除此配置文件吗？\n\n此操作不可恢复，本地物理文件将被同时删除。") {
+		if !ui.ShowConfirmMessage(nil, "确认删除", "确定要删除此配置文件吗？\n\n此操作不可恢复，本地物理文件将被同时删除。") {
 			slog.Info("用户取消了删除操作", "path", targetPath)
 			break
 		}
@@ -351,7 +351,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		}
 
 		if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
-			ui.ShowErrorMessage("打开失败", "配置文件不存在或已损坏：\n\n"+err.Error())
+			ui.ShowErrorMessage(nil, "打开失败", "配置文件不存在或已损坏：\n\n"+err.Error())
 			break
 		}
 
