@@ -3,9 +3,11 @@ package ui
 import (
 	"fmt"
 	"log/slog"
+	"syscall"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
+	"github.com/tailscale/win"
 )
 
 func centerWindow(win *walk.MainWindow) {
@@ -89,16 +91,10 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 				MinSize:  Size{Width: 700, Height: 300}, 
 				Size:     Size{Width: 750, Height: 350}, 
 				Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
-				
-				OnClosing: func(canceled *bool, reason walk.CloseReason) {
-					*canceled = true
-					e.panelWindow.Hide()
-				},
-
 				Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}}, 
 				Children: []Widget{
 					Composite{
-						Layout: HBox{}, 
+						Layout: HBox{},
 						Children: []Widget{
 							PushButton{
 								Text: "➕ 添加远程订阅",
@@ -204,6 +200,16 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 				slog.Error("创建配置面板主窗口失败", "err", err)
 				return
 			}
+
+			var oldWndProc uintptr
+			newWndProc := syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
+				if msg == win.WM_CLOSE {
+					win.ShowWindow(hwnd, win.SW_HIDE)
+					return 0
+				}
+				return win.CallWindowProc(oldWndProc, hwnd, msg, wParam, lParam)
+			})
+			oldWndProc = win.SetWindowLongPtr(e.panelWindow.Handle(), win.GWLP_WNDPROC, newWndProc)
 
 			centerWindow(e.panelWindow)
 		}
