@@ -40,17 +40,21 @@ func OpenYAMLFileDialog() (string, bool) {
 	return res.Path, res.OK
 }
 
-func ShowErrorMessage(title, message string) {
+func ShowErrorMessage(owner walk.Form, title, message string) {
 	if globalUIEngine == nil || globalUIEngine.app == nil {
 		return
 	}
 	
 	globalUIEngine.app.Synchronize(func() {
-		walk.MsgBox(getOwner(), title, message, walk.MsgBoxIconWarning)
+		parent := owner
+		if parent == nil {
+			parent = getOwner()
+		}
+		walk.MsgBox(parent, title, message, walk.MsgBoxIconWarning)
 	})
 }
 
-func ShowConfirmMessage(title, message string) bool {
+func ShowConfirmMessage(owner walk.Form, title, message string) bool {
 	if globalUIEngine == nil || globalUIEngine.app == nil {
 		return false
 	}
@@ -58,7 +62,11 @@ func ShowConfirmMessage(title, message string) bool {
 	resultCh := make(chan int)
 	
 	globalUIEngine.app.Synchronize(func() {
-		res := walk.MsgBox(getOwner(), title, message, walk.MsgBoxIconQuestion|walk.MsgBoxOKCancel)
+		parent := owner
+		if parent == nil {
+			parent = getOwner()
+		}
+		res := walk.MsgBox(parent, title, message, walk.MsgBoxIconQuestion|walk.MsgBoxOKCancel)
 		resultCh <- res
 	})
 	
