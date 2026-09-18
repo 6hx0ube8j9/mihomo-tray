@@ -10,14 +10,16 @@ func (e *UIEngine) updateTrayState(state UIState) {
 		return
 	}
 
-	for _, action := range e.ni.ContextMenu().Actions().Items() {
+	actions := e.ni.ContextMenu().Actions()
+	for i := 0; i < actions.Len(); i++ {
+		action := actions.At(i)
 		if menu := action.Menu(); menu != nil {
 			menu.Dispose()
 		}
 		action.Dispose()
 	}
-	e.ni.ContextMenu().Actions().Clear()
-	
+	actions.Clear()
+
 	e.addAction("进入 Web 面板", func() { e.sendCommand("OpenWebUI", "") })
 	e.addSeparator()
 
