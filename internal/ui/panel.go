@@ -89,10 +89,16 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 				MinSize:  Size{Width: 700, Height: 300}, 
 				Size:     Size{Width: 750, Height: 350}, 
 				Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
+				
+				OnClosing: func(canceled *bool, reason walk.CloseReason) {
+					*canceled = true
+					e.panelWindow.Hide()
+				},
+
 				Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}}, 
 				Children: []Widget{
 					Composite{
-						Layout: HBox{MarginsZero: true},
+						Layout: HBox{}, 
 						Children: []Widget{
 							PushButton{
 								Text: "➕ 添加远程订阅",
@@ -200,11 +206,6 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 			}
 
 			centerWindow(e.panelWindow)
-
-			e.panelWindow.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-				*canceled = true
-				e.panelWindow.Hide()
-			})
 		}
 
 		e.panelModel.Items = items
