@@ -87,15 +87,16 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 								inputUrl := strings.TrimSpace(urlEdit.Text())
 
 								if inputUrl == "" {
-									ShowErrorMessage(dlg, "输入错误", "订阅链接不能为空！")
+									walk.MsgBox(dlg, "输入错误", "订阅链接不能为空！", walk.MsgBoxIconWarning)
 									return
 								}
 
 								u, parseErr := url.ParseRequestURI(inputUrl)
 								if parseErr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-									ShowErrorMessage(dlg, "输入错误", "请输入有效且合法的 HTTP/HTTPS 订阅链接！")
+									walk.MsgBox(dlg, "输入错误", "请输入有效且合法的 HTTP/HTTPS 订阅链接！", walk.MsgBoxIconWarning)
 									return
 								}
+
 
 								outName = name
 								outUrl = inputUrl
