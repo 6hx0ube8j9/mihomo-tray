@@ -82,7 +82,7 @@ func (a *Application) executeRemoteUpdate(ctx context.Context, targetRelPath str
 
 	if err != nil {
 		if isManual {
-			ui.ShowErrorMessage("订阅更新拦截", err.Error())
+			ui.ShowErrorMessage(nil, "订阅更新拦截", err.Error())
 		}
 		slog.Error("订阅更新终止", "path", targetRelPath, "err", err)
 		
@@ -120,12 +120,12 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 		target := a.Cfg.GetActivePath()
 
 		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
-			ui.ShowErrorMessage("重载失败", "配置文件不存在或损坏，请检查文件")
+			ui.ShowErrorMessage(nil, "重载失败", "配置文件不存在或损坏，请检查文件")
 			return
 		}
 
 		if err := a.applyConfigTransaction(ctx, target); err != nil {
-			ui.ShowErrorMessage("重载失败", "当前配置文件存在错误，请检查：\n\n"+err.Error())
+			ui.ShowErrorMessage(nil, "重载失败", "当前配置文件存在错误，请检查：\n\n"+err.Error())
 		} else {
 			a.restartWebUIIfOpen()
 		}
