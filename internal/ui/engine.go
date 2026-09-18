@@ -32,7 +32,7 @@ type UIEngine struct {
 	icons   []*walk.Icon
 	iconDir string
 
-	panelWindow *walk.Dialog
+	panelWindow *walk.MainWindow
 	tableView   *walk.TableView
 	panelModel  *ProfileModel
 
@@ -49,16 +49,6 @@ func NewUIEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- UI
 	}
 	globalUIEngine = e
 	return e
-}
-
-func (e *UIEngine) getActiveWindow() walk.Form {
-	if e.panelWindow != nil && e.panelWindow.Visible() {
-		return e.panelWindow
-	}
-	if e.mw != nil {
-		return e.mw
-	}
-	return nil
 }
 
 func (e *UIEngine) Run() error {
