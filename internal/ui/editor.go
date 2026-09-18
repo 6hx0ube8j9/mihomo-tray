@@ -44,7 +44,7 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 			owner = e.panelWindow
 		}
 
-		err := Dialog{
+		dialogDecl := Dialog{
 			AssignTo: &dlg,
 			Title:    title,
 			MinSize:  Size{Width: 450, Height: 220},
@@ -91,8 +91,8 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 									return
 								}
 
-								u, err := url.ParseRequestURI(inputUrl)
-								if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+								u, parseErr := url.ParseRequestURI(inputUrl)
+								if parseErr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 									ShowErrorMessage("输入错误", "请输入有效且合法的 HTTP/HTTPS 订阅链接！")
 									return
 								}
@@ -112,7 +112,10 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 						},
 					},
 				},
-			}.Create(owner)
+			},
+		}
+
+		err := dialogDecl.Create(owner)
 
 		if err != nil {
 			isSubscriptionEditorOpen = false
