@@ -36,7 +36,7 @@ func (e *UIEngine) updateTrayState(state UIState) {
 	
 	e.addSeparator()
 
-	e.addAction("管理配置", func() { e.sendCommand("OpenProfileManager", "") })
+	e.addAction("添加配置", func() { e.sendCommand("OpenProfileManager", "") })
 	
 	switchMenu := e.addSubMenu("切换配置文件")
 	if len(state.ProfileItems) == 0 {
