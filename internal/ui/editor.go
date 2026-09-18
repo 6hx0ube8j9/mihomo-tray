@@ -87,13 +87,13 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 								inputUrl := strings.TrimSpace(urlEdit.Text())
 
 								if inputUrl == "" {
-									ShowErrorMessage("输入错误", "订阅链接不能为空！")
+									ShowErrorMessage(dlg, "输入错误", "订阅链接不能为空！")
 									return
 								}
 
 								u, parseErr := url.ParseRequestURI(inputUrl)
 								if parseErr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-									ShowErrorMessage("输入错误", "请输入有效且合法的 HTTP/HTTPS 订阅链接！")
+									ShowErrorMessage(dlg, "输入错误", "请输入有效且合法的 HTTP/HTTPS 订阅链接！")
 									return
 								}
 
@@ -125,6 +125,11 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 
 		dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 			isSubscriptionEditorOpen = false
+			
+			if e.panelWindow != nil && e.panelWindow.Visible() {
+				e.panelWindow.Show()
+				e.panelWindow.SetFocus()
+			}
 		})
 
 		dlg.Run()
