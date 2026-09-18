@@ -155,42 +155,38 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 
 	case "SwitchProfile":
 		if a.State.IsProfileSwitching() {
-			slog.Warn("操作过快或正在处理中，已阻断并发请求，强制刷新 UI 纠正残留")
-			a.pushUIState()
+			a.ForcePushUIState()
 			break
 		}
 		a.State.SetProfileSwitching(true)
 
 		go func(relPath string) {
 			defer a.State.SetProfileSwitching(false)
-			defer a.pushUIState()
+			defer a.ForcePushUIState()
 
 			target := relPath
 			if target == "" {
 				target = a.Cfg.GetActivePath()
 			}
 
-			slog.Info("开始执行配置切换事务", "target", target)
-
-			if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
-				go ui.ShowErrorMessage(nil, "切换失败", "目标配置无法读取或已丢失：\n"+err.Error())
+			if err := a.safePreflightCheck(target, "切换配置"); err != nil {
 				return
 			}
 
 			exePath := core.GetKernelPath(a.Cfg.BaseDir())
 			absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(target))
 			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), absPath); err != nil {
-				go ui.ShowErrorMessage(nil, "加载中止", "该配置存在语法错误，拒绝加载：\n\n"+err.Error())
+				ui.ShowErrorMessage(nil, "加载中止", "该配置存在语法错误，拒绝加载：\n\n"+err.Error())
 				return
 			}
 
 			oldActive := a.Cfg.GetActivePath()
 			a.Cfg.SetActiveProfile(target)
-			a.pushUIState() 
+			a.pushUIState()
 
 			if err := a.applyConfigTransaction(context.Background(), target); err != nil {
-				go ui.ShowErrorMessage(nil, "内核重启异常", "运行时发生错误：\n\n"+err.Error())
-				a.Cfg.SetActiveProfile(oldActive) 
+				ui.ShowErrorMessage(nil, "内核重启异常", "运行时发生错误：\n\n"+err.Error())
+				a.Cfg.SetActiveProfile(oldActive)
 			} else {
 				a.restartWebUIIfOpen()
 			}
@@ -355,8 +351,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			targetRelPath = a.Cfg.GetActivePath()
 		}
 
-		if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
-			ui.ShowErrorMessage(nil, "打开失败", "配置文件不存在或已损坏：\n\n"+err.Error())
+		if err := a.safePreflightCheck(targetRelPath, "打开文件"); err != nil {
 			break
 		}
 
@@ -368,6 +363,17 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 	}
 
 	a.pushUIState()
+}
+
+
+func (a *Application) safePreflightCheck(targetRelPath string, actionTitle string) error {
+	if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
+		ui.ShowErrorMessage(nil, actionTitle+"被拦截", "目标配置异常，请求已被中止：\n\n"+err.Error())
+		
+		a.ForcePushUIState() 
+		return err
+	}
+	return nil
 }
 
 func (a *Application) OpenWebUI() {
