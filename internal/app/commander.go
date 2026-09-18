@@ -232,7 +232,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			if sys.IsUserCancelled(err) {
 				slog.Info("用户取消提权，保持当前会话")
 			} else if err == nil {
-				slog.Info("提权请求已下发，当前普通进程退出")
+				slog.Info("提权请求已下发，当前普通进程执行安全清理后退出")
+				a.SafeShutdown(nil)
 				os.Exit(0)
 			}
 			a.pushUIState()
@@ -257,6 +258,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		if enable && !sys.IsAdmin() {
 			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--enable-run-as-admin", "--restarting")
 			if err == nil {
+				slog.Info("提权请求已下发，当前普通进程执行安全清理后退出")
+				a.SafeShutdown(nil)
 				os.Exit(0)
 			}
 			a.pushUIState()
@@ -270,6 +273,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		if enable && !sys.IsAdmin() {
 			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--enable-tun", "--restarting")
 			if err == nil {
+				slog.Info("TUN提权请求已下发，当前普通进程执行安全清理后退出")
+				a.SafeShutdown(nil)
 				os.Exit(0)
 			}
 			a.pushUIState()
@@ -359,8 +364,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		_ = sys.ExecuteSystemCommand(absPath)
 
 	case "ExitApp":
+		slog.Info("收到退出指令，正在执行底层资源安全清理...")
 		webui.Cleanup()
-	}
+		a.SafeShutdown(nil)
+		os.Exit(0)
 
 	a.pushUIState()
 }
