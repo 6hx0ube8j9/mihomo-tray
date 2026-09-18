@@ -134,16 +134,15 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 
 func (a *Application) SyncRuntimeConfig() {
 	activePath := a.Cfg.GetActivePath()
-	if activePath == "" {
-		return
+	
+	if activePath != "" {
+		if err := a.Cfg.ValidatePhysicalFile(activePath); err != nil {
+			slog.Warn("底稿校验失败，已自动剥离失效配置", "path", activePath, "err", err)
+			a.Cfg.SetActiveProfile("")
+			activePath = "" 
+		}
 	}
-
-	if err := a.Cfg.ValidatePhysicalFile(activePath); err != nil {
-		slog.Warn("底稿校验失败，已自动剥离失效配置", "path", activePath, "err", err)
-		a.Cfg.SetActiveProfile("")
-		return
-	}
-
+	
 	if _, extracted, err := a.Cfg.PrepareYAMLForPath(activePath); err != nil {
 		slog.Error("自动同步运行时配置失败", "err", err)
 	} else if len(extracted) > 0 {
