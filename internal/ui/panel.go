@@ -221,7 +221,6 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 		}
 
 		if !e.panelWindow.Visible() {
-			centerWindow(e.panelWindow)
 			e.panelWindow.Show()
 		} else {
 			e.panelWindow.Show()
