@@ -364,10 +364,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		_ = sys.ExecuteSystemCommand(absPath)
 
 	case "ExitApp":
-		slog.Info("收到退出指令，正在执行底层资源安全清理...")
 		webui.Cleanup()
-		a.SafeShutdown(nil)
-		os.Exit(0)
+	}
 
 	a.pushUIState()
 }
