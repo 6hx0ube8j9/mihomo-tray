@@ -128,3 +128,22 @@ func (a *Application) pushUIState() {
 		}
 	}
 }
+
+func (a *Application) ForcePushUIState() {
+	if a.State.IsExiting() {
+		return
+	}
+
+	a.uiStateMutex.Lock()
+	defer a.uiStateMutex.Unlock()
+
+	newState := a.calculateUIState()
+	a.lastUIState = newState
+
+	select {
+	case a.UIStateCh <- newState:
+	default:
+		<-a.UIStateCh
+		a.UIStateCh <- newState
+	}
+}
