@@ -11,27 +11,21 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"mihomo-tray/internal/domain"
 )
 
 const DefaultUserAgent = "clash-verge/v1.7.7 clash-meta"
 
-type FetchResult struct {
-	TempPath string
-	Upload   int64
-	Download int64
-	Total    int64
-	Expire   int64
-}
-
 func (m *Manager) UpgradeSubscription(relPath string, proxyPort string, validator func(tmpPath string) error) (bool, error) {
 	item, ok := m.GetProfileByPath(relPath)
 	if !ok || item.URL == "" {
-		return false, fmt.Errorf("找不到对应的远程订阅节点或 URL 为空")
+		return false, fmt.Errorf("远程订阅节点无效或 URL 为空")
 	}
 
 	fetchRes, err := m.FetchRemoteProfile(item.URL, proxyPort)
 	if err != nil {
-		return false, fmt.Errorf("拉取订阅失败: %w", err)
+		return false, fmt.Errorf("订阅拉取失败: %w", err)
 	}
 
 	defer func() {
@@ -51,15 +45,15 @@ func (m *Manager) UpgradeSubscription(relPath string, proxyPort string, validato
 	item.LastUpdate = time.Now().Unix()
 
 	if err := m.CommitRemoteProfile(fetchRes.TempPath, relPath, item); err != nil {
-		return false, fmt.Errorf("订阅落盘失败: %w", err)
+		return false, fmt.Errorf("订阅保存失败: %w", err)
 	}
 
 	return true, nil
 }
 
-func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*FetchResult, error) {
+func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*domain.FetchResult, error) {
 	subURL = strings.TrimSpace(subURL)
-	slog.Info("准备拉取远程订阅", "url", subURL)
+	slog.Info("开始拉取订阅", "url", subURL)
 
 	transport := &http.Transport{Proxy: http.ProxyFromEnvironment}
 
@@ -90,7 +84,7 @@ func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*FetchRes
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("远端服务器返回异常状态码: %d", resp.StatusCode)
+		return nil, fmt.Errorf("服务器响应异常，状态码: %d", resp.StatusCode)
 	}
 
 	profilesDirAbs := filepath.Join(m.baseDir, ProfilesDir)
@@ -112,7 +106,7 @@ func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*FetchRes
 		return nil, copyErr
 	}
 
-	res := &FetchResult{TempPath: tmpName}
+	res := &domain.FetchResult{TempPath: tmpName}
 
 	if userInfo := resp.Header.Get("subscription-userinfo"); userInfo != "" {
 		parts := strings.Split(userInfo, ";")
@@ -137,7 +131,7 @@ func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*FetchRes
 	return res, nil
 }
 
-func (m *Manager) CommitRemoteProfile(tempPath string, targetRelPath string, item ProfileItem) error {
+func (m *Manager) CommitRemoteProfile(tempPath string, targetRelPath string, item domain.ProfileItem) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -167,7 +161,7 @@ func (m *Manager) CommitRemoteProfile(tempPath string, targetRelPath string, ite
 	return nil
 }
 
-func (m *Manager) GetProfileByPath(relPath string) (ProfileItem, bool) {
+func (m *Manager) GetProfileByPath(relPath string) (domain.ProfileItem, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	for _, p := range m.data.Items {
@@ -175,5 +169,5 @@ func (m *Manager) GetProfileByPath(relPath string) (ProfileItem, bool) {
 			return p, true
 		}
 	}
-	return ProfileItem{}, false
+	return domain.ProfileItem{}, false
 }
