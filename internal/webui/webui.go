@@ -20,6 +20,13 @@ import (
 	"mihomo-tray/internal/sys"
 )
 
+const (
+	defaultWebUIHost   = "127.0.0.1"
+	defaultWebUIPort   = "9090"
+	fallbackDebugPort1 = "52819"
+	fallbackDebugPort2 = "52820"
+)
+
 type Event int
 
 const (
@@ -33,6 +40,24 @@ type Config struct {
 	ProxyPort string
 	BaseDir   string
 	UIName    string
+}
+
+type browserInfo struct {
+	path string
+	tag  string
+}
+
+var potentialBrowsers = []browserInfo{
+	{filepath.Join(os.Getenv("ProgramFiles(x86)"), `Microsoft\Edge\Application\msedge.exe`), "edge"},
+	{filepath.Join(os.Getenv("ProgramFiles"), `Microsoft\Edge\Application\msedge.exe`), "edge"},
+	{filepath.Join(os.Getenv("ProgramFiles"), `Google\Chrome\Application\chrome.exe`), "chrome"},
+	{filepath.Join(os.Getenv("ProgramFiles(x86)"), `Google\Chrome\Application\chrome.exe`), "chrome"},
+	{filepath.Join(os.Getenv("LocalAppData"), `Google\Chrome\Application\chrome.exe`), "chrome"},
+	{filepath.Join(os.Getenv("ProgramFiles"), `BraveSoftware\Brave-Browser\Application\brave.exe`), "brave"},
+	{filepath.Join(os.Getenv("LocalAppData"), `BraveSoftware\Brave-Browser\Application\brave.exe`), "brave"},
+	{filepath.Join(os.Getenv("LocalAppData"), `Vivaldi\Application\vivaldi.exe`), "vivaldi"},
+	{filepath.Join(os.Getenv("ProgramFiles"), `Vivaldi\Application\vivaldi.exe`), "vivaldi"},
+	{filepath.Join(os.Getenv("ProgramFiles(x86)"), `Vivaldi\Application\vivaldi.exe`), "vivaldi"},
 }
 
 var (
@@ -49,24 +74,13 @@ var (
 )
 
 var ghostCharReplacer = strings.NewReplacer(
-	"\u200b", "",
-	"\u200c", "",
-	"\u200d", "",
-	"\u200e", "",
-	"\u200f", "",
-	"\ufeff", "",
-	"\u00a0", " ",
+	"\u200b", "", "\u200c", "", "\u200d", "",
+	"\u200e", "", "\u200f", "", "\ufeff", "", "\u00a0", " ",
 )
 
 var browserTitleSuffixes = []string{
-	"google chrome",
-	"microsoft edge",
-	"msedge",
-	"brave",
-	"vivaldi",
-	"firefox",
-	"opera",
-	"chromium",
+	"google chrome", "microsoft edge", "msedge",
+	"brave", "vivaldi", "firefox", "opera", "chromium",
 }
 
 func isStandardBrowserWindow(titleLower string) bool {
@@ -93,11 +107,11 @@ func isDebugPortAlive(port string) bool {
 func getFreePort() string {
 	addr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
 	if err != nil {
-		return "52819"
+		return fallbackDebugPort1
 	}
 	l, err := net.ListenTCP("tcp", addr)
 	if err != nil {
-		return "52719"
+		return fallbackDebugPort2
 	}
 	port := strconv.Itoa(l.Addr().(*net.TCPAddr).Port)
 	_ = l.Close()
@@ -154,14 +168,14 @@ func Launch(cfg Config, eventCh chan<- Event) {
 	host, port, err := net.SplitHostPort(cleanAddr)
 	if err != nil {
 		host = cleanAddr
-		port = "9090"
+		port = defaultWebUIPort
 	}
 	if port == "" {
-		port = "9090"
+		port = defaultWebUIPort
 	}
 
 	if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
-		host = "127.0.0.1"
+		host = defaultWebUIHost
 	}
 
 	appHostPort := net.JoinHostPort(host, port)
@@ -232,23 +246,6 @@ func Launch(cfg Config, eventCh chan<- Event) {
 			emitEvent(eventCh, EventReady)
 			return
 		}
-	}
-
-	type browserInfo struct {
-		path string
-		tag  string
-	}
-	potentialBrowsers := []browserInfo{
-		{filepath.Join(os.Getenv("ProgramFiles(x86)"), `Microsoft\Edge\Application\msedge.exe`), "edge"},
-		{filepath.Join(os.Getenv("ProgramFiles"), `Microsoft\Edge\Application\msedge.exe`), "edge"},
-		{filepath.Join(os.Getenv("ProgramFiles"), `Google\Chrome\Application\chrome.exe`), "chrome"},
-		{filepath.Join(os.Getenv("ProgramFiles(x86)"), `Google\Chrome\Application\chrome.exe`), "chrome"},
-		{filepath.Join(os.Getenv("LocalAppData"), `Google\Chrome\Application\chrome.exe`), "chrome"},
-		{filepath.Join(os.Getenv("ProgramFiles"), `BraveSoftware\Brave-Browser\Application\brave.exe`), "brave"},
-		{filepath.Join(os.Getenv("LocalAppData"), `BraveSoftware\Brave-Browser\Application\brave.exe`), "brave"},
-		{filepath.Join(os.Getenv("LocalAppData"), `Vivaldi\Application\vivaldi.exe`), "vivaldi"},
-		{filepath.Join(os.Getenv("ProgramFiles"), `Vivaldi\Application\vivaldi.exe`), "vivaldi"},
-		{filepath.Join(os.Getenv("ProgramFiles(x86)"), `Vivaldi\Application\vivaldi.exe`), "vivaldi"},
 	}
 
 	var browserPath, browserTag string
