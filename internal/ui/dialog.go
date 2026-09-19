@@ -12,10 +12,11 @@ func getValidOwner() walk.Form {
 	if globalUIEngine != nil {
 		if globalUIEngine.panelWindow != nil {
 			hwnd := globalUIEngine.panelWindow.Handle()
-			if win.IsWindowVisible(hwnd) && win.IsIconic(hwnd) == 0 {
+			if win.IsWindowVisible(hwnd) && !win.IsIconic(hwnd) {
 				return globalUIEngine.panelWindow
 			}
 		}
+
 		if globalUIEngine.mw != nil {
 			return globalUIEngine.mw
 		}
@@ -55,9 +56,9 @@ func centerDialog(dlg *walk.Dialog, hActive win.HWND, fallback walk.Form) {
 
 	var targetHWND win.HWND
 
-	if hActive != 0 && win.IsWindowVisible(hActive) && win.IsIconic(hActive) == 0 {
+	if hActive != 0 && win.IsWindowVisible(hActive) && !win.IsIconic(hActive) {
 		targetHWND = hActive
-	} else if fallback != nil && fallback.Visible() && win.IsIconic(fallback.Handle()) == 0 {
+	} else if fallback != nil && fallback.Visible() && !win.IsIconic(fallback.Handle()) {
 		targetHWND = fallback.Handle()
 	}
 
@@ -141,7 +142,7 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 
 	dlg.Run()
 
-	if hActive != 0 && win.IsWindowVisible(hActive) && win.IsIconic(hActive) == 0 {
+	if hActive != 0 && win.IsWindowVisible(hActive) && !win.IsIconic(hActive) {
 		win.SetForegroundWindow(hActive)
 		win.SetFocus(hActive)
 	}
@@ -223,7 +224,7 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 
 	dlg.Run()
 
-	if hActive != 0 && win.IsWindowVisible(hActive) && win.IsIconic(hActive) == 0 {
+	if hActive != 0 && win.IsWindowVisible(hActive) && !win.IsIconic(hActive) {
 		win.SetForegroundWindow(hActive)
 		win.SetFocus(hActive)
 	}
