@@ -87,7 +87,7 @@ func (m *Manager) LoadAndInitMemory() {
 	if m.data.Proxy == "" { m.data.Proxy = domain.DefaultProxy; isTainted = true }
 	if m.data.Tun == "" { m.data.Tun = domain.DefaultTun; isTainted = true }
 	if m.data.Mode == "" { m.data.Mode = domain.DefaultMode; isTainted = true }
-	if m.data.TrayLogLevel == "" { m.data.TrayLogLevel = "error"; isTainted = true }
+	if m.data.TrayLogLevel == "" { m.data.TrayLogLevel = domain.DefaultLogLevel; isTainted = true }
 
 	if isTainted {
 		m.lockedSave()
