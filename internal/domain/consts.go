@@ -1,5 +1,7 @@
 package domain
 
+const AppTaskName = "MihomoTrayTask"
+
 type AppPhase int32
 
 const (
