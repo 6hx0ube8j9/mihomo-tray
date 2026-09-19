@@ -91,7 +91,7 @@ func (a *Application) executeRemoteUpdate(ctx context.Context, targetRelPath str
 			absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
 			_ = os.Remove(absPath)
 			a.Cfg.RemoveProfile(targetRelPath)
-			a.pushUIState()
+			a.ForcePushUIState()
 		}
 		return
 	}
@@ -115,17 +115,16 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 
 	go func() {
 		defer a.State.SetReloading(false)
-		defer a.pushUIState()
+		defer a.ForcePushUIState()
 
 		target := a.Cfg.GetActivePath()
 
-		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
-			ui.ShowErrorMessage(nil, "重载失败", "配置文件不存在或损坏，请检查文件")
-			return
+		if err := a.safePreflightCheck(target, "重载配置"); err != nil {
+			return 
 		}
 
 		if err := a.applyConfigTransaction(ctx, target); err != nil {
-			ui.ShowErrorMessage(nil, "重载失败", "当前配置文件存在错误，请检查：\n\n"+err.Error())
+			ui.ShowErrorMessage(nil, "配置重载失败", "内核拒绝加载当前配置文件，请检查语法：\n\n"+err.Error())
 		} else {
 			a.restartWebUIIfOpen()
 		}
