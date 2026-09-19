@@ -48,21 +48,9 @@ func (a *Application) calculateUIState() domain.UIState {
 		}
 
 		if item.IsRemote {
-			if p.LastUpdate == 0 {
-				item.LastUpdate = "从未更新"
-			} else {
-				diff := time.Since(time.Unix(p.LastUpdate, 0))
-				if diff.Hours() > 24 {
-					item.LastUpdate = fmt.Sprintf("%d 天前", int(diff.Hours()/24))
-				} else if diff.Hours() > 1 {
-					item.LastUpdate = fmt.Sprintf("%d 小时前", int(diff.Hours()))
-				} else if diff.Minutes() > 1 {
-					item.LastUpdate = fmt.Sprintf("%d 分钟前", int(diff.Minutes()))
-				} else {
-					item.LastUpdate = "刚刚"
-				}
-			}
+			item.LastUpdate = p.FormatLastUpdateText()
 		}
+			
 		s.ProfileItems = append(s.ProfileItems, item)
 	}
 
