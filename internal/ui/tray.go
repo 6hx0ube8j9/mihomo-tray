@@ -2,10 +2,13 @@ package ui
 
 import (
 	"fmt"
+
 	"github.com/tailscale/walk"
+
+	"mihomo-tray/internal/domain"
 )
 
-func (e *UIEngine) updateTrayState(state UIState) {
+func (e *UIEngine) updateTrayState(state domain.UIState) {
 	if e.ni == nil {
 		return
 	}
@@ -35,11 +38,11 @@ func (e *UIEngine) updateTrayState(state UIState) {
 	e.addCheckableSubAction(modeMenu, "规则", state.Mode == "rule", func() { e.sendCommand("SwitchMode", "rule") })
 	e.addCheckableSubAction(modeMenu, "直连", state.Mode == "direct", func() { e.sendCommand("SwitchMode", "direct") })
 	e.addCheckableSubAction(modeMenu, "全局", state.Mode == "global", func() { e.sendCommand("SwitchMode", "global") })
-	
+
 	e.addSeparator()
 
 	e.addAction("添加配置", func() { e.sendCommand("OpenProfileManager", "") })
-	
+
 	switchMenu := e.addSubMenu("切换配置文件")
 	if len(state.ProfileItems) == 0 {
 		emptyAction := walk.NewAction()
@@ -58,7 +61,7 @@ func (e *UIEngine) updateTrayState(state UIState) {
 			})
 		}
 	}
-	
+
 	e.addSeparator()
 	e.addAction("打开程序目录", func() { e.sendCommand("OpenBaseDir", "") })
 	e.addSeparator()
@@ -68,7 +71,7 @@ func (e *UIEngine) updateTrayState(state UIState) {
 		adminText = "运行权限：管理员"
 	}
 	adminMenu := e.addSubMenu(adminText)
-	
+
 	e.addCheckableSubAction(adminMenu, "开机自启（管理员）", state.AutoStart, func() {
 		e.sendCommand("ToggleAutoStart", fmt.Sprintf("%t", !state.AutoStart))
 	})
@@ -80,11 +83,11 @@ func (e *UIEngine) updateTrayState(state UIState) {
 	moreMenu := e.addSubMenu("更多")
 	e.addActionTo(moreMenu, "重载当前配置", func() { e.sendCommand("ReloadConfig", "") })
 	e.addActionTo(moreMenu, "重启内核", func() { e.sendCommand("RestartKernel", "") })
-	
+
 	e.addSeparator()
-	e.addAction("退出程序", func() { 
-		e.sendCommand("ExitApp", "") 
-		e.app.Synchronize(func() { e.mw.Close() }) 
+	e.addAction("退出程序", func() {
+		e.sendCommand("ExitApp", "")
+		e.app.Synchronize(func() { e.mw.Close() })
 	})
 }
 
@@ -116,8 +119,8 @@ func (e *UIEngine) addCheckableSubAction(menu *walk.Menu, text string, checked b
 
 func (e *UIEngine) addSubMenu(text string) *walk.Menu {
 	subMenu, _ := walk.NewMenu()
-	subAction := walk.NewMenuAction(subMenu) 
-	
+	subAction := walk.NewMenuAction(subMenu)
+
 	subAction.SetText(text)
 	e.ni.ContextMenu().Actions().Add(subAction)
 	return subMenu
