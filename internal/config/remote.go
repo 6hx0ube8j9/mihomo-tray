@@ -15,8 +15,6 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-const DefaultUserAgent = "clash-verge/v1.7.7 clash-meta"
-
 func (m *Manager) UpgradeSubscription(relPath string, proxyPort string, validator func(tmpPath string) error) (bool, error) {
 	item, ok := m.GetProfileByPath(relPath)
 	if !ok || item.URL == "" {
@@ -73,7 +71,7 @@ func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*domain.F
 		return nil, err
 	}
 
-	req.Header.Set("User-Agent", DefaultUserAgent)
+	req.Header.Set("User-Agent", domain.DefaultUserAgent)
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Connection", "keep-alive")
 
@@ -96,7 +94,7 @@ func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*domain.F
 	}
 	tmpName := tmpFile.Name()
 
-	limitReader := io.LimitReader(resp.Body, 15*1024*1024)
+	limitReader := io.LimitReader(resp.Body, domain.MaxProfileBytes)
 	_, copyErr := io.Copy(tmpFile, limitReader)
 
 	tmpFile.Close()
@@ -152,7 +150,7 @@ func (m *Manager) CommitRemoteProfile(tempPath string, targetRelPath string, ite
 
 	if !found {
 		m.data.Items = append(m.data.Items, item)
-		if len(m.data.Items) > 10 {
+		if len(m.data.Items) > domain.MaxProfileCount {
 			m.data.Items = append(m.data.Items[:1], m.data.Items[2:]...)
 		}
 	}
