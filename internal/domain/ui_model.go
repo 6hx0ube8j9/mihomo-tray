@@ -1,5 +1,13 @@
 package domain
 
+const (
+	IconStop = iota
+	IconError
+	IconTun
+	IconProxy
+	IconDefault
+)
+
 type UICommand struct {
 	Action  string
 	Payload string
