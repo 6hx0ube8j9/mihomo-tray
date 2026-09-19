@@ -43,4 +43,5 @@ const (
 	DefaultUpdateInterval = 3                // 默认订阅更新间隔(天)
 	MaxProfileCount       = 10               // 允许导入的最大配置(订阅)数量
 	MaxProfileBytes       = 15 * 1024 * 1024 // 限制最大配置文件体积为 15MB
+	MaxUpdateInterval     = 30               // 最大订阅更新间隔(天)
 )
