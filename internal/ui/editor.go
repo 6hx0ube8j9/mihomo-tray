@@ -39,10 +39,7 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 		var outInterval int
 		var accepted bool
 
-		var owner walk.Form = e.mw
-		if e.panelWindow != nil && e.panelWindow.Visible() {
-			owner = e.panelWindow
-		}
+		var owner walk.Form = getValidOwner()
 
 		dialogDecl := Dialog{
 			AssignTo: &dlg,
@@ -87,16 +84,15 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 								inputUrl := strings.TrimSpace(urlEdit.Text())
 
 								if inputUrl == "" {
-									walk.MsgBox(dlg, "输入错误", "订阅链接不能为空！", walk.MsgBoxIconWarning)
+									RunErrorDialog(dlg, "输入错误", "订阅链接不能为空！")
 									return
 								}
 
 								u, parseErr := url.ParseRequestURI(inputUrl)
 								if parseErr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-									walk.MsgBox(dlg, "输入错误", "请输入有效且合法的 HTTP/HTTPS 订阅链接！", walk.MsgBoxIconWarning)
+									RunErrorDialog(dlg, "输入错误", "请输入有效且合法的 HTTP/HTTPS 订阅链接！")
 									return
 								}
-
 
 								outName = name
 								outUrl = inputUrl
@@ -127,7 +123,7 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 		dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 			isSubscriptionEditorOpen = false
 			
-			if e.panelWindow != nil && e.panelWindow.Visible() {
+			if e.panelWindow != nil && e.panelWindow.Visible() && getValidOwner() != nil {
 				e.panelWindow.Show()
 				e.panelWindow.SetFocus()
 			}
