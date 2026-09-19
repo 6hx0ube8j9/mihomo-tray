@@ -18,6 +18,8 @@ import (
 	"mihomo-tray/internal/state"
 )
 
+const MaxAPIResponseSize = 5 * 1024 * 1024
+
 type APIClient struct {
 	cfg        *config.Manager
 	st         *state.RuntimeState
@@ -132,7 +134,7 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 		return nil, fmt.Errorf("API Status Error: %d", resp.StatusCode)
 	}
 
-	limitReader := io.LimitReader(resp.Body, 5*1024*1024)
+	limitReader := io.LimitReader(resp.Body, MaxAPIResponseSize)
 	body, err := io.ReadAll(limitReader)
 	if err != nil {
 		return nil, err
