@@ -50,7 +50,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	case "RequestAddRemoteProfile":
 		go func() {
 			if a.ShowSubscriptionEditor != nil {
-				name, url, interval, ok := a.ShowSubscriptionEditor("添加远程订阅", "", "", 3)
+				name, url, interval, ok := a.ShowSubscriptionEditor("添加远程订阅", "", "", domain.DefaultUpdateInterval)
 				if ok {
 					autoUpdate := interval > 0
 					payload := fmt.Sprintf("%s|%s|%d|%t", name, url, interval, autoUpdate)
