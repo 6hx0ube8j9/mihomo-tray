@@ -16,6 +16,20 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
+const (
+	MainWindowTitle = "Mihomo Tray Host"
+	TrayToolTip     = "Mihomo Tray"
+	TempDirPattern  = "mihomo-tray-icons-*"
+)
+
+var trayIconAssets = []string{
+	domain.IconStop:    "stop.ico",
+	domain.IconError:   "error.ico",
+	domain.IconTun:     "tun.ico",
+	domain.IconProxy:   "proxy.ico",
+	domain.IconDefault: "default.ico",
+}
+
 //go:embed icons/*.ico
 var iconFs embed.FS
 
@@ -62,7 +76,7 @@ func (e *UIEngine) Run() error {
 
 	err = MainWindow{
 		AssignTo: &e.mw,
-		Title:    "Mihomo Tray Host",
+		Title:    MainWindowTitle,
 		Visible:  false,
 	}.Create()
 
@@ -75,7 +89,7 @@ func (e *UIEngine) Run() error {
 		return fmt.Errorf("托盘图标创建失败: %w", err)
 	}
 	e.ni.SetVisible(true)
-	e.ni.SetToolTip("Mihomo Tray")
+	e.ni.SetToolTip(TrayToolTip)
 	e.ni.MouseUp().Attach(func(x, y int, button walk.MouseButton) {
 		if button == walk.LeftButton {
 			e.sendCommand("OpenWebUI", "")
@@ -107,17 +121,19 @@ func (e *UIEngine) Run() error {
 }
 
 func (e *UIEngine) loadEmbeddedIcons() {
-	iconFiles := []string{"stop.ico", "error.ico", "tun.ico", "proxy.ico", "default.ico"}
-	e.icons = make([]*walk.Icon, len(iconFiles))
+	e.icons = make([]*walk.Icon, len(trayIconAssets))
 
-	tmpDir, err := os.MkdirTemp("", "mihomo-tray-icons-*")
+	tmpDir, err := os.MkdirTemp("", TempDirPattern)
 	if err != nil {
 		slog.Error("创建图标缓存目录失败", "err", err)
 		return
 	}
 	e.iconDir = tmpDir
 
-	for id, name := range iconFiles {
+	for id, name := range trayIconAssets {
+		if name == "" {
+			continue
+		}
 		if b, err := iconFs.ReadFile("icons/" + name); err == nil {
 			tmpPath := filepath.Join(tmpDir, name)
 			_ = os.WriteFile(tmpPath, b, 0644)
@@ -129,8 +145,8 @@ func (e *UIEngine) loadEmbeddedIcons() {
 		}
 	}
 
-	if len(e.icons) > 0 && e.icons[0] != nil {
-		e.ni.SetIcon(e.icons[0])
+	if len(e.icons) > 0 && e.icons[domain.IconStop] != nil {
+		e.ni.SetIcon(e.icons[domain.IconStop])
 	}
 }
 
