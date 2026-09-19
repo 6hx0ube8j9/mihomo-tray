@@ -9,9 +9,9 @@ import (
 
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/core"
+	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
-	"mihomo-tray/internal/ui"
 	"mihomo-tray/internal/webui"
 )
 
@@ -21,19 +21,19 @@ type Application struct {
 	Kernel *core.KernelManager
 	API    *core.APIClient
 
-	kernelEventCh chan core.KernelEvent
+	kernelEventCh chan domain.KernelEvent
 	tunEventCh    chan struct{}
 	proxyStatusCh chan sys.ProxyStatus
 	apiPollCh     chan struct{}
 
-	UIStateCh    chan ui.UIState
-	UICommandCh  chan ui.UICommand
+	UIStateCh    chan domain.UIState
+	UICommandCh  chan domain.UICommand
 	webuiEventCh chan webui.Event
 
-	lastUIState  ui.UIState
+	lastUIState  domain.UIState
 	uiStateMutex sync.Mutex
 
-	ShowProfileManager     func(items []ui.ProfileItem)
+	ShowProfileManager     func(items []domain.UIProfileItem)
 	ShowSubscriptionEditor func(title, defaultName, defaultUrl string, defaultInterval int) (string, string, int, bool)
 }
 
@@ -43,24 +43,24 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 		State:         st,
 		Kernel:        core.NewKernelManager(cm, st),
 		API:           core.NewAPIClient(cm, st),
-		kernelEventCh: make(chan core.KernelEvent, 10),
+		kernelEventCh: make(chan domain.KernelEvent, 10),
 		tunEventCh:    make(chan struct{}, 1),
 		proxyStatusCh: make(chan sys.ProxyStatus, 5),
 		apiPollCh:     make(chan struct{}, 1),
-		UIStateCh:     make(chan ui.UIState, 1),
-		UICommandCh:   make(chan ui.UICommand, 10),
+		UIStateCh:     make(chan domain.UIState, 1),
+		UICommandCh:   make(chan domain.UICommand, 10),
 		webuiEventCh:  make(chan webui.Event, 1),
 	}
 }
 
 func (a *Application) Bootstrap(ctx context.Context) {
-	slog.Debug("开始初始化后台服务")
+	slog.Debug("初始化核心服务")
 
 	currentAutostart := a.Cfg.Get("autostart")
 	finalAutostart := ResolveAutostart(currentAutostart, a.Cfg.ExePath(), a.Cfg.BaseDir())
 
 	if currentAutostart != finalAutostart {
-		slog.Debug("自启状态与预期不符，修正托盘配置并落盘", "old", currentAutostart, "new", finalAutostart)
+		slog.Debug("自启状态不符，执行修正", "old", currentAutostart, "new", finalAutostart)
 		a.Cfg.UpdateBatch(map[string]string{"autostart": finalAutostart})
 		a.Cfg.FlushInitialState()
 	}
@@ -70,7 +70,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	if activePath != "" {
 		if err := a.Cfg.ValidatePhysicalFile(activePath); err != nil {
 			if p, ok := a.Cfg.GetProfileByPath(activePath); ok && p.URL != "" {
-				slog.Info("开机检测到活跃订阅丢失，正在尝试后台直连静默拉取", "path", activePath)
+				slog.Info("订阅丢失，尝试静默拉取", "path", activePath)
 				validator := func(tmpPath string) error {
 					exePath := core.GetKernelPath(a.Cfg.BaseDir())
 					return core.ValidateConfig(exePath, a.Cfg.BaseDir(), tmpPath)
@@ -79,14 +79,14 @@ func (a *Application) Bootstrap(ctx context.Context) {
 				success, fetchErr := a.Cfg.UpgradeSubscription(activePath, "", validator)
 
 				if !success {
-					slog.Warn("静默拉取订阅失败，将进入无配置空转状态", "err", fetchErr)
+					slog.Warn("静默拉取失败，进入空转", "err", fetchErr)
 					a.Cfg.SetActiveProfile("")
 					activePath = ""
 				} else {
-					slog.Info("开机静默拉取成功，底稿已恢复")
+					slog.Info("静默拉取成功，底稿恢复")
 				}
 			} else {
-				slog.Warn("开机检测到活跃本地配置丢失或为空，将进入无配置空转状态")
+				slog.Warn("活跃配置丢失，进入空转")
 				a.Cfg.SetActiveProfile("")
 				activePath = ""
 			}
@@ -106,7 +106,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	a.syncSystemProxy()
 	a.pushUIState()
 
-	slog.Debug("启动网卡监听与守护任务")
+	slog.Debug("启动系统事件监听")
 	a.Kernel.SetPreStartHook(a.SyncRuntimeConfig)
 	go a.Kernel.RunDaemon(ctx, a.kernelEventCh)
 	go sys.WatchNetworkInterfaces(ctx, a.tunEventCh)
@@ -115,7 +115,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 }
 
 func (a *Application) SafeShutdown(cancel context.CancelFunc) {
-	slog.Info("开始执行退出流程")
+	slog.Info("执行安全退出序列")
 	a.State.ForceExitPhase()
 
 	if cancel != nil {
@@ -126,7 +126,7 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	a.Kernel.KillCurrent()
 
 	if a.Cfg.Get("proxy") == "true" {
-		slog.Info("正在关闭系统代理")
+		slog.Info("关闭系统代理")
 		if err := sys.SetSystemProxy(false, ""); err != nil {
 			slog.Error("关闭系统代理失败", "err", err)
 		}
@@ -146,9 +146,9 @@ func (a *Application) eventLoop(ctx context.Context) {
 	defer subTicker.Stop()
 
 	tryPollAPI := func() {
-		if a.State.GetPhase() == state.PhaseRunning && !a.State.IsConfigSyncing() && !a.State.IsReloading() {
+		if a.State.GetPhase() == domain.PhaseRunning && !a.State.IsConfigSyncing() && !a.State.IsReloading() {
 			if a.pollKernelAPI(ctx) {
-				slog.Debug("内核 API 状态已变更")
+				slog.Debug("内核 API 状态变更")
 				a.pushUIState()
 			}
 		}
@@ -158,7 +158,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 		select {
 		case event := <-a.webuiEventCh:
 			if event == webui.EventError {
-				slog.Error("WebUI 启动或运行异常")
+				slog.Error("WebUI 运行异常")
 			}
 		case <-ctx.Done():
 			slog.Debug("退出主事件循环")
@@ -169,8 +169,8 @@ func (a *Application) eventLoop(ctx context.Context) {
 			a.handleUICommand(ctx, cmd)
 
 		case event := <-a.kernelEventCh:
-			if event == core.EventKernelReady {
-				slog.Info("内核进程已启动，若需下载规则集耗时较长，请耐心等待...")
+			if event == domain.EventKernelReady {
+				slog.Info("内核进程已启动")
 
 				if a.Cfg.Get("tun") == "true" {
 					a.State.SetTunRequestedTime(time.Now())
@@ -191,7 +191,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 							return
 						}
 
-						if a.State.GetPhase() == state.PhaseRunning {
+						if a.State.GetPhase() == domain.PhaseRunning {
 							return
 						}
 
@@ -200,8 +200,8 @@ func (a *Application) eventLoop(ctx context.Context) {
 						cancel()
 
 						if err == nil {
-							slog.Info("内核 API 已就绪，核心网络配置生效")
-							a.State.SetPhase(state.PhaseRunning)
+							slog.Info("内核 API 已就绪")
+							a.State.SetPhase(domain.PhaseRunning)
 							select {
 							case a.apiPollCh <- struct{}{}:
 							default:
@@ -217,22 +217,22 @@ func (a *Application) eventLoop(ctx context.Context) {
 					}
 
 					if a.State.GetProbeGen() == gen && !a.State.IsExiting() {
-						slog.Error("内核进程假死，守护进程已自动熄火挂起")
+						slog.Error("内核无响应，守护进程挂起")
 						a.Kernel.HaltDaemon()
-						a.State.SetPhase(state.PhaseInitializing)
+						a.State.SetPhase(domain.PhaseInitializing)
 						a.pushUIState()
 					}
 				}(currentGen)
 
-			} else if event == core.EventKernelExit {
+			} else if event == domain.EventKernelExit {
 				a.State.AdvanceProbeGen()
 
 				if a.State.IsRestarting() {
-					slog.Info("内核已停止，等待重启指令")
+					slog.Info("内核已停止，等待重启")
 				} else {
-					slog.Warn("内核异常退出，重置运行状态")
+					slog.Warn("内核异常退出")
 				}
-				a.State.SetPhase(state.PhaseInitializing)
+				a.State.SetPhase(domain.PhaseInitializing)
 			}
 			a.pushUIState()
 
@@ -253,7 +253,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 		case <-subTicker.C:
 			for _, p := range a.Cfg.GetProfiles() {
 				if p.NeedUpdate() {
-					slog.Debug("后台巡检触发自动更新任务", "name", p.Name)
+					slog.Debug("触发自动更新任务", "name", p.Name)
 					go a.executeRemoteUpdate(ctx, p.Path, false, false)
 				}
 			}
