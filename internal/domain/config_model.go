@@ -31,3 +31,18 @@ type FetchResult struct {
 	Total    int64
 	Expire   int64
 }
+
+func (p *ProfileItem) FormatLastUpdateText() string {
+    if p.LastUpdate == 0 {
+        return "从未更新"
+    }
+    diff := time.Since(time.Unix(p.LastUpdate, 0))
+    if diff.Hours() > 24 {
+        return fmt.Sprintf("%d 天前", int(diff.Hours()/24))
+    } else if diff.Hours() > 1 {
+        return fmt.Sprintf("%d 小时前", int(diff.Hours()))
+    } else if diff.Minutes() > 1 {
+        return fmt.Sprintf("%d 分钟前", int(diff.Minutes()))
+    }
+    return "刚刚"
+}
