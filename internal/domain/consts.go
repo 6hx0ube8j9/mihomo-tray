@@ -31,7 +31,10 @@ const (
 	DefaultSecret             = ""
 	DefaultExternalUI         = "ui"
 	DefaultExternalUIURL      = "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip"
-	
-	DefaultUpdateInterval = 3 // 默认更新间隔(天)
-	MaxProfileCount       = 5 // 最大配置数量
+	DefaultLogLevel           = "error"
+	DefaultUserAgent          = "clash-verge/v1.7.7 clash-meta"
+
+	DefaultUpdateInterval = 3                // 默认订阅更新间隔(天)
+	MaxProfileCount       = 10               // 允许导入的最大配置(订阅)数量
+	MaxProfileBytes       = 15 * 1024 * 1024 // 限制最大配置文件体积为 15MB
 )
