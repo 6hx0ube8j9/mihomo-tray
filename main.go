@@ -9,8 +9,8 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"sync"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unsafe"
@@ -241,7 +241,7 @@ func main() {
 
 	hasValidTask := sys.CheckAutoStartStatus() && sys.IsTaskPathValid(exePath)
 	if hasValidTask && cfgMgr.Get("autostart") != "true" {
-		slog.Info("检测到已有自启任务，自动恢复自启与提权意图")
+		slog.Info("已有自启任务，自动同步配置")
 		cfgMgr.Set("autostart", "true")
 	}
 
@@ -264,41 +264,41 @@ func main() {
 
 	if !admin && !isAutostart {
 		if isAutostartConfig || isRunAsAdminConfig {
-			slog.Info("配置要求特权，正在尝试静默提权或请求 UAC")
+			slog.Info("准备提权环境")
 
 			if isAutostartConfig && hasValidTask {
-				slog.Debug("检测到自启计划任务，尝试通过计划任务静默提权")
+				slog.Debug("尝试计划任务静默提权")
 				schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
 				cmd := exec.Command(schtasksPath, "/Run", "/TN", sys.TaskName)
 				cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 
 				if err := cmd.Run(); err == nil {
-					slog.Info("已成功通过计划任务静默唤起高权限实例，当前进程退出")
+					slog.Info("静默唤起成功，当前实例退出")
 					if hM != 0 {
 						windows.CloseHandle(hM)
 					}
 					os.Exit(0)
 				} else {
-					slog.Warn("计划任务静默启动失败，回退到普通 UAC 提权", "err", err)
+					slog.Warn("静默唤起失败，回退 UAC", "err", err)
 				}
 			}
-			
+
 			err := sys.RunAsAdmin(exePath, baseDir, "--restarting")
-			
+
 			if sys.IsUserCancelled(err) {
-				slog.Info("用户在启动时取消了 UAC，优雅退出")
+				slog.Info("用户取消提权，程序退出")
 				if hM != 0 {
 					windows.CloseHandle(hM)
 				}
 				os.Exit(0)
 			} else if err == nil {
-				slog.Info("提权请求成功，当前普通进程退出")
+				slog.Info("UAC 提权成功，当前实例退出")
 				if hM != 0 {
 					windows.CloseHandle(hM)
 				}
 				os.Exit(0)
 			} else {
-				slog.Error("提权启动失败", "err", err)
+				slog.Error("UAC 启动失败", "err", err)
 			}
 		}
 	}
@@ -318,8 +318,8 @@ func main() {
 
 	runtimeState := state.NewRuntimeState()
 	application := app.NewApplication(cfgMgr, runtimeState)
-	
-	slog.Debug("初始化系统托盘与大一统 UI 引擎")
+
+	slog.Debug("挂载 UI 引擎")
 	uiEngine := ui.NewUIEngine(ctx, cancel, application.UICommandCh, application.UIStateCh)
 
 	application.ShowProfileManager = uiEngine.ShowProfileManager
@@ -331,7 +331,7 @@ func main() {
 		defer signal.Stop(sigCh)
 		select {
 		case sig := <-sigCh:
-			slog.Info("收到系统退出信号", "signal", sig)
+			slog.Info("收到系统停止信号", "signal", sig)
 			cancel()
 		case <-ctx.Done():
 			return
@@ -340,29 +340,29 @@ func main() {
 
 	if hShowUIEvent != 0 {
 		go func() {
-			slog.Debug("唤醒事件监听已就绪")
+			slog.Debug("监听进程唤醒事件")
 			for {
 				s, _ := windows.WaitForSingleObject(hShowUIEvent, windows.INFINITE)
 				if s != windows.WAIT_OBJECT_0 || ctx.Err() != nil {
 					return
 				}
-				slog.Info("收到外部进程唤醒信号")
+				slog.Info("捕获唤醒信号")
 				application.OpenWebUI()
-				
+
 				time.Sleep(200 * time.Millisecond)
 			}
 		}()
 	}
 
-	slog.Debug("启动后台核心服务")
+	slog.Debug("启动后端服务")
 	go application.Bootstrap(ctx)
 
-	slog.Debug("进入全局 UI 引擎事件循环 (独占主线程)")
+	slog.Debug("进入主线程事件循环")
 	if err := uiEngine.Run(); err != nil {
 		slog.Error("UI 引擎启动失败", "err", err)
 	}
 
-	slog.Debug("UI 循环退出，开始释放资源")
+	slog.Debug("UI 循环终止，释放系统资源")
 	cancel()
 	if hShowUIEvent != 0 {
 		_ = windows.SetEvent(hShowUIEvent)
@@ -370,5 +370,5 @@ func main() {
 
 	runtimeState.ForceExitPhase()
 	application.SafeShutdown(cancel)
-	slog.Info("程序已安全退出")
+	slog.Info("程序退出完毕")
 }
