@@ -46,6 +46,12 @@ const (
 	SWP_SHOWWINDOW = 0x0040
 	SWP_SILKY      = SWP_NOSIZE | SWP_NOMOVE | SWP_SHOWWINDOW
 	SWP_SILKY_OFF  = SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE
+
+	// 窗口保护边界尺寸
+	minWindowWidth  = 1000
+	minWindowHeight = 680
+	maxWindowWidth  = 2400
+	maxWindowHeight = 1350
 )
 
 var (
@@ -96,10 +102,10 @@ func GetIdealWindowBounds() (winW, winH, winX, winY int) {
 		winH = int(h * 0.80)
 	}
 
-	if winW < 1000 { winW = 1000 }
-	if winH < 680  { winH = 680 }
-	if winW > 2400 { winW = 2400 }
-	if winH > 1350 { winH = 1350 }
+	if winW < minWindowWidth { winW = minWindowWidth }
+	if winH < minWindowHeight { winH = minWindowHeight }
+	if winW > maxWindowWidth { winW = maxWindowWidth }
+	if winH > maxWindowHeight { winH = maxWindowHeight }
 
 	if winW > usableW { winW = int(w * 0.96) }
 	if winH > usableH { winH = int(h * 0.96) }
