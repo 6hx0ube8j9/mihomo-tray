@@ -18,6 +18,14 @@ import (
 	"mihomo-tray/internal/webui"
 )
 
+func (a *Application) safePreflightCheck(targetRelPath string, actionTitle string) error {
+	if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
+		ui.ShowErrorMessage(nil, actionTitle+"被拦截", "目标配置异常，请求已被中止：\n\n"+err.Error())
+		return err
+	}
+	return nil
+}
+
 func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 	switch cmd.Action {
 	case "OpenProfileManager":
@@ -72,7 +80,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 							if url != oldURL {
 								go a.executeRemoteUpdate(context.Background(), profile.Path, true, false)
 							}
-							a.pushUIState()
+							a.ForcePushUIState()
 						}
 					}
 				}
@@ -88,7 +96,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 
 		go func(sourcePath string) {
 			defer a.State.SetProfileSwitching(false)
-			defer a.pushUIState()
+			defer a.ForcePushUIState()
 
 			exePath := core.GetKernelPath(a.Cfg.BaseDir())
 			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), sourcePath); err != nil {
@@ -232,7 +240,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 				a.SafeShutdown(nil)
 				os.Exit(0)
 			}
-			a.pushUIState()
+			a.ForcePushUIState()
 			return
 		}
 
@@ -254,11 +262,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		if enable && !sys.IsAdmin() {
 			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--enable-run-as-admin", "--restarting")
 			if err == nil {
-				slog.Info("提权请求已下发，当前普通进程执行安全清理后退出")
 				a.SafeShutdown(nil)
 				os.Exit(0)
 			}
-			a.pushUIState()
+			a.ForcePushUIState()
 			return
 		}
 		a.Cfg.Set("run_as_admin", strconv.FormatBool(enable))
@@ -269,11 +276,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		if enable && !sys.IsAdmin() {
 			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--enable-tun", "--restarting")
 			if err == nil {
-				slog.Info("TUN提权请求已下发，当前普通进程执行安全清理后退出")
 				a.SafeShutdown(nil)
 				os.Exit(0)
 			}
-			a.pushUIState()
+			a.ForcePushUIState() // 纠正假打勾
 			return
 		}
 
@@ -362,18 +368,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		webui.Cleanup()
 	}
 
-	a.pushUIState()
-}
-
-
-func (a *Application) safePreflightCheck(targetRelPath string, actionTitle string) error {
-	if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
-		ui.ShowErrorMessage(nil, actionTitle+"被拦截", "目标配置异常，请求已被中止：\n\n"+err.Error())
-		
-		a.ForcePushUIState() 
-		return err
-	}
-	return nil
+	a.ForcePushUIState()
 }
 
 func (a *Application) OpenWebUI() {
