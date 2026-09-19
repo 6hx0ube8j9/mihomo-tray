@@ -15,6 +15,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"mihomo-tray/internal/config"
+	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
 )
@@ -28,24 +29,17 @@ func GetKernelPath(baseDir string) string {
 	return filepath.Join(baseDir, KernelExeName)
 }
 
-type KernelEvent int
-
-const (
-	EventKernelReady KernelEvent = iota
-	EventKernelExit
-)
-
 type KernelManager struct {
-	cfg        *config.Manager
-	st         *state.RuntimeState
-	logger     *CoreLogger
-	hJob       windows.Handle
-	currentPid uint32
-	activeProc *os.Process
-	mu         sync.Mutex
-	killMu     sync.Mutex
-	isPaused   bool
-	wakeCh     chan struct{}
+	cfg          *config.Manager
+	st           *state.RuntimeState
+	logger       *CoreLogger
+	hJob         windows.Handle
+	currentPid   uint32
+	activeProc   *os.Process
+	mu           sync.Mutex
+	killMu       sync.Mutex
+	isPaused     bool
+	wakeCh       chan struct{}
 	preStartHook func()
 }
 
@@ -73,7 +67,7 @@ func (km *KernelManager) Close() {
 	}
 }
 
-func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEvent) {
+func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.KernelEvent) {
 	target := GetKernelPath(km.cfg.BaseDir())
 	absBaseDir, _ := filepath.Abs(km.cfg.BaseDir())
 	currentDelay := 50 * time.Millisecond
@@ -209,7 +203,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		select {
 		case <-ctx.Done():
 			return
-		case eventCh <- EventKernelReady:
+		case eventCh <- domain.EventKernelReady:
 		}
 
 		waitDone := make(chan struct{})
@@ -233,7 +227,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		runDuration := time.Since(startTime)
 
 		isCrash := waitErr != nil && !isKilledByUs && !isAppExiting
-		wasRunning := km.st.GetPhase() == state.PhaseRunning
+		wasRunning := km.st.GetPhase() == domain.PhaseRunning
 
 		if isCrash {
 			shouldLog := runDuration < 5*time.Second
@@ -259,7 +253,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- KernelEve
 		km.mu.Unlock()
 
 		select {
-		case eventCh <- EventKernelExit:
+		case eventCh <- domain.EventKernelExit:
 		default:
 		}
 
