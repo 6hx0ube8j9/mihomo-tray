@@ -86,7 +86,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 
 	a.SyncRuntimeConfig()
 
-	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), core.RuntimeConfigName)
+	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), domain.RuntimeConfigName)
 	apiAddr, apiSecret := core.ResolveKernelEndpoint(runtimeAbs)
 	a.API.SetEndpoint(apiAddr, apiSecret)
 
