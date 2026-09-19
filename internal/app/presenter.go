@@ -1,20 +1,9 @@
 package app
 
 import (
-	"fmt"
-	"time"
-
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/sys"
-)
-
-const (
-	IconStop = iota
-	IconError
-	IconTun
-	IconProxy
-	IconDefault
 )
 
 func (a *Application) calculateUIState() domain.UIState {
@@ -29,7 +18,7 @@ func (a *Application) calculateUIState() domain.UIState {
 
 	activePath := a.Cfg.GetActivePath()
 	profiles := a.Cfg.GetProfiles()
-	s.CanAddProfile = len(profiles) < 5
+	s.CanAddProfile = len(profiles) < domain.MaxProfileCount
 
 	seenPaths := make(map[string]bool)
 
@@ -55,23 +44,23 @@ func (a *Application) calculateUIState() domain.UIState {
 	}
 
 	if a.State.IsExiting() || a.State.IsRestarting() || a.State.GetPhase() != domain.PhaseRunning {
-		s.IconState = IconStop
+		s.IconState = domain.IconStop
 		return s
 	}
 
 	if !s.IsTun {
 		if s.IsProxy {
-			s.IconState = IconProxy
+			s.IconState = domain.IconProxy
 		} else {
-			s.IconState = IconDefault
+			s.IconState = domain.IconDefault
 		}
 		return s
 	}
 
 	if a.State.IsTunAlive() || a.isTunInGracePeriod() {
-		s.IconState = IconTun
+		s.IconState = domain.IconTun
 	} else {
-		s.IconState = IconError
+		s.IconState = domain.IconError
 	}
 	return s
 }
