@@ -6,6 +6,8 @@ import (
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
+	
+	"mihomo-tray/internal/domain"
 )
 
 var isSubscriptionEditorOpen bool
@@ -64,7 +66,7 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 									AssignTo: &intervalEdit,
 									Value:    float64(defaultInterval),
 									MinValue: 0,
-									MaxValue: 30,
+									MaxValue: float64(domain.MaxUpdateInterval),
 								},
 								Label{Text: "天 (填 0 为禁用自动更新)"},
 								HSpacer{},
