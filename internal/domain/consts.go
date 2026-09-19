@@ -1,5 +1,7 @@
 package domain
 
+// ================= 状态与事件 =================
+
 const AppTaskName = "MihomoTrayTask"
 
 type AppPhase int32
@@ -17,6 +19,8 @@ const (
 	EventKernelExit
 )
 
+// ================= 配置与业务规则 =================
+
 const (
 	DefaultAutostart          = "false"
 	DefaultProxy              = "false"
@@ -27,8 +31,7 @@ const (
 	DefaultSecret             = ""
 	DefaultExternalUI         = "ui"
 	DefaultExternalUIURL      = "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip"
+	
+	DefaultUpdateInterval = 3 // 默认更新间隔(天)
+	MaxProfileCount       = 5 // 最大配置数量
 )
-
-const DefaultUpdateInterval = 3
-
-const MaxProfileCount = 5
