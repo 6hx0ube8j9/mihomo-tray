@@ -15,6 +15,8 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
+const RemoteFetchTimeout = 90 * time.Second
+
 func (m *Manager) UpgradeSubscription(relPath string, proxyPort string, validator func(tmpPath string) error) (bool, error) {
 	item, ok := m.GetProfileByPath(relPath)
 	if !ok || item.URL == "" {
@@ -61,8 +63,8 @@ func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*domain.F
 		}
 	}
 
-	client := &http.Client{
-		Timeout:   90 * time.Second,
+    client := &http.Client{
+		Timeout:   RemoteFetchTimeout,
 		Transport: transport,
 	}
 
