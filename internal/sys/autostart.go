@@ -18,24 +18,22 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-const TaskName = "MihomoTrayTask"
-
-func ToggleAutoStart(exePath, baseDir string, enable bool) bool {
+func ToggleAutoStart(appName, exePath, baseDir string, enable bool) bool {
 	if key, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.SET_VALUE); err == nil {
-		_ = key.DeleteValue("MihomoTray")
+		_ = key.DeleteValue(appName)
 		key.Close()
 	}
 
 	schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
 
 	if enable {
-		slog.Debug("注册自启计划任务", "task", TaskName)
+		slog.Debug("注册自启计划任务", "task", appName)
 
 		absExe, _ := filepath.Abs(exePath)
 		absBase, _ := filepath.Abs(baseDir)
 
 		xmlContent := generateTaskXML(absExe, "--autostart", absBase)
-		tempXML := filepath.Join(os.TempDir(), fmt.Sprintf("%s.xml", TaskName))
+		tempXML := filepath.Join(os.TempDir(), fmt.Sprintf("%s.xml", appName))
 
 		if err := writeUTF16LE(tempXML, xmlContent); err != nil {
 			slog.Error("写入计划任务临时文件失败", "err", err)
@@ -43,7 +41,7 @@ func ToggleAutoStart(exePath, baseDir string, enable bool) bool {
 		}
 		defer os.Remove(tempXML)
 
-		cmd := exec.Command(schtasksPath, "/Create", "/TN", TaskName, "/XML", tempXML, "/F")
+		cmd := exec.Command(schtasksPath, "/Create", "/TN", appName, "/XML", tempXML, "/F")
 		cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -53,31 +51,31 @@ func ToggleAutoStart(exePath, baseDir string, enable bool) bool {
 		return true
 	}
 
-    slog.Debug("删除自启计划任务", "task", TaskName)
-    cmd := exec.Command(schtasksPath, "/Delete", "/TN", TaskName, "/F")
-    cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+	slog.Debug("删除自启计划任务", "task", appName)
+	cmd := exec.Command(schtasksPath, "/Delete", "/TN", appName, "/F")
+	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 
-    if err := cmd.Run(); err != nil {
-        slog.Debug("删除计划任务失败", "task", TaskName, "err", err)
-    }
-    return !CheckAutoStartStatus()
+	if err := cmd.Run(); err != nil {
+		slog.Debug("删除计划任务失败", "task", appName, "err", err)
+	}
+	return !CheckAutoStartStatus(appName)
 }
 
-func CheckAutoStartStatus() bool {
+func CheckAutoStartStatus(appName string) bool {
 	schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
-	cmd := exec.Command(schtasksPath, "/Query", "/TN", TaskName)
+	cmd := exec.Command(schtasksPath, "/Query", "/TN", appName)
 	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 	return cmd.Run() == nil
 }
 
-func IsTaskPathValid(currentExePath string) bool {
+func IsTaskPathValid(appName, currentExePath string) bool {
 	schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
-	cmd := exec.Command(schtasksPath, "/Query", "/TN", TaskName, "/XML")
+	cmd := exec.Command(schtasksPath, "/Query", "/TN", appName, "/XML")
 	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 	
 	out, err := cmd.Output()
 	if err != nil {
-		slog.Debug("读取计划任务配置失败", "task", TaskName, "err", err)
+		slog.Debug("读取计划任务配置失败", "task", appName, "err", err)
 		return false
 	}
 
