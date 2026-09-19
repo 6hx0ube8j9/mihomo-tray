@@ -19,6 +19,7 @@ import (
 
 	"mihomo-tray/internal/app"
 	"mihomo-tray/internal/config"
+	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
 	"mihomo-tray/internal/ui"
@@ -238,11 +239,46 @@ func main() {
 	syncLogLevel(cfgMgr)
 
 	slog.Info("程序启动", "pid", os.Getpid(), "dir", baseDir, "admin", admin)
+	
+	osTaskExists := sys.CheckAutoStartStatus(domain.AppTaskName)
+	isMine := false
+	if osTaskExists {
+		isMine = sys.IsTaskPathValid(domain.AppTaskName, exePath)
+	}
 
-	hasValidTask := sys.CheckAutoStartStatus() && sys.IsTaskPathValid(exePath)
-	if hasValidTask && cfgMgr.Get("autostart") != "true" {
-		slog.Info("已有自启任务，自动同步配置")
-		cfgMgr.Set("autostart", "true")
+	cfgAutostart := cfgMgr.Get("autostart")
+	finalAutostart := cfgAutostart
+
+	if osTaskExists {
+		if isMine {
+			if cfgAutostart != "true" {
+				if cfgAutostart == "false" {
+					slog.Info("自启配置为禁用，清除系统残留任务")
+					sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, false)
+					finalAutostart = "false"
+				} else {
+					slog.Info("发现已有自启任务，配置同步为启用")
+					finalAutostart = "true"
+				}
+			}
+		} else {
+			if cfgAutostart != "false" {
+				slog.Warn("计划任务指向其他路径，跳过同步")
+				finalAutostart = "false"
+			}
+		}
+	} else {
+		if cfgAutostart == "true" {
+			slog.Info("自启配置为启用，重新注册系统计划任务")
+			sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
+		} else if cfgAutostart == "" {
+			finalAutostart = "false"
+		}
+	}
+
+	if cfgAutostart != finalAutostart {
+		cfgMgr.UpdateBatch(map[string]string{"autostart": finalAutostart})
+		cfgMgr.FlushInitialState()
 	}
 
 	if enableTunArg {
@@ -253,10 +289,10 @@ func main() {
 	}
 	if enableAutostartArg {
 		cfgMgr.Set("autostart", "true")
-		sys.ToggleAutoStart(exePath, baseDir, true)
+		sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
 	} else if disableAutostartArg {
 		cfgMgr.Set("autostart", "")
-		sys.ToggleAutoStart(exePath, baseDir, false)
+		sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, false)
 	}
 
 	isAutostartConfig := cfgMgr.Get("autostart") == "true"
@@ -266,10 +302,10 @@ func main() {
 		if isAutostartConfig || isRunAsAdminConfig {
 			slog.Info("准备提权环境")
 
-			if isAutostartConfig && hasValidTask {
+			if isAutostartConfig && osTaskExists && isMine {
 				slog.Debug("尝试计划任务静默提权")
 				schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
-				cmd := exec.Command(schtasksPath, "/Run", "/TN", sys.TaskName)
+				cmd := exec.Command(schtasksPath, "/Run", "/TN", domain.AppTaskName)
 				cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 
 				if err := cmd.Run(); err == nil {
