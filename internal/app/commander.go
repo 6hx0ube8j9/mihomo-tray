@@ -12,7 +12,7 @@ import (
 
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/core"
-	"mihomo-tray/internal/state"
+	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/sys"
 	"mihomo-tray/internal/ui"
 	"mihomo-tray/internal/webui"
@@ -26,11 +26,11 @@ func (a *Application) safePreflightCheck(targetRelPath string, actionTitle strin
 	return nil
 }
 
-func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
+func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand) {
 	switch cmd.Action {
 	case "OpenProfileManager":
 		a.uiStateMutex.Lock()
-		items := make([]ui.ProfileItem, len(a.lastUIState.ProfileItems))
+		items := make([]domain.UIProfileItem, len(a.lastUIState.ProfileItems))
 		copy(items, a.lastUIState.ProfileItems)
 		a.uiStateMutex.Unlock()
 
@@ -42,7 +42,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 	case "RequestAddLocalProfile":
 		go func() {
 			if selectedPath, ok := ui.OpenYAMLFileDialog(); ok {
-				a.UICommandCh <- ui.UICommand{Action: "AddLocalProfile", Payload: selectedPath}
+				a.UICommandCh <- domain.UICommand{Action: "AddLocalProfile", Payload: selectedPath}
 			}
 		}()
 		return
@@ -54,7 +54,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 				if ok {
 					autoUpdate := interval > 0
 					payload := fmt.Sprintf("%s|%s|%d|%t", name, url, interval, autoUpdate)
-					a.UICommandCh <- ui.UICommand{Action: "AddRemoteProfile", Payload: payload}
+					a.UICommandCh <- domain.UICommand{Action: "AddRemoteProfile", Payload: payload}
 				}
 			}
 		}()
@@ -63,7 +63,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 	case "RequestEditRemoteProfile":
 		targetRelPath := cmd.Payload
 		if p, ok := a.Cfg.GetProfileByPath(targetRelPath); ok {
-			go func(profile config.ProfileItem) {
+			go func(profile domain.ProfileItem) {
 				if a.ShowSubscriptionEditor != nil {
 					name, url, interval, ok := a.ShowSubscriptionEditor("编辑订阅信息", profile.Name, profile.URL, profile.Interval)
 					if ok {
@@ -128,7 +128,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		fileName := fmt.Sprintf("%s.yaml", safeName)
 		targetRelPath := filepath.ToSlash(filepath.Join(config.ProfilesDir, fileName))
 
-		newItem := config.ProfileItem{
+		newItem := domain.ProfileItem{
 			Name:       safeName,
 			Path:       targetRelPath,
 			URL:        strings.TrimSpace(parts[1]),
@@ -151,7 +151,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 					p.Interval = interval
 					p.AutoUpdate = interval > 0
 					a.Cfg.UpsertProfile(p)
-					slog.Info("已修改订阅自动更新频率", "path", targetPath, "interval", interval)
+					slog.Info("修改订阅自动更新频率", "path", targetPath, "interval", interval)
 				}
 			}
 		}
@@ -163,8 +163,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 
 	case "SwitchProfile":
 		if cmd.Payload != "" && cmd.Payload == a.Cfg.GetActivePath() {
-			slog.Debug("目标配置已处于激活状态，跳过重复切换操作", "path", cmd.Payload)
-			break 
+			slog.Debug("配置已激活，忽略重复切换", "path", cmd.Payload)
+			break
 		}
 
 		if a.State.IsProfileSwitching() {
@@ -209,20 +209,20 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		targetPath := cmd.Payload
 
 		if targetPath == a.Cfg.GetActivePath() {
-			slog.Warn("尝试删除活跃配置，已将其静默拦截")
+			slog.Warn("拒绝删除活跃配置")
 			break
 		}
 
 		if !ui.ShowConfirmMessage(nil, "确认删除", "确定要删除此配置文件吗？\n\n此操作不可恢复，本地物理文件将被同时删除。") {
-			slog.Info("用户取消了删除操作", "path", targetPath)
+			slog.Info("取消删除配置", "path", targetPath)
 			break
 		}
 
-		slog.Info("删除配置文件", "path", targetPath)
+		slog.Info("删除配置", "path", targetPath)
 
 		absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetPath))
 		if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
-			slog.Warn("清理物理底层文件失败，文件可能被占用", "path", absPath, "err", err)
+			slog.Warn("清理物理文件失败", "path", absPath, "err", err)
 		}
 
 		a.Cfg.RemoveProfile(targetPath)
@@ -231,7 +231,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		enable := cmd.Payload == "true"
 
 		if !sys.IsAdmin() {
-			slog.Info("普通权限修改开机自启，发起 UAC 提权")
+			slog.Info("发起 UAC 提权")
 			arg := "--disable-autostart"
 			if enable {
 				arg = "--enable-autostart"
@@ -239,9 +239,9 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), arg, "--restarting")
 
 			if sys.IsUserCancelled(err) {
-				slog.Info("用户取消提权，保持当前会话")
+				slog.Info("用户取消提权")
 			} else if err == nil {
-				slog.Info("提权请求已下发，当前普通进程执行安全清理后退出")
+				slog.Info("提权请求成功，当前进程退出")
 				a.SafeShutdown(nil)
 				os.Exit(0)
 			}
@@ -255,7 +255,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 			sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), true)
 		} else {
 			if sys.CheckAutoStartStatus() && !sys.IsTaskPathValid(a.Cfg.ExePath()) {
-				slog.Warn("计划任务指向其他程序路径，跳过清理")
+				slog.Warn("跳过清理未知计划任务")
 			} else {
 				sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), false)
 			}
@@ -284,7 +284,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 				a.SafeShutdown(nil)
 				os.Exit(0)
 			}
-			a.ForcePushUIState() // 纠正假打勾
+			a.ForcePushUIState()
 			return
 		}
 
@@ -377,8 +377,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 }
 
 func (a *Application) OpenWebUI() {
-	if a.State.GetPhase() != state.PhaseRunning {
-		slog.Warn("内核尚未就绪，无法打开 WebUI")
+	if a.State.GetPhase() != domain.PhaseRunning {
+		slog.Warn("内核未就绪，无法打开 WebUI")
 		return
 	}
 
