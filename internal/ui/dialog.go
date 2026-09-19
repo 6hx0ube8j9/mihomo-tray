@@ -16,7 +16,6 @@ func getValidOwner() walk.Form {
 				return globalUIEngine.panelWindow
 			}
 		}
-
 		if globalUIEngine.mw != nil {
 			return globalUIEngine.mw
 		}
@@ -72,6 +71,7 @@ func centerDialog(dlg *walk.Dialog, hActive win.HWND, fallback walk.Form) {
 		x = pRect.Left + (pW-dlgW)/2
 		y = pRect.Top + (pH-dlgH)/2
 	} else {
+		// 屏幕中央兜底
 		var workArea win.RECT
 		if win.SystemParametersInfo(0x0030, 0, unsafe.Pointer(&workArea), 0) { // SPI_GETWORKAREA
 			screenW := workArea.Right - workArea.Left
