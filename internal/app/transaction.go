@@ -54,7 +54,7 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 		slog.Info("内核热载成功")
 	} else {
 		slog.Info("使用新配置唤醒内核")
-		apiAddr, apiSecret := a.Cfg.ResolveKernelEndpoint(runtimeAbs)
+		apiAddr, apiSecret := core.ResolveKernelEndpoint(runtimeAbs)
 		a.API.SetEndpoint(apiAddr, apiSecret)
 	}
 
@@ -187,7 +187,7 @@ func (a *Application) RestartKernel() {
 	a.SyncRuntimeConfig()
 
 	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), core.RuntimeConfigName)
-	apiAddr, apiSecret := a.Cfg.ResolveKernelEndpoint(runtimeAbs)
+	apiAddr, apiSecret := core.ResolveKernelEndpoint(runtimeAbs)
 
 	a.API.SetEndpoint(apiAddr, apiSecret)
 
