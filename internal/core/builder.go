@@ -63,7 +63,7 @@ func BuildRuntimeYAML(params BuilderParams) (bool, map[string]string, error) {
 		output += "\n"
 	}
 
-	runtimePath := filepath.Join(params.BaseDir, RuntimeConfigName)
+	runtimePath := filepath.Join(params.BaseDir, domain.RuntimeConfigName)
 
 	if existingContent, err := os.ReadFile(runtimePath); err == nil {
 		if string(existingContent) == output {
@@ -76,7 +76,7 @@ func BuildRuntimeYAML(params BuilderParams) (bool, map[string]string, error) {
 		return false, nil, fmt.Errorf("写入运行时配置失败: %w", err)
 	}
 
-	slog.Debug("已生成运行时配置", "source", params.RelPath, "target", RuntimeConfigName)
+	slog.Debug("已生成运行时配置", "source", params.RelPath, "target", domain.RuntimeConfigName)
 	return true, extracted, nil
 }
 
