@@ -35,7 +35,7 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 		return fmt.Errorf("生成运行时配置失败: %w", err)
 	}
 
-	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), core.RuntimeConfigName)
+	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), domain.RuntimeConfigName)
 	isKernelRunning := a.State.GetPhase() == domain.PhaseRunning
 
 	if isKernelRunning {
@@ -186,7 +186,7 @@ func (a *Application) RestartKernel() {
 	a.Kernel.HaltDaemon()
 	a.SyncRuntimeConfig()
 
-	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), core.RuntimeConfigName)
+	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), domain.RuntimeConfigName)
 	apiAddr, apiSecret := core.ResolveKernelEndpoint(runtimeAbs)
 
 	a.API.SetEndpoint(apiAddr, apiSecret)
