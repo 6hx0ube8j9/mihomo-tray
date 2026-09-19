@@ -6,14 +6,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
-	"log/slog"
 
 	"mihomo-tray/internal/config"
+	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
 )
 
@@ -25,14 +26,6 @@ type APIClient struct {
 	connMu  sync.RWMutex
 	apiAddr string
 	secret  string
-}
-
-type KernelStatus struct {
-	Mode string `json:"mode"`
-	Tun  struct {
-		Enable bool   `json:"enable"`
-		Device string `json:"device"`
-	} `json:"tun"`
 }
 
 func NewAPIClient(cfg *config.Manager, st *state.RuntimeState) *APIClient {
@@ -59,7 +52,7 @@ func NewAPIClient(cfg *config.Manager, st *state.RuntimeState) *APIClient {
 func (c *APIClient) SetEndpoint(addr, secret string) {
 	c.connMu.Lock()
 	defer c.connMu.Unlock()
-	
+
 	addr = strings.TrimSuffix(addr, "/")
 	if strings.HasPrefix(addr, "0.0.0.0:") {
 		addr = strings.Replace(addr, "0.0.0.0:", "127.0.0.1:", 1)
@@ -69,7 +62,7 @@ func (c *APIClient) SetEndpoint(addr, secret string) {
 	if !strings.HasPrefix(addr, "http") && addr != "" {
 		addr = "http://" + addr
 	}
-	
+
 	c.apiAddr = addr
 	c.secret = secret
 }
@@ -122,8 +115,8 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 
 	if !(method == http.MethodGet && path == "/configs") {
 		slog.Debug("发送内核 API 请求", "method", method, "path", path)
-	}	
-		
+	}
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -155,7 +148,7 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 				}
 			}
 		}
-		
+
 		slog.Debug("内核 API 拒绝请求", "code", resp.StatusCode, "detail", errMsg)
 		return nil, fmt.Errorf("API Error %d: %s", resp.StatusCode, errMsg)
 	}
@@ -171,13 +164,13 @@ func (c *APIClient) SyncConfigToKernel(ctx context.Context, payload map[string]i
 	return err
 }
 
-func (c *APIClient) GetKernelStatus(ctx context.Context) (*KernelStatus, error) {
+func (c *APIClient) GetKernelStatus(ctx context.Context) (*domain.KernelStatus, error) {
 	body, err := c.DoRequest(ctx, "GET", "/configs", nil)
 	if err != nil {
 		return nil, err
 	}
 
-	var status KernelStatus
+	var status domain.KernelStatus
 	if err := json.Unmarshal(body, &status); err != nil {
 		return nil, fmt.Errorf("解析内核状态失败: %w", err)
 	}
