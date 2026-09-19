@@ -4,14 +4,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-)
 
-type AppPhase int32
-
-const (
-	PhaseInitializing AppPhase = iota
-	PhaseRunning
-	PhaseExiting
+	"mihomo-tray/internal/domain"
 )
 
 type RuntimeState struct {
@@ -34,14 +28,13 @@ type RuntimeState struct {
 
 func NewRuntimeState() *RuntimeState {
 	rs := &RuntimeState{}
-	rs.phase.Store(int32(PhaseInitializing))
+	rs.phase.Store(int32(domain.PhaseInitializing))
 	return rs
 }
 
-
 func (r *RuntimeState) TryAcquireProfileLock(path string) bool {
 	_, loaded := r.profileLocks.LoadOrStore(path, true)
-	return !loaded // 如果原本没有锁 (未 loaded)，说明抢占成功
+	return !loaded
 }
 
 func (r *RuntimeState) ReleaseProfileLock(path string) {
@@ -57,12 +50,12 @@ func (r *RuntimeState) IsRestarting() bool         { return r.isRestarting.Load(
 func (r *RuntimeState) SetReloading(b bool)        { r.isReloading.Store(b) }
 func (r *RuntimeState) IsReloading() bool          { return r.isReloading.Load() }
 
-func (r *RuntimeState) GetPhase() AppPhase { return AppPhase(r.phase.Load()) }
+func (r *RuntimeState) GetPhase() domain.AppPhase { return domain.AppPhase(r.phase.Load()) }
 
-func (r *RuntimeState) SetPhase(p AppPhase) {
+func (r *RuntimeState) SetPhase(p domain.AppPhase) {
 	for {
 		curr := r.phase.Load()
-		if AppPhase(curr) == PhaseExiting {
+		if domain.AppPhase(curr) == domain.PhaseExiting {
 			return
 		}
 		if r.phase.CompareAndSwap(curr, int32(p)) {
@@ -72,11 +65,11 @@ func (r *RuntimeState) SetPhase(p AppPhase) {
 }
 
 func (r *RuntimeState) ForceExitPhase() {
-	r.phase.Store(int32(PhaseExiting))
+	r.phase.Store(int32(domain.PhaseExiting))
 }
 
 func (r *RuntimeState) IsExiting() bool {
-	return r.GetPhase() == PhaseExiting
+	return r.GetPhase() == domain.PhaseExiting
 }
 
 func (r *RuntimeState) SetTunAlive(alive bool) { r.tunAlive.Store(alive) }
