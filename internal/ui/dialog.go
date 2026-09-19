@@ -8,10 +8,16 @@ import (
 	"github.com/tailscale/win"
 )
 
-func getOwner() walk.Form {
+func getValidOwner() walk.Form {
 	if globalUIEngine != nil {
-		if globalUIEngine.panelWindow != nil && globalUIEngine.panelWindow.Visible() {
-			return globalUIEngine.panelWindow
+		if globalUIEngine.panelWindow != nil {
+			hwnd := globalUIEngine.panelWindow.Handle()
+			if win.IsWindowVisible(hwnd) && win.IsIconic(hwnd) == 0 {
+				return globalUIEngine.panelWindow
+			}
+		}
+		if globalUIEngine.mw != nil {
+			return globalUIEngine.mw
 		}
 	}
 	return nil
@@ -33,7 +39,7 @@ func OpenYAMLFileDialog() (string, bool) {
 		dlg.Title = "选择本地 YAML 配置文件"
 		dlg.Filter = "YAML 配置文件 (*.yaml;*.yml)|*.yaml;*.yml|所有文件 (*.*)|*.*"
 
-		ok, _ := dlg.ShowOpen(getOwner())
+		ok, _ := dlg.ShowOpen(getValidOwner())
 		resultCh <- fileResult{Path: dlg.FilePath, OK: ok}
 	})
 
@@ -49,9 +55,9 @@ func centerDialog(dlg *walk.Dialog, hActive win.HWND, fallback walk.Form) {
 
 	var targetHWND win.HWND
 
-	if hActive != 0 && win.IsWindowVisible(hActive) {
+	if hActive != 0 && win.IsWindowVisible(hActive) && win.IsIconic(hActive) == 0 {
 		targetHWND = hActive
-	} else if fallback != nil && fallback.Visible() {
+	} else if fallback != nil && fallback.Visible() && win.IsIconic(fallback.Handle()) == 0 {
 		targetHWND = fallback.Handle()
 	}
 
@@ -65,7 +71,6 @@ func centerDialog(dlg *walk.Dialog, hActive win.HWND, fallback walk.Form) {
 		x = pRect.Left + (pW-dlgW)/2
 		y = pRect.Top + (pH-dlgH)/2
 	} else {
-		// 最终兜底：屏幕中央
 		var workArea win.RECT
 		if win.SystemParametersInfo(0x0030, 0, unsafe.Pointer(&workArea), 0) { // SPI_GETWORKAREA
 			screenW := workArea.Right - workArea.Left
@@ -78,74 +83,152 @@ func centerDialog(dlg *walk.Dialog, hActive win.HWND, fallback walk.Form) {
 	win.SetWindowPos(dlg.Handle(), win.HWND_TOP, x, y, 0, 0, win.SWP_NOSIZE)
 }
 
+func RunErrorDialog(owner walk.Form, title, message string) {
+	parent := owner
+	if parent == nil {
+		parent = getValidOwner()
+	}
+
+	hActive := win.GetForegroundWindow()
+
+	var dlg *walk.Dialog
+	var acceptPB *walk.PushButton
+
+	err := Dialog{
+		AssignTo:      &dlg,
+		Title:         title,
+		MinSize:       Size{Width: 350, Height: 150},
+		Layout:        VBox{Margins: Margins{Top: 15, Bottom: 15, Left: 15, Right: 15}, Spacing: 15},
+		DefaultButton: &acceptPB,
+		Children: []Widget{
+			Composite{
+				Layout: HBox{MarginsZero: true, Spacing: 15},
+				Children: []Widget{
+					Composite{
+						Layout: VBox{MarginsZero: true},
+						Children: []Widget{
+							ImageView{Image: walk.IconWarning(), MinSize: Size{Width: 32, Height: 32}},
+							VSpacer{},
+						},
+					},
+					Label{Text: message},
+				},
+			},
+			VSpacer{},
+			Composite{
+				Layout: HBox{MarginsZero: true},
+				Children: []Widget{
+					HSpacer{},
+					PushButton{
+						AssignTo:  &acceptPB,
+						Text:      "确定",
+						MinSize:   Size{Width: 80, Height: 26},
+						OnClicked: func() { dlg.Accept() },
+					},
+				},
+			},
+		},
+	}.Create(parent)
+
+	if err != nil {
+		return
+	}
+
+	dlg.Starting().Attach(func() {
+		centerDialog(dlg, hActive, parent)
+		win.MessageBeep(win.MB_ICONWARNING)
+	})
+
+	dlg.Run()
+
+	if hActive != 0 && win.IsWindowVisible(hActive) && win.IsIconic(hActive) == 0 {
+		win.SetForegroundWindow(hActive)
+		win.SetFocus(hActive)
+	}
+}
+
 func ShowErrorMessage(owner walk.Form, title, message string) {
 	if globalUIEngine == nil || globalUIEngine.app == nil {
 		return
 	}
-
 	globalUIEngine.app.Synchronize(func() {
-		parent := owner
-		if parent == nil {
-			parent = getOwner()
-		}
+		RunErrorDialog(owner, title, message)
+	})
+}
 
-		hActive := win.GetForegroundWindow()
+func RunConfirmDialog(owner walk.Form, title, message string) bool {
+	parent := owner
+	if parent == nil {
+		parent = getValidOwner()
+	}
 
-		var dlg *walk.Dialog
-		var acceptPB *walk.PushButton
+	hActive := win.GetForegroundWindow()
 
-		err := Dialog{
-			AssignTo:      &dlg,
-			Title:         title,
-			MinSize:       Size{Width: 350, Height: 150},
-			Layout:        VBox{Margins: Margins{Top: 15, Bottom: 15, Left: 15, Right: 15}, Spacing: 15},
-			DefaultButton: &acceptPB,
-			Children: []Widget{
-				Composite{
-					Layout: HBox{MarginsZero: true, Spacing: 15},
-					Children: []Widget{
-						Composite{
-							Layout: VBox{MarginsZero: true},
-							Children: []Widget{
-								ImageView{Image: walk.IconWarning(), MinSize: Size{Width: 32, Height: 32}},
-								VSpacer{},
-							},
+	var dlg *walk.Dialog
+	var acceptPB *walk.PushButton
+	var cancelPB *walk.PushButton
+	accepted := false
+
+	err := Dialog{
+		AssignTo:      &dlg,
+		Title:         title,
+		MinSize:       Size{Width: 350, Height: 150},
+		Layout:        VBox{Margins: Margins{Top: 15, Bottom: 15, Left: 15, Right: 15}, Spacing: 15},
+		DefaultButton: &acceptPB,
+		CancelButton:  &cancelPB,
+		Children: []Widget{
+			Composite{
+				Layout: HBox{MarginsZero: true, Spacing: 15},
+				Children: []Widget{
+					Composite{
+						Layout: VBox{MarginsZero: true},
+						Children: []Widget{
+							ImageView{Image: walk.IconQuestion(), MinSize: Size{Width: 32, Height: 32}},
+							VSpacer{},
 						},
-						Label{Text: message},
 					},
+					Label{Text: message},
 				},
-				VSpacer{},
-				Composite{
-					Layout: HBox{MarginsZero: true},
-					Children: []Widget{
-						HSpacer{},
-						PushButton{
-							AssignTo:  &acceptPB,
-							Text:      "确定",
-							MinSize:   Size{Width: 80, Height: 26},
-							OnClicked: func() { dlg.Accept() },
-						},
+			},
+			VSpacer{},
+			Composite{
+				Layout: HBox{MarginsZero: true},
+				Children: []Widget{
+					HSpacer{},
+					PushButton{
+						AssignTo:  &acceptPB,
+						Text:      "确定",
+						MinSize:   Size{Width: 80, Height: 26},
+						OnClicked: func() { accepted = true; dlg.Accept() },
+					},
+					PushButton{
+						AssignTo:  &cancelPB,
+						Text:      "取消",
+						MinSize:   Size{Width: 80, Height: 26},
+						OnClicked: func() { dlg.Cancel() },
 					},
 				},
 			},
-		}.Create(parent)
+		},
+	}.Create(parent)
 
-		if err != nil {
-			return
-		}
+	if err != nil {
+		return false
+	}
 
-		dlg.Starting().Attach(func() {
-			centerDialog(dlg, hActive, parent)
-			win.MessageBeep(win.MB_ICONWARNING)
-		})
-
-		dlg.Run()
-
-		if hActive != 0 {
-			win.SetForegroundWindow(hActive)
-			win.SetFocus(hActive)
-		}
+	dlg.Starting().Attach(func() {
+		centerDialog(dlg, hActive, parent)
+		win.MessageBeep(win.MB_ICONQUESTION)
 	})
+
+	dlg.Run()
+
+	if hActive != 0 && win.IsWindowVisible(hActive) && win.IsIconic(hActive) == 0 {
+		win.SetForegroundWindow(hActive)
+		win.SetFocus(hActive)
+	}
+
+	return accepted
 }
 
 func ShowConfirmMessage(owner walk.Form, title, message string) bool {
@@ -154,82 +237,9 @@ func ShowConfirmMessage(owner walk.Form, title, message string) bool {
 	}
 
 	resultCh := make(chan bool)
-
 	globalUIEngine.app.Synchronize(func() {
-		parent := owner
-		if parent == nil {
-			parent = getOwner()
-		}
-
-		hActive := win.GetForegroundWindow()
-
-		var dlg *walk.Dialog
-		var acceptPB *walk.PushButton
-		var cancelPB *walk.PushButton
-		accepted := false
-
-		err := Dialog{
-			AssignTo:      &dlg,
-			Title:         title,
-			MinSize:       Size{Width: 350, Height: 150},
-			Layout:        VBox{Margins: Margins{Top: 15, Bottom: 15, Left: 15, Right: 15}, Spacing: 15},
-			DefaultButton: &acceptPB,
-			CancelButton:  &cancelPB,
-			Children: []Widget{
-				Composite{
-					Layout: HBox{MarginsZero: true, Spacing: 15},
-					Children: []Widget{
-						Composite{
-							Layout: VBox{MarginsZero: true},
-							Children: []Widget{
-								ImageView{Image: walk.IconQuestion(), MinSize: Size{Width: 32, Height: 32}},
-								VSpacer{},
-							},
-						},
-						Label{Text: message},
-					},
-				},
-				VSpacer{},
-				Composite{
-					Layout: HBox{MarginsZero: true},
-					Children: []Widget{
-						HSpacer{},
-						PushButton{
-							AssignTo:  &acceptPB,
-							Text:      "确定",
-							MinSize:   Size{Width: 80, Height: 26},
-							OnClicked: func() { accepted = true; dlg.Accept() },
-						},
-						PushButton{
-							AssignTo:  &cancelPB,
-							Text:      "取消",
-							MinSize:   Size{Width: 80, Height: 26},
-							OnClicked: func() { dlg.Cancel() },
-						},
-					},
-				},
-			},
-		}.Create(parent)
-
-		if err != nil {
-			resultCh <- false
-			return
-		}
-
-		dlg.Starting().Attach(func() {
-			centerDialog(dlg, hActive, parent)
-			win.MessageBeep(win.MB_ICONQUESTION)
-		})
-
-		dlg.Run()
-
-		if hActive != 0 {
-			win.SetForegroundWindow(hActive)
-			win.SetFocus(hActive)
-		}
-
-		resultCh <- accepted
+		res := RunConfirmDialog(owner, title, message)
+		resultCh <- res
 	})
-
 	return <-resultCh
 }
