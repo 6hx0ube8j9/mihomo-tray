@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"mihomo-tray/internal/core"
-	"mihomo-tray/internal/state"
+	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/ui"
 	"mihomo-tray/internal/webui"
 )
@@ -21,7 +21,7 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 	}
 
 	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), core.RuntimeConfigName)
-	isKernelRunning := a.State.GetPhase() == state.PhaseRunning
+	isKernelRunning := a.State.GetPhase() == domain.PhaseRunning
 
 	if isKernelRunning {
 		reqCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
@@ -33,12 +33,12 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 		if err != nil {
 			logMsg := fmt.Errorf("热重载被内核拒绝 | 配置: %s | 原因: %v", targetRelPath, err)
 			a.Kernel.WriteCoreLog("ERROR", logMsg.Error())
-			slog.Error("配置应用失败，事务已回滚", "target", targetRelPath)
+			slog.Error("内核拒载，事务回滚", "target", targetRelPath)
 			return err
 		}
-		slog.Info("内核热重载接受配置，事务提交准备就绪")
+		slog.Info("内核热载成功")
 	} else {
-		slog.Info("内核处于停止状态，准备使用新配置唤醒")
+		slog.Info("使用新配置唤醒内核")
 		apiAddr, apiSecret := a.Cfg.ResolveKernelEndpoint(runtimeAbs)
 		a.API.SetEndpoint(apiAddr, apiSecret)
 	}
@@ -66,7 +66,7 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 func (a *Application) executeRemoteUpdate(ctx context.Context, targetRelPath string, isManual bool, isNew bool) {
 	if !a.State.TryAcquireProfileLock(targetRelPath) {
 		if isManual {
-			slog.Warn("该订阅正在后台更新，已拦截重复操作", "path", targetRelPath)
+			slog.Warn("订阅更新中，拦截重复请求", "path", targetRelPath)
 		}
 		return
 	}
@@ -84,10 +84,10 @@ func (a *Application) executeRemoteUpdate(ctx context.Context, targetRelPath str
 		if isManual {
 			ui.ShowErrorMessage(nil, "订阅更新拦截", err.Error())
 		}
-		slog.Error("订阅更新终止", "path", targetRelPath, "err", err)
+		slog.Error("订阅更新失败", "path", targetRelPath, "err", err)
 		
 		if isNew {
-			slog.Info("全新订阅拉取失败，执行事务回滚清理", "path", targetRelPath)
+			slog.Info("新订阅拉取失败，清理回滚", "path", targetRelPath)
 			absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
 			_ = os.Remove(absPath)
 			a.Cfg.RemoveProfile(targetRelPath)
@@ -99,7 +99,7 @@ func (a *Application) executeRemoteUpdate(ctx context.Context, targetRelPath str
 	if success {
 		slog.Info("订阅更新已完成", "path", targetRelPath)
 		if a.Cfg.GetActivePath() == targetRelPath {
-			slog.Info("活跃配置发生变更，触发内核热重载")
+			slog.Info("活跃配置变更，触发热重载")
 			_ = a.applyConfigTransaction(context.Background(), targetRelPath)
 		}
 		a.pushUIState()
@@ -110,7 +110,7 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 	if a.State.IsReloading() {
 		return
 	}
-	slog.Info("开始执行配置重载事务")
+	slog.Info("执行配置重载")
 	a.State.SetReloading(true)
 
 	go func() {
@@ -136,14 +136,14 @@ func (a *Application) SyncRuntimeConfig() {
 	
 	if activePath != "" {
 		if err := a.Cfg.ValidatePhysicalFile(activePath); err != nil {
-			slog.Warn("底稿校验失败，已自动剥离失效配置", "path", activePath, "err", err)
+			slog.Warn("底稿校验失败，剥离失效配置", "path", activePath, "err", err)
 			a.Cfg.SetActiveProfile("")
 			activePath = "" 
 		}
 	}
 	
 	if _, extracted, err := a.Cfg.PrepareYAMLForPath(activePath); err != nil {
-		slog.Error("自动同步运行时配置失败", "err", err)
+		slog.Error("同步运行配置失败", "err", err)
 	} else if len(extracted) > 0 {
 		a.Cfg.UpdateBatch(extracted)
 	}
@@ -153,7 +153,7 @@ func (a *Application) RestartKernel() {
 	slog.Info("正在重启内核进程")
 	a.State.SetRestarting(true)
 	a.State.SetReloading(false)
-	a.State.SetPhase(state.PhaseInitializing)
+	a.State.SetPhase(domain.PhaseInitializing)
 	a.Kernel.HaltDaemon()
 	a.SyncRuntimeConfig()
 
@@ -177,7 +177,7 @@ func (a *Application) restartWebUIIfOpen() {
 	webui.Cleanup()
 
 	if wasOpen {
-		slog.Debug("检测到 Web 面板原先处于活跃状态，等待内核就绪后拉起新环境")
+		slog.Debug("等待内核就绪，尝试恢复 Web 面板")
 
 		go func() {
 			for i := 0; i < 50; i++ {
@@ -185,7 +185,7 @@ func (a *Application) restartWebUIIfOpen() {
 					return
 				}
 
-				if a.State.GetPhase() == state.PhaseRunning {
+				if a.State.GetPhase() == domain.PhaseRunning {
 					slog.Debug("内核已就绪，正在自动重新拉起 Web 面板")
 					
 					a.OpenWebUI() 
