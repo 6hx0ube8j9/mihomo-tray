@@ -243,7 +243,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 
 		case <-subTicker.C:
 			for _, p := range a.Cfg.GetProfiles() {
-				if p.IsRemote && p.Interval > 0 && time.Since(p.LastUpdate) >= time.Duration(p.Interval)*24*time.Hour {
+				if p.URL != "" && p.Interval > 0 && time.Since(time.Unix(p.LastUpdate, 0)) >= time.Duration(p.Interval)*24*time.Hour {
 					slog.Debug("触发自动更新任务", "name", p.Name)
 					go a.executeRemoteUpdate(ctx, p.Path, false, false)
 				}
