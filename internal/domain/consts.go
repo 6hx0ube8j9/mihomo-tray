@@ -1,5 +1,11 @@
 package domain
 
+// ================= 文件与组件名称 =================
+const (
+	KernelExeName     = "mihomo.exe"
+	RuntimeConfigName = "config.yaml"
+)
+
 // ================= 状态与事件 =================
 
 const AppTaskName = "MihomoTrayTask"
