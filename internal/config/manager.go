@@ -8,34 +8,14 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"mihomo-tray/internal/domain"
 )
 
 const (
 	ConfigFileName = "mihomo-tray.json"
 	ProfilesDir    = "profiles"
-
-	DefaultAutostart          = "false"
-	DefaultProxy              = "false"
-	DefaultTun                = "false"
-	DefaultMode               = "rule"
-	DefaultMixedPort          = "7890"
-	DefaultExternalController = "127.0.0.1:9090"
-	DefaultSecret             = ""
-
-	DefaultExternalUI    = "ui"
-	DefaultExternalUIURL = "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip"
 )
-
-type TrayConfig struct {
-	Autostart    string        `json:"autostart"`
-	RunAsAdmin   string        `json:"run_as_admin"`
-	Mode         string        `json:"mode"`
-	Proxy        string        `json:"proxy"`
-	Tun          string        `json:"tun"`
-	TrayLogLevel string        `json:"tray_log_level"`
-	Active       string        `json:"active"`
-	Items        []ProfileItem `json:"items"`
-}
 
 type Manager struct {
 	baseDir string
@@ -44,7 +24,7 @@ type Manager struct {
 	mu      sync.RWMutex
 	yamlMu  sync.Mutex
 
-	data                TrayConfig
+	data                domain.TrayConfig
 	runtimeKernelParams map[string]string
 }
 
@@ -54,7 +34,7 @@ func NewManager(baseDir, exePath string, isAdmin bool) *Manager {
 		exePath: exePath,
 		isAdmin: isAdmin,
 		runtimeKernelParams: map[string]string{
-			"port": DefaultMixedPort,
+			"port": domain.DefaultMixedPort,
 		},
 	}
 }
@@ -68,34 +48,34 @@ func (m *Manager) LoadAndInitMemory() {
 
 	if f, err := os.Open(cfgPath); err == nil {
 		if decodeErr := json.NewDecoder(f).Decode(&m.data); decodeErr != nil {
-			slog.Error("解析配置文件失败，触发坏文件降级策略", "path", cfgPath, "err", decodeErr)
+			slog.Error("配置解析失败，启用默认设置", "path", cfgPath, "err", decodeErr)
 			isTainted = true
 		}
 		_ = f.Close()
 	} else {
-		slog.Info("未找到配置文件，初始化默认配置状态", "path", cfgPath)
+		slog.Info("配置文件不存在，初始化默认设置", "path", cfgPath)
 		isTainted = true
 	}
 
-	var validItems []ProfileItem
+	var validItems []domain.ProfileItem
 	activeFound := false
 
 	for _, item := range m.data.Items {
 		rel := filepath.ToSlash(item.Path)
 
 		if filepath.Dir(rel) != ProfilesDir || strings.Contains(rel, "..") || filepath.IsAbs(rel) {
-			slog.Warn("清理不合规的遗留或深层目录配置", "path", item.Path)
+			slog.Warn("清理非法路径配置", "path", item.Path)
 			isTainted = true
 			continue
 		}
-		
+
 		validItems = append(validItems, item)
-		
+
 		if m.data.Active == item.Path {
 			activeFound = true
 		}
 	}
-	
+
 	m.data.Items = validItems
 
 	if !activeFound && m.data.Active != "" {
@@ -104,9 +84,9 @@ func (m *Manager) LoadAndInitMemory() {
 	}
 
 	if m.data.RunAsAdmin == "" { m.data.RunAsAdmin = "false"; isTainted = true }
-	if m.data.Proxy == "" { m.data.Proxy = DefaultProxy; isTainted = true }
-	if m.data.Tun == "" { m.data.Tun = DefaultTun; isTainted = true }
-	if m.data.Mode == "" { m.data.Mode = DefaultMode; isTainted = true }
+	if m.data.Proxy == "" { m.data.Proxy = domain.DefaultProxy; isTainted = true }
+	if m.data.Tun == "" { m.data.Tun = domain.DefaultTun; isTainted = true }
+	if m.data.Mode == "" { m.data.Mode = domain.DefaultMode; isTainted = true }
 	if m.data.TrayLogLevel == "" { m.data.TrayLogLevel = "error"; isTainted = true }
 
 	if isTainted {
@@ -135,10 +115,10 @@ func (m *Manager) GetActivePath() string {
 	return m.data.Active
 }
 
-func (m *Manager) GetProfiles() []ProfileItem {
+func (m *Manager) GetProfiles() []domain.ProfileItem {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	res := make([]ProfileItem, len(m.data.Items))
+	res := make([]domain.ProfileItem, len(m.data.Items))
 	copy(res, m.data.Items)
 	return res
 }
@@ -153,13 +133,13 @@ func (m *Manager) SetActiveProfile(relPath string) {
 func (m *Manager) RemoveProfile(relPath string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if relPath == m.data.Active {
-		slog.Info("正在移除当前活跃配置，进入空转状态")
+		slog.Info("活跃配置已移除，系统进入空转")
 		m.data.Active = ""
 	}
 
-	var newItems []ProfileItem
+	var newItems []domain.ProfileItem
 	for _, item := range m.data.Items {
 		if item.Path != relPath {
 			newItems = append(newItems, item)
@@ -223,7 +203,7 @@ func (m *Manager) UpdateBatch(updates map[string]string) {
 func (m *Manager) lockedSave() {
 	b, err := json.MarshalIndent(m.data, "", "  ")
 	if err != nil {
-		slog.Error("序列化配置文件失败", "err", err)
+		slog.Error("配置序列化失败", "err", err)
 		return
 	}
 	cfgPath := filepath.Join(m.baseDir, ConfigFileName)
@@ -234,20 +214,20 @@ func (m *Manager) ValidatePhysicalFile(relPath string) error {
 	if relPath == "" {
 		return fmt.Errorf("配置路径为空")
 	}
-	
+
 	absPath := filepath.Join(m.baseDir, filepath.FromSlash(relPath))
 	fi, err := os.Stat(absPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("底层物理配置文件已丢失")
+			return fmt.Errorf("物理配置文件已丢失")
 		}
 		return fmt.Errorf("无法读取配置文件: %w", err)
 	}
-	
+
 	if fi.Size() == 0 {
-		return fmt.Errorf("配置文件已损坏 (0 字节)")
+		return fmt.Errorf("配置文件已损坏 (0字节)")
 	}
-	
+
 	return nil
 }
 
