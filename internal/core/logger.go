@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+const (
+	MaxLogFileSize = 25 * 1024 // 核心日志最大体积
+	LogRetainSize  = 5 * 1024  // 触发轮转后保留的最新日志体积
+)
+
 type TailBuffer struct {
 	mu  sync.Mutex
 	buf []byte
@@ -69,11 +74,11 @@ func (l *CoreLogger) WriteLog(errType, rawMsg string) {
 	finalLog := fmt.Sprintf("[%s] [%s] %s\n----------------------------------------\n", timestamp, errType, rawMsg)
 
 	fi, err := os.Stat(logPath)
-	if err == nil && fi.Size()+int64(len(finalLog)) > 25*1024 {
+	if err == nil && fi.Size()+int64(len(finalLog)) > MaxLogFileSize {
 		var keepData []byte
 		f, err := os.Open(logPath)
 		if err == nil {
-			offset := fi.Size() - 5*1024
+			offset := fi.Size() - LogRetainSize
 			if offset < 0 {
 				offset = 0
 			}
