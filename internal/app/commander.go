@@ -252,12 +252,12 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		a.Cfg.Set("autostart", strconv.FormatBool(enable))
 
 		if enable {
-			sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), true)
+			sys.ToggleAutoStart(domain.AppTaskName, a.Cfg.ExePath(), a.Cfg.BaseDir(), true)
 		} else {
-			if sys.CheckAutoStartStatus() && !sys.IsTaskPathValid(a.Cfg.ExePath()) {
+			if sys.CheckAutoStartStatus(domain.AppTaskName) && !sys.IsTaskPathValid(domain.AppTaskName, a.Cfg.ExePath()) {
 				slog.Warn("跳过清理未知计划任务")
 			} else {
-				sys.ToggleAutoStart(a.Cfg.ExePath(), a.Cfg.BaseDir(), false)
+				sys.ToggleAutoStart(domain.AppTaskName, a.Cfg.ExePath(), a.Cfg.BaseDir(), false)
 			}
 		}
 
