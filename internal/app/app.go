@@ -56,15 +56,6 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 func (a *Application) Bootstrap(ctx context.Context) {
 	slog.Debug("初始化核心服务")
 
-	currentAutostart := a.Cfg.Get("autostart")
-	finalAutostart := ResolveAutostart(currentAutostart, a.Cfg.ExePath(), a.Cfg.BaseDir())
-
-	if currentAutostart != finalAutostart {
-		slog.Debug("自启状态不符，执行修正", "old", currentAutostart, "new", finalAutostart)
-		a.Cfg.UpdateBatch(map[string]string{"autostart": finalAutostart})
-		a.Cfg.FlushInitialState()
-	}
-
 	activePath := a.Cfg.GetActivePath()
 
 	if activePath != "" {
