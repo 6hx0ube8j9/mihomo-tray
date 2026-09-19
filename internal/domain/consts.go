@@ -30,3 +30,5 @@ const (
 )
 
 const DefaultUpdateInterval = 3
+
+const MaxProfileCount = 5
