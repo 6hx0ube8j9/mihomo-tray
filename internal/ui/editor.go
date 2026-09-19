@@ -61,9 +61,9 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 							Layout: HBox{MarginsZero: true},
 							Children: []Widget{
 								NumberEdit{
-									AssignTo: &intervalEdit, 
-									Value: float64(defaultInterval), 
-									MinValue: 0, 
+									AssignTo: &intervalEdit,
+									Value:    float64(defaultInterval),
+									MinValue: 0,
 									MaxValue: 30,
 								},
 								Label{Text: "天 (填 0 为禁用自动更新)"},
@@ -122,7 +122,7 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 
 		dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 			isSubscriptionEditorOpen = false
-			
+
 			if e.panelWindow != nil && e.panelWindow.Visible() && getValidOwner() != nil {
 				e.panelWindow.Show()
 				e.panelWindow.SetFocus()
@@ -130,7 +130,7 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 		})
 
 		dlg.Run()
-		
+
 		resCh <- result{outName, outUrl, outInterval, accepted}
 	})
 
