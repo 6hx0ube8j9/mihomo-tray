@@ -12,6 +12,8 @@ import (
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
+
+	"mihomo-tray/internal/domain"
 )
 
 //go:embed icons/*.ico
@@ -22,8 +24,8 @@ var globalUIEngine *UIEngine
 type UIEngine struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
-	commandCh chan<- UICommand
-	stateCh   <-chan UIState
+	commandCh chan<- domain.UICommand
+	stateCh   <-chan domain.UIState
 
 	app *walk.Application
 	mw  *walk.MainWindow
@@ -40,7 +42,7 @@ type UIEngine struct {
 	clickMu   sync.Mutex
 }
 
-func NewUIEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- UICommand, stateCh <-chan UIState) *UIEngine {
+func NewUIEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- domain.UICommand, stateCh <-chan domain.UIState) *UIEngine {
 	e := &UIEngine{
 		ctx:       ctx,
 		cancel:    cancel,
@@ -54,7 +56,7 @@ func NewUIEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- UI
 func (e *UIEngine) Run() error {
 	app, err := walk.InitApp()
 	if err != nil {
-		return fmt.Errorf("walk 引擎初始化失败: %w", err)
+		return fmt.Errorf("Walk 引擎初始化失败: %w", err)
 	}
 	e.app = app
 
@@ -65,12 +67,12 @@ func (e *UIEngine) Run() error {
 	}.Create()
 
 	if err != nil {
-		return fmt.Errorf("创建母体窗口失败: %w", err)
+		return fmt.Errorf("主控窗口创建失败: %w", err)
 	}
 
 	e.ni, err = walk.NewNotifyIcon()
 	if err != nil {
-		return fmt.Errorf("创建托盘图标失败: %w", err)
+		return fmt.Errorf("托盘图标创建失败: %w", err)
 	}
 	e.ni.SetVisible(true)
 	e.ni.SetToolTip("Mihomo Tray")
@@ -84,12 +86,12 @@ func (e *UIEngine) Run() error {
 
 	go e.listenState()
 
-	slog.Debug("全局 UI 引擎消息循环已启动")
+	slog.Debug("UI 引擎消息循环已启动")
 	app.Run()
 
 	e.ni.Dispose()
 	e.mw.Dispose()
-	
+
 	for _, icon := range e.icons {
 		if icon != nil {
 			icon.Dispose()
@@ -107,10 +109,10 @@ func (e *UIEngine) Run() error {
 func (e *UIEngine) loadEmbeddedIcons() {
 	e.icons = make([]*walk.Icon, 5)
 	iconFiles := []string{"stop.ico", "error.ico", "tun.ico", "proxy.ico", "default.ico"}
-	
+
 	tmpDir, err := os.MkdirTemp("", "mihomo-tray-icons-*")
 	if err != nil {
-		slog.Error("创建临时图标目录失败", "err", err)
+		slog.Error("创建图标缓存目录失败", "err", err)
 		return
 	}
 	e.iconDir = tmpDir
@@ -123,10 +125,10 @@ func (e *UIEngine) loadEmbeddedIcons() {
 				e.icons[id] = ico
 			}
 		} else {
-			slog.Error("加载嵌入式图标失败", "icon", name, "err", err)
+			slog.Error("加载嵌入图标失败", "icon", name, "err", err)
 		}
 	}
-	
+
 	if e.icons[0] != nil {
 		e.ni.SetIcon(e.icons[0])
 	}
@@ -154,10 +156,10 @@ func (e *UIEngine) listenState() {
 }
 
 func (e *UIEngine) sendCommand(action, payload string) {
-	slog.Debug("UI 发送指令", "action", action, "payload", payload)
+	slog.Debug("发送 UI 指令", "action", action, "payload", payload)
 	select {
-	case e.commandCh <- UICommand{Action: action, Payload: payload}:
+	case e.commandCh <- domain.UICommand{Action: action, Payload: payload}:
 	default:
-		slog.Warn("UI 发送指令阻塞，已静默丢弃", "action", action)
+		slog.Warn("UI 指令管道阻塞，已丢弃", "action", action)
 	}
 }
