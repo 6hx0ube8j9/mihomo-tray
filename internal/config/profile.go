@@ -28,9 +28,9 @@ func TruncateMiddle(name string) string {
 
 func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) {
 	m.mu.Lock()
-	if len(m.data.Items) >= 10 {
+	if len(m.data.Items) >= domain.MaxProfileCount {
 		m.mu.Unlock()
-		return "", false, fmt.Errorf("配置数量达到上限 (10)")
+		return "", false, fmt.Errorf("配置数量达到上限 (%d)", domain.MaxProfileCount)
 	}
 	m.mu.Unlock()
 
@@ -95,14 +95,14 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 		}
 	}()
 
-	limitReader := io.LimitReader(srcFile, 15*1024*1024)
+	limitReader := io.LimitReader(srcFile, domain.MaxProfileBytes)
 	if _, err := io.Copy(tmpFile, limitReader); err != nil {
 		return "", false, err
 	}
 
 	var extra [1]byte
 	if n, _ := srcFile.Read(extra[:]); n > 0 {
-		return "", false, fmt.Errorf("文件体积超限 (>15MB)")
+		return "", false, fmt.Errorf("文件体积超限")
 	}
 
 	if err := tmpFile.Sync(); err != nil {
@@ -138,7 +138,7 @@ func (m *Manager) RegisterNewProfile(relPath string) {
 		Path: relPath,
 	})
 
-	if len(m.data.Items) > 10 {
+	if len(m.data.Items) > domain.MaxProfileCount {
 		m.data.Items = append(m.data.Items[:1], m.data.Items[2:]...)
 	}
 
@@ -159,7 +159,7 @@ func (m *Manager) UpsertProfile(item domain.ProfileItem) {
 		}
 	}
 	m.data.Items = append(m.data.Items, item)
-	if len(m.data.Items) > 10 {
+	if len(m.data.Items) > domain.MaxProfileCount {
 		m.data.Items = append(m.data.Items[:1], m.data.Items[2:]...)
 	}
 
