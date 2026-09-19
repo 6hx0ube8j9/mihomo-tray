@@ -8,23 +8,29 @@ import (
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
 	"github.com/tailscale/win"
+
+	"mihomo-tray/internal/domain"
 )
 
 func centerWindow(win *walk.MainWindow) {
 	if win == nil {
 		return
 	}
-	
+
 	monitor := walk.PrimaryMonitor()
 	workArea := monitor.WorkArea()
 	bounds := win.Bounds()
-	
-	newX := workArea.X + (workArea.Width - bounds.Width) / 2
-	newY := workArea.Y + (workArea.Height - bounds.Height) / 2
-	
-	if newX < 0 { newX = 0 }
-	if newY < 0 { newY = 0 }
-	
+
+	newX := workArea.X + (workArea.Width-bounds.Width)/2
+	newY := workArea.Y + (workArea.Height-bounds.Height)/2
+
+	if newX < 0 {
+		newX = 0
+	}
+	if newY < 0 {
+		newY = 0
+	}
+
 	win.SetBounds(walk.Rectangle{
 		X:      newX,
 		Y:      newY,
@@ -35,7 +41,7 @@ func centerWindow(win *walk.MainWindow) {
 
 type ProfileModel struct {
 	walk.TableModelBase
-	Items []ProfileItem
+	Items []domain.UIProfileItem
 }
 
 func (m *ProfileModel) RowCount() int {
@@ -47,7 +53,7 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	switch col {
 	case 0:
 		if item.IsActive {
-			return "✔️ 正在使用" 
+			return "✔️ 正在使用"
 		}
 		return " "
 	case 1:
@@ -56,7 +62,7 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 		if item.IsRemote {
 			return "远程订阅"
 		}
-		return "本地配置" 
+		return "本地配置"
 	case 3:
 		if !item.IsRemote {
 			return "-"
@@ -74,7 +80,7 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	return ""
 }
 
-func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
+func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 	e.app.Synchronize(func() {
 		if e.panelWindow == nil {
 			e.panelModel = &ProfileModel{Items: items}
@@ -88,10 +94,10 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 			err := MainWindow{
 				AssignTo: &e.panelWindow,
 				Title:    "管理配置",
-				MinSize:  Size{Width: 700, Height: 300}, 
-				Size:     Size{Width: 750, Height: 350}, 
+				MinSize:  Size{Width: 700, Height: 300},
+				Size:     Size{Width: 750, Height: 350},
 				Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
-				Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}}, 
+				Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}},
 				Children: []Widget{
 					Composite{
 						Layout: HBox{},
@@ -114,7 +120,7 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 					TableView{
 						AssignTo: &e.tableView,
 						Columns: []TableViewColumn{
-							{Title: "状态", Width: 100}, 
+							{Title: "状态", Width: 100},
 							{Title: "名称", Width: 200},
 							{Title: "类型", Width: 90},
 							{Title: "更新频率", Width: 110},
@@ -194,7 +200,7 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 						},
 					},
 				},
-			}.Create() 
+			}.Create()
 
 			if err != nil {
 				slog.Error("创建配置面板主窗口失败", "err", err)
@@ -225,16 +231,16 @@ func (e *UIEngine) ShowProfileManager(items []ProfileItem) {
 		} else {
 			e.panelWindow.Show()
 		}
-		
+
 		e.panelWindow.SetFocus()
 	})
 }
 
-func (e *UIEngine) RefreshPanelData(items []ProfileItem) {
+func (e *UIEngine) RefreshPanelData(items []domain.UIProfileItem) {
 	if e.app == nil || e.panelWindow == nil || !e.panelWindow.Visible() {
 		return
 	}
-	
+
 	e.app.Synchronize(func() {
 		idx := -1
 		if e.tableView != nil {
