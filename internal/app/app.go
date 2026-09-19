@@ -87,7 +87,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	a.SyncRuntimeConfig()
 
 	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), core.RuntimeConfigName)
-	apiAddr, apiSecret := a.Cfg.ResolveKernelEndpoint(runtimeAbs)
+	apiAddr, apiSecret := core.ResolveKernelEndpoint(runtimeAbs)
 	a.API.SetEndpoint(apiAddr, apiSecret)
 
 	if a.Cfg.Get("tun") == "true" {
@@ -243,7 +243,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 
 		case <-subTicker.C:
 			for _, p := range a.Cfg.GetProfiles() {
-				if p.NeedUpdate() {
+				if p.IsRemote && p.Interval > 0 && time.Since(p.LastUpdate) >= time.Duration(p.Interval)*24*time.Hour
 					slog.Debug("触发自动更新任务", "name", p.Name)
 					go a.executeRemoteUpdate(ctx, p.Path, false, false)
 				}
