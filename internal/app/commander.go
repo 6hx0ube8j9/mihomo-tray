@@ -162,6 +162,11 @@ func (a *Application) handleUICommand(ctx context.Context, cmd ui.UICommand) {
 		}
 
 	case "SwitchProfile":
+		if cmd.Payload != "" && cmd.Payload == a.Cfg.GetActivePath() {
+			slog.Debug("目标配置已处于激活状态，跳过重复切换操作", "path", cmd.Payload)
+			break 
+		}
+
 		if a.State.IsProfileSwitching() {
 			a.ForcePushUIState()
 			break
