@@ -5,9 +5,8 @@ import (
 	"time"
 
 	"mihomo-tray/internal/config"
-	"mihomo-tray/internal/state"
+	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/sys"
-	"mihomo-tray/internal/ui"
 )
 
 const (
@@ -18,8 +17,8 @@ const (
 	IconDefault
 )
 
-func (a *Application) calculateUIState() ui.UIState {
-	s := ui.UIState{
+func (a *Application) calculateUIState() domain.UIState {
+	s := domain.UIState{
 		IsTun:      a.Cfg.Get("tun") == "true",
 		IsProxy:    a.Cfg.Get("proxy") == "true",
 		Mode:       a.Cfg.Get("mode"),
@@ -40,7 +39,7 @@ func (a *Application) calculateUIState() ui.UIState {
 		}
 		seenPaths[p.Path] = true
 
-		item := ui.ProfileItem{
+		item := domain.UIProfileItem{
 			Name:       config.TruncateMiddle(p.Name),
 			Path:       p.Path,
 			IsActive:   p.Path == activePath && activePath != "",
@@ -67,7 +66,7 @@ func (a *Application) calculateUIState() ui.UIState {
 		s.ProfileItems = append(s.ProfileItems, item)
 	}
 
-	if a.State.IsExiting() || a.State.IsRestarting() || a.State.GetPhase() != state.PhaseRunning {
+	if a.State.IsExiting() || a.State.IsRestarting() || a.State.GetPhase() != domain.PhaseRunning {
 		s.IconState = IconStop
 		return s
 	}
