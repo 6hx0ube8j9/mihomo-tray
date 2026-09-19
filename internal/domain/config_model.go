@@ -46,3 +46,11 @@ func (p *ProfileItem) FormatLastUpdateText() string {
     }
     return "刚刚"
 }
+
+func (p *ProfileItem) IsUpdateDue() bool {
+	if p.URL == "" || p.Interval <= 0 {
+		return false
+	}
+	targetDuration := time.Duration(p.Interval) * 24 * time.Hour
+	return time.Since(time.Unix(p.LastUpdate, 0)) >= targetDuration
+}
