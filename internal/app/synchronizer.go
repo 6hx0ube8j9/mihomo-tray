@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 	
-    "mihomo-tray/internal/state"
+	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/sys"
 )
 
@@ -38,18 +38,18 @@ func (a *Application) reconcileTunState(kernelTunEnabled bool) bool {
 
 	if wantTun && kernelTunEnabled && a.State.IsTunAlive() && a.isTunInGracePeriod() {
 		a.State.SetTunRequestedTime(time.Time{})
-		slog.Debug("TUN 接口与虚拟网卡均已就绪，提前解除初始化保护")
+		slog.Debug("TUN 接口就绪，解除保护")
 	}
 
 	if kernelTunEnabled != wantTun {
 		if wantTun && !kernelTunEnabled && a.isTunInGracePeriod() {
 			if time.Since(a.State.GetTunRequestedTime()) < TunInitGracePeriod {
-				slog.Debug("TUN 处于启动保护期，暂缓状态同步")
+				slog.Debug("TUN 保护期内，暂缓同步")
 				return false
 			}
 		}
 
-		slog.Info("TUN 配置发生外部变更", "expected", wantTun, "actual", kernelTunEnabled)
+		slog.Info("TUN 状态外部变更", "expected", wantTun, "actual", kernelTunEnabled)
 		a.Cfg.Set("tun", fmt.Sprintf("%t", kernelTunEnabled))
 		return true
 	}
@@ -81,7 +81,7 @@ func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.Pr
 	if expectedProxy {
 		if status.Enabled {
 			if status.Server != "" && !strings.EqualFold(status.Server, expectedServer) {
-				slog.Warn("系统代理被外部修改，已关闭本地代理", "server", status.Server)
+				slog.Warn("代理被外部修改，关闭本地状态", "server", status.Server)
 				a.Cfg.Set("proxy", "false")
 				a.pushUIState()
 			}
@@ -152,7 +152,7 @@ func (a *Application) handleTunChange(ctx context.Context) {
 }
 
 func (a *Application) syncAllConfig(ctx context.Context) {
-	if a.State.GetPhase() != state.PhaseRunning {
+	if a.State.GetPhase() != domain.PhaseRunning {
 		return
 	}
 	tunPayload := map[string]interface{}{"enable": a.Cfg.Get("tun") == "true"}
@@ -206,7 +206,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 
 	wantTun := a.Cfg.Get("tun") == "true"
 	if changed && wantTun && !realAlive && !a.isTunInGracePeriod() {
-		slog.Warn("TUN 网卡未就绪或已断开，检查驱动与权限", "device", currentActual)
+		slog.Warn("TUN 接口异常断开", "device", currentActual)
 	}
 
 	return changed
