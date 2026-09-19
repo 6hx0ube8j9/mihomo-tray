@@ -28,3 +28,5 @@ const (
 	DefaultExternalUI         = "ui"
 	DefaultExternalUIURL      = "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip"
 )
+
+const DefaultUpdateInterval = 3
