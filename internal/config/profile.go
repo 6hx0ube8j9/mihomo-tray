@@ -6,33 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
+
+	"mihomo-tray/internal/domain"
 )
-
-type ProfileItem struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
-
-	URL        string `json:"url,omitempty"`
-	AutoUpdate bool   `json:"auto_update,omitempty"`
-	Interval   int    `json:"interval,omitempty"`
-	LastUpdate int64  `json:"last_update,omitempty"`
-
-	Upload   int64 `json:"upload,omitempty"`
-	Download int64 `json:"download,omitempty"`
-	Total    int64 `json:"total,omitempty"`
-	Expire   int64 `json:"expire,omitempty"`
-}
-
-func (p *ProfileItem) NeedUpdate() bool {
-	if p.URL == "" || !p.AutoUpdate || p.Interval <= 0 {
-		return false
-	}
-	
-	nextUpdate := p.LastUpdate + int64(p.Interval*24*3600)
-	
-	return time.Now().Unix() >= nextUpdate
-}
 
 func IsInAppTree(appDir, targetPath string) (string, bool) {
 	rel, err := filepath.Rel(appDir, targetPath)
@@ -54,7 +30,7 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 	m.mu.Lock()
 	if len(m.data.Items) >= 10 {
 		m.mu.Unlock()
-		return "", false, fmt.Errorf("配置配额已满 (10/10)")
+		return "", false, fmt.Errorf("配置数量达到上限 (10)")
 	}
 	m.mu.Unlock()
 
@@ -66,7 +42,7 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 		}
 	}
 
-    relPath, isTree := IsInAppTree(m.baseDir, absSrc)
+	relPath, isTree := IsInAppTree(m.baseDir, absSrc)
 	if isTree {
 		if filepath.Dir(filepath.ToSlash(relPath)) == ProfilesDir {
 			return relPath, false, nil
@@ -105,7 +81,7 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 	targetDir := filepath.Dir(dstAbs)
 	_ = os.MkdirAll(targetDir, 0755)
 	tmpFile, err := os.CreateTemp(targetDir, "profile.*.tmp")
-	
+
 	if err != nil {
 		return "", false, err
 	}
@@ -126,7 +102,7 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 
 	var extra [1]byte
 	if n, _ := srcFile.Read(extra[:]); n > 0 {
-		return "", false, fmt.Errorf("目标文件体积超过 15MB 限制")
+		return "", false, fmt.Errorf("文件体积超限 (>15MB)")
 	}
 
 	if err := tmpFile.Sync(); err != nil {
@@ -157,7 +133,7 @@ func (m *Manager) RegisterNewProfile(relPath string) {
 	baseName := filepath.Base(relPath)
 	displayName := strings.TrimSuffix(baseName, filepath.Ext(baseName))
 
-	m.data.Items = append(m.data.Items, ProfileItem{
+	m.data.Items = append(m.data.Items, domain.ProfileItem{
 		Name: displayName,
 		Path: relPath,
 	})
@@ -172,7 +148,7 @@ func (m *Manager) RegisterNewProfile(relPath string) {
 	m.lockedSave()
 }
 
-func (m *Manager) UpsertProfile(item ProfileItem) {
+func (m *Manager) UpsertProfile(item domain.ProfileItem) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i, p := range m.data.Items {
@@ -183,7 +159,7 @@ func (m *Manager) UpsertProfile(item ProfileItem) {
 		}
 	}
 	m.data.Items = append(m.data.Items, item)
-	if len(m.data.Items) > 10 {  
+	if len(m.data.Items) > 10 {
 		m.data.Items = append(m.data.Items[:1], m.data.Items[2:]...)
 	}
 
