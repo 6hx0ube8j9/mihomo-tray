@@ -10,12 +10,27 @@ import (
 
 	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/sys"
 	"mihomo-tray/internal/ui"
 	"mihomo-tray/internal/webui"
 )
 
 func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath string) error {
-	_, extracted, err := a.Cfg.PrepareYAMLForPath(targetRelPath)
+	wantTun := a.Cfg.Get("tun") == "true"
+	if wantTun && !sys.IsAdmin() {
+		slog.Warn("非管理员权限无法开启 TUN，已自动关闭")
+		wantTun = false
+		a.Cfg.Set("tun", "false")
+	}
+
+	params := core.BuilderParams{
+		Mode:    a.Cfg.Get("mode"),
+		Tun:     wantTun,
+		BaseDir: a.Cfg.BaseDir(),
+		RelPath: targetRelPath,
+	}
+
+	_, extracted, err := core.BuildRuntimeYAML(params)
 	if err != nil {
 		return fmt.Errorf("生成运行时配置失败: %w", err)
 	}
@@ -85,7 +100,7 @@ func (a *Application) executeRemoteUpdate(ctx context.Context, targetRelPath str
 			ui.ShowErrorMessage(nil, "订阅更新拦截", err.Error())
 		}
 		slog.Error("订阅更新失败", "path", targetRelPath, "err", err)
-		
+
 		if isNew {
 			slog.Info("新订阅拉取失败，清理回滚", "path", targetRelPath)
 			absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
@@ -120,7 +135,7 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 		target := a.Cfg.GetActivePath()
 
 		if err := a.safePreflightCheck(target, "重载配置"); err != nil {
-			return 
+			return
 		}
 
 		if err := a.applyConfigTransaction(ctx, target); err != nil {
@@ -133,16 +148,30 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 
 func (a *Application) SyncRuntimeConfig() {
 	activePath := a.Cfg.GetActivePath()
-	
+
 	if activePath != "" {
 		if err := a.Cfg.ValidatePhysicalFile(activePath); err != nil {
 			slog.Warn("底稿校验失败，剥离失效配置", "path", activePath, "err", err)
 			a.Cfg.SetActiveProfile("")
-			activePath = "" 
+			activePath = ""
 		}
 	}
-	
-	if _, extracted, err := a.Cfg.PrepareYAMLForPath(activePath); err != nil {
+
+	wantTun := a.Cfg.Get("tun") == "true"
+	if wantTun && !sys.IsAdmin() {
+		slog.Warn("非管理员权限无法开启 TUN，已自动关闭")
+		wantTun = false
+		a.Cfg.Set("tun", "false")
+	}
+
+	params := core.BuilderParams{
+		Mode:    a.Cfg.Get("mode"),
+		Tun:     wantTun,
+		BaseDir: a.Cfg.BaseDir(),
+		RelPath: activePath,
+	}
+
+	if _, extracted, err := core.BuildRuntimeYAML(params); err != nil {
 		slog.Error("同步运行配置失败", "err", err)
 	} else if len(extracted) > 0 {
 		a.Cfg.UpdateBatch(extracted)
@@ -187,9 +216,9 @@ func (a *Application) restartWebUIIfOpen() {
 
 				if a.State.GetPhase() == domain.PhaseRunning {
 					slog.Debug("内核已就绪，正在自动重新拉起 Web 面板")
-					
-					a.OpenWebUI() 
-					
+
+					a.OpenWebUI()
+
 					return
 				}
 				time.Sleep(200 * time.Millisecond)
