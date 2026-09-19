@@ -107,8 +107,8 @@ func (e *UIEngine) Run() error {
 }
 
 func (e *UIEngine) loadEmbeddedIcons() {
-	e.icons = make([]*walk.Icon, 5)
 	iconFiles := []string{"stop.ico", "error.ico", "tun.ico", "proxy.ico", "default.ico"}
+	e.icons = make([]*walk.Icon, len(iconFiles))
 
 	tmpDir, err := os.MkdirTemp("", "mihomo-tray-icons-*")
 	if err != nil {
@@ -129,7 +129,7 @@ func (e *UIEngine) loadEmbeddedIcons() {
 		}
 	}
 
-	if e.icons[0] != nil {
+	if len(e.icons) > 0 && e.icons[0] != nil {
 		e.ni.SetIcon(e.icons[0])
 	}
 }
