@@ -9,6 +9,8 @@ import (
 	"github.com/tailscale/win"
 )
 
+// ================= 辅助函数 =================
+
 func getValidOwner() walk.Form {
 	if globalUIEngine != nil {
 		if globalUIEngine.panelWindow != nil {
@@ -24,6 +26,7 @@ func getValidOwner() walk.Form {
 	return nil
 }
 
+// autoWrapText 强制将长文本按最大字符数折行
 func autoWrapText(text string, maxCharsPerLine int) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	
@@ -76,7 +79,6 @@ func centerDialog(dlg *walk.Dialog, owner walk.Form) {
 	win.SetWindowPos(dlg.Handle(), win.HWND_TOP, x, y, 0, 0, win.SWP_NOSIZE)
 }
 
-
 func OpenYAMLFileDialog() (string, bool) {
 	if globalUIEngine == nil || globalUIEngine.app == nil {
 		return "", false
@@ -107,7 +109,7 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 		parent = getValidOwner()
 	}
 
-	safeMsg := autoWrapText(message, 35)
+	safeMsg := autoWrapText(message, 55)
 	hActive := win.GetForegroundWindow()
 
 	var dlg *walk.Dialog
@@ -116,7 +118,7 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 	err := Dialog{
 		AssignTo:      &dlg,
 		Title:         title,
-		MinSize:       Size{Width: 350, Height: 150},
+		MinSize:       Size{Width: 480, Height: 150},
 		Layout:        VBox{Margins: Margins{Top: 15, Bottom: 15, Left: 15, Right: 15}, Spacing: 15},
 		DefaultButton: &acceptPB,
 		Children: []Widget{
@@ -184,7 +186,7 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 		parent = getValidOwner()
 	}
 
-	safeMsg := autoWrapText(message, 35)
+	safeMsg := autoWrapText(message, 55)
 	hActive := win.GetForegroundWindow()
 
 	var dlg *walk.Dialog
@@ -195,7 +197,7 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 	err := Dialog{
 		AssignTo:      &dlg,
 		Title:         title,
-		MinSize:       Size{Width: 350, Height: 150},
+		MinSize:       Size{Width: 480, Height: 150},
 		Layout:        VBox{Margins: Margins{Top: 15, Bottom: 15, Left: 15, Right: 15}, Spacing: 15},
 		DefaultButton: &acceptPB,
 		CancelButton:  &cancelPB,
