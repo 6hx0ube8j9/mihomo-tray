@@ -89,6 +89,8 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 			var actionEditText *walk.Action
 			var actionEditSub *walk.Action
 			var actionUpdate *walk.Action
+			var actionMoveUp *walk.Action
+			var actionMoveDown *walk.Action
 			var actionDelete *walk.Action
 
 			err := MainWindow{
@@ -138,6 +140,8 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 								actionEditText.SetEnabled(false)
 								actionEditSub.SetEnabled(false)
 								actionUpdate.SetEnabled(false)
+								actionMoveUp.SetEnabled(false)
+								actionMoveDown.SetEnabled(false)
 								actionDelete.SetEnabled(false)
 								return
 							}
@@ -148,6 +152,9 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 							actionEditText.SetEnabled(true)
 							actionEditSub.SetEnabled(item.IsRemote)
 							actionUpdate.SetEnabled(item.IsRemote)
+
+							actionMoveUp.SetEnabled(idx > 0)
+							actionMoveDown.SetEnabled(idx < len(e.panelModel.Items)-1)
 						},
 
 						ContextMenuItems: []MenuItem{
@@ -184,6 +191,25 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 								OnTriggered: func() {
 									if idx := e.tableView.CurrentIndex(); idx >= 0 {
 										e.sendCommand("UpdateRemoteProfile", e.panelModel.Items[idx].Path)
+									}
+								},
+							},
+							Separator{},
+							Action{
+								AssignTo: &actionMoveUp,
+								Text:     "⬆️ 向上移动",
+								OnTriggered: func() {
+									if idx := e.tableView.CurrentIndex(); idx >= 0 {
+										e.sendCommand("MoveProfileUp", e.panelModel.Items[idx].Path)
+									}
+								},
+							},
+							Action{
+								AssignTo: &actionMoveDown,
+								Text:     "⬇️ 向下移动",
+								OnTriggered: func() {
+									if idx := e.tableView.CurrentIndex(); idx >= 0 {
+										e.sendCommand("MoveProfileDown", e.panelModel.Items[idx].Path)
 									}
 								},
 							},
@@ -247,17 +273,27 @@ func (e *UIEngine) RefreshPanelData(items []domain.UIProfileItem) {
 	}
 
 	e.app.Synchronize(func() {
-		idx := -1
+		var selectedPath string
 		if e.tableView != nil {
-			idx = e.tableView.CurrentIndex()
+			idx := e.tableView.CurrentIndex()
+			if idx >= 0 && idx < len(e.panelModel.Items) {
+				selectedPath = e.panelModel.Items[idx].Path
+			}
 		}
 
 		e.panelModel.Items = items
 		e.panelModel.PublishRowsReset()
 
-		if e.tableView != nil {
-			if idx >= 0 && idx < len(items) {
-				e.tableView.SetCurrentIndex(idx)
+		if e.tableView != nil && selectedPath != "" {
+			newIdx := -1
+			for i, item := range items {
+				if item.Path == selectedPath {
+					newIdx = i
+					break
+				}
+			}
+			if newIdx >= 0 {
+				e.tableView.SetCurrentIndex(newIdx)
 			}
 			e.tableView.Invalidate()
 		}
