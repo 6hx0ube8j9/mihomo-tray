@@ -140,11 +140,17 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 					Composite{
 						Layout: VBox{MarginsZero: true},
 						Children: []Widget{
-							ImageView{Image: walk.IconWarning(), MinSize: Size{Width: 32, Height: 32}},
+							ImageView{Image: walk.IconWarning(), MinSize: Size{Width: 40, Height: 40}},
 							VSpacer{},
 						},
 					},
-					TextLabel{Text: safeMsg},
+					Composite{
+						Layout: VBox{Margins: Margins{Top: 6}}, 
+						Children: []Widget{
+							TextLabel{Text: safeMsg},
+							VSpacer{},
+						},
+					},
 				},
 			},
 			VSpacer{},
@@ -183,15 +189,6 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 	}
 }
 
-func ShowErrorMessage(owner walk.Form, title, message string) {
-	if globalUIEngine == nil || globalUIEngine.app == nil {
-		return
-	}
-	globalUIEngine.app.Synchronize(func() {
-		RunErrorDialog(owner, title, message)
-	})
-}
-
 func RunConfirmDialog(owner walk.Form, title, message string) bool {
 	parent := owner
 	if parent == nil {
@@ -220,11 +217,17 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 					Composite{
 						Layout: VBox{MarginsZero: true},
 						Children: []Widget{
-							ImageView{Image: walk.IconQuestion(), MinSize: Size{Width: 32, Height: 32}},
+							ImageView{Image: walk.IconQuestion(), MinSize: Size{Width: 40, Height: 40}},
 							VSpacer{},
 						},
 					},
-					TextLabel{Text: safeMsg},
+					Composite{
+						Layout: VBox{Margins: Margins{Top: 6}},
+						Children: []Widget{
+							TextLabel{Text: safeMsg},
+							VSpacer{},
+						},
+					},
 				},
 			},
 			VSpacer{},
@@ -269,6 +272,15 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 	}
 
 	return accepted
+}
+
+func ShowErrorMessage(owner walk.Form, title, message string) {
+	if globalUIEngine == nil || globalUIEngine.app == nil {
+		return
+	}
+	globalUIEngine.app.Synchronize(func() {
+		RunErrorDialog(owner, title, message)
+	})
 }
 
 func ShowConfirmMessage(owner walk.Form, title, message string) bool {
