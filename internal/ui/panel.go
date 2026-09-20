@@ -105,16 +105,18 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 				Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}},
 				Children: []Widget{
 					Composite{
-						Layout: HBox{MarginsZero: true},
+						Layout: HBox{Margins: Margins{Left: 0, Top: 5, Right: 0, Bottom: 5}},
 						Children: []Widget{
 							PushButton{
-								Text: "➕ 添加远程订阅",
+								Text:    "➕ 添加远程订阅",
+								MinSize: Size{Height: 28},
 								OnClicked: func() {
 									e.sendCommand("RequestAddRemoteProfile", "")
 								},
 							},
 							PushButton{
-								Text: "📂 导入本地配置",
+								Text:    "📂 导入本地配置",
+								MinSize: Size{Height: 28},
 								OnClicked: func() {
 									e.sendCommand("RequestAddLocalProfile", "")
 								},
