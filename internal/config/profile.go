@@ -142,9 +142,6 @@ func (m *Manager) RegisterNewProfile(relPath string) {
 		m.data.Items = append(m.data.Items[:1], m.data.Items[2:]...)
 	}
 
-	if m.data.Active == "" {
-		m.data.Active = relPath
-	}
 	m.lockedSave()
 }
 
@@ -163,8 +160,5 @@ func (m *Manager) UpsertProfile(item domain.ProfileItem) {
 		m.data.Items = append(m.data.Items[:1], m.data.Items[2:]...)
 	}
 
-	if m.data.Active == "" {
-		m.data.Active = item.Path
-	}
 	m.lockedSave()
 }
