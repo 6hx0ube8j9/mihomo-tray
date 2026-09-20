@@ -38,7 +38,7 @@ const (
 	DefaultExternalUI         = "ui"
 	DefaultExternalUIURL      = "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip"
 	DefaultLogLevel           = "error"
-	DefaultUserAgent          = "clash-verge/v2.5.2"
+	DefaultUserAgent          = "clash-verge (clash.meta)"
 
 	DefaultUpdateInterval = 3                // 默认订阅更新间隔(天)
 	MaxProfileCount       = 10               // 允许导入的最大配置(订阅)数量
