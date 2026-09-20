@@ -53,14 +53,14 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	switch col {
 	case 0:
 		if item.IsActive {
-			return "✔️ 正在使用"
+			return "✔️ 使用中"
 		}
 		return " "
 	case 1:
 		return item.Name
 	case 2:
 		if item.IsRemote {
-			return "远程订阅"
+			return "订阅配置"
 		}
 		return "本地配置"
 	case 3:
@@ -70,7 +70,7 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 		if item.Interval > 0 {
 			return fmt.Sprintf("%d 天", item.Interval)
 		}
-		return "禁用自动更新"
+		return "停止更新"
 	case 4:
 		if !item.IsRemote {
 			return "-"
@@ -191,7 +191,7 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 									},
 									Action{
 										AssignTo: &actionEditText,
-										Text:     "📝 编辑文本",
+										Text:     "📝 打开文本",
 										OnTriggered: func() {
 											if idx := e.tableView.CurrentIndex(); idx >= 0 {
 												e.sendCommand("OpenConfigFile", e.panelModel.Items[idx].Path)
