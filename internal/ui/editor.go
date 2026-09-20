@@ -68,7 +68,7 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 									MinValue: 0,
 									MaxValue: float64(domain.MaxUpdateInterval),
 								},
-								Label{Text: "天 (填 0 为禁用自动更新)"},
+								Label{Text: "天 (填 0 为停止更新)"},
 								HSpacer{},
 							},
 						},
@@ -92,7 +92,7 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 
 								u, parseErr := url.ParseRequestURI(inputUrl)
 								if parseErr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-									RunErrorDialog(dlg, "输入错误", "请输入有效且合法的 HTTP/HTTPS 订阅链接！")
+									RunErrorDialog(dlg, "输入错误", "请输入有效的订阅链接")
 									return
 								}
 
