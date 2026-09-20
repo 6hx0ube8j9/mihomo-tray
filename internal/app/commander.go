@@ -406,7 +406,8 @@ func (a *Application) OpenWebUI() {
 	}
 
 	activeApiAddr, activeSecret := a.API.GetEndpoint()
-
+	
+    slog.Info("【Debug 发射端】", "ApiAddr", activeApiAddr, "API提取的Secret", activeSecret, "底稿获取的Secret", a.Cfg.Get("secret"))
 	cfg := webui.Config{
 		APIAddr:   activeApiAddr,
 		Secret:    activeSecret,
