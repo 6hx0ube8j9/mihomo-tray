@@ -226,12 +226,17 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 			e.tableView.SetCurrentIndex(-1)
 		}
 
+		hwnd := e.panelWindow.Handle()
+
+		if win.IsIconic(hwnd) {
+			win.ShowWindow(hwnd, win.SW_RESTORE)
+		}
+
 		if !e.panelWindow.Visible() {
-			e.panelWindow.Show()
-		} else {
 			e.panelWindow.Show()
 		}
 
+		win.SetForegroundWindow(hwnd)
 		e.panelWindow.SetFocus()
 	})
 }
