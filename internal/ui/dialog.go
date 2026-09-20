@@ -24,28 +24,28 @@ func getValidOwner() walk.Form {
 	return nil
 }
 
-func OpenYAMLFileDialog() (string, bool) {
-	if globalUIEngine == nil || globalUIEngine.app == nil {
-		return "", false
+func autoWrapText(text string, maxCharsPerLine int) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	
+	var result []string
+	lines := strings.Split(text, "\n")
+	
+	for _, line := range lines {
+		runes := []rune(line)
+		if len(runes) == 0 {
+			result = append(result, "")
+			continue
+		}
+		for len(runes) > maxCharsPerLine {
+			result = append(result, string(runes[:maxCharsPerLine]))
+			runes = runes[maxCharsPerLine:]
+		}
+		if len(runes) > 0 {
+			result = append(result, string(runes))
+		}
 	}
-
-	type fileResult struct {
-		Path string
-		OK   bool
-	}
-	resultCh := make(chan fileResult)
-
-	globalUIEngine.app.Synchronize(func() {
-		dlg := new(walk.FileDialog)
-		dlg.Title = "选择本地 YAML 配置文件"
-		dlg.Filter = "YAML 配置文件 (*.yaml;*.yml)|*.yaml;*.yml|所有文件 (*.*)|*.*"
-
-		ok, _ := dlg.ShowOpen(getValidOwner())
-		resultCh <- fileResult{Path: dlg.FilePath, OK: ok}
-	})
-
-	res := <-resultCh
-	return res.Path, res.OK
+	
+	return strings.Join(result, "\r\n")
 }
 
 func centerDialog(dlg *walk.Dialog, owner walk.Form) {
@@ -76,13 +76,38 @@ func centerDialog(dlg *walk.Dialog, owner walk.Form) {
 	win.SetWindowPos(dlg.Handle(), win.HWND_TOP, x, y, 0, 0, win.SWP_NOSIZE)
 }
 
+
+func OpenYAMLFileDialog() (string, bool) {
+	if globalUIEngine == nil || globalUIEngine.app == nil {
+		return "", false
+	}
+
+	type fileResult struct {
+		Path string
+		OK   bool
+	}
+	resultCh := make(chan fileResult)
+
+	globalUIEngine.app.Synchronize(func() {
+		dlg := new(walk.FileDialog)
+		dlg.Title = "选择本地 YAML 配置文件"
+		dlg.Filter = "YAML 配置文件 (*.yaml;*.yml)|*.yaml;*.yml|所有文件 (*.*)|*.*"
+
+		ok, _ := dlg.ShowOpen(getValidOwner())
+		resultCh <- fileResult{Path: dlg.FilePath, OK: ok}
+	})
+
+	res := <-resultCh
+	return res.Path, res.OK
+}
+
 func RunErrorDialog(owner walk.Form, title, message string) {
 	parent := owner
 	if parent == nil {
 		parent = getValidOwner()
 	}
 
-	safeMsg := strings.ReplaceAll(strings.ReplaceAll(message, "\r\n", "\n"), "\n", "\r\n")
+	safeMsg := autoWrapText(message, 35)
 	hActive := win.GetForegroundWindow()
 
 	var dlg *walk.Dialog
@@ -92,7 +117,6 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 		AssignTo:      &dlg,
 		Title:         title,
 		MinSize:       Size{Width: 350, Height: 150},
-		MaxSize:       Size{Width: 450, Height: 300},
 		Layout:        VBox{Margins: Margins{Top: 15, Bottom: 15, Left: 15, Right: 15}, Spacing: 15},
 		DefaultButton: &acceptPB,
 		Children: []Widget{
@@ -160,7 +184,7 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 		parent = getValidOwner()
 	}
 
-	safeMsg := strings.ReplaceAll(strings.ReplaceAll(message, "\r\n", "\n"), "\n", "\r\n")
+	safeMsg := autoWrapText(message, 35)
 	hActive := win.GetForegroundWindow()
 
 	var dlg *walk.Dialog
@@ -172,7 +196,6 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 		AssignTo:      &dlg,
 		Title:         title,
 		MinSize:       Size{Width: 350, Height: 150},
-		MaxSize:       Size{Width: 450, Height: 300},
 		Layout:        VBox{Margins: Margins{Top: 15, Bottom: 15, Left: 15, Right: 15}, Spacing: 15},
 		DefaultButton: &acceptPB,
 		CancelButton:  &cancelPB,
