@@ -20,7 +20,7 @@ import (
 
 func (a *Application) safePreflightCheck(targetRelPath string, actionTitle string) error {
 	if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
-		ui.ShowErrorMessage(nil, actionTitle+"被拦截", "目标配置异常，请求已被中止：\n\n"+err.Error())
+		ui.ShowErrorMessage(nil, actionTitle+"失败", "目标配置异常，请求中止：\n\n"+err.Error())
 		return err
 	}
 	return nil
@@ -80,7 +80,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 							if url != oldURL {
 								go a.executeRemoteUpdate(context.Background(), profile.Path, true, false)
 							}
-							a.ForcePushUIState()
+							a.pushUIState()
 						}
 					}
 				}
@@ -96,7 +96,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 		go func(sourcePath string) {
 			defer a.State.SetProfileSwitching(false)
-			defer a.ForcePushUIState()
+			defer a.pushUIState()
 
 			exePath := core.GetKernelPath(a.Cfg.BaseDir())
 			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), sourcePath); err != nil {
@@ -106,7 +106,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 			targetName, _, err := a.Cfg.SafeCopyUntrustedConfig(sourcePath)
 			if err != nil {
-				ui.ShowErrorMessage(nil, "导入异常", "文件拷贝失败:\n"+err.Error())
+				ui.ShowErrorMessage(nil, "导入失败", "文件拷贝失败:\n"+err.Error())
 				return
 			}
 			a.Cfg.RegisterNewProfile(targetName)
@@ -168,14 +168,14 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		}
 
 		if a.State.IsProfileSwitching() {
-			a.ForcePushUIState()
+			a.pushUIState()
 			break
 		}
 		a.State.SetProfileSwitching(true)
 
 		go func(relPath string) {
 			defer a.State.SetProfileSwitching(false)
-			defer a.ForcePushUIState()
+			defer a.pushUIState()
 
 			target := relPath
 			if target == "" {
@@ -189,7 +189,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			exePath := core.GetKernelPath(a.Cfg.BaseDir())
 			absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(target))
 			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), absPath); err != nil {
-				ui.ShowErrorMessage(nil, "加载中止", "该配置存在语法错误，拒绝加载：\n\n"+err.Error())
+				ui.ShowErrorMessage(nil, "加载失败", "该配置存在错误，拒绝加载：\n\n"+err.Error())
 				return
 			}
 
@@ -213,7 +213,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			break
 		}
 
-		if !ui.ShowConfirmMessage(nil, "确认删除", "确定要删除此配置文件吗？\n\n此操作不可恢复，本地物理文件将被同时删除。") {
+		if !ui.ShowConfirmMessage(nil, "确认删除", "确定要删除此配置文件吗？\n\n此操作不可恢复，本地文件将被同时删除。") {
 			slog.Info("取消删除配置", "path", targetPath)
 			break
 		}
@@ -227,6 +227,16 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 		a.Cfg.RemoveProfile(targetPath)
 
+	case "MoveProfileUp":
+		if a.Cfg.MoveProfile(cmd.Payload, -1) {
+			slog.Debug("配置文件已上移", "path", cmd.Payload)
+		}
+
+	case "MoveProfileDown":
+		if a.Cfg.MoveProfile(cmd.Payload, 1) {
+			slog.Debug("配置文件已下移", "path", cmd.Payload)
+		}
+		
 	case "ToggleAutoStart":
 		enable := cmd.Payload == "true"
 
@@ -245,7 +255,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				a.SafeShutdown(nil)
 				os.Exit(0)
 			}
-			a.ForcePushUIState()
+			a.pushUIState()
 			return
 		}
 
@@ -270,7 +280,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				a.SafeShutdown(nil)
 				os.Exit(0)
 			}
-			a.ForcePushUIState()
+			a.pushUIState()
 			return
 		}
 		a.Cfg.Set("run_as_admin", strconv.FormatBool(enable))
@@ -284,7 +294,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				a.SafeShutdown(nil)
 				os.Exit(0)
 			}
-			a.ForcePushUIState()
+			a.pushUIState()
 			return
 		}
 
@@ -373,7 +383,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		webui.Cleanup()
 	}
 
-	a.ForcePushUIState()
+	a.pushUIState()
 }
 
 func (a *Application) OpenWebUI() {
