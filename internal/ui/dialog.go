@@ -9,8 +9,6 @@ import (
 	"github.com/tailscale/win"
 )
 
-// ================= 辅助函数 =================
-
 func getValidOwner() walk.Form {
 	if globalUIEngine != nil {
 		if globalUIEngine.panelWindow != nil {
@@ -26,8 +24,7 @@ func getValidOwner() walk.Form {
 	return nil
 }
 
-// autoWrapText 强制将长文本按最大字符数折行
-func autoWrapText(text string, maxCharsPerLine int) string {
+func autoWrapText(text string, maxVisualWidth int) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	
 	var result []string
@@ -39,12 +36,27 @@ func autoWrapText(text string, maxCharsPerLine int) string {
 			result = append(result, "")
 			continue
 		}
-		for len(runes) > maxCharsPerLine {
-			result = append(result, string(runes[:maxCharsPerLine]))
-			runes = runes[maxCharsPerLine:]
+
+		var currentLine []rune
+		currentWidth := 0
+
+		for _, r := range runes {
+			w := 1
+			if r > 255 {
+				w = 2
+			}
+
+			if currentWidth+w > maxVisualWidth {
+				result = append(result, string(currentLine))
+				currentLine = []rune{r}
+				currentWidth = w
+			} else {
+				currentLine = append(currentLine, r)
+				currentWidth += w
+			}
 		}
-		if len(runes) > 0 {
-			result = append(result, string(runes))
+		if len(currentLine) > 0 {
+			result = append(result, string(currentLine))
 		}
 	}
 	
@@ -109,7 +121,7 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 		parent = getValidOwner()
 	}
 
-	safeMsg := autoWrapText(message, 55)
+	safeMsg := autoWrapText(message, 64)
 	hActive := win.GetForegroundWindow()
 
 	var dlg *walk.Dialog
@@ -118,7 +130,7 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 	err := Dialog{
 		AssignTo:      &dlg,
 		Title:         title,
-		MinSize:       Size{Width: 480, Height: 150},
+		MinSize:       Size{Width: 320, Height: 150},
 		Layout:        VBox{Margins: Margins{Top: 15, Bottom: 15, Left: 15, Right: 15}, Spacing: 15},
 		DefaultButton: &acceptPB,
 		Children: []Widget{
@@ -186,7 +198,7 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 		parent = getValidOwner()
 	}
 
-	safeMsg := autoWrapText(message, 55)
+	safeMsg := autoWrapText(message, 64)
 	hActive := win.GetForegroundWindow()
 
 	var dlg *walk.Dialog
@@ -197,7 +209,7 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 	err := Dialog{
 		AssignTo:      &dlg,
 		Title:         title,
-		MinSize:       Size{Width: 480, Height: 150},
+		MinSize:       Size{Width: 320, Height: 150},
 		Layout:        VBox{Margins: Margins{Top: 15, Bottom: 15, Left: 15, Right: 15}, Spacing: 15},
 		DefaultButton: &acceptPB,
 		CancelButton:  &cancelPB,
