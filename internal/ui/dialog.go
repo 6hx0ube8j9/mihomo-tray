@@ -65,7 +65,7 @@ func centerDialog(dlg *walk.Dialog, owner walk.Form) {
 		y = pRect.Top + (pH-dlgH)/2
 	} else {
 		var workArea win.RECT
-		if win.SystemParametersInfo(0x0030, 0, unsafe.Pointer(&workArea), 0) { // SPI_GETWORKAREA
+		if win.SystemParametersInfo(0x0030, 0, unsafe.Pointer(&workArea), 0) {
 			screenW := workArea.Right - workArea.Left
 			screenH := workArea.Bottom - workArea.Top
 			x = workArea.Left + (screenW-dlgW)/2
@@ -83,7 +83,6 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 	}
 
 	safeMsg := strings.ReplaceAll(strings.ReplaceAll(message, "\r\n", "\n"), "\n", "\r\n")
-
 	hActive := win.GetForegroundWindow()
 
 	var dlg *walk.Dialog
@@ -93,6 +92,7 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 		AssignTo:      &dlg,
 		Title:         title,
 		MinSize:       Size{Width: 350, Height: 150},
+		MaxSize:       Size{Width: 450, Height: 300},
 		Layout:        VBox{Margins: Margins{Top: 15, Bottom: 15, Left: 15, Right: 15}, Spacing: 15},
 		DefaultButton: &acceptPB,
 		Children: []Widget{
@@ -106,7 +106,7 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 							VSpacer{},
 						},
 					},
-					Label{Text: safeMsg},
+					TextLabel{Text: safeMsg},
 				},
 			},
 			VSpacer{},
@@ -136,7 +136,6 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 
 	dlg.Run()
 
-	// 修复点2：弹窗关闭后，优先将焦点还给自家的 GUI 面板 (parent)
 	if parent != nil && parent.Visible() && !win.IsIconic(parent.Handle()) {
 		win.SetForegroundWindow(parent.Handle())
 		win.SetFocus(parent.Handle())
@@ -162,7 +161,6 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 	}
 
 	safeMsg := strings.ReplaceAll(strings.ReplaceAll(message, "\r\n", "\n"), "\n", "\r\n")
-
 	hActive := win.GetForegroundWindow()
 
 	var dlg *walk.Dialog
@@ -174,6 +172,7 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 		AssignTo:      &dlg,
 		Title:         title,
 		MinSize:       Size{Width: 350, Height: 150},
+		MaxSize:       Size{Width: 450, Height: 300},
 		Layout:        VBox{Margins: Margins{Top: 15, Bottom: 15, Left: 15, Right: 15}, Spacing: 15},
 		DefaultButton: &acceptPB,
 		CancelButton:  &cancelPB,
@@ -188,7 +187,7 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 							VSpacer{},
 						},
 					},
-					Label{Text: safeMsg},
+					TextLabel{Text: safeMsg},
 				},
 			},
 			VSpacer{},
