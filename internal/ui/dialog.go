@@ -145,7 +145,7 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 						},
 					},
 					Composite{
-						Layout: VBox{Margins: Margins{Top: 6}}, 
+						Layout: VBox{MarginsZero: true}, // 回归自然放平
 						Children: []Widget{
 							TextLabel{Text: safeMsg},
 							VSpacer{},
@@ -189,6 +189,15 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 	}
 }
 
+func ShowErrorMessage(owner walk.Form, title, message string) {
+	if globalUIEngine == nil || globalUIEngine.app == nil {
+		return
+	}
+	globalUIEngine.app.Synchronize(func() {
+		RunErrorDialog(owner, title, message)
+	})
+}
+
 func RunConfirmDialog(owner walk.Form, title, message string) bool {
 	parent := owner
 	if parent == nil {
@@ -222,7 +231,7 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 						},
 					},
 					Composite{
-						Layout: VBox{Margins: Margins{Top: 6}},
+						Layout: VBox{MarginsZero: true},
 						Children: []Widget{
 							TextLabel{Text: safeMsg},
 							VSpacer{},
@@ -272,15 +281,6 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 	}
 
 	return accepted
-}
-
-func ShowErrorMessage(owner walk.Form, title, message string) {
-	if globalUIEngine == nil || globalUIEngine.app == nil {
-		return
-	}
-	globalUIEngine.app.Synchronize(func() {
-		RunErrorDialog(owner, title, message)
-	})
 }
 
 func ShowConfirmMessage(owner walk.Form, title, message string) bool {
