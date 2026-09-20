@@ -263,5 +263,26 @@ func writeTmpAndRename(baseDir, targetPath string, content []byte) error {
 	return os.Rename(tmpName, targetPath)
 }
 
+func (m *Manager) MoveProfile(relPath string, offset int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for i, p := range m.data.Items {
+		if p.Path == relPath {
+			targetIdx := i + offset
+			
+			if targetIdx < 0 || targetIdx >= len(m.data.Items) {
+				return false
+			}
+			
+			m.data.Items[i], m.data.Items[targetIdx] = m.data.Items[targetIdx], m.data.Items[i]
+			
+			m.lockedSave()
+			return true
+		}
+	}
+	return false
+}
+	
 func (m *Manager) BaseDir() string { return m.baseDir }
 func (m *Manager) ExePath() string { return m.exePath }
