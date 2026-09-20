@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -17,15 +18,15 @@ import (
 
 const RemoteFetchTimeout = 90 * time.Second
 
-func (m *Manager) UpgradeSubscription(relPath string, proxyPort string, validator func(tmpPath string) error) (bool, error) {
+func (m *Manager) UpgradeSubscription(ctx context.Context, relPath string, proxyPort string, validator func(tmpPath string) error) (bool, error) {
 	item, ok := m.GetProfileByPath(relPath)
 	if !ok || item.URL == "" {
-		return false, fmt.Errorf("远程订阅节点无效或 URL 为空")
+		return false, fmt.Errorf("配置文件不存在或 URL 为空")
 	}
 
-	fetchRes, err := m.FetchRemoteProfile(item.URL, proxyPort)
+	fetchRes, err := m.FetchRemoteProfile(ctx, item.URL, proxyPort)
 	if err != nil {
-		return false, fmt.Errorf("订阅拉取失败: %w", err)
+		return false, fmt.Errorf("拉取订阅失败: %w", err)
 	}
 
 	defer func() {
@@ -45,13 +46,13 @@ func (m *Manager) UpgradeSubscription(relPath string, proxyPort string, validato
 	item.LastUpdate = time.Now().Unix()
 
 	if err := m.CommitRemoteProfile(fetchRes.TempPath, relPath, item); err != nil {
-		return false, fmt.Errorf("订阅保存失败: %w", err)
+		return false, fmt.Errorf("保存订阅失败: %w", err)
 	}
 
 	return true, nil
 }
 
-func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*domain.FetchResult, error) {
+func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPort string) (*domain.FetchResult, error) {
 	subURL = strings.TrimSpace(subURL)
 	slog.Info("开始拉取订阅", "url", subURL)
 
@@ -63,28 +64,56 @@ func (m *Manager) FetchRemoteProfile(subURL string, proxyPort string) (*domain.F
 		}
 	}
 
-    client := &http.Client{
+	client := &http.Client{
 		Timeout:   RemoteFetchTimeout,
 		Transport: transport,
 	}
 
-	req, err := http.NewRequest("GET", subURL, nil)
-	if err != nil {
-		return nil, err
+	var resp *http.Response
+	var reqErr error
+	maxRetries := 3
+
+	for i := 0; i < maxRetries; i++ {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "GET", subURL, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("User-Agent", domain.DefaultUserAgent)
+		req.Header.Set("Accept", "application/yaml, text/yaml, text/plain, */*")
+		req.Header.Set("Connection", "keep-alive")
+
+		resp, reqErr = client.Do(req)
+
+		if reqErr == nil && resp.StatusCode < 500 {
+			break
+		}
+
+		if i < maxRetries-1 {
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			slog.Warn("网络请求异常，准备重试", "url", subURL, "retry", i+1, "err", reqErr)
+			time.Sleep(1500 * time.Millisecond)
+		}
 	}
 
-	req.Header.Set("User-Agent", domain.DefaultUserAgent)
-	req.Header.Set("Accept", "*/*")
-	req.Header.Set("Connection", "keep-alive")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
+	if reqErr != nil {
+		return nil, fmt.Errorf("网络请求失败 (已重试%d次): %w", maxRetries, reqErr)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("服务器响应异常，状态码: %d", resp.StatusCode)
+	}
+
+	contentType := strings.ToLower(resp.Header.Get("Content-Type"))
+	if strings.Contains(contentType, "text/html") {
+		return nil, fmt.Errorf("拉取异常: 目标服务器返回了 HTML 页面，可能已被防火墙拦截")
 	}
 
 	profilesDirAbs := filepath.Join(m.baseDir, ProfilesDir)
