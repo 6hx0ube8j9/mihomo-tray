@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"unsafe"
 
 	"github.com/tailscale/walk"
@@ -47,31 +48,22 @@ func OpenYAMLFileDialog() (string, bool) {
 	return res.Path, res.OK
 }
 
-func centerDialog(dlg *walk.Dialog, hActive win.HWND, fallback walk.Form) {
+func centerDialog(dlg *walk.Dialog, owner walk.Form) {
 	var rect win.RECT
 	win.GetWindowRect(dlg.Handle(), &rect)
 	dlgW := rect.Right - rect.Left
 	dlgH := rect.Bottom - rect.Top
 
-	var targetHWND win.HWND
-
-	if hActive != 0 && win.IsWindowVisible(hActive) && !win.IsIconic(hActive) {
-		targetHWND = hActive
-	} else if fallback != nil && fallback.Visible() && !win.IsIconic(fallback.Handle()) {
-		targetHWND = fallback.Handle()
-	}
-
 	var x, y int32
 
-	if targetHWND != 0 {
+	if owner != nil && owner.Visible() && !win.IsIconic(owner.Handle()) {
 		var pRect win.RECT
-		win.GetWindowRect(targetHWND, &pRect)
+		win.GetWindowRect(owner.Handle(), &pRect)
 		pW := pRect.Right - pRect.Left
 		pH := pRect.Bottom - pRect.Top
 		x = pRect.Left + (pW-dlgW)/2
 		y = pRect.Top + (pH-dlgH)/2
 	} else {
-		// 屏幕中央兜底
 		var workArea win.RECT
 		if win.SystemParametersInfo(0x0030, 0, unsafe.Pointer(&workArea), 0) { // SPI_GETWORKAREA
 			screenW := workArea.Right - workArea.Left
@@ -89,6 +81,8 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 	if parent == nil {
 		parent = getValidOwner()
 	}
+
+	safeMsg := strings.ReplaceAll(strings.ReplaceAll(message, "\r\n", "\n"), "\n", "\r\n")
 
 	hActive := win.GetForegroundWindow()
 
@@ -112,7 +106,7 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 							VSpacer{},
 						},
 					},
-					Label{Text: message},
+					Label{Text: safeMsg},
 				},
 			},
 			VSpacer{},
@@ -136,13 +130,17 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 	}
 
 	dlg.Starting().Attach(func() {
-		centerDialog(dlg, hActive, parent)
+		centerDialog(dlg, parent)
 		win.MessageBeep(win.MB_ICONWARNING)
 	})
 
 	dlg.Run()
 
-	if hActive != 0 && win.IsWindowVisible(hActive) && !win.IsIconic(hActive) {
+	// 修复点2：弹窗关闭后，优先将焦点还给自家的 GUI 面板 (parent)
+	if parent != nil && parent.Visible() && !win.IsIconic(parent.Handle()) {
+		win.SetForegroundWindow(parent.Handle())
+		win.SetFocus(parent.Handle())
+	} else if hActive != 0 && win.IsWindowVisible(hActive) && !win.IsIconic(hActive) {
 		win.SetForegroundWindow(hActive)
 		win.SetFocus(hActive)
 	}
@@ -162,6 +160,8 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 	if parent == nil {
 		parent = getValidOwner()
 	}
+
+	safeMsg := strings.ReplaceAll(strings.ReplaceAll(message, "\r\n", "\n"), "\n", "\r\n")
 
 	hActive := win.GetForegroundWindow()
 
@@ -188,7 +188,7 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 							VSpacer{},
 						},
 					},
-					Label{Text: message},
+					Label{Text: safeMsg},
 				},
 			},
 			VSpacer{},
@@ -218,13 +218,16 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 	}
 
 	dlg.Starting().Attach(func() {
-		centerDialog(dlg, hActive, parent)
+		centerDialog(dlg, parent)
 		win.MessageBeep(win.MB_ICONQUESTION)
 	})
 
 	dlg.Run()
 
-	if hActive != 0 && win.IsWindowVisible(hActive) && !win.IsIconic(hActive) {
+	if parent != nil && parent.Visible() && !win.IsIconic(parent.Handle()) {
+		win.SetForegroundWindow(parent.Handle())
+		win.SetFocus(parent.Handle())
+	} else if hActive != 0 && win.IsWindowVisible(hActive) && !win.IsIconic(hActive) {
 		win.SetForegroundWindow(hActive)
 		win.SetFocus(hActive)
 	}
