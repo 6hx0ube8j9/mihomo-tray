@@ -248,13 +248,14 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 								},
 							},
 							Composite{
-								Layout: VBox{MarginsZero: true},
+								Layout: VBox{Margins: Margins{Left: 10, Top: 0, Right: 0, Bottom: 0}},
 								Children: []Widget{
 									PushButton{
 										AssignTo: &btnMoveUp,
-										Text:     "⬆️",
+										Text:     "⬆️ 上移",
 										Enabled:  false,
-										MinSize:  Size{Width: 40},
+										MinSize:  Size{Width: 85},
+										MaxSize:  Size{Width: 85},
 										OnClicked: func() {
 											if idx := e.tableView.CurrentIndex(); idx >= 0 {
 												e.sendCommand("MoveProfileUp", e.panelModel.Items[idx].Path)
@@ -263,9 +264,10 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 									},
 									PushButton{
 										AssignTo: &btnMoveDown,
-										Text:     "⬇️",
+										Text:     "⬇️ 下移",
 										Enabled:  false,
-										MinSize:  Size{Width: 40},
+										MinSize:  Size{Width: 85},
+										MaxSize:  Size{Width: 85},
 										OnClicked: func() {
 											if idx := e.tableView.CurrentIndex(); idx >= 0 {
 												e.sendCommand("MoveProfileDown", e.panelModel.Items[idx].Path)
