@@ -191,6 +191,7 @@ func Launch(cfg Config, eventCh chan<- Event) {
 	}
 
 	finalURL := fmt.Sprintf("http://%s:%s%s?%s#/?%s", host, port, uiPath, query, query)
+	slog.Info("【Debug 接收端】", "最终拼接URL", finalURL, "接收到的Secret", cfg.Secret)
 
 	if hwnd := GetCachedWebUIHwnd(); hwnd != 0 {
 		if IsWindowVisible(hwnd) {
