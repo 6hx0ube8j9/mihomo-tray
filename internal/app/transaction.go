@@ -93,7 +93,7 @@ func (a *Application) executeRemoteUpdate(ctx context.Context, targetRelPath str
 	}
 
 	port := a.Cfg.Get("port")
-	success, err := a.Cfg.UpgradeSubscription(targetRelPath, port, validator)
+	success, err := a.Cfg.UpgradeSubscription(ctx, targetRelPath, port, validator)
 
 	if err != nil {
 		if isManual {
