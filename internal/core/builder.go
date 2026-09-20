@@ -45,14 +45,13 @@ func BuildRuntimeYAML(params BuilderParams) (bool, map[string]string, error) {
 		sourcePath := filepath.Join(params.BaseDir, filepath.FromSlash(params.RelPath))
 		content, err = os.ReadFile(sourcePath)
 		if err != nil {
-			slog.Warn("底稿文件丢失，将使用保底参数启动内核", "path", sourcePath)
-			content = []byte("")
+			return false, nil, fmt.Errorf("底稿文件已丢失，无法构建运行时配置: %s", sourcePath)
 		}
 	} else {
 		slog.Info("当前无活跃配置，将使用保底参数启动内核")
 		content = []byte("")
 	}
-
+	
 	rawStr := strings.TrimPrefix(string(content), "\xef\xbb\xbf")
 	lines := strings.Split(strings.ReplaceAll(rawStr, "\r\n", "\n"), "\n")
 
