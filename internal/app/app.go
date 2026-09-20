@@ -67,7 +67,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 					return core.ValidateConfig(exePath, a.Cfg.BaseDir(), tmpPath)
 				}
 
-				success, fetchErr := a.Cfg.UpgradeSubscription(activePath, "", validator)
+				success, fetchErr := a.Cfg.UpgradeSubscription(context.Background(), activePath, "", validator)
 
 				if !success {
 					slog.Warn("静默拉取失败，进入空转", "err", fetchErr)
