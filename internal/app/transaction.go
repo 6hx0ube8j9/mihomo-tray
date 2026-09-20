@@ -171,8 +171,9 @@ func (a *Application) SyncRuntimeConfig() {
 		RelPath: activePath,
 	}
 
-	if _, extracted, err := core.BuildRuntimeYAML(params); err != nil {
-		slog.Error("同步运行配置失败", "err", err)
+    if _, extracted, err := core.BuildRuntimeYAML(params); err != nil {
+		slog.Error("同步运行配置失败，系统将进入空转", "err", err)
+		a.Cfg.SetActiveProfile("") 
 	} else if len(extracted) > 0 {
 		a.Cfg.UpdateBatch(extracted)
 	}
