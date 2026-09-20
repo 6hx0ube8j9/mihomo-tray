@@ -164,18 +164,28 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	case "SwitchProfile":
 		if cmd.Payload != "" && cmd.Payload == a.Cfg.GetActivePath() {
 			slog.Debug("配置已激活，忽略重复切换", "path", cmd.Payload)
+			a.ForcePushUIState()
 			break
 		}
 
 		if a.State.IsProfileSwitching() {
-			a.pushUIState()
+			a.ForcePushUIState()
 			break
 		}
 		a.State.SetProfileSwitching(true)
 
 		go func(relPath string) {
-			defer a.State.SetProfileSwitching(false)
-			defer a.pushUIState()
+			isTransactionFailed := false
+
+			defer func() {
+				a.State.SetProfileSwitching(false)
+				if isTransactionFailed {
+					slog.Debug("配置切换事务回滚，触发 UI 强调整")
+					a.ForcePushUIState()
+				} else {
+					a.pushUIState()
+				}
+			}()
 
 			target := relPath
 			if target == "" {
@@ -183,6 +193,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			}
 
 			if err := a.safePreflightCheck(target, "切换配置"); err != nil {
+				isTransactionFailed = true
 				return
 			}
 
@@ -190,6 +201,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(target))
 			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), absPath); err != nil {
 				ui.ShowErrorMessage(nil, "加载失败", "该配置存在错误，拒绝加载：\n\n"+err.Error())
+				isTransactionFailed = true
 				return
 			}
 
@@ -200,6 +212,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			if err := a.applyConfigTransaction(context.Background(), target); err != nil {
 				ui.ShowErrorMessage(nil, "内核重启异常", "运行时发生错误：\n\n"+err.Error())
 				a.Cfg.SetActiveProfile(oldActive)
+				isTransactionFailed = true
 			} else {
 				a.restartWebUIIfOpen()
 			}
@@ -255,7 +268,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				a.SafeShutdown(nil)
 				os.Exit(0)
 			}
-			a.pushUIState()
+			a.ForcePushUIState()
 			return
 		}
 
@@ -280,7 +293,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				a.SafeShutdown(nil)
 				os.Exit(0)
 			}
-			a.pushUIState()
+			a.ForcePushUIState()
 			return
 		}
 		a.Cfg.Set("run_as_admin", strconv.FormatBool(enable))
@@ -294,7 +307,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				a.SafeShutdown(nil)
 				os.Exit(0)
 			}
-			a.pushUIState()
+			a.ForcePushUIState()
 			return
 		}
 
