@@ -32,6 +32,7 @@ const (
 	DefaultProxy              = "false"
 	DefaultTun                = "false"
 	DefaultMode               = "rule"
+	DefaultAllowLan           = "true"
 	DefaultMixedPort          = "7890"
 	DefaultExternalController = "127.0.0.1:9090"
 	DefaultSecret             = ""
