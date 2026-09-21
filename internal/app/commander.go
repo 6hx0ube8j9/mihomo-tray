@@ -402,7 +402,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	case domain.ActionEditCurrentConfig:
 		targetRelPath := a.Cfg.GetActivePath()
 		if targetRelPath == "" {
-			ui.ShowErrorMessage(nil, "无法编辑", "当前没有正在运行的本地或远程配置文件。")
+			ui.ShowErrorMessage(nil, "无法编辑", "当前没有正在运行的配置文件。")
 			break
 		}
 		if err := a.safePreflightCheck(targetRelPath, "编辑配置"); err != nil {
@@ -418,7 +418,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			break
 		}
 		if err := sys.WriteToClipboard(activeSecret); err == nil {
-			ui.ShowTrayNotification("密码复制成功", "Web 面板密码已复制到剪贴板，可直接粘贴使用。")
+			ui.ShowTrayNotification("密码复制成功", "Web 密码已复制到剪贴板，可直接粘贴使用。")
 		} else {
 			ui.ShowErrorMessage(nil, "复制失败", "无法向剪贴板写入密码：\n\n"+err.Error())
 		}
@@ -427,7 +427,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		cacheDir := filepath.Join(a.Cfg.BaseDir(), "webcache")
 		err := os.RemoveAll(cacheDir)
 		if err == nil {
-			ui.ShowTrayNotification("清理完成", "Web 面板本地缓存及历史状态已全部清除。")
+			ui.ShowTrayNotification("清理完成", "Web 面板缓存目录已完成清理。")
 		} else {
 			ui.ShowErrorMessage(nil, "清理失败", "无法清除缓存目录，文件可能被占用：\n\n"+err.Error())
 		}
