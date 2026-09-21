@@ -368,7 +368,26 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		return
 
 	case domain.ActionOpenWebUI:
-		a.OpenWebUI()
+		if a.State.GetPhase() != domain.PhaseRunning {
+			slog.Warn("内核未就绪，无法打开 WebUI")
+			break
+		}
+
+		activeApiAddr, activeSecret := a.API.GetEndpoint()
+		useSystem := a.Cfg.Get(config.KeyUseSystemBrowser) == "true"
+		
+		slog.Info("【打开面板】", "ApiAddr", activeApiAddr, "当前Secret", activeSecret, "强制系统浏览器", useSystem)
+		
+		cfg := webui.Config{
+			APIAddr:            activeApiAddr,
+			Secret:             activeSecret,
+			ProxyPort:          a.Cfg.Get("port"),
+			BaseDir:            a.Cfg.BaseDir(),
+			UIName:             a.Cfg.Get("external-ui-name"),
+			ForceSystemBrowser: useSystem,
+		}
+		
+		go webui.Launch(cfg, a.webuiEventCh)
 
 	case domain.ActionOpenBaseDir:
 		_ = sys.ExecuteSystemCommand(a.Cfg.BaseDir())
@@ -434,27 +453,4 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	}
 
 	a.pushUIState()
-}
-
-func (a *Application) OpenWebUI() {
-	if a.State.GetPhase() != domain.PhaseRunning {
-		slog.Warn("内核未就绪，无法打开 WebUI")
-		return
-	}
-
-	activeApiAddr, activeSecret := a.API.GetEndpoint()
-	useSystem := a.Cfg.Get(config.KeyUseSystemBrowser) == "true"
-	
-	slog.Info("【打开面板】", "ApiAddr", activeApiAddr, "当前Secret", activeSecret, "强制系统浏览器", useSystem)
-	
-	cfg := webui.Config{
-		APIAddr:            activeApiAddr,
-		Secret:             activeSecret,
-		ProxyPort:          a.Cfg.Get("port"),
-		BaseDir:            a.Cfg.BaseDir(),
-		UIName:             a.Cfg.Get("external-ui-name"),
-		ForceSystemBrowser: useSystem,
-	}
-	
-	go webui.Launch(cfg, a.webuiEventCh)
 }
