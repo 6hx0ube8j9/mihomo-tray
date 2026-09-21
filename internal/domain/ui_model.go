@@ -43,6 +43,7 @@ const (
 	ActionEditCurrentConfig   = "EditCurrentConfig"
 	ActionCopyWebUIPassword   = "CopyWebUIPassword"
 	ActionClearWebUICache     = "ClearWebUICache"
+	ActionToggleAllowLan      = "ToggleAllowLan"
 )
 
 type UIProfileItem struct {
@@ -63,6 +64,7 @@ type UIState struct {
 	IsAdmin          bool
 	RunAsAdmin       bool
 	UseSystemBrowser bool
+	AllowLan         bool
 	ProfileItems     []UIProfileItem
 	CanAddProfile    bool
 }
