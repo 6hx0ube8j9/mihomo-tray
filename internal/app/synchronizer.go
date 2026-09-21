@@ -163,6 +163,7 @@ func (a *Application) syncAllConfig(ctx context.Context) {
 	payload := map[string]interface{}{
 		"tun":  tunPayload,
 		"mode": a.Cfg.Get(config.KeyMode),
+		"allow-lan": a.Cfg.Get(config.KeyAllowLan) == "true",
 	}
 	_ = a.API.SyncConfigToKernel(ctx, payload)
 }
@@ -201,6 +202,13 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		changed = true
 	}
 
+	expectedAllowLan := a.Cfg.Get(config.KeyAllowLan) == "true"
+	if resp.AllowLan != expectedAllowLan {
+		slog.Info("内核局域网开关已变更", "from", expectedAllowLan, "to", resp.AllowLan)
+		a.Cfg.Set(config.KeyAllowLan, strconv.FormatBool(resp.AllowLan))
+		changed = true
+	}
+	
 	if a.reconcileTunState(resp.Tun.Enable) {
 		changed = true
 	}
