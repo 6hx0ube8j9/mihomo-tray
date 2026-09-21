@@ -190,7 +190,7 @@ func buildFinalURL(cfg Config) (string, string) {
 		query += fmt.Sprintf("&secret=%s", url.QueryEscape(cfg.Secret))
 	}
 	
-    finalURL := fmt.Sprintf("http://%s:%s%s#/setup?%s#/?%s", host, port, uiPath, query, query)
+	finalURL := fmt.Sprintf("http://%s:%s%s?%s#/setup?%s", host, port, uiPath, query, query)
 	
 	return finalURL, appHostPort
 }
