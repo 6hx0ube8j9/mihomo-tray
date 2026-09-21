@@ -19,14 +19,15 @@ type ProfileItem struct {
 }
 
 type TrayConfig struct {
-	Autostart    string        `json:"autostart"`
-	RunAsAdmin   string        `json:"run_as_admin"`
-	Mode         string        `json:"mode"`
-	Proxy        string        `json:"proxy"`
-	Tun          string        `json:"tun"`
-	TrayLogLevel string        `json:"tray_log_level"`
-	Active       string        `json:"active"`
-	Items        []ProfileItem `json:"items"`
+	Autostart        string        `json:"autostart"`
+	RunAsAdmin       string        `json:"run_as_admin"`
+	Mode             string        `json:"mode"`
+	Proxy            string        `json:"proxy"`
+	Tun              string        `json:"tun"`
+	TrayLogLevel     string        `json:"tray_log_level"`
+	Active           string        `json:"active"`
+	UseSystemBrowser string        `json:"use_system_browser,omitempty"`
+	Items            []ProfileItem `json:"items"`
 }
 
 type FetchResult struct {
