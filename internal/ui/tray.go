@@ -109,6 +109,10 @@ func (e *UIEngine) updateTrayState(state domain.UIState) {
 		e.sendCommand(domain.ActionToggleSystemBrowser, fmt.Sprintf("%t", !state.UseSystemBrowser))
 	})
 
+	e.addCheckableSubAction(moreMenu, "允许局域网代理", state.AllowLan, func() {
+		e.sendCommand(domain.ActionToggleAllowLan, fmt.Sprintf("%t", !state.AllowLan))
+	})
+
 	e.addActionTo(moreMenu, "-", nil)
 	e.addActionTo(moreMenu, "重载当前配置", func() { e.sendCommand(domain.ActionReloadConfig, "") })
 	e.addActionTo(moreMenu, "重启内核", func() { e.sendCommand(domain.ActionRestartKernel, "") })
