@@ -15,6 +15,13 @@ import (
 const (
 	ConfigFileName = "mihomo-tray.json"
 	ProfilesDir    = "profiles"
+
+	KeyAutostart        = "autostart"
+	KeyRunAsAdmin       = "run_as_admin"
+	KeyMode             = "mode"
+	KeyProxy            = "proxy"
+	KeyTun              = "tun"
+	KeyUseSystemBrowser = "use_system_browser"
 )
 
 type Manager struct {
@@ -153,12 +160,12 @@ func (m *Manager) Get(key string) string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	switch key {
-	case "autostart": return m.data.Autostart
-	case "run_as_admin": return m.data.RunAsAdmin
-	case "mode": return m.data.Mode
-	case "proxy": return m.data.Proxy
-	case "tun": return m.data.Tun
-	case domain.KeyUseSystemBrowser: return m.data.UseSystemBrowser
+	case KeyAutostart:        return m.data.Autostart
+	case KeyRunAsAdmin:       return m.data.RunAsAdmin
+	case KeyMode:             return m.data.Mode
+	case KeyProxy:            return m.data.Proxy
+	case KeyTun:              return m.data.Tun
+	case KeyUseSystemBrowser: return m.data.UseSystemBrowser
 	default: return m.runtimeKernelParams[key]
 	}
 }
@@ -181,17 +188,17 @@ func (m *Manager) UpdateBatch(updates map[string]string) {
 	diskChanged := false
 	for key, value := range updates {
 		switch key {
-		case "autostart":
+		case KeyAutostart:
 			if m.data.Autostart != value { m.data.Autostart = value; diskChanged = true }
-		case "run_as_admin":
+		case KeyRunAsAdmin:
 			if m.data.RunAsAdmin != value { m.data.RunAsAdmin = value; diskChanged = true }
-		case "mode":
+		case KeyMode:
 			if m.data.Mode != value { m.data.Mode = value; diskChanged = true }
-		case "proxy":
+		case KeyProxy:
 			if m.data.Proxy != value { m.data.Proxy = value; diskChanged = true }
-		case "tun":
+		case KeyTun:
 			if m.data.Tun != value { m.data.Tun = value; diskChanged = true }
-		case domain.KeyUseSystemBrowser:
+		case KeyUseSystemBrowser:
 			if m.data.UseSystemBrowser != value { m.data.UseSystemBrowser = value; diskChanged = true }
 		default:
 			m.runtimeKernelParams[key] = value
