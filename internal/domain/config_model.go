@@ -27,6 +27,7 @@ type TrayConfig struct {
 	TrayLogLevel     string        `json:"tray_log_level"`
 	Active           string        `json:"active"`
 	UseSystemBrowser string        `json:"use_system_browser,omitempty"`
+	AllowLan         string        `json:"allow_lan,omitempty"`
 	Items            []ProfileItem `json:"items"`
 }
 
