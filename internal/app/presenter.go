@@ -8,12 +8,13 @@ import (
 
 func (a *Application) calculateUIState() domain.UIState {
 	s := domain.UIState{
-		IsTun:      a.Cfg.Get("tun") == "true",
-		IsProxy:    a.Cfg.Get("proxy") == "true",
-		Mode:       a.Cfg.Get("mode"),
-		AutoStart:  a.Cfg.Get("autostart") == "true",
-		RunAsAdmin: a.Cfg.Get("run_as_admin") == "true",
-		IsAdmin:    sys.IsAdmin(),
+		IsTun:            a.Cfg.Get("tun") == "true",
+		IsProxy:          a.Cfg.Get("proxy") == "true",
+		Mode:             a.Cfg.Get("mode"),
+		AutoStart:        a.Cfg.Get("autostart") == "true",
+		RunAsAdmin:       a.Cfg.Get("run_as_admin") == "true",
+		UseSystemBrowser: a.Cfg.Get(domain.KeyUseSystemBrowser) == "true",
+		IsAdmin:          sys.IsAdmin(),
 	}
 
 	activePath := a.Cfg.GetActivePath()
