@@ -359,7 +359,23 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			default:
 			}
 		}()
+		
+    case domain.ActionToggleAllowLan:
+		enable := cmd.Payload == "true"
+		a.Cfg.Set(config.KeyAllowLan, strconv.FormatBool(enable))
+		a.State.SetConfigSyncing(true)
+		go func() {
+			defer a.State.SetConfigSyncing(false)
+			reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
 
+			_ = a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"allow-lan": enable})
+			select {
+			case a.apiPollCh <- struct{}{}:
+			default:
+			}
+		}()
+		
 	case domain.ActionForceSyncAPI:
 		select {
 		case a.apiPollCh <- struct{}{}:
