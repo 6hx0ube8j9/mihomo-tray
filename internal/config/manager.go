@@ -21,6 +21,7 @@ const (
 	KeyMode             = "mode"
 	KeyProxy            = "proxy"
 	KeyTun              = "tun"
+	KeyAllowLan         = "allow_lan"
 	KeyUseSystemBrowser = "use_system_browser"
 )
 
@@ -94,6 +95,7 @@ func (m *Manager) LoadAndInitMemory() {
 	if m.data.Proxy == "" { m.data.Proxy = domain.DefaultProxy; isTainted = true }
 	if m.data.Tun == "" { m.data.Tun = domain.DefaultTun; isTainted = true }
 	if m.data.Mode == "" { m.data.Mode = domain.DefaultMode; isTainted = true }
+	if m.data.AllowLan == "" { m.data.AllowLan = domain.DefaultAllowLan; isTainted = true }
 	if m.data.TrayLogLevel == "" { m.data.TrayLogLevel = domain.DefaultLogLevel; isTainted = true }
 
 	if isTainted {
@@ -163,6 +165,7 @@ func (m *Manager) Get(key string) string {
 	case KeyAutostart:        return m.data.Autostart
 	case KeyRunAsAdmin:       return m.data.RunAsAdmin
 	case KeyMode:             return m.data.Mode
+	case KeyAllowLan:         return m.data.AllowLan
 	case KeyProxy:            return m.data.Proxy
 	case KeyTun:              return m.data.Tun
 	case KeyUseSystemBrowser: return m.data.UseSystemBrowser
@@ -194,6 +197,8 @@ func (m *Manager) UpdateBatch(updates map[string]string) {
 			if m.data.RunAsAdmin != value { m.data.RunAsAdmin = value; diskChanged = true }
 		case KeyMode:
 			if m.data.Mode != value { m.data.Mode = value; diskChanged = true }
+		case KeyAllowLan:
+			if m.data.AllowLan != value { m.data.AllowLan = value; diskChanged = true }
 		case KeyProxy:
 			if m.data.Proxy != value { m.data.Proxy = value; diskChanged = true }
 		case KeyTun:
