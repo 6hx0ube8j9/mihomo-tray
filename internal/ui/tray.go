@@ -99,7 +99,7 @@ func (e *UIEngine) updateTrayState(state domain.UIState) {
 	
 	e.addActionTo(moreMenu, "清理 Web 面板缓存", func() {
 		go func() {
-			if ShowConfirmMessage(nil, "确认清理缓存？", "清理 Web 面板缓存将同时清除本地面板配置（包含布局、主题等），且无法恢复。建议在操作前先导出备份。\n\n是否继续？") {
+			if ShowConfirmMessage(nil, "确认清理缓存？", "清理 Web 面板缓存将同时清除面板配置（包含布局、主题等），且无法恢复。建议在操作前先导出备份。\n\n是否继续？") {
 				e.sendCommand(domain.ActionClearWebUICache, "")
 			}
 		}()
