@@ -28,7 +28,7 @@ func (a *Application) safePreflightCheck(targetRelPath string, actionTitle strin
 
 func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand) {
 	switch cmd.Action {
-	case "OpenProfileManager":
+	case domain.ActionOpenProfileManager:
 		a.uiStateMutex.Lock()
 		items := make([]domain.UIProfileItem, len(a.lastUIState.ProfileItems))
 		copy(items, a.lastUIState.ProfileItems)
@@ -39,28 +39,28 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		}
 		return
 
-	case "RequestAddLocalProfile":
+	case domain.ActionRequestAddLocal:
 		go func() {
 			if selectedPath, ok := ui.OpenYAMLFileDialog(); ok {
-				a.UICommandCh <- domain.UICommand{Action: "AddLocalProfile", Payload: selectedPath}
+				a.UICommandCh <- domain.UICommand{Action: domain.ActionAddLocalProfile, Payload: selectedPath}
 			}
 		}()
 		return
 
-	case "RequestAddRemoteProfile":
+	case domain.ActionRequestAddRemote:
 		go func() {
 			if a.ShowSubscriptionEditor != nil {
 				name, url, interval, ok := a.ShowSubscriptionEditor("添加远程订阅", "", "", domain.DefaultUpdateInterval)
 				if ok {
 					autoUpdate := interval > 0
 					payload := fmt.Sprintf("%s|%s|%d|%t", name, url, interval, autoUpdate)
-					a.UICommandCh <- domain.UICommand{Action: "AddRemoteProfile", Payload: payload}
+					a.UICommandCh <- domain.UICommand{Action: domain.ActionAddRemoteProfile, Payload: payload}
 				}
 			}
 		}()
 		return
 
-	case "RequestEditRemoteProfile":
+	case domain.ActionRequestEditRemote:
 		targetRelPath := cmd.Payload
 		if p, ok := a.Cfg.GetProfileByPath(targetRelPath); ok {
 			go func(profile domain.ProfileItem) {
@@ -88,7 +88,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		}
 		return
 
-	case "AddLocalProfile":
+	case domain.ActionAddLocalProfile:
 		if a.State.IsProfileSwitching() {
 			break
 		}
@@ -112,7 +112,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			a.Cfg.RegisterNewProfile(targetName)
 		}(cmd.Payload)
 
-	case "AddRemoteProfile":
+	case domain.ActionAddRemoteProfile:
 		parts := strings.SplitN(cmd.Payload, "|", 4)
 		if len(parts) != 4 {
 			return
@@ -141,7 +141,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		a.Cfg.UpsertProfile(newItem)
 		go a.executeRemoteUpdate(ctx, targetRelPath, true, !exists)
 
-	case "SetProfileInterval":
+	case domain.ActionSetProfileInterval:
 		parts := strings.Split(cmd.Payload, "|")
 		if len(parts) == 2 {
 			targetPath := parts[0]
@@ -156,12 +156,12 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			}
 		}
 
-	case "UpdateRemoteProfile":
+	case domain.ActionUpdateRemoteProfile:
 		if p, ok := a.Cfg.GetProfileByPath(cmd.Payload); ok {
 			go a.executeRemoteUpdate(ctx, p.Path, true, false)
 		}
 
-	case "SwitchProfile":
+	case domain.ActionSwitchProfile:
 		if cmd.Payload != "" && cmd.Payload == a.Cfg.GetActivePath() {
 			slog.Debug("配置已激活，忽略重复切换", "path", cmd.Payload)
 			a.ForcePushUIState()
@@ -218,7 +218,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			}
 		}(cmd.Payload)
 
-	case "RemoveProfile":
+	case domain.ActionRemoveProfile:
 		targetPath := cmd.Payload
 
 		if targetPath == a.Cfg.GetActivePath() {
@@ -240,17 +240,17 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 		a.Cfg.RemoveProfile(targetPath)
 
-	case "MoveProfileUp":
+	case domain.ActionMoveProfileUp:
 		if a.Cfg.MoveProfile(cmd.Payload, -1) {
 			slog.Debug("配置文件已上移", "path", cmd.Payload)
 		}
 
-	case "MoveProfileDown":
+	case domain.ActionMoveProfileDown:
 		if a.Cfg.MoveProfile(cmd.Payload, 1) {
 			slog.Debug("配置文件已下移", "path", cmd.Payload)
 		}
 		
-	case "ToggleAutoStart":
+	case domain.ActionToggleAutoStart:
 		enable := cmd.Payload == "true"
 
 		if !sys.IsAdmin() {
@@ -272,7 +272,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			return
 		}
 
-		a.Cfg.Set("autostart", strconv.FormatBool(enable))
+		a.Cfg.Set(config.KeyAutostart, strconv.FormatBool(enable))
 
 		if enable {
 			sys.ToggleAutoStart(domain.AppTaskName, a.Cfg.ExePath(), a.Cfg.BaseDir(), true)
@@ -284,7 +284,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			}
 		}
 
-	case "ToggleRunAsAdmin":
+	case domain.ActionToggleRunAsAdmin:
 		enable := cmd.Payload == "true"
 
 		if enable && !sys.IsAdmin() {
@@ -296,9 +296,9 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			a.ForcePushUIState()
 			return
 		}
-		a.Cfg.Set("run_as_admin", strconv.FormatBool(enable))
+		a.Cfg.Set(config.KeyRunAsAdmin, strconv.FormatBool(enable))
 
-	case "ToggleTun":
+	case domain.ActionToggleTun:
 		enable := cmd.Payload == "true"
 
 		if enable && !sys.IsAdmin() {
@@ -311,7 +311,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			return
 		}
 
-		a.Cfg.Set("tun", strconv.FormatBool(enable))
+		a.Cfg.Set(config.KeyTun, strconv.FormatBool(enable))
 
 		if enable {
 			a.State.SetTunRequestedTime(time.Now())
@@ -332,7 +332,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			defer cancel()
 
 			if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"tun": tunPayload}); err != nil {
-				a.Cfg.Set("tun", strconv.FormatBool(!enable))
+				a.Cfg.Set(config.KeyTun, strconv.FormatBool(!enable))
 			}
 			select {
 			case a.apiPollCh <- struct{}{}:
@@ -340,13 +340,13 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			}
 		}()
 
-	case "ToggleProxy":
+	case domain.ActionToggleProxy:
 		enable := cmd.Payload == "true"
-		a.Cfg.Set("proxy", strconv.FormatBool(enable))
+		a.Cfg.Set(config.KeyProxy, strconv.FormatBool(enable))
 		a.syncSystemProxy()
 
-	case "SwitchMode":
-		a.Cfg.Set("mode", cmd.Payload)
+	case domain.ActionSwitchMode:
+		a.Cfg.Set(config.KeyMode, cmd.Payload)
 		a.State.SetConfigSyncing(true)
 		go func() {
 			defer a.State.SetConfigSyncing(false)
@@ -360,26 +360,26 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			}
 		}()
 
-	case "ForceSyncAPI":
+	case domain.ActionForceSyncAPI:
 		select {
 		case a.apiPollCh <- struct{}{}:
 		default:
 		}
 		return
 
-	case "OpenWebUI":
+	case domain.ActionOpenWebUI:
 		a.OpenWebUI()
 
-	case "OpenBaseDir":
+	case domain.ActionOpenBaseDir:
 		_ = sys.ExecuteSystemCommand(a.Cfg.BaseDir())
 
-	case "ReloadConfig":
+	case domain.ActionReloadConfig:
 		a.ReloadConfig(ctx)
 
-	case "RestartKernel":
+	case domain.ActionRestartKernel:
 		a.RestartKernel()
 
-	case "OpenConfigFile":
+	case domain.ActionOpenConfigFile:
 		targetRelPath := cmd.Payload
 		if targetRelPath == "" {
 			targetRelPath = a.Cfg.GetActivePath()
@@ -392,12 +392,12 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
 		_ = sys.ExecuteSystemCommand(absPath)
 
-	case "ExitApp":
+	case domain.ActionExitApp:
 		webui.Cleanup()
 		
-	case "ToggleSystemBrowser":
+	case domain.ActionToggleSystemBrowser:
 		enable := cmd.Payload == "true"
-		a.Cfg.Set(domain.KeyUseSystemBrowser, strconv.FormatBool(enable))
+		a.Cfg.Set(config.KeyUseSystemBrowser, strconv.FormatBool(enable))
 
 	case domain.ActionEditCurrentConfig:
 		targetRelPath := a.Cfg.GetActivePath()
@@ -443,7 +443,7 @@ func (a *Application) OpenWebUI() {
 	}
 
 	activeApiAddr, activeSecret := a.API.GetEndpoint()
-	useSystem := a.Cfg.Get(domain.KeyUseSystemBrowser) == "true"
+	useSystem := a.Cfg.Get(config.KeyUseSystemBrowser) == "true"
 	
 	slog.Info("【打开面板】", "ApiAddr", activeApiAddr, "当前Secret", activeSecret, "强制系统浏览器", useSystem)
 	
