@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/sys"
@@ -16,15 +17,15 @@ import (
 )
 
 func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath string) error {
-	wantTun := a.Cfg.Get("tun") == "true"
+	wantTun := a.Cfg.Get(config.KeyTun) == "true"
 	if wantTun && !sys.IsAdmin() {
 		slog.Warn("非管理员权限无法开启 TUN，已自动关闭")
 		wantTun = false
-		a.Cfg.Set("tun", "false")
+		a.Cfg.Set(config.KeyTun, "false")
 	}
 
 	params := core.BuilderParams{
-		Mode:    a.Cfg.Get("mode"),
+		Mode:    a.Cfg.Get(config.KeyMode),
 		Tun:     wantTun,
 		BaseDir: a.Cfg.BaseDir(),
 		RelPath: targetRelPath,
@@ -157,15 +158,15 @@ func (a *Application) SyncRuntimeConfig() {
 		}
 	}
 
-	wantTun := a.Cfg.Get("tun") == "true"
+	wantTun := a.Cfg.Get(config.KeyTun) == "true"
 	if wantTun && !sys.IsAdmin() {
 		slog.Warn("非管理员权限无法开启 TUN，已自动关闭")
 		wantTun = false
-		a.Cfg.Set("tun", "false")
+		a.Cfg.Set(config.KeyTun, "false")
 	}
 
 	params := core.BuilderParams{
-		Mode:    a.Cfg.Get("mode"),
+		Mode:    a.Cfg.Get(config.KeyMode),
 		Tun:     wantTun,
 		BaseDir: a.Cfg.BaseDir(),
 		RelPath: activePath,
@@ -192,7 +193,7 @@ func (a *Application) RestartKernel() {
 
 	a.API.SetEndpoint(apiAddr, apiSecret)
 
-	if a.Cfg.Get("tun") == "true" {
+	if a.Cfg.Get(config.KeyTun) == "true" {
 		a.State.SetTunRequestedTime(time.Now())
 	}
 
