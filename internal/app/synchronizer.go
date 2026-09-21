@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 	
+	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/sys"
 )
@@ -34,7 +35,7 @@ func (a *Application) isTunInGracePeriod() bool {
 }
 
 func (a *Application) reconcileTunState(kernelTunEnabled bool) bool {
-	wantTun := a.Cfg.Get("tun") == "true"
+	wantTun := a.Cfg.Get(config.KeyTun) == "true"
 
 	if wantTun && kernelTunEnabled && a.State.IsTunAlive() && a.isTunInGracePeriod() {
 		a.State.SetTunRequestedTime(time.Time{})
@@ -50,14 +51,14 @@ func (a *Application) reconcileTunState(kernelTunEnabled bool) bool {
 		}
 
 		slog.Info("TUN 状态外部变更", "expected", wantTun, "actual", kernelTunEnabled)
-		a.Cfg.Set("tun", fmt.Sprintf("%t", kernelTunEnabled))
+		a.Cfg.Set(config.KeyTun, fmt.Sprintf("%t", kernelTunEnabled))
 		return true
 	}
 	return false
 }
 
 func (a *Application) syncSystemProxy() {
-	enable := a.Cfg.Get("proxy") == "true"
+	enable := a.Cfg.Get(config.KeyProxy) == "true"
 	port := a.Cfg.Get("port")
 	if enable {
 		slog.Info("系统代理配置已启用", "port", port)
@@ -74,7 +75,7 @@ func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.Pr
 		return
 	}
 
-	expectedProxy := a.Cfg.Get("proxy") == "true"
+	expectedProxy := a.Cfg.Get(config.KeyProxy) == "true"
 	expectedPort := a.Cfg.Get("port")
 	expectedServer := "127.0.0.1:" + expectedPort
 
@@ -82,7 +83,7 @@ func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.Pr
 		if status.Enabled {
 			if status.Server != "" && !strings.EqualFold(status.Server, expectedServer) {
 				slog.Warn("代理被外部修改，关闭本地状态", "server", status.Server)
-				a.Cfg.Set("proxy", "false")
+				a.Cfg.Set(config.KeyProxy, "false")
 				a.pushUIState()
 			}
 			return
@@ -96,7 +97,7 @@ func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.Pr
 			defer a.State.ReleaseProxyRepair()
 
 			for i := 1; i <= 10; i++ {
-				if a.State.IsExiting() || ctx.Err() != nil || a.Cfg.Get("proxy") != "true" {
+				if a.State.IsExiting() || ctx.Err() != nil || a.Cfg.Get(config.KeyProxy) != "true" {
 					return
 				}
 				a.syncSystemProxy()
@@ -112,7 +113,7 @@ func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.Pr
 					return
 				}
 			}
-			a.Cfg.Set("proxy", "false")
+			a.Cfg.Set(config.KeyProxy, "false")
 			a.pushUIState()
 		}()
 		return
@@ -155,13 +156,13 @@ func (a *Application) syncAllConfig(ctx context.Context) {
 	if a.State.GetPhase() != domain.PhaseRunning {
 		return
 	}
-	tunPayload := map[string]interface{}{"enable": a.Cfg.Get("tun") == "true"}
+	tunPayload := map[string]interface{}{"enable": a.Cfg.Get(config.KeyTun) == "true"}
 	if dev := a.Cfg.Get("tun_device"); dev != "" {
 		tunPayload["device"] = dev
 	}
 	payload := map[string]interface{}{
 		"tun":  tunPayload,
-		"mode": a.Cfg.Get("mode"),
+		"mode": a.Cfg.Get(config.KeyMode),
 	}
 	_ = a.API.SyncConfigToKernel(ctx, payload)
 }
@@ -194,9 +195,9 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		changed = true
 	}
 
-	if resp.Mode != "" && resp.Mode != a.Cfg.Get("mode") {
-		slog.Info("内核路由模式已变更", "from", a.Cfg.Get("mode"), "to", resp.Mode)
-		a.Cfg.Set("mode", resp.Mode)
+	if resp.Mode != "" && resp.Mode != a.Cfg.Get(config.KeyMode) {
+		slog.Info("内核路由模式已变更", "from", a.Cfg.Get(config.KeyMode), "to", resp.Mode)
+		a.Cfg.Set(config.KeyMode, resp.Mode)
 		changed = true
 	}
 
@@ -204,7 +205,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		changed = true
 	}
 
-	wantTun := a.Cfg.Get("tun") == "true"
+	wantTun := a.Cfg.Get(config.KeyTun) == "true"
 	if changed && wantTun && !realAlive && !a.isTunInGracePeriod() {
 		slog.Warn("TUN 接口异常断开", "device", currentActual)
 	}
