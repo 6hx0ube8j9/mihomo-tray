@@ -111,14 +111,14 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 								Text:    "➕ 添加远程订阅",
 								MinSize: Size{Height: 28},
 								OnClicked: func() {
-									e.sendCommand("RequestAddRemoteProfile", "")
+									e.sendCommand(domain.ActionRequestAddRemote, "")
 								},
 							},
 							PushButton{
 								Text:    "📂 导入本地配置",
 								MinSize: Size{Height: 28},
 								OnClicked: func() {
-									e.sendCommand("RequestAddLocalProfile", "")
+									e.sendCommand(domain.ActionRequestAddLocal, "")
 								},
 							},
 							HSpacer{},
@@ -187,7 +187,7 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 										Text:     "✔️ 切换配置",
 										OnTriggered: func() {
 											if idx := e.tableView.CurrentIndex(); idx >= 0 {
-												e.sendCommand("SwitchProfile", e.panelModel.Items[idx].Path)
+												e.sendCommand(domain.ActionSwitchProfile, e.panelModel.Items[idx].Path)
 											}
 										},
 									},
@@ -196,7 +196,7 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 										Text:     "📝 打开文本",
 										OnTriggered: func() {
 											if idx := e.tableView.CurrentIndex(); idx >= 0 {
-												e.sendCommand("OpenConfigFile", e.panelModel.Items[idx].Path)
+												e.sendCommand(domain.ActionOpenConfigFile, e.panelModel.Items[idx].Path)
 											}
 										},
 									},
@@ -205,7 +205,7 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 										Text:     "⚙️ 编辑订阅",
 										OnTriggered: func() {
 											if idx := e.tableView.CurrentIndex(); idx >= 0 {
-												e.sendCommand("RequestEditRemoteProfile", e.panelModel.Items[idx].Path)
+												e.sendCommand(domain.ActionRequestEditRemote, e.panelModel.Items[idx].Path)
 											}
 										},
 									},
@@ -214,7 +214,7 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 										Text:     "🔄 立即更新",
 										OnTriggered: func() {
 											if idx := e.tableView.CurrentIndex(); idx >= 0 {
-												e.sendCommand("UpdateRemoteProfile", e.panelModel.Items[idx].Path)
+												e.sendCommand(domain.ActionUpdateRemoteProfile, e.panelModel.Items[idx].Path)
 											}
 										},
 									},
@@ -224,7 +224,7 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 										Text:     "⬆️ 向上移动",
 										OnTriggered: func() {
 											if idx := e.tableView.CurrentIndex(); idx >= 0 {
-												e.sendCommand("MoveProfileUp", e.panelModel.Items[idx].Path)
+												e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path)
 											}
 										},
 									},
@@ -233,7 +233,7 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 										Text:     "⬇️ 向下移动",
 										OnTriggered: func() {
 											if idx := e.tableView.CurrentIndex(); idx >= 0 {
-												e.sendCommand("MoveProfileDown", e.panelModel.Items[idx].Path)
+												e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path)
 											}
 										},
 									},
@@ -243,7 +243,7 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 										Text:     "❌ 删除配置",
 										OnTriggered: func() {
 											if idx := e.tableView.CurrentIndex(); idx >= 0 {
-												e.sendCommand("RemoveProfile", e.panelModel.Items[idx].Path)
+												e.sendCommand(domain.ActionRemoveProfile, e.panelModel.Items[idx].Path)
 											}
 										},
 									},
@@ -260,7 +260,7 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 										MaxSize:  Size{Width: 85},
 										OnClicked: func() {
 											if idx := e.tableView.CurrentIndex(); idx >= 0 {
-												e.sendCommand("MoveProfileUp", e.panelModel.Items[idx].Path)
+												e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path)
 											}
 										},
 									},
@@ -272,7 +272,7 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 										MaxSize:  Size{Width: 85},
 										OnClicked: func() {
 											if idx := e.tableView.CurrentIndex(); idx >= 0 {
-												e.sendCommand("MoveProfileDown", e.panelModel.Items[idx].Path)
+												e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path)
 											}
 										},
 									},
