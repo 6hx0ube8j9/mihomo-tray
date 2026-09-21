@@ -35,11 +35,12 @@ const (
 )
 
 type Config struct {
-	APIAddr   string
-	Secret    string
-	ProxyPort string
-	BaseDir   string
-	UIName    string
+	APIAddr            string
+	Secret             string
+	ProxyPort          string
+	BaseDir            string
+	UIName             string
+	ForceSystemBrowser bool
 }
 
 type browserInfo struct {
@@ -161,7 +162,7 @@ func getWebUITarget(debugPort string) (id string, title string, found bool) {
 	return "", "", false
 }
 
-func Launch(cfg Config, eventCh chan<- Event) {
+func buildFinalURL(cfg Config) (string, string) {
 	cleanAddr := strings.TrimRight(cfg.APIAddr, "/")
 	cleanAddr = strings.TrimPrefix(strings.TrimPrefix(cleanAddr, "http://"), "https://")
 
@@ -173,7 +174,6 @@ func Launch(cfg Config, eventCh chan<- Event) {
 	if port == "" {
 		port = defaultWebUIPort
 	}
-
 	if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
 		host = defaultWebUIHost
 	}
@@ -191,6 +191,27 @@ func Launch(cfg Config, eventCh chan<- Event) {
 	}
 
 	finalURL := fmt.Sprintf("http://%s:%s%s?%s#/?%s", host, port, uiPath, query, query)
+	return finalURL, appHostPort
+}
+
+func openSystemBrowser(finalURL string, eventCh chan<- Event) {
+	err := sys.ExecuteSystemCommand(`"` + finalURL + `"`)
+	if err == nil {
+		emitEvent(eventCh, EventReady)
+	} else {
+		slog.Error("调用系统默认浏览器失败", "err", err)
+		emitEvent(eventCh, EventError)
+	}
+}
+
+func Launch(cfg Config, eventCh chan<- Event) {
+	finalURL, appHostPort := buildFinalURL(cfg)
+
+	if cfg.ForceSystemBrowser {
+		slog.Info("根据全局配置，强制使用系统默认浏览器进入面板")
+		openSystemBrowser(finalURL, eventCh)
+		return
+	}
 
 	if hwnd := GetCachedWebUIHwnd(); hwnd != 0 {
 		if IsWindowVisible(hwnd) {
@@ -346,14 +367,7 @@ func Launch(cfg Config, eventCh chan<- Event) {
 	} else {
 		slog.Warn("未探测到受支持的浏览器，降级为默认浏览器打开")
 		
-		err := sys.ExecuteSystemCommand(`"` + finalURL + `"`)
-		
-		if err == nil {
-			emitEvent(eventCh, EventReady)
-		} else {
-			slog.Error("调用系统默认浏览器失败", "err", err)
-			emitEvent(eventCh, EventError)
-		}
+		openSystemBrowser(finalURL, eventCh)
 		return
 	}
 }
