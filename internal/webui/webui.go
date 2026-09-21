@@ -191,7 +191,6 @@ func Launch(cfg Config, eventCh chan<- Event) {
 	}
 
 	finalURL := fmt.Sprintf("http://%s:%s%s?%s#/?%s", host, port, uiPath, query, query)
-	slog.Info("【Debug 接收端】", "最终拼接URL", finalURL, "接收到的Secret", cfg.Secret)
 
 	if hwnd := GetCachedWebUIHwnd(); hwnd != 0 {
 		if IsWindowVisible(hwnd) {
@@ -260,8 +259,10 @@ func Launch(cfg Config, eventCh chan<- Event) {
 
 	if browserPath != "" {
 		slog.Info("启动独立浏览器进程运行 WebUI", "Browser", browserTag, "DebugPort", safeDebugPort)
+		
 		userDataDir := filepath.Join(cfg.BaseDir, "webcache", browserTag)
 		_ = os.MkdirAll(userDataDir, 0755)
+
 		winW, winH, winX, winY := GetIdealWindowBounds()
 
 		args := []string{
@@ -327,6 +328,13 @@ func Launch(cfg Config, eventCh chan<- Event) {
 				}
 			}
 			slog.Error("超时未能捕获浏览器窗口句柄")
+
+			if realBrowserPid != 0 && sys.IsPidRunning(realBrowserPid, "") {
+				slog.Warn("强制清理启动超时的失控浏览器进程", "PID", realBrowserPid)
+				sys.HardKill(realBrowserPid)
+			}
+			atomic.StoreUint32(&isolatedWebUIPid, 0)
+
 			emitEvent(eventCh, EventError)
 			return
 
@@ -337,7 +345,9 @@ func Launch(cfg Config, eventCh chan<- Event) {
 		}
 	} else {
 		slog.Warn("未探测到受支持的浏览器，降级为默认浏览器打开")
-		err := sys.ExecuteSystemCommand(finalURL)
+		
+		err := sys.ExecuteSystemCommand(`"` + finalURL + `"`)
+		
 		if err == nil {
 			emitEvent(eventCh, EventReady)
 		} else {
