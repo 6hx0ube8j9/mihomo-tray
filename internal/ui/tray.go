@@ -38,19 +38,19 @@ func (e *UIEngine) updateTrayState(state domain.UIState) {
 	}
 	actions.Clear()
 
-	e.addAction("进入 Web 面板", func() { e.sendCommand("OpenWebUI", "") })
+	e.addAction("进入 Web 面板", func() { e.sendCommand(domain.ActionOpenWebUI, "") })
 	e.addSeparator()
 
-	e.addCheckableAction("系统代理", state.IsProxy, func() { e.sendCommand("ToggleProxy", fmt.Sprintf("%t", !state.IsProxy)) })
-	e.addCheckableAction("TUN 模式", state.IsTun, func() { e.sendCommand("ToggleTun", fmt.Sprintf("%t", !state.IsTun)) })
+	e.addCheckableAction("系统代理", state.IsProxy, func() { e.sendCommand(domain.ActionToggleProxy, fmt.Sprintf("%t", !state.IsProxy)) })
+	e.addCheckableAction("TUN 模式", state.IsTun, func() { e.sendCommand(domain.ActionToggleTun, fmt.Sprintf("%t", !state.IsTun)) })
 
 	modeNames := map[string]string{"rule": "规则", "direct": "直连", "global": "全局"}
 	currModeName := modeNames[state.Mode]
 	if currModeName == "" { currModeName = "未知" }
 	modeMenu := e.addSubMenu(fmt.Sprintf("路由模式: %s", currModeName))
-	e.addCheckableSubAction(modeMenu, "规则", state.Mode == "rule", func() { e.sendCommand("SwitchMode", "rule") })
-	e.addCheckableSubAction(modeMenu, "直连", state.Mode == "direct", func() { e.sendCommand("SwitchMode", "direct") })
-	e.addCheckableSubAction(modeMenu, "全局", state.Mode == "global", func() { e.sendCommand("SwitchMode", "global") })
+	e.addCheckableSubAction(modeMenu, "规则", state.Mode == "rule", func() { e.sendCommand(domain.ActionSwitchMode, "rule") })
+	e.addCheckableSubAction(modeMenu, "直连", state.Mode == "direct", func() { e.sendCommand(domain.ActionSwitchMode, "direct") })
+	e.addCheckableSubAction(modeMenu, "全局", state.Mode == "global", func() { e.sendCommand(domain.ActionSwitchMode, "global") })
 
 	e.addSeparator()
 
@@ -66,17 +66,17 @@ func (e *UIEngine) updateTrayState(state domain.UIState) {
 			suffix := " (本地)"
 			if item.IsRemote { suffix = " (订阅)" }
 			e.addCheckableSubAction(switchMenu, item.Name+suffix, item.IsActive, func() {
-				e.sendCommand("SwitchProfile", targetPath)
+				e.sendCommand(domain.ActionSwitchProfile, targetPath)
 			})
 		}
 	}
 	
 	e.addAction("编辑当前配置", func() { e.sendCommand(domain.ActionEditCurrentConfig, "") })
-	e.addAction("添加配置", func() { e.sendCommand("OpenProfileManager", "") })
+	e.addAction("添加配置", func() { e.sendCommand(domain.ActionOpenProfileManager, "") })
 
 	e.addSeparator()
 	
-	e.addAction("打开程序目录", func() { e.sendCommand("OpenBaseDir", "") })
+	e.addAction("打开程序目录", func() { e.sendCommand(domain.ActionOpenBaseDir, "") })
 	e.addSeparator()
 
 	adminText := "运行权限：普通用户"
@@ -84,10 +84,10 @@ func (e *UIEngine) updateTrayState(state domain.UIState) {
 	adminMenu := e.addSubMenu(adminText)
 
 	e.addCheckableSubAction(adminMenu, "开机自启（管理员）", state.AutoStart, func() {
-		e.sendCommand("ToggleAutoStart", fmt.Sprintf("%t", !state.AutoStart))
+		e.sendCommand(domain.ActionToggleAutoStart, fmt.Sprintf("%t", !state.AutoStart))
 	})
 	runAdminAction := e.addCheckableSubAction(adminMenu, "始终以管理员身份运行", state.RunAsAdmin || state.AutoStart, func() {
-		e.sendCommand("ToggleRunAsAdmin", fmt.Sprintf("%t", !state.RunAsAdmin))
+		e.sendCommand(domain.ActionToggleRunAsAdmin, fmt.Sprintf("%t", !state.RunAsAdmin))
 	})
 	runAdminAction.SetEnabled(!state.AutoStart)
 
@@ -106,16 +106,16 @@ func (e *UIEngine) updateTrayState(state domain.UIState) {
 	})
 	
 	e.addCheckableSubAction(moreMenu, "使用默认浏览器打开面板", state.UseSystemBrowser, func() {
-		e.sendCommand("ToggleSystemBrowser", fmt.Sprintf("%t", !state.UseSystemBrowser))
+		e.sendCommand(domain.ActionToggleSystemBrowser, fmt.Sprintf("%t", !state.UseSystemBrowser))
 	})
 
 	e.addActionTo(moreMenu, "-", nil)
-	e.addActionTo(moreMenu, "重载当前配置", func() { e.sendCommand("ReloadConfig", "") })
-	e.addActionTo(moreMenu, "重启内核", func() { e.sendCommand("RestartKernel", "") })
+	e.addActionTo(moreMenu, "重载当前配置", func() { e.sendCommand(domain.ActionReloadConfig, "") })
+	e.addActionTo(moreMenu, "重启内核", func() { e.sendCommand(domain.ActionRestartKernel, "") })
 
 	e.addSeparator()
 	e.addAction("退出程序", func() {
-		e.sendCommand("ExitApp", "")
+		e.sendCommand(domain.ActionExitApp, "")
 		e.app.Synchronize(func() { e.mw.Close() })
 	})
 }
