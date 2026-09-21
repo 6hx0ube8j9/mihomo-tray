@@ -2,11 +2,26 @@ package ui
 
 import (
 	"fmt"
-
 	"github.com/tailscale/walk"
-
 	"mihomo-tray/internal/domain"
 )
+
+func ShowTrayNotification(title, message string) {
+	if globalUIEngine != nil && globalUIEngine.ni != nil {
+		globalUIEngine.app.Synchronize(func() {
+			_ = globalUIEngine.ni.ShowInfo(title, message)
+		})
+	}
+}
+
+func ShowInfoMessage(owner walk.Form, title, message string) {
+	if globalUIEngine == nil || globalUIEngine.app == nil {
+		return
+	}
+	globalUIEngine.app.Synchronize(func() {
+		RunErrorDialog(owner, title, message) 
+	})
+}
 
 func (e *UIEngine) updateTrayState(state domain.UIState) {
 	if e.ni == nil {
@@ -31,17 +46,13 @@ func (e *UIEngine) updateTrayState(state domain.UIState) {
 
 	modeNames := map[string]string{"rule": "规则", "direct": "直连", "global": "全局"}
 	currModeName := modeNames[state.Mode]
-	if currModeName == "" {
-		currModeName = "未知"
-	}
+	if currModeName == "" { currModeName = "未知" }
 	modeMenu := e.addSubMenu(fmt.Sprintf("路由模式: %s", currModeName))
 	e.addCheckableSubAction(modeMenu, "规则", state.Mode == "rule", func() { e.sendCommand("SwitchMode", "rule") })
 	e.addCheckableSubAction(modeMenu, "直连", state.Mode == "direct", func() { e.sendCommand("SwitchMode", "direct") })
 	e.addCheckableSubAction(modeMenu, "全局", state.Mode == "global", func() { e.sendCommand("SwitchMode", "global") })
 
 	e.addSeparator()
-
-	e.addAction("添加配置", func() { e.sendCommand("OpenProfileManager", "") })
 
 	switchMenu := e.addSubMenu("切换配置文件")
 	if len(state.ProfileItems) == 0 {
@@ -52,24 +63,24 @@ func (e *UIEngine) updateTrayState(state domain.UIState) {
 	} else {
 		for _, item := range state.ProfileItems {
 			targetPath := item.Path
-			suffix := " - 本地配置"
-			if item.IsRemote {
-				suffix = " - 远程订阅"
-			}
+			suffix := " (本地)"
+			if item.IsRemote { suffix = " (订阅)" }
 			e.addCheckableSubAction(switchMenu, item.Name+suffix, item.IsActive, func() {
 				e.sendCommand("SwitchProfile", targetPath)
 			})
 		}
 	}
+	
+	e.addAction("编辑当前配置", func() { e.sendCommand(domain.ActionEditCurrentConfig, "") })
+	e.addAction("添加配置", func() { e.sendCommand("OpenProfileManager", "") })
 
 	e.addSeparator()
+	
 	e.addAction("打开程序目录", func() { e.sendCommand("OpenBaseDir", "") })
 	e.addSeparator()
 
 	adminText := "运行权限：普通用户"
-	if state.IsAdmin {
-		adminText = "运行权限：管理员"
-	}
+	if state.IsAdmin { adminText = "运行权限：管理员" }
 	adminMenu := e.addSubMenu(adminText)
 
 	e.addCheckableSubAction(adminMenu, "开机自启（管理员）", state.AutoStart, func() {
@@ -80,7 +91,25 @@ func (e *UIEngine) updateTrayState(state domain.UIState) {
 	})
 	runAdminAction.SetEnabled(!state.AutoStart)
 
-	moreMenu := e.addSubMenu("更多")
+	moreMenu := e.addSubMenu("更多设置")
+	
+	e.addActionTo(moreMenu, "复制 Web 访问密码", func() { 
+		e.sendCommand(domain.ActionCopyWebUIPassword, "") 
+	})
+	
+	e.addActionTo(moreMenu, "清理 Web 面板缓存", func() {
+		go func() {
+			if ShowConfirmMessage(nil, "确认清理缓存？", "清理 Web 面板缓存将同时清除本地面板配置（包含布局、主题等），且无法恢复。建议在操作前先导出备份。\n\n是否继续？") {
+				e.sendCommand(domain.ActionClearWebUICache, "")
+			}
+		}()
+	})
+	
+	e.addCheckableSubAction(moreMenu, "使用默认浏览器打开面板", state.UseSystemBrowser, func() {
+		e.sendCommand("ToggleSystemBrowser", fmt.Sprintf("%t", !state.UseSystemBrowser))
+	})
+
+	e.addActionTo(moreMenu, "-", nil)
 	e.addActionTo(moreMenu, "重载当前配置", func() { e.sendCommand("ReloadConfig", "") })
 	e.addActionTo(moreMenu, "重启内核", func() { e.sendCommand("RestartKernel", "") })
 
