@@ -13,10 +13,36 @@ type UICommand struct {
 	Payload string
 }
 
+// ================= UI Protocol =================
 const (
-	ActionEditCurrentConfig = "EditCurrentConfig"
-	ActionCopyWebUIPassword = "CopyWebUIPassword"
-	ActionClearWebUICache   = "ClearWebUICache"
+	ActionOpenProfileManager  = "OpenProfileManager"
+	ActionRequestAddLocal     = "RequestAddLocalProfile"
+	ActionRequestAddRemote    = "RequestAddRemoteProfile"
+	ActionRequestEditRemote   = "RequestEditRemoteProfile"
+	ActionAddLocalProfile     = "AddLocalProfile"
+	ActionAddRemoteProfile    = "AddRemoteProfile"
+	ActionSetProfileInterval  = "SetProfileInterval"
+	ActionUpdateRemoteProfile = "UpdateRemoteProfile"
+	ActionSwitchProfile       = "SwitchProfile"
+	ActionRemoveProfile       = "RemoveProfile"
+	ActionMoveProfileUp       = "MoveProfileUp"
+	ActionMoveProfileDown     = "MoveProfileDown"
+	ActionToggleAutoStart     = "ToggleAutoStart"
+	ActionToggleRunAsAdmin    = "ToggleRunAsAdmin"
+	ActionToggleTun           = "ToggleTun"
+	ActionToggleProxy         = "ToggleProxy"
+	ActionSwitchMode          = "SwitchMode"
+	ActionForceSyncAPI        = "ForceSyncAPI"
+	ActionOpenWebUI           = "OpenWebUI"
+	ActionOpenBaseDir         = "OpenBaseDir"
+	ActionReloadConfig        = "ReloadConfig"
+	ActionRestartKernel       = "RestartKernel"
+	ActionOpenConfigFile      = "OpenConfigFile"
+	ActionExitApp             = "ExitApp"
+	ActionToggleSystemBrowser = "ToggleSystemBrowser"
+	ActionEditCurrentConfig   = "EditCurrentConfig"
+	ActionCopyWebUIPassword   = "CopyWebUIPassword"
+	ActionClearWebUICache     = "ClearWebUICache"
 )
 
 type UIProfileItem struct {
