@@ -158,6 +158,7 @@ func (m *Manager) Get(key string) string {
 	case "mode": return m.data.Mode
 	case "proxy": return m.data.Proxy
 	case "tun": return m.data.Tun
+	case domain.KeyUseSystemBrowser: return m.data.UseSystemBrowser
 	default: return m.runtimeKernelParams[key]
 	}
 }
@@ -190,6 +191,8 @@ func (m *Manager) UpdateBatch(updates map[string]string) {
 			if m.data.Proxy != value { m.data.Proxy = value; diskChanged = true }
 		case "tun":
 			if m.data.Tun != value { m.data.Tun = value; diskChanged = true }
+		case domain.KeyUseSystemBrowser:
+			if m.data.UseSystemBrowser != value { m.data.UseSystemBrowser = value; diskChanged = true }
 		default:
 			m.runtimeKernelParams[key] = value
 		}
