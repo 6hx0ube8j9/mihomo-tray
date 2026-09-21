@@ -45,8 +45,3 @@ const (
 	MaxProfileBytes       = 15 * 1024 * 1024 // 限制最大配置文件体积为 15MB
 	MaxUpdateInterval     = 90               // 最大订阅更新间隔(天)
 )
-
-// ================= webui =================
-const (
-	KeyUseSystemBrowser = "use_system_browser"
-)
