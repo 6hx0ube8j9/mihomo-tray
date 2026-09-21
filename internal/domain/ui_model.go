@@ -13,6 +13,12 @@ type UICommand struct {
 	Payload string
 }
 
+const (
+	ActionEditCurrentConfig = "EditCurrentConfig"
+	ActionCopyWebUIPassword = "CopyWebUIPassword"
+	ActionClearWebUICache   = "ClearWebUICache"
+)
+
 type UIProfileItem struct {
 	Name       string
 	Path       string
@@ -23,13 +29,14 @@ type UIProfileItem struct {
 }
 
 type UIState struct {
-	IconState     int
-	IsTun         bool
-	IsProxy       bool
-	Mode          string
-	AutoStart     bool
-	IsAdmin       bool
-	RunAsAdmin    bool
-	ProfileItems  []UIProfileItem
-	CanAddProfile bool
+	IconState        int
+	IsTun            bool
+	IsProxy          bool
+	Mode             string
+	AutoStart        bool
+	IsAdmin          bool
+	RunAsAdmin       bool
+	UseSystemBrowser bool
+	ProfileItems     []UIProfileItem
+	CanAddProfile    bool
 }
