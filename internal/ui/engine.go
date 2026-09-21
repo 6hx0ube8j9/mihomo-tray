@@ -92,7 +92,7 @@ func (e *UIEngine) Run() error {
 	e.ni.SetToolTip(TrayToolTip)
 	e.ni.MouseUp().Attach(func(x, y int, button walk.MouseButton) {
 		if button == walk.LeftButton {
-			e.sendCommand("OpenWebUI", "")
+			e.sendCommand(domain.ActionOpenWebUI, "")
 		}
 	})
 
