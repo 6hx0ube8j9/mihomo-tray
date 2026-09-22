@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 	
@@ -161,8 +162,8 @@ func (a *Application) syncAllConfig(ctx context.Context) {
 		tunPayload["device"] = dev
 	}
 	payload := map[string]interface{}{
-		"tun":  tunPayload,
-		"mode": a.Cfg.Get(config.KeyMode),
+		"tun":       tunPayload,
+		"mode":      a.Cfg.Get(config.KeyMode),
 		"allow-lan": a.Cfg.Get(config.KeyAllowLan) == "true",
 	}
 	_ = a.API.SyncConfigToKernel(ctx, payload)
@@ -208,7 +209,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		a.Cfg.Set(config.KeyAllowLan, strconv.FormatBool(resp.AllowLan))
 		changed = true
 	}
-	
+
 	if a.reconcileTunState(resp.Tun.Enable) {
 		changed = true
 	}
