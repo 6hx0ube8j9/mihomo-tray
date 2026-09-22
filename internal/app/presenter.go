@@ -11,10 +11,10 @@ func (a *Application) calculateUIState() domain.UIState {
 		IsTun:            a.Cfg.Get(config.KeyTun) == "true",
 		IsProxy:          a.Cfg.Get(config.KeyProxy) == "true",
 		Mode:             a.Cfg.Get(config.KeyMode),
-		AllowLan:         a.Cfg.Get(config.KeyAllowLan) == "true"
 		AutoStart:        a.Cfg.Get(config.KeyAutostart) == "true",
 		RunAsAdmin:       a.Cfg.Get(config.KeyRunAsAdmin) == "true",
 		UseSystemBrowser: a.Cfg.Get(config.KeyUseSystemBrowser) == "true",
+		AllowLan:         a.Cfg.Get(config.KeyAllowLan) == "true",
 		IsAdmin:          sys.IsAdmin(),
 	}
 
@@ -82,6 +82,7 @@ func (a *Application) pushUIState() {
 		newState.IsTun != a.lastUIState.IsTun ||
 		newState.IsProxy != a.lastUIState.IsProxy ||
 		newState.Mode != a.lastUIState.Mode ||
+		newState.AllowLan != a.lastUIState.AllowLan ||
 		len(newState.ProfileItems) != len(a.lastUIState.ProfileItems) {
 		changed = true
 	} else {
