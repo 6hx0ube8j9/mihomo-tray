@@ -14,20 +14,21 @@ import (
 const (
 	yamlHeader = "# Auto-generated launch configuration. DO NOT EDIT.\n\n"
 
-	keyMixedPort  = "mixed-port:"
-	keyPort       = "port:"
-	keyMode       = "mode:"
-	keyExtCtrl    = "external-controller:"
-	keySecret     = "secret:"
-	keyExtUI      = "external-ui:"
-	keyExtUIName  = "external-ui-name:"
-	keyExtUIUrl   = "external-ui-url:"
-	keyTun        = "tun:"
-	keyDevice     = "device:"
-	keyEnable     = "enable:"
+	keyMixedPort = "mixed-port:"
+	keyMode      = "mode:"
+	keyExtCtrl   = "external-controller:"
+	keySecret    = "secret:"
+	keyExtUI     = "external-ui:"
+	keyExtUIName = "external-ui-name:"
+	keyExtUIUrl  = "external-ui-url:"
+	keyTun       = "tun:"
+	keyDevice    = "device:"
+	keyEnable    = "enable:"
+)
 
-	patTunDevice = `device:\s*([^,}]+)`
-	patTunEnable = `(?i)(enable:\s*)(true|false)`
+var (
+	reTunDevice = regexp.MustCompile(`device:\s*([^,}]+)`)
+	reTunEnable = regexp.MustCompile(`(?i)(enable:\s*)(true|false)`)
 )
 
 type BuilderParams struct {
@@ -51,7 +52,7 @@ func BuildRuntimeYAML(params BuilderParams) (bool, map[string]string, error) {
 		slog.Info("当前无活跃配置，将使用保底参数启动内核")
 		content = []byte("")
 	}
-	
+
 	rawStr := strings.TrimPrefix(string(content), "\xef\xbb\xbf")
 	lines := strings.Split(strings.ReplaceAll(rawStr, "\r\n", "\n"), "\n")
 
@@ -92,8 +93,6 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 	var (
 		hasMixedPort  bool
 		mixedPortVal  string
-		hasPort       bool
-		portVal       string
 		hasMode       bool
 		hasExtCtrl    bool
 		hasSecret     bool
@@ -114,7 +113,7 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 
 	for i, line := range outLines {
 		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") {
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
 
@@ -137,26 +136,35 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 
 			switch {
 			case strings.HasPrefix(trimmed, keyMixedPort):
-				hasMixedPort = true
 				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
-					mixedPortVal = cleanVal(parts[1])
+					val := cleanVal(parts[1])
+					if val != "" {
+						hasMixedPort = true
+						mixedPortVal = val
+					} else {
+						outLines[i] = "\x00"
+					}
 				}
-			case strings.HasPrefix(trimmed, keyPort):
-				hasPort = true
-				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
-					portVal = cleanVal(parts[1])
-				}
+
 			case strings.HasPrefix(trimmed, keyMode):
 				hasMode = true
 				comment := extractComment(line)
 				outLines[i] = fmt.Sprintf("%s%s %s%s", line[:prefixLen], keyMode, wantMode, comment)
+
 			case strings.HasPrefix(trimmed, keySecret):
-				hasSecret = true
+				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
+					val := cleanVal(parts[1])
+					if val != "" {
+						hasSecret = true
+					} else {
+						outLines[i] = "\x00"
+					}
+				}
 
 			case strings.HasPrefix(trimmed, keyExtCtrl),
-			     strings.HasPrefix(trimmed, keyExtUI),
-			     strings.HasPrefix(trimmed, keyExtUIName),
-			     strings.HasPrefix(trimmed, keyExtUIUrl):
+				strings.HasPrefix(trimmed, keyExtUI),
+				strings.HasPrefix(trimmed, keyExtUIName),
+				strings.HasPrefix(trimmed, keyExtUIUrl):
 
 				if parts := strings.SplitN(trimmed, ":", 2); len(parts) == 2 {
 					val := cleanVal(parts[1])
@@ -171,10 +179,14 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 						hasExtCtrl = !isEmpty
 					case strings.HasPrefix(trimmed, keyExtUI):
 						hasExtUI = !isEmpty
-						if !isEmpty { extUIVal = val }
+						if !isEmpty {
+							extUIVal = val
+						}
 					case strings.HasPrefix(trimmed, keyExtUIName):
 						hasExtUIName = !isEmpty
-						if !isEmpty { extUINameVal = val }
+						if !isEmpty {
+							extUINameVal = val
+						}
 					case strings.HasPrefix(trimmed, keyExtUIUrl):
 						hasExtUIUrl = !isEmpty
 					}
@@ -186,16 +198,14 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 				inTun = true
 
 				if strings.Contains(trimmed, "{") && strings.Contains(trimmed, "}") {
-					deviceRe := regexp.MustCompile(patTunDevice)
-					if match := deviceRe.FindStringSubmatch(trimmed); len(match) > 1 {
+					if match := reTunDevice.FindStringSubmatch(trimmed); len(match) > 1 {
 						tunDeviceVal = cleanVal(match[1])
 					}
 
-					enableRe := regexp.MustCompile(patTunEnable)
-					if enableRe.MatchString(trimmed) {
+					if reTunEnable.MatchString(trimmed) {
 						hasTunEnable = true
 						targetEnable := fmt.Sprintf("${1}%t", wantTun)
-						outLines[i] = enableRe.ReplaceAllString(line, targetEnable)
+						outLines[i] = reTunEnable.ReplaceAllString(line, targetEnable)
 					} else {
 						hasTunEnable = true
 						injection := fmt.Sprintf("{%s %t, ", keyEnable, wantTun)
@@ -224,11 +234,14 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 		}
 	}
 
+	var prependLines []string
 	if hasMixedPort {
 		extracted["port"] = mixedPortVal
-	} else if hasPort {
-		extracted["port"] = portVal
+	} else {
+		prependLines = append(prependLines, fmt.Sprintf("%s %s", keyMixedPort, domain.DefaultMixedPort))
+		extracted["port"] = domain.DefaultMixedPort
 	}
+
 	if hasExtUIName {
 		extracted["external-ui-name"] = extUINameVal
 	} else {
@@ -238,12 +251,6 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 		extracted["tun_device"] = tunDeviceVal
 	}
 
-	var prependLines []string
-
-	if !hasMixedPort {
-		prependLines = append(prependLines, fmt.Sprintf("%s %s", keyMixedPort, domain.DefaultMixedPort))
-		extracted["port"] = domain.DefaultMixedPort
-	}
 	if !hasMode {
 		modeToSet := domain.DefaultMode
 		if wantMode != "" {
@@ -251,7 +258,7 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 		}
 		prependLines = append(prependLines, fmt.Sprintf("%s %s", keyMode, modeToSet))
 	}
-	
+
 	if !hasExtCtrl {
 		prependLines = append(prependLines, fmt.Sprintf("%s %s", keyExtCtrl, domain.DefaultExternalController))
 	}
@@ -264,7 +271,7 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 	if !hasExtUIUrl {
 		prependLines = append(prependLines, fmt.Sprintf("%s '%s'", keyExtUIUrl, domain.DefaultExternalUIURL))
 	}
-	
+
 	if !tunRootExists {
 		prependLines = append(prependLines, keyTun)
 		prependLines = append(prependLines, fmt.Sprintf("  %s %t", keyEnable, wantTun))
@@ -304,7 +311,13 @@ func cleanVal(s string) string {
 			break
 		}
 	}
-	return strings.Trim(strings.TrimSpace(s), " \"'")
+	s = strings.TrimSpace(s)
+	if len(s) >= 2 {
+		if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') {
+			s = s[1 : len(s)-1]
+		}
+	}
+	return strings.TrimSpace(s)
 }
 
 func writeTmpAndRename(baseDir, targetPath string, content []byte) error {
@@ -344,22 +357,28 @@ func ResolveKernelEndpoint(yamlPath string) (string, string) {
 	if err != nil {
 		return domain.DefaultExternalController, domain.DefaultSecret
 	}
-	
+
 	addr := domain.DefaultExternalController
 	secret := domain.DefaultSecret
-	
+
 	lines := strings.Split(string(content), "\n")
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, keyExtCtrl) {
 			parts := strings.SplitN(trimmed, ":", 2)
 			if len(parts) == 2 {
-				addr = cleanVal(parts[1])
+				val := cleanVal(parts[1])
+				if val != "" {
+					addr = val
+				}
 			}
 		} else if strings.HasPrefix(trimmed, keySecret) {
 			parts := strings.SplitN(trimmed, ":", 2)
 			if len(parts) == 2 {
-				secret = cleanVal(parts[1])
+				val := cleanVal(parts[1])
+				if val != "" {
+					secret = val
+				}
 			}
 		}
 	}
