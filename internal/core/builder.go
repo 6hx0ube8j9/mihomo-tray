@@ -97,7 +97,6 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 		hasExtCtrl    bool
 		hasSecret     bool
 		hasExtUI      bool
-		extUIVal      string
 		hasExtUIName  bool
 		extUINameVal  string
 		hasExtUIUrl   bool
@@ -179,9 +178,6 @@ func processYAMLContent(lines []string, wantMode string, wantTun bool) ([]string
 						hasExtCtrl = !isEmpty
 					case strings.HasPrefix(trimmed, keyExtUI):
 						hasExtUI = !isEmpty
-						if !isEmpty {
-							extUIVal = val
-						}
 					case strings.HasPrefix(trimmed, keyExtUIName):
 						hasExtUIName = !isEmpty
 						if !isEmpty {
