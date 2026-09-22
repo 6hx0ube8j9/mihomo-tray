@@ -25,10 +25,11 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 	}
 
 	params := core.BuilderParams{
-		Mode:    a.Cfg.Get(config.KeyMode),
-		Tun:     wantTun,
-		BaseDir: a.Cfg.BaseDir(),
-		RelPath: targetRelPath,
+		Mode:     a.Cfg.Get(config.KeyMode),
+		Tun:      wantTun,
+		AllowLan: a.Cfg.Get(config.KeyAllowLan) == "true",  
+		BaseDir:  a.Cfg.BaseDir(),
+		RelPath:  targetRelPath,
 	}
 
 	_, extracted, err := core.BuildRuntimeYAML(params)
@@ -166,10 +167,11 @@ func (a *Application) SyncRuntimeConfig() {
 	}
 
 	params := core.BuilderParams{
-		Mode:    a.Cfg.Get(config.KeyMode),
-		Tun:     wantTun,
-		BaseDir: a.Cfg.BaseDir(),
-		RelPath: activePath,
+		Mode:     a.Cfg.Get(config.KeyMode),
+		Tun:      wantTun,
+		AllowLan: a.Cfg.Get(config.KeyAllowLan) == "true",
+		BaseDir:  a.Cfg.BaseDir(),
+		RelPath:  activePath,
 	}
 
     if _, extracted, err := core.BuildRuntimeYAML(params); err != nil {
