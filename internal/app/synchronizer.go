@@ -17,10 +17,7 @@ const (
 )
 
 func (a *Application) getActualTunDevice() string {
-	if dev := a.State.GetActualTunDevice(); dev != "" {
-		return dev
-	}
-	return a.Cfg.Get("tun_device") 
+	return a.State.GetActualTunDevice() 
 }
 
 func (a *Application) isTunInGracePeriod() bool {
