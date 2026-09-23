@@ -12,11 +12,11 @@ type TrayConfig struct {
 }
 
 type GeneralConfig struct {
-	Autostart     bool   `json:"autostart"`
+	Autostart     *bool  `json:"autostart"`
 	RunAsAdmin    bool   `json:"run_as_admin"`
-	SystemBrowser bool   `json:"system_browser"`
+	SystemBrowser *bool  `json:"system_browser"`
 	TrayLogLevel  string `json:"tray_log_level"`
-	SystemProxy   bool   `json:"system_proxy"`
+	SystemProxy   *bool  `json:"system_proxy"`
 }
 
 type KernelConfig struct {
@@ -24,20 +24,18 @@ type KernelConfig struct {
 	Port      *int `json:"port"`
 	SocksPort *int `json:"socks-port"`
 
-	Mode            string `json:"mode"`
-	LogLevel        string `json:"log-level"`
-	AllowLan        bool   `json:"allow-lan"`
-	UnifiedDelay    bool   `json:"unified-delay"`
-	TcpConcurrent   bool   `json:"tcp-concurrent"`
-	FindProcessMode string `json:"find-process-mode"`
+	Mode         string `json:"mode"`
+	LogLevel     string `json:"log-level"`
+	AllowLan     *bool  `json:"allow-lan"`
+	UnifiedDelay *bool  `json:"unified-delay"`
 
 	ExternalController string `json:"external-controller"`
 	Secret             string `json:"secret"`
 	ExternalUI         string `json:"external-ui"`
 	ExternalUIURL      string `json:"external-ui-url"`
-	
-	ExternalUIName         string `json:"external-ui-name"` 
-	ExternalControllerPipe string `json:"external-controller-pipe"`
+	ExternalUIName     string `json:"external-ui-name"`
+
+	ExternalControllerPipe string `json:"-"`
 
 	ExternalControllerCors CorsConfig `json:"external-controller-cors"`
 	Tun                    TunConfig  `json:"tun"`
@@ -51,6 +49,8 @@ type CorsConfig struct {
 type TunConfig struct {
 	Enable bool `json:"enable"`
 }
+
+// 订阅与本地配置资产管理 (保持原样)
 
 type ProfileManager struct {
 	Active string        `json:"active"`
@@ -83,20 +83,14 @@ func (p *ProfileItem) FormatLastUpdateText() string {
 		return "从未更新"
 	}
 	diff := time.Since(time.Unix(p.LastUpdate, 0))
-	if diff.Hours() > 24 {
-		return fmt.Sprintf("%d 天前", int(diff.Hours()/24))
-	} else if diff.Hours() > 1 {
-		return fmt.Sprintf("%d 小时前", int(diff.Hours()))
-	} else if diff.Minutes() > 1 {
-		return fmt.Sprintf("%d 分钟前", int(diff.Minutes()))
-	}
+	if diff.Hours() > 24 { return fmt.Sprintf("%d 天前", int(diff.Hours()/24)) }
+	if diff.Hours() > 1 { return fmt.Sprintf("%d 小时前", int(diff.Hours())) }
+	if diff.Minutes() > 1 { return fmt.Sprintf("%d 分钟前", int(diff.Minutes())) }
 	return "刚刚"
 }
 
 func (p *ProfileItem) IsUpdateDue() bool {
-	if p.URL == "" || p.Interval <= 0 {
-		return false
-	}
+	if p.URL == "" || p.Interval <= 0 { return false }
 	targetDuration := time.Duration(p.Interval) * 24 * time.Hour
 	return time.Since(time.Unix(p.LastUpdate, 0)) >= targetDuration
 }
