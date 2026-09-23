@@ -127,7 +127,7 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 
 	go func() {
 		defer a.State.SetReloading(false)
-		defer a.ForcePushUIState()
+		defer a.pushUIState()
 
 		target := a.Cfg.GetActivePath()
 
