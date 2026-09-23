@@ -1,12 +1,13 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	"mihomo-tray/internal/domain"
@@ -15,14 +16,6 @@ import (
 const (
 	ConfigFileName = "mihomo-tray.json"
 	ProfilesDir    = "profiles"
-
-	KeyAutostart        = "autostart"
-	KeyRunAsAdmin       = "run_as_admin"
-	KeyMode             = "mode"
-	KeyProxy            = "proxy"
-	KeyTun              = "tun"
-	KeyAllowLan         = "allow_lan"
-	KeyUseSystemBrowser = "use_system_browser"
 )
 
 type Manager struct {
@@ -30,10 +23,8 @@ type Manager struct {
 	exePath string
 	isAdmin bool
 	mu      sync.RWMutex
-	yamlMu  sync.Mutex
 
-	data                domain.TrayConfig
-	runtimeKernelParams map[string]string
+	data domain.TrayConfig
 }
 
 func NewManager(baseDir, exePath string, isAdmin bool) *Manager {
@@ -41,9 +32,6 @@ func NewManager(baseDir, exePath string, isAdmin bool) *Manager {
 		baseDir: baseDir,
 		exePath: exePath,
 		isAdmin: isAdmin,
-		runtimeKernelParams: map[string]string{
-			"port": domain.DefaultMixedPort,
-		},
 	}
 }
 
@@ -55,8 +43,8 @@ func (m *Manager) LoadAndInitMemory() {
 	isTainted := false
 
 	if f, err := os.Open(cfgPath); err == nil {
-		if decodeErr := json.NewDecoder(f).Decode(&m.data); decodeErr != nil {
-			slog.Error("配置解析失败，启用默认设置", "path", cfgPath, "err", decodeErr)
+		if err := json.NewDecoder(f).Decode(&m.data); err != nil {
+			slog.Error("配置解析失败，启用默认设置", "path", cfgPath, "err", err)
 			isTainted = true
 		}
 		_ = f.Close()
@@ -65,42 +53,72 @@ func (m *Manager) LoadAndInitMemory() {
 		isTainted = true
 	}
 
-	var validItems []domain.ProfileItem
-	activeFound := false
+	if m.data.General.Autostart == nil { t := domain.DefaultAutostart; m.data.General.Autostart = &t; isTainted = true }
+	if m.data.General.SystemBrowser == nil { t := domain.DefaultSystemBrowser; m.data.General.SystemBrowser = &t; isTainted = true }
+	if m.data.General.SystemProxy == nil { t := domain.DefaultSystemProxy; m.data.General.SystemProxy = &t; isTainted = true }
+	if m.data.General.TrayLogLevel == "" { m.data.General.TrayLogLevel = domain.DefaultTrayLogLevel; isTainted = true }
 
-	for _, item := range m.data.Items {
-		rel := filepath.ToSlash(item.Path)
+	if m.data.Config.MixedPort == nil { v := domain.DefaultMixedPort; m.data.Config.MixedPort = &v; isTainted = true }
+	if m.data.Config.Port == nil { v := domain.DefaultPort; m.data.Config.Port = &v; isTainted = true }
+	if m.data.Config.SocksPort == nil { v := domain.DefaultSocksPort; m.data.Config.SocksPort = &v; isTainted = true }
 
-		if filepath.Dir(rel) != ProfilesDir || strings.Contains(rel, "..") || filepath.IsAbs(rel) {
-			slog.Warn("清理非法路径配置", "path", item.Path)
-			isTainted = true
-			continue
-		}
+	if m.data.Config.Mode == "" { m.data.Config.Mode = domain.DefaultMode; isTainted = true }
+	if m.data.Config.LogLevel == "" { m.data.Config.LogLevel = domain.DefaultLogLevel; isTainted = true }
+	if m.data.Config.AllowLan == nil { t := domain.DefaultAllowLan; m.data.Config.AllowLan = &t; isTainted = true }
+	if m.data.Config.UnifiedDelay == nil { t := domain.DefaultUnifiedDelay; m.data.Config.UnifiedDelay = &t; isTainted = true }
 
-		validItems = append(validItems, item)
+	if m.data.Config.Secret == "" { m.data.Config.Secret = generateSecureRandomSecret(12); isTainted = true }
+	if m.data.Config.ExternalController == "" { m.data.Config.ExternalController = domain.DefaultExternalController; isTainted = true }
+	if m.data.Config.ExternalUI == "" { m.data.Config.ExternalUI = domain.DefaultExternalUI; isTainted = true }
+	if m.data.Config.ExternalUIURL == "" { m.data.Config.ExternalUIURL = domain.DefaultExternalUIURL; isTainted = true }
+	
+	m.data.Config.ExternalControllerPipe = domain.IPCNamedPipe
 
-		if m.data.Active == item.Path {
-			activeFound = true
-		}
+	if m.data.Config.ExternalControllerCors.AllowOrigins == nil {
+		m.data.Config.ExternalControllerCors.AllowOrigins = domain.DefaultAllowOrigins
+		isTainted = true
 	}
-
-	m.data.Items = validItems
-
-	if !activeFound && m.data.Active != "" {
-		m.data.Active = ""
+	if m.data.Config.ExternalControllerCors.AllowPrivateNetwork == nil {
+		t := domain.DefaultAllowPrivateNetwork
+		m.data.Config.ExternalControllerCors.AllowPrivateNetwork = &t
 		isTainted = true
 	}
 
-	if m.data.RunAsAdmin == "" { m.data.RunAsAdmin = "false"; isTainted = true }
-	if m.data.Proxy == "" { m.data.Proxy = domain.DefaultProxy; isTainted = true }
-	if m.data.Tun == "" { m.data.Tun = domain.DefaultTun; isTainted = true }
-	if m.data.Mode == "" { m.data.Mode = domain.DefaultMode; isTainted = true }
-	if m.data.AllowLan == "" { m.data.AllowLan = domain.DefaultAllowLan; isTainted = true }
-	if m.data.TrayLogLevel == "" { m.data.TrayLogLevel = domain.DefaultLogLevel; isTainted = true }
-
-	if isTainted {
-		m.lockedSave()
+	var validItems []domain.ProfileItem
+	activeFound := false
+	for _, item := range m.data.Profiles.Items {
+		if filepath.Dir(filepath.ToSlash(item.Path)) != ProfilesDir {
+			isTainted = true
+			continue
+		}
+		validItems = append(validItems, item)
+		if m.data.Profiles.Active == item.Path { activeFound = true }
 	}
+	m.data.Profiles.Items = validItems
+	if !activeFound && m.data.Profiles.Active != "" {
+		m.data.Profiles.Active = ""
+		isTainted = true
+	}
+
+	if isTainted { m.lockedSave() }
+}
+
+func (m *Manager) GetConfig() domain.TrayConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.data
+}
+
+func (m *Manager) Update(updater func(cfg *domain.TrayConfig)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	updater(&m.data)
+	m.lockedSave()
+}
+
+func (m *Manager) GetEffectivePort(p *int, defaultPort int) int {
+	if p == nil { return defaultPort }
+	return *p
 }
 
 func (m *Manager) FlushInitialState() {
@@ -109,110 +127,90 @@ func (m *Manager) FlushInitialState() {
 	m.lockedSave()
 }
 
+func (m *Manager) BaseDir() string { return m.baseDir }
+func (m *Manager) ExePath() string { return m.exePath }
+
 func (m *Manager) GetActivePathAbs() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.data.Active == "" {
-		return ""
-	}
-	return filepath.Join(m.baseDir, filepath.FromSlash(m.data.Active))
+	if m.data.Profiles.Active == "" { return "" }
+	return filepath.Join(m.baseDir, filepath.FromSlash(m.data.Profiles.Active))
 }
 
 func (m *Manager) GetActivePath() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.data.Active
+	return m.data.Profiles.Active
 }
 
 func (m *Manager) GetProfiles() []domain.ProfileItem {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	res := make([]domain.ProfileItem, len(m.data.Items))
-	copy(res, m.data.Items)
+	res := make([]domain.ProfileItem, len(m.data.Profiles.Items))
+	copy(res, m.data.Profiles.Items)
 	return res
 }
 
 func (m *Manager) SetActiveProfile(relPath string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.data.Active = relPath
+	m.data.Profiles.Active = relPath
 	m.lockedSave()
 }
 
 func (m *Manager) RemoveProfile(relPath string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	if relPath == m.data.Active {
+	if relPath == m.data.Profiles.Active {
 		slog.Info("活跃配置已移除，系统进入空转")
-		m.data.Active = ""
+		m.data.Profiles.Active = ""
 	}
-
 	var newItems []domain.ProfileItem
-	for _, item := range m.data.Items {
-		if item.Path != relPath {
-			newItems = append(newItems, item)
-		}
+	for _, item := range m.data.Profiles.Items {
+		if item.Path != relPath { newItems = append(newItems, item) }
 	}
-	m.data.Items = newItems
+	m.data.Profiles.Items = newItems
 	m.lockedSave()
 }
 
-func (m *Manager) Get(key string) string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	switch key {
-	case KeyAutostart:        return m.data.Autostart
-	case KeyRunAsAdmin:       return m.data.RunAsAdmin
-	case KeyMode:             return m.data.Mode
-	case KeyAllowLan:         return m.data.AllowLan
-	case KeyProxy:            return m.data.Proxy
-	case KeyTun:              return m.data.Tun
-	case KeyUseSystemBrowser: return m.data.UseSystemBrowser
-	default: return m.runtimeKernelParams[key]
-	}
-}
-
-func (m *Manager) GetJSON(key string) string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if key == "tray_log_level" { return m.data.TrayLogLevel }
-	return ""
-}
-
-func (m *Manager) Set(key, value string) {
-	m.UpdateBatch(map[string]string{key: value})
-}
-
-func (m *Manager) UpdateBatch(updates map[string]string) {
+func (m *Manager) MoveProfile(relPath string, offset int) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	diskChanged := false
-	for key, value := range updates {
-		switch key {
-		case KeyAutostart:
-			if m.data.Autostart != value { m.data.Autostart = value; diskChanged = true }
-		case KeyRunAsAdmin:
-			if m.data.RunAsAdmin != value { m.data.RunAsAdmin = value; diskChanged = true }
-		case KeyMode:
-			if m.data.Mode != value { m.data.Mode = value; diskChanged = true }
-		case KeyAllowLan:
-			if m.data.AllowLan != value { m.data.AllowLan = value; diskChanged = true }
-		case KeyProxy:
-			if m.data.Proxy != value { m.data.Proxy = value; diskChanged = true }
-		case KeyTun:
-			if m.data.Tun != value { m.data.Tun = value; diskChanged = true }
-		case KeyUseSystemBrowser:
-			if m.data.UseSystemBrowser != value { m.data.UseSystemBrowser = value; diskChanged = true }
-		default:
-			m.runtimeKernelParams[key] = value
+	for i, p := range m.data.Profiles.Items {
+		if p.Path == relPath {
+			targetIdx := i + offset
+			if targetIdx < 0 || targetIdx >= len(m.data.Profiles.Items) { return false }
+			m.data.Profiles.Items[i], m.data.Profiles.Items[targetIdx] = m.data.Profiles.Items[targetIdx], m.data.Profiles.Items[i]
+			m.lockedSave()
+			return true
 		}
 	}
+	return false
+}
 
-	if diskChanged {
-		m.lockedSave()
+func (m *Manager) ValidatePhysicalFile(relPath string) error {
+	if relPath == "" { return fmt.Errorf("配置路径为空") }
+	absPath := filepath.Join(m.baseDir, filepath.FromSlash(relPath))
+	fi, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) { return fmt.Errorf("物理配置文件已丢失") }
+		return fmt.Errorf("无法读取配置文件: %w", err)
 	}
+	if fi.Size() == 0 { return fmt.Errorf("配置文件已损坏 (0字节)") }
+	return nil
+}
+
+func generateSecureRandomSecret(length int) string {
+	byteLen := (length / 2) + 1 
+	b := make([]byte, byteLen)
+	if _, err := rand.Read(b); err != nil {
+		return "SecureSecret"
+	}
+	encoded := hex.EncodeToString(b)
+	if len(encoded) > length {
+		encoded = encoded[:length]
+	}
+	return encoded
 }
 
 func (m *Manager) lockedSave() {
@@ -225,37 +223,13 @@ func (m *Manager) lockedSave() {
 	_ = writeTmpAndRename(m.baseDir, cfgPath, b)
 }
 
-func (m *Manager) ValidatePhysicalFile(relPath string) error {
-	if relPath == "" {
-		return fmt.Errorf("配置路径为空")
-	}
-
-	absPath := filepath.Join(m.baseDir, filepath.FromSlash(relPath))
-	fi, err := os.Stat(absPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("物理配置文件已丢失")
-		}
-		return fmt.Errorf("无法读取配置文件: %w", err)
-	}
-
-	if fi.Size() == 0 {
-		return fmt.Errorf("配置文件已损坏 (0字节)")
-	}
-
-	return nil
-}
-
 func writeTmpAndRename(baseDir, targetPath string, content []byte) error {
 	targetDir := filepath.Dir(targetPath)
 	_ = os.MkdirAll(targetDir, 0755)
-
 	tmpFile, err := os.CreateTemp(targetDir, "tmp_*.tmp")
-	if err != nil {
-		return err
-	}
+	if err != nil { return err }
+	
 	tmpName := tmpFile.Name()
-
 	cleaned := false
 	defer func() {
 		if !cleaned {
@@ -264,40 +238,10 @@ func writeTmpAndRename(baseDir, targetPath string, content []byte) error {
 		}
 	}()
 
-	if _, err := tmpFile.Write(content); err != nil {
-		return err
-	}
-	if err := tmpFile.Sync(); err != nil {
-		return err
-	}
-	if err := tmpFile.Close(); err != nil {
-		return err
-	}
-
+	if _, err := tmpFile.Write(content); err != nil { return err }
+	if err := tmpFile.Sync(); err != nil { return err }
+	if err := tmpFile.Close(); err != nil { return err }
+	
 	cleaned = true
 	return os.Rename(tmpName, targetPath)
 }
-
-func (m *Manager) MoveProfile(relPath string, offset int) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	for i, p := range m.data.Items {
-		if p.Path == relPath {
-			targetIdx := i + offset
-			
-			if targetIdx < 0 || targetIdx >= len(m.data.Items) {
-				return false
-			}
-			
-			m.data.Items[i], m.data.Items[targetIdx] = m.data.Items[targetIdx], m.data.Items[i]
-			
-			m.lockedSave()
-			return true
-		}
-	}
-	return false
-}
-	
-func (m *Manager) BaseDir() string { return m.baseDir }
-func (m *Manager) ExePath() string { return m.exePath }
