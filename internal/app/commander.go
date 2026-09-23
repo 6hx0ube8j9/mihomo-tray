@@ -220,119 +220,106 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionRemoveProfile:
 		targetPath := cmd.Payload
-
 		if targetPath == a.Cfg.GetActivePath() {
 			slog.Warn("拒绝删除活跃配置")
 			break
 		}
-
 		if !ui.ShowConfirmMessage(nil, "确认删除", "确定要删除此配置文件吗？\n\n此操作不可恢复，本地文件将被同时删除。") {
-			slog.Info("取消删除配置", "path", targetPath)
 			break
 		}
-
-		slog.Info("删除配置", "path", targetPath)
-
 		absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetPath))
 		if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
 			slog.Warn("清理物理文件失败", "path", absPath, "err", err)
 		}
-
 		a.Cfg.RemoveProfile(targetPath)
 
 	case domain.ActionMoveProfileUp:
-		if a.Cfg.MoveProfile(cmd.Payload, -1) {
-			slog.Debug("配置文件已上移", "path", cmd.Payload)
-		}
+		a.Cfg.MoveProfile(cmd.Payload, -1)
 
 	case domain.ActionMoveProfileDown:
-		if a.Cfg.MoveProfile(cmd.Payload, 1) {
-			slog.Debug("配置文件已下移", "path", cmd.Payload)
-		}
-		
+		a.Cfg.MoveProfile(cmd.Payload, 1)
+
 	case domain.ActionToggleAutoStart:
 		enable := cmd.Payload == "true"
+		
+		a.Cfg.Update(func(c *domain.TrayConfig) {
+			b := enable
+			c.General.Autostart = &b
+		})
 
 		if !sys.IsAdmin() {
-			slog.Info("发起 UAC 提权")
-			arg := "--disable-autostart"
-			if enable {
-				arg = "--enable-autostart"
-			}
-			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), arg, "--restarting")
-
+			slog.Info("修改自启需要管理员权限，发起 UAC 提权")
+			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--restarting")
 			if sys.IsUserCancelled(err) {
-				slog.Info("用户取消提权")
+				slog.Info("用户取消提权，回滚 JSON 状态")
+				a.Cfg.Update(func(c *domain.TrayConfig) {
+					b := !enable
+					c.General.Autostart = &b
+				})
 			} else if err == nil {
-				slog.Info("提权请求成功，当前进程退出")
 				a.SafeShutdown(nil)
 				os.Exit(0)
 			}
 			a.ForcePushUIState()
 			return
 		}
-
-		a.Cfg.Set(config.KeyAutostart, strconv.FormatBool(enable))
 
 		if enable {
 			sys.ToggleAutoStart(domain.AppTaskName, a.Cfg.ExePath(), a.Cfg.BaseDir(), true)
 		} else {
-			if sys.CheckAutoStartStatus(domain.AppTaskName) && !sys.IsTaskPathValid(domain.AppTaskName, a.Cfg.ExePath()) {
-				slog.Warn("跳过清理未知计划任务")
-			} else {
-				sys.ToggleAutoStart(domain.AppTaskName, a.Cfg.ExePath(), a.Cfg.BaseDir(), false)
-			}
+			sys.ToggleAutoStart(domain.AppTaskName, a.Cfg.ExePath(), a.Cfg.BaseDir(), false)
 		}
 
 	case domain.ActionToggleRunAsAdmin:
 		enable := cmd.Payload == "true"
-
+		
+		a.Cfg.Update(func(c *domain.TrayConfig) { c.General.RunAsAdmin = enable })
+		
 		if enable && !sys.IsAdmin() {
-			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--enable-run-as-admin", "--restarting")
+			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--restarting")
 			if err == nil {
 				a.SafeShutdown(nil)
 				os.Exit(0)
 			}
+			a.Cfg.Update(func(c *domain.TrayConfig) { c.General.RunAsAdmin = false })
 			a.ForcePushUIState()
 			return
 		}
-		a.Cfg.Set(config.KeyRunAsAdmin, strconv.FormatBool(enable))
 
 	case domain.ActionToggleTun:
 		enable := cmd.Payload == "true"
+		
+		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = enable })
 
 		if enable && !sys.IsAdmin() {
-			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--enable-tun", "--restarting")
+			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--restarting")
 			if err == nil {
 				a.SafeShutdown(nil)
 				os.Exit(0)
 			}
+			a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = false })
 			a.ForcePushUIState()
 			return
 		}
 
-		a.Cfg.Set(config.KeyTun, strconv.FormatBool(enable))
-
 		if enable {
 			a.State.SetTunRequestedTime(time.Now())
-			a.State.SetActualTunDevice(a.Cfg.Get("tun_device"))
 		}
 
 		a.State.SetConfigSyncing(true)
-
 		go func() {
 			defer a.State.SetConfigSyncing(false)
-
 			tunPayload := map[string]interface{}{"enable": enable}
-			if dev := a.Cfg.Get("tun_device"); dev != "" {
+			
+			if dev := a.State.GetActualTunDevice(); dev != "" {
 				tunPayload["device"] = dev
 			}
-
+			
 			reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
 
 			if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"tun": tunPayload}); err != nil {
-				a.Cfg.Set(config.KeyTun, strconv.FormatBool(!enable))
+				a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = !enable })
 			}
 			select {
 			case a.apiPollCh <- struct{}{}:
@@ -342,11 +329,14 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionToggleProxy:
 		enable := cmd.Payload == "true"
-		a.Cfg.Set(config.KeyProxy, strconv.FormatBool(enable))
+		a.Cfg.Update(func(c *domain.TrayConfig) {
+			b := enable
+			c.General.SystemProxy = &b
+		})
 		a.syncSystemProxy()
 
 	case domain.ActionSwitchMode:
-		a.Cfg.Set(config.KeyMode, cmd.Payload)
+		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Mode = cmd.Payload })
 		a.State.SetConfigSyncing(true)
 		go func() {
 			defer a.State.SetConfigSyncing(false)
@@ -360,15 +350,17 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			}
 		}()
 		
-    case domain.ActionToggleAllowLan:
+	case domain.ActionToggleAllowLan:
 		enable := cmd.Payload == "true"
-		a.Cfg.Set(config.KeyAllowLan, strconv.FormatBool(enable))
+		a.Cfg.Update(func(c *domain.TrayConfig) {
+			b := enable
+			c.Config.AllowLan = &b
+		})
 		a.State.SetConfigSyncing(true)
 		go func() {
 			defer a.State.SetConfigSyncing(false)
 			reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
-
 			_ = a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"allow-lan": enable})
 			select {
 			case a.apiPollCh <- struct{}{}:
@@ -389,21 +381,20 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			break
 		}
 
-		activeApiAddr, activeSecret := a.API.GetEndpoint()
-		useSystem := a.Cfg.Get(config.KeyUseSystemBrowser) == "true"
+		cfg := a.Cfg.GetConfig()
 		
-		slog.Info("【打开面板】", "ApiAddr", activeApiAddr, "当前Secret", activeSecret, "强制系统浏览器", useSystem)
+		slog.Info("【打开面板】", "ApiAddr", cfg.Config.ExternalController, "强制系统浏览器", *cfg.General.SystemBrowser)
 		
-		cfg := webui.Config{
-			APIAddr:            activeApiAddr,
-			Secret:             activeSecret,
-			ProxyPort:          a.Cfg.Get("port"),
+		wcfg := webui.Config{
+			APIAddr:            cfg.Config.ExternalController,
+			Secret:             cfg.Config.Secret,
+			ProxyPort:          strconv.Itoa(a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort)),
 			BaseDir:            a.Cfg.BaseDir(),
-			UIName:             a.Cfg.Get("external-ui-name"),
-			ForceSystemBrowser: useSystem,
+			UIName:             cfg.Config.ExternalUIName,
+			ForceSystemBrowser: *cfg.General.SystemBrowser,
 		}
 		
-		go webui.Launch(cfg, a.webuiEventCh)
+		go webui.Launch(wcfg, a.webuiEventCh)
 
 	case domain.ActionOpenBaseDir:
 		_ = sys.ExecuteSystemCommand(a.Cfg.BaseDir())
@@ -419,11 +410,9 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		if targetRelPath == "" {
 			targetRelPath = a.Cfg.GetActivePath()
 		}
-
 		if err := a.safePreflightCheck(targetRelPath, "打开文件"); err != nil {
 			break
 		}
-
 		absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
 		_ = sys.ExecuteSystemCommand(absPath)
 
@@ -432,7 +421,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		
 	case domain.ActionToggleSystemBrowser:
 		enable := cmd.Payload == "true"
-		a.Cfg.Set(config.KeyUseSystemBrowser, strconv.FormatBool(enable))
+		a.Cfg.Update(func(c *domain.TrayConfig) {
+			b := enable
+			c.General.SystemBrowser = &b
+		})
 
 	case domain.ActionEditCurrentConfig:
 		targetRelPath := a.Cfg.GetActivePath()
@@ -447,12 +439,12 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		_ = sys.ExecuteSystemCommand(absPath)
 
 	case domain.ActionCopyWebUIPassword:
-		_, activeSecret := a.API.GetEndpoint()
-		if activeSecret == "" {
+		cfg := a.Cfg.GetConfig()
+		if cfg.Config.Secret == "" {
 			ui.ShowInfoMessage(nil, "复制密码", "当前 Web 面板无需密码即可访问。")
 			break
 		}
-		if err := sys.WriteToClipboard(activeSecret); err == nil {
+		if err := sys.WriteToClipboard(cfg.Config.Secret); err == nil {
 			ui.ShowTrayNotification("密码复制成功", "Web 密码已复制到剪贴板，可直接粘贴使用。")
 		} else {
 			ui.ShowErrorMessage(nil, "复制失败", "无法向剪贴板写入密码：\n\n"+err.Error())
