@@ -175,25 +175,12 @@ func main() {
 
 	isAutostart := false
 	isRestarting := false
-	enableTunArg := false
-	enableRunAsAdminArg := false
-	enableAutostartArg := false
-	disableAutostartArg := false
-
 	for _, arg := range os.Args[1:] {
 		argClean := strings.ToLower(strings.TrimLeft(arg, "-"))
 		if argClean == "autostart" {
 			isAutostart = true
 		} else if strings.Contains(argClean, "restarting") {
 			isRestarting = true
-		} else if strings.Contains(argClean, "enable-tun") {
-			enableTunArg = true
-		} else if strings.Contains(argClean, "enable-run-as-admin") {
-			enableRunAsAdminArg = true
-		} else if strings.Contains(argClean, "enable-autostart") {
-			enableAutostartArg = true
-		} else if strings.Contains(argClean, "disable-autostart") {
-			disableAutostartArg = true
 		}
 	}
 
@@ -240,69 +227,50 @@ func main() {
 
 	slog.Info("程序启动", "pid", os.Getpid(), "dir", baseDir, "admin", admin)
 	
+	cfg := cfgMgr.GetConfig()
+
 	osTaskExists := sys.CheckAutoStartStatus(domain.AppTaskName)
 	isMine := false
 	if osTaskExists {
 		isMine = sys.IsTaskPathValid(domain.AppTaskName, exePath)
 	}
 
-	cfgAutostart := cfgMgr.Get("autostart")
+	cfgAutostart := *cfg.General.Autostart
 	finalAutostart := cfgAutostart
 
 	if osTaskExists {
 		if isMine {
-			if cfgAutostart != "true" {
-				if cfgAutostart == "false" {
-					slog.Info("自启配置为禁用，清除系统残留任务")
-					sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, false)
-					finalAutostart = "false"
-				} else {
-					slog.Info("发现已有自启任务，配置同步为启用")
-					finalAutostart = "true"
-				}
+			if !cfgAutostart {
+				slog.Info("自启配置为禁用，清除系统残留任务")
+				sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, false)
+				finalAutostart = false
 			}
 		} else {
-			if cfgAutostart != "false" {
+			if cfgAutostart {
 				slog.Warn("计划任务指向其他路径，跳过同步")
-				finalAutostart = "false"
+				finalAutostart = false
 			}
 		}
 	} else {
-		if cfgAutostart == "true" {
+		if cfgAutostart {
 			slog.Info("自启配置为启用，重新注册系统计划任务")
 			sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
-		} else if cfgAutostart == "" {
-			finalAutostart = "false"
 		}
 	}
 
 	if cfgAutostart != finalAutostart {
-		cfgMgr.UpdateBatch(map[string]string{"autostart": finalAutostart})
-		cfgMgr.FlushInitialState()
+		cfgMgr.Update(func(c *domain.TrayConfig) {
+			b := finalAutostart
+			c.General.Autostart = &b
+		})
 	}
 
-	if enableTunArg {
-		cfgMgr.Set("tun", "true")
-	}
-	if enableRunAsAdminArg {
-		cfgMgr.Set("run_as_admin", "true")
-	}
-	if enableAutostartArg {
-		cfgMgr.Set("autostart", "true")
-		sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
-	} else if disableAutostartArg {
-		cfgMgr.Set("autostart", "")
-		sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, false)
-	}
-
-	isAutostartConfig := cfgMgr.Get("autostart") == "true"
-	isRunAsAdminConfig := cfgMgr.Get("run_as_admin") == "true"
-
+	isRunAsAdminConfig := cfg.General.RunAsAdmin
 	if !admin && !isAutostart {
-		if isAutostartConfig || isRunAsAdminConfig {
+		if cfgAutostart || isRunAsAdminConfig {
 			slog.Info("准备提权环境")
 
-			if isAutostartConfig && osTaskExists && isMine {
+			if cfgAutostart && osTaskExists && isMine {
 				slog.Debug("尝试计划任务静默提权")
 				schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
 				cmd := exec.Command(schtasksPath, "/Run", "/TN", domain.AppTaskName)
