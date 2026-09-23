@@ -151,6 +151,8 @@ func (e *UIEngine) loadEmbeddedIcons() {
 }
 
 func (e *UIEngine) listenState() {
+	var lastIconId = -1 
+
 	for {
 		select {
 		case <-e.ctx.Done():
@@ -161,9 +163,11 @@ func (e *UIEngine) listenState() {
 				return
 			}
 			e.app.Synchronize(func() {
-				if state.IconState >= 0 && state.IconState < len(e.icons) && e.icons[state.IconState] != nil {
+				if state.IconState != lastIconId && state.IconState >= 0 && state.IconState < len(e.icons) && e.icons[state.IconState] != nil {
 					e.ni.SetIcon(e.icons[state.IconState])
+					lastIconId = state.IconState
 				}
+				
 				e.updateTrayState(state)
 				e.RefreshPanelData(state.ProfileItems)
 			})
