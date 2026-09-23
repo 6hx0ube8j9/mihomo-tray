@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"log/slog"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -42,7 +41,7 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 		Cfg:           cm,
 		State:         st,
 		Kernel:        core.NewKernelManager(cm, st),
-		API:           core.NewAPIClient(cm, st),
+		API:           core.NewAPIClient(st),
 		kernelEventCh: make(chan domain.KernelEvent, 10),
 		tunEventCh:    make(chan struct{}, 1),
 		proxyStatusCh: make(chan sys.ProxyStatus, 5),
