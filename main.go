@@ -135,7 +135,9 @@ func initEarlyLogger(baseDir string) *rollingLogWriter {
 }
 
 func syncLogLevel(cfgMgr *config.Manager) {
-	levelStr := cfgMgr.GetJSON("tray_log_level")
+	cfg := cfgMgr.GetConfig()
+	levelStr := cfg.General.TrayLogLevel
+	
 	switch strings.ToLower(levelStr) {
 	case "silent":
 		GlobalLogLevel.Set(slog.Level(100))
