@@ -86,11 +86,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 
 	a.SyncRuntimeConfig()
 
-	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), domain.RuntimeConfigName)
-	apiAddr, apiSecret := core.ResolveKernelEndpoint(runtimeAbs)
-	a.API.SetEndpoint(apiAddr, apiSecret)
-
-	if a.Cfg.Get(config.KeyTun) == "true" {
+	if a.Cfg.GetConfig().Config.Tun.Enable {
 		a.State.SetTunRequestedTime(time.Now())
 	}
 
@@ -116,7 +112,7 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	slog.Debug("发送内核停止指令")
 	a.Kernel.KillCurrent()
 
-	if a.Cfg.Get(config.KeyProxy) == "true" {
+	if *a.Cfg.GetConfig().General.SystemProxy {
 		slog.Info("关闭系统代理")
 		if err := sys.SetSystemProxy(false, ""); err != nil {
 			slog.Error("关闭系统代理失败", "err", err)
@@ -163,7 +159,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 			if event == domain.EventKernelReady {
 				slog.Info("内核进程已启动")
 
-				if a.Cfg.Get(config.KeyTun) == "true" {
+				if a.Cfg.GetConfig().Config.Tun.Enable {
 					a.State.SetTunRequestedTime(time.Now())
 				}
 				a.syncSystemProxy()
