@@ -28,7 +28,7 @@ func TruncateMiddle(name string) string {
 
 func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) {
 	m.mu.Lock()
-	if len(m.data.Items) >= domain.MaxProfileCount {
+	if len(m.data.Profiles.Items) >= domain.MaxProfileCount {
 		m.mu.Unlock()
 		return "", false, fmt.Errorf("配置数量达到上限 (%d)", domain.MaxProfileCount)
 	}
@@ -124,7 +124,7 @@ func (m *Manager) RegisterNewProfile(relPath string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for _, item := range m.data.Items {
+	for _, item := range m.data.Profiles.Items {
 		if item.Path == relPath {
 			return
 		}
@@ -133,13 +133,13 @@ func (m *Manager) RegisterNewProfile(relPath string) {
 	baseName := filepath.Base(relPath)
 	displayName := strings.TrimSuffix(baseName, filepath.Ext(baseName))
 
-	m.data.Items = append(m.data.Items, domain.ProfileItem{
+	m.data.Profiles.Items = append(m.data.Profiles.Items, domain.ProfileItem{
 		Name: displayName,
 		Path: relPath,
 	})
 
-	if len(m.data.Items) > domain.MaxProfileCount {
-		m.data.Items = append(m.data.Items[:1], m.data.Items[2:]...)
+	if len(m.data.Profiles.Items) > domain.MaxProfileCount {
+		m.data.Profiles.Items = append(m.data.Profiles.Items[:1], m.data.Profiles.Items[2:]...)
 	}
 
 	m.lockedSave()
@@ -148,16 +148,18 @@ func (m *Manager) RegisterNewProfile(relPath string) {
 func (m *Manager) UpsertProfile(item domain.ProfileItem) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for i, p := range m.data.Items {
+	
+	for i, p := range m.data.Profiles.Items {
 		if p.Path == item.Path {
-			m.data.Items[i] = item
+			m.data.Profiles.Items[i] = item
 			m.lockedSave()
 			return
 		}
 	}
-	m.data.Items = append(m.data.Items, item)
-	if len(m.data.Items) > domain.MaxProfileCount {
-		m.data.Items = append(m.data.Items[:1], m.data.Items[2:]...)
+	
+	m.data.Profiles.Items = append(m.data.Profiles.Items, item)
+	if len(m.data.Profiles.Items) > domain.MaxProfileCount {
+		m.data.Profiles.Items = append(m.data.Profiles.Items[:1], m.data.Profiles.Items[2:]...)
 	}
 
 	m.lockedSave()
