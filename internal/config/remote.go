@@ -171,18 +171,18 @@ func (m *Manager) CommitRemoteProfile(tempPath string, targetRelPath string, ite
 	}
 
 	found := false
-	for i, p := range m.data.Items {
+	for i, p := range m.data.Profiles.Items {
 		if p.Path == targetRelPath {
-			m.data.Items[i] = item
+			m.data.Profiles.Items[i] = item
 			found = true
 			break
 		}
 	}
 
 	if !found {
-		m.data.Items = append(m.data.Items, item)
-		if len(m.data.Items) > domain.MaxProfileCount {
-			m.data.Items = append(m.data.Items[:1], m.data.Items[2:]...)
+		m.data.Profiles.Items = append(m.data.Profiles.Items, item)
+		if len(m.data.Profiles.Items) > domain.MaxProfileCount {
+			m.data.Profiles.Items = append(m.data.Profiles.Items[:1], m.data.Profiles.Items[2:]...)
 		}
 	}
 
@@ -193,7 +193,8 @@ func (m *Manager) CommitRemoteProfile(tempPath string, targetRelPath string, ite
 func (m *Manager) GetProfileByPath(relPath string) (domain.ProfileItem, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	for _, p := range m.data.Items {
+	
+	for _, p := range m.data.Profiles.Items {
 		if p.Path == relPath {
 			return p, true
 		}
