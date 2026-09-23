@@ -13,6 +13,7 @@ import (
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/sys"
 	"mihomo-tray/internal/ui"
+	"mihomo-tray/internal/webui"
 )
 
 func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath string) error {
@@ -21,7 +22,7 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 	if cfg.Config.Tun.Enable && !sys.IsAdmin() {
 		slog.Warn("非管理员权限无法开启 TUN，已自动关闭")
 		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = false })
-		cfg = a.Cfg.GetConfig()
+		cfg = a.Cfg.GetConfig() 
 	}
 
 	_, extracted, err := core.BuildRuntimeYAML(cfg, targetRelPath, a.Cfg.BaseDir())
@@ -186,4 +187,29 @@ func (a *Application) RestartKernel() {
 	a.pushUIState()
 
 	a.restartWebUIIfOpen()
+}
+
+func (a *Application) restartWebUIIfOpen() {
+	wasOpen := webui.IsActive()
+	webui.Cleanup()
+
+	if wasOpen {
+		slog.Debug("等待内核就绪，尝试恢复 Web 面板")
+
+		go func() {
+			for i := 0; i < 50; i++ {
+				if a.State.IsExiting() {
+					return
+				}
+
+				if a.State.GetPhase() == domain.PhaseRunning {
+					slog.Debug("内核已就绪，正在自动重新拉起 Web 面板")
+					a.UICommandCh <- domain.UICommand{Action: domain.ActionOpenWebUI}
+					return
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
+			slog.Warn("等待内核就绪超时，自动拉起 Web 面板失败")
+		}()
+	}
 }
