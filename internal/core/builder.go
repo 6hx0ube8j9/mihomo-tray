@@ -16,7 +16,7 @@ import (
 const yamlHeader = "# Auto-generated runtime configuration. DO NOT EDIT.\n\n"
 
 func BuildRuntimeYAML(cfg domain.TrayConfig, relPath string, baseDir string) (bool, map[string]string, error) {
-	var data map[string]any
+	var root yaml.Node
 	extracted := make(map[string]string)
 
 	if relPath != "" {
@@ -25,76 +25,126 @@ func BuildRuntimeYAML(cfg domain.TrayConfig, relPath string, baseDir string) (bo
 		if err != nil {
 			return false, nil, fmt.Errorf("底稿文件读取失败: %w", err)
 		}
-		if err := yaml.Unmarshal(content, &data); err != nil {
+		if err := yaml.Unmarshal(content, &root); err != nil {
 			return false, nil, fmt.Errorf("底稿 YAML 格式错误: %w", err)
 		}
 	}
 
-	if data == nil {
-		slog.Info("当前无活跃配置，将生成极简保底运行参数")
-		data = make(map[string]any)
+	if len(root.Content) == 0 {
+		root = yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode}}}
+	}
+	rootMap := root.Content[0]
+	if rootMap.Kind != yaml.MappingNode {
+		return false, nil, fmt.Errorf("YAML 根节点不是 Mapping 类型")
 	}
 
-	delete(data, "mixed-port")
-	delete(data, "port")
-	delete(data, "socks-port")
-	delete(data, "redir-port")
-	delete(data, "tproxy-port")
-	
-	delete(data, "external-controller")
-	delete(data, "secret")
-	delete(data, "external-ui")
-	delete(data, "external-ui-url")
-	delete(data, "external-ui-name")
-	delete(data, "external-controller-pipe")
-	delete(data, "external-controller-cors")
+	deleteKeys(rootMap, "redir-port", "tproxy-port")
 
-	if cfg.Config.MixedPort != nil && *cfg.Config.MixedPort > 0 { 
-		data["mixed-port"] = *cfg.Config.MixedPort 
+	var topNodes []*yaml.Node
+
+	putTop := func(key string, val any) {
+		k, v := popKey(rootMap, key)
+		if k == nil {
+			k = &yaml.Node{Kind: yaml.ScalarNode, Value: key}
+		}
+		var newVal yaml.Node
+		if err := newVal.Encode(val); err != nil {
+			return
+		}
+		if v != nil {
+			newVal.LineComment = v.LineComment
+			newVal.HeadComment = v.HeadComment
+			newVal.FootComment = v.FootComment
+		}
+		topNodes = append(topNodes, k, &newVal)
+	}
+
+	if cfg.Config.Mode != "" { putTop("mode", cfg.Config.Mode) }
+	if cfg.Config.LogLevel != "" { putTop("log-level", cfg.Config.LogLevel) }
+	if cfg.Config.AllowLan != nil { putTop("allow-lan", *cfg.Config.AllowLan) }
+	if cfg.Config.UnifiedDelay != nil { putTop("unified-delay", *cfg.Config.UnifiedDelay) }
+
+	if cfg.Config.MixedPort != nil && *cfg.Config.MixedPort > 0 {
+		putTop("mixed-port", *cfg.Config.MixedPort)
 		extracted["port"] = strconv.Itoa(*cfg.Config.MixedPort)
 	} else {
+		deleteKeys(rootMap, "mixed-port")
 		extracted["port"] = strconv.Itoa(domain.DefaultMixedPort)
 	}
-	if cfg.Config.Port != nil && *cfg.Config.Port > 0 { data["port"] = *cfg.Config.Port }
-	if cfg.Config.SocksPort != nil && *cfg.Config.SocksPort > 0 { data["socks-port"] = *cfg.Config.SocksPort }
-	if cfg.Config.Mode != "" { data["mode"] = cfg.Config.Mode }
-	if cfg.Config.LogLevel != "" { data["log-level"] = cfg.Config.LogLevel }
-	if cfg.Config.AllowLan != nil { data["allow-lan"] = *cfg.Config.AllowLan }
-	if cfg.Config.UnifiedDelay != nil { data["unified-delay"] = *cfg.Config.UnifiedDelay }
-	if cfg.Config.ExternalController != "" { data["external-controller"] = cfg.Config.ExternalController }
-	if cfg.Config.Secret != "" { data["secret"] = cfg.Config.Secret }
-	if cfg.Config.ExternalUI != "" { data["external-ui"] = cfg.Config.ExternalUI }
-	if cfg.Config.ExternalUIURL != "" { data["external-ui-url"] = cfg.Config.ExternalUIURL }
+	if cfg.Config.Port != nil && *cfg.Config.Port > 0 {
+		putTop("port", *cfg.Config.Port)
+	} else {
+		deleteKeys(rootMap, "port")
+	}
+	if cfg.Config.SocksPort != nil && *cfg.Config.SocksPort > 0 {
+		putTop("socks-port", *cfg.Config.SocksPort)
+	} else {
+		deleteKeys(rootMap, "socks-port")
+	}
+
+	if cfg.Config.ExternalController != "" { putTop("external-controller", cfg.Config.ExternalController) }
+	if cfg.Config.ExternalControllerPipe != "" { putTop("external-controller-pipe", cfg.Config.ExternalControllerPipe) }
+	if cfg.Config.Secret != "" { putTop("secret", cfg.Config.Secret) }
+	if cfg.Config.ExternalUI != "" { putTop("external-ui", cfg.Config.ExternalUI) }
+	if cfg.Config.ExternalUIURL != "" { putTop("external-ui-url", cfg.Config.ExternalUIURL) }
 	
-	if cfg.Config.ExternalUIName != "" { data["external-ui-name"] = cfg.Config.ExternalUIName }
+	if cfg.Config.ExternalUIName != "" { putTop("external-ui-name", cfg.Config.ExternalUIName) }
 	extracted["external-ui-name"] = cfg.Config.ExternalUIName
 
-	if cfg.Config.ExternalControllerPipe != "" { data["external-controller-pipe"] = cfg.Config.ExternalControllerPipe }
-
-	corsMap := map[string]any{
-		"allow-origins": cfg.Config.ExternalControllerCors.AllowOrigins,
-	}
+	corsNode := &yaml.Node{Kind: yaml.MappingNode}
+	
+	k1 := &yaml.Node{Kind: yaml.ScalarNode, Value: "allow-private-network"}
+	var v1 yaml.Node
 	if cfg.Config.ExternalControllerCors.AllowPrivateNetwork != nil {
-		corsMap["allow-private-network"] = *cfg.Config.ExternalControllerCors.AllowPrivateNetwork
+		_ = v1.Encode(*cfg.Config.ExternalControllerCors.AllowPrivateNetwork)
 	} else {
-		corsMap["allow-private-network"] = true 
+		_ = v1.Encode(true)
 	}
-	data["external-controller-cors"] = corsMap
 
-	var tunMap map[string]any
-	if existingTun, ok := data["tun"].(map[string]any); ok {
-		tunMap = existingTun
-		if dev, ok := tunMap["device"].(string); ok {
-			extracted["tun_device"] = dev
+	k2 := &yaml.Node{Kind: yaml.ScalarNode, Value: "allow-origins"}
+	var v2 yaml.Node
+	_ = v2.Encode(cfg.Config.ExternalControllerCors.AllowOrigins)
+	corsNode.Content = append(corsNode.Content, k1, &v1, k2, &v2)
+	putTop("external-controller-cors", corsNode)	
+
+	tunIdx, tunV := findKey(rootMap, "tun")
+	if tunIdx > 0 && tunV.Kind == yaml.MappingNode {
+		extracted["tun_device"] = getString(tunV, "device")
+		
+		enableIdx, enableV := findKey(tunV, "enable")
+		if enableIdx > 0 {
+			var newVal yaml.Node
+			_ = newVal.Encode(cfg.Config.Tun.Enable)
+			newVal.LineComment = enableV.LineComment
+			newVal.HeadComment = enableV.HeadComment
+			newVal.FootComment = enableV.FootComment
+			tunV.Content[enableIdx] = &newVal
+		} else {
+			ek := &yaml.Node{Kind: yaml.ScalarNode, Value: "enable"}
+			var ev yaml.Node
+			_ = ev.Encode(cfg.Config.Tun.Enable)
+			tunV.Content = append([]*yaml.Node{ek, &ev}, tunV.Content...)
 		}
 	} else {
-		tunMap = make(map[string]any)
+		if tunIdx > 0 {
+			deleteKeys(rootMap, "tun")
+		}
+		
 		extracted["tun_device"] = ""
+		
+		tunK := &yaml.Node{Kind: yaml.ScalarNode, Value: "tun"}
+		tunV := &yaml.Node{Kind: yaml.MappingNode}
+		
+		ek := &yaml.Node{Kind: yaml.ScalarNode, Value: "enable"}
+		var ev yaml.Node
+		_ = ev.Encode(cfg.Config.Tun.Enable)
+		tunV.Content = []*yaml.Node{ek, &ev}
+		topNodes = append(topNodes, tunK, tunV)
 	}
-	tunMap["enable"] = cfg.Config.Tun.Enable
-	data["tun"] = tunMap
 
-	outBytes, err := yaml.Marshal(&data)
+	rootMap.Content = append(topNodes, rootMap.Content...)
+
+	outBytes, err := yaml.Marshal(&root)
 	if err != nil {
 		return false, nil, fmt.Errorf("运行时配置合成失败: %w", err)
 	}
@@ -115,6 +165,42 @@ func BuildRuntimeYAML(cfg domain.TrayConfig, relPath string, baseDir string) (bo
 
 	slog.Debug("已成功生成运行时配置", "target", domain.RuntimeConfigName)
 	return true, extracted, nil
+}
+
+func findKey(node *yaml.Node, key string) (int, *yaml.Node) {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return -1, nil
+	}
+	for i := 0; i < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return i + 1, node.Content[i+1]
+		}
+	}
+	return -1, nil
+}
+
+func popKey(node *yaml.Node, key string) (*yaml.Node, *yaml.Node) {
+	idx, v := findKey(node, key)
+	if idx > 0 {
+		k := node.Content[idx-1]
+		node.Content = append(node.Content[:idx-1], node.Content[idx+1:]...)
+		return k, v
+	}
+	return nil, nil
+}
+
+func deleteKeys(node *yaml.Node, keys ...string) {
+	for _, key := range keys {
+		popKey(node, key)
+	}
+}
+
+func getString(node *yaml.Node, key string) string {
+	_, v := findKey(node, key)
+	if v != nil && v.Kind == yaml.ScalarNode {
+		return v.Value
+	}
+	return ""
 }
 
 func writeTmpAndRename(baseDir, targetPath string, content []byte) error {
