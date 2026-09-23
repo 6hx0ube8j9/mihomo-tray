@@ -191,17 +191,28 @@ func main() {
 
 	var hM windows.Handle
 	var isAlreadyExist bool
-	for i := 0; i < 10; i++ {
+	
+	maxRetries := 1
+	if isRestarting {
+		maxRetries = 50
+	}
+
+	for i := 0; i < maxRetries; i++ {
 		hM, err = windows.CreateMutex(sa, false, mName)
 		isAlreadyExist = errors.Is(err, windows.ERROR_ALREADY_EXISTS) ||
 			errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
 			err == windows.ERROR_ALREADY_EXISTS ||
 			err == windows.ERROR_ACCESS_DENIED
 
-		if !isAlreadyExist || !isRestarting {
+		if !isAlreadyExist {
 			break
 		}
-		time.Sleep(150 * time.Millisecond)
+		if hM != 0 {
+			_ = windows.CloseHandle(hM)
+			hM = 0
+		}
+
+		time.Sleep(200 * time.Millisecond)
 	}
 
 	if isAlreadyExist {
