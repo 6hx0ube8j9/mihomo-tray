@@ -40,21 +40,23 @@ const (
 	DefaultPort      = 7892
 	DefaultSocksPort = 7891
 
+	// 内核参数	
+	DefaultAllowLan            = true
+	DefaultUnifiedDelay        = true
+	DefaultAllowPrivateNetwork = true
+	DefaultTunEnable = false
+	
 	// 控制平面默认值
 	DefaultExternalController = "127.0.0.1:9090"
 	DefaultExternalUI         = "ui"
 	DefaultExternalUIURL      = "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip"
 	DefaultExternalUIName     = ""
 
-	// 托盘常规设置与策略
-	DefaultAutostart           = true
-	DefaultSystemProxy         = true
-	DefaultSystemBrowser       = true
-	DefaultAllowLan            = true
-	DefaultUnifiedDelay        = true
-	DefaultAllowPrivateNetwork = true
-
-	DefaultTunEnable = false
+	// 托盘常规设置
+	DefaultAutostart           = false
+	DefaultSystemProxy         = false
+	DefaultSystemBrowser       = false
+	
 
 	// 业务环境限制
 	DefaultUserAgent      = "clash-verge (clash.meta)"
