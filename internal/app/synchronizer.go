@@ -165,9 +165,11 @@ func (a *Application) syncAllConfig(ctx context.Context) {
 	}
 	cfg := a.Cfg.GetConfig()
 	tunPayload := map[string]interface{}{"enable": cfg.Config.Tun.Enable}
-	if dev := a.Cfg.Get("tun_device"); dev != "" {
+	
+	if dev := a.State.GetActualTunDevice(); dev != "" {
 		tunPayload["device"] = dev
 	}
+	
 	payload := map[string]interface{}{
 		"tun":       tunPayload,
 		"mode":      cfg.Config.Mode,
