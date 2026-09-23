@@ -20,38 +20,37 @@ type GeneralConfig struct {
 }
 
 type KernelConfig struct {
-	MixedPort *int `json:"mixed-port,omitempty"`
-	Port      *int `json:"port,omitempty"`
-	SocksPort *int `json:"socks-port,omitempty"`
+	MixedPort *int `json:"mixed-port"`
+	Port      *int `json:"port"`
+	SocksPort *int `json:"socks-port"`
 
 	Mode            string `json:"mode"`
 	LogLevel        string `json:"log-level"`
 	AllowLan        bool   `json:"allow-lan"`
 	UnifiedDelay    bool   `json:"unified-delay"`
 	TcpConcurrent   bool   `json:"tcp-concurrent"`
-	FindProcessMode string `json:"find-process-mode,omitempty"`
+	FindProcessMode string `json:"find-process-mode"`
 
-	ExternalController string `json:"external-controller,omitempty"`
-	Secret             string `json:"secret,omitempty"`
-	ExternalUI         string `json:"external-ui,omitempty"`
-	ExternalUIURL      string `json:"external-ui-url,omitempty"`
-
-	ExternalUIName         string `json:"-"` 
-	ExternalControllerPipe string `json:"-"` 
+	ExternalController string `json:"external-controller"`
+	Secret             string `json:"secret"`
+	ExternalUI         string `json:"external-ui"`
+	ExternalUIURL      string `json:"external-ui-url"`
+	
+	ExternalUIName         string `json:"external-ui-name"` 
+	ExternalControllerPipe string `json:"external-controller-pipe"`
 
 	ExternalControllerCors CorsConfig `json:"external-controller-cors"`
 	Tun                    TunConfig  `json:"tun"`
 }
 
 type CorsConfig struct {
-	AllowPrivateNetwork bool     `json:"allow-private-network"`
+	AllowPrivateNetwork *bool    `json:"allow-private-network"`
 	AllowOrigins        []string `json:"allow-origins"`
 }
 
 type TunConfig struct {
 	Enable bool `json:"enable"`
 }
-
 
 type ProfileManager struct {
 	Active string        `json:"active"`
