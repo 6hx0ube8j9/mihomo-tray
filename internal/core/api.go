@@ -10,10 +10,10 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
-	"mihomo-tray/internal/config"
+	"github.com/Microsoft/go-winio"
+
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
 )
@@ -21,27 +21,21 @@ import (
 const MaxAPIResponseSize = 5 * 1024 * 1024
 
 type APIClient struct {
-	cfg        *config.Manager
 	st         *state.RuntimeState
 	httpClient *http.Client
-
-	connMu  sync.RWMutex
-	apiAddr string
-	secret  string
 }
 
-func NewAPIClient(cfg *config.Manager, st *state.RuntimeState) *APIClient {
+func NewAPIClient(st *state.RuntimeState) *APIClient {
 	return &APIClient{
-		cfg: cfg,
-		st:  st,
+		st: st,
 		httpClient: &http.Client{
 			Transport: &http.Transport{
-				Proxy: nil,
-				DialContext: (&net.Dialer{
-					Timeout:       2 * time.Second,
-					KeepAlive:     30 * time.Second,
-					FallbackDelay: 10 * time.Millisecond,
-				}).DialContext,
+				Proxy: nil, // 强制直连
+				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					// 物理级劫持：忽略外层请求的 IP:Port，全部打入命名管道
+					timeout := 2 * time.Second
+					return winio.DialPipe(domain.IPCNamedPipe, &timeout)
+				},
 				MaxIdleConns:          100,
 				MaxIdleConnsPerHost:   100,
 				IdleConnTimeout:       90 * time.Second,
@@ -51,46 +45,12 @@ func NewAPIClient(cfg *config.Manager, st *state.RuntimeState) *APIClient {
 	}
 }
 
-func (c *APIClient) SetEndpoint(addr, secret string) {
-	c.connMu.Lock()
-	defer c.connMu.Unlock()
-
-	addr = strings.TrimSuffix(addr, "/")
-	if strings.HasPrefix(addr, "0.0.0.0:") {
-		addr = strings.Replace(addr, "0.0.0.0:", "127.0.0.1:", 1)
-	} else if strings.HasPrefix(addr, "[::]:") {
-		addr = strings.Replace(addr, "[::]:", "127.0.0.1:", 1)
-	}
-	if !strings.HasPrefix(addr, "http") && addr != "" {
-		addr = "http://" + addr
-	}
-
-	c.apiAddr = addr
-	c.secret = secret
-}
-
-func (c *APIClient) GetEndpoint() (string, string) {
-	c.connMu.RLock()
-	defer c.connMu.RUnlock()
-	rawAddr := strings.TrimPrefix(c.apiAddr, "http://")
-	return rawAddr, c.secret
-}
-
 func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload interface{}) ([]byte, error) {
 	if c.st.IsExiting() {
 		return nil, context.Canceled
 	}
 
-	c.connMu.RLock()
-	targetAddr := c.apiAddr
-	targetSecret := c.secret
-	c.connMu.RUnlock()
-
-	if targetAddr == "" {
-		return nil, fmt.Errorf("api endpoint is not initialized")
-	}
-
-	url := targetAddr + "/" + strings.TrimPrefix(path, "/")
+	url := "http://localhost/" + strings.TrimPrefix(path, "/")
 
 	var bodyReader io.Reader
 	if payload != nil {
@@ -111,12 +71,9 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 	if bodyReader != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if targetSecret != "" {
-		req.Header.Set("Authorization", "Bearer "+targetSecret)
-	}
 
 	if !(method == http.MethodGet && path == "/configs") {
-		slog.Debug("发送内核 API 请求", "method", method, "path", path)
+		slog.Debug("发送内核 IPC 管道请求", "method", method, "path", path)
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -130,7 +87,6 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return nil, nil
 		}
-		slog.Error("内核 API 响应为空且状态异常", "code", resp.StatusCode)
 		return nil, fmt.Errorf("API Status Error: %d", resp.StatusCode)
 	}
 
@@ -142,16 +98,6 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errMsg := strings.TrimSpace(string(body))
-		if strings.HasPrefix(errMsg, "{") {
-			var errObj map[string]interface{}
-			if json.Unmarshal([]byte(errMsg), &errObj) == nil {
-				if msg, ok := errObj["message"].(string); ok {
-					errMsg = msg
-				}
-			}
-		}
-
-		slog.Debug("内核 API 拒绝请求", "code", resp.StatusCode, "detail", errMsg)
 		return nil, fmt.Errorf("API Error %d: %s", resp.StatusCode, errMsg)
 	}
 
@@ -176,6 +122,5 @@ func (c *APIClient) GetKernelStatus(ctx context.Context) (*domain.KernelStatus, 
 	if err := json.Unmarshal(body, &status); err != nil {
 		return nil, fmt.Errorf("解析内核状态失败: %w", err)
 	}
-
 	return &status, nil
 }
