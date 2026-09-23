@@ -7,14 +7,16 @@ import (
 )
 
 func (a *Application) calculateUIState() domain.UIState {
+	cfg := a.Cfg.GetConfig()
+	
 	s := domain.UIState{
-		IsTun:            a.Cfg.Get(config.KeyTun) == "true",
-		IsProxy:          a.Cfg.Get(config.KeyProxy) == "true",
-		Mode:             a.Cfg.Get(config.KeyMode),
-		AutoStart:        a.Cfg.Get(config.KeyAutostart) == "true",
-		RunAsAdmin:       a.Cfg.Get(config.KeyRunAsAdmin) == "true",
-		UseSystemBrowser: a.Cfg.Get(config.KeyUseSystemBrowser) == "true",
-		AllowLan:         a.Cfg.Get(config.KeyAllowLan) == "true",
+		IsTun:            cfg.Config.Tun.Enable,
+		IsProxy:          *cfg.General.SystemProxy,
+		Mode:             cfg.Config.Mode,
+		AutoStart:        *cfg.General.Autostart,
+		RunAsAdmin:       cfg.General.RunAsAdmin,
+		UseSystemBrowser: *cfg.General.SystemBrowser,
+		AllowLan:         *cfg.Config.AllowLan,
 		IsAdmin:          sys.IsAdmin(),
 	}
 
