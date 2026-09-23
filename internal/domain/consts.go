@@ -4,10 +4,13 @@ package domain
 const (
 	KernelExeName     = "mihomo.exe"
 	RuntimeConfigName = "config.yaml"
+	TrayConfigName    = "mihomo-tray.json"
+
+	// IPCNamedPipe 命名管道，底层硬编码
+	IPCNamedPipe = `\\.\pipe\mihomo-tray-ipc`
 )
 
 // ================= 状态与事件 =================
-
 const AppTaskName = "MihomoTrayTask"
 
 type AppPhase int32
@@ -25,24 +28,46 @@ const (
 	EventKernelExit
 )
 
-// ================= 配置与业务规则 =================
-
+// ================= 配置强类型 =================
 const (
-	DefaultAutostart          = "false"
-	DefaultProxy              = "false"
-	DefaultTun                = "false"
-	DefaultMode               = "rule"
-	DefaultAllowLan           = "true"
-	DefaultMixedPort          = "7890"
+	// 字符串策略默认值
+	DefaultMode         = "rule"
+	DefaultLogLevel     = "info"
+	DefaultTrayLogLevel = "info"
+
+	// 端口默认值
+	DefaultMixedPort = 7890
+	DefaultPort      = 7892
+	DefaultSocksPort = 7891
+
+	// 控制平面默认值
 	DefaultExternalController = "127.0.0.1:9090"
-	DefaultSecret             = ""
 	DefaultExternalUI         = "ui"
 	DefaultExternalUIURL      = "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip"
-	DefaultLogLevel           = "error"
-	DefaultUserAgent          = "clash-verge (clash.meta)"
+	DefaultExternalUIName     = ""
 
-	DefaultUpdateInterval = 3                // 默认订阅更新间隔(天)
-	MaxProfileCount       = 10               // 允许导入的最大配置(订阅)数量
-	MaxProfileBytes       = 15 * 1024 * 1024 // 限制最大配置文件体积为 15MB
-	MaxUpdateInterval     = 90               // 最大订阅更新间隔(天)
+	// 托盘常规设置与策略
+	DefaultAutostart           = true
+	DefaultSystemProxy         = true
+	DefaultSystemBrowser       = true
+	DefaultAllowLan            = true
+	DefaultUnifiedDelay        = true
+	DefaultAllowPrivateNetwork = true
+
+	DefaultTunEnable = false
+
+	// 业务环境限制
+	DefaultUserAgent      = "clash-verge (clash.meta)"
+	DefaultUpdateInterval = 3
+	MaxProfileCount       = 10
+	MaxProfileBytes       = 15 * 1024 * 1024
+	MaxUpdateInterval     = 90
 )
+
+// 默认跨域面板白名单
+var DefaultAllowOrigins = []string{
+	"https://yacd.metacubex.one",
+	"https://metacubex.github.io",
+	"https://d.metacubex.one",
+	"https://board.zash.run.place",
+}
