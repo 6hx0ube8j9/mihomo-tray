@@ -87,6 +87,15 @@ func (e *UIEngine) updateTrayState(state domain.UIState) {
 		if fp != trayCache.lastProfileFingerprint {
 			rebuildProfilesMenu(e, state)
 			trayCache.lastProfileFingerprint = fp
+		} else {
+			if trayCache.menuSwitchProfile != nil && len(state.ProfileItems) > 0 {
+				actions := trayCache.menuSwitchProfile.Actions()
+				for i, item := range state.ProfileItems {
+					if i < actions.Len() {
+						actions.At(i).SetChecked(item.IsActive)
+					}
+				}
+			}
 		}
 	})
 }
