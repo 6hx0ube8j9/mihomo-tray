@@ -400,7 +400,11 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionOpenBaseDir:
 		_ = sys.ExecuteSystemCommand(a.Cfg.BaseDir())
-
+		
+    case domain.ActionOpenAppConfig:
+		jsonPath := filepath.Join(a.Cfg.BaseDir(), domain.TrayConfigName)
+		_ = sys.ExecuteSystemCommand(jsonPath)
+		
 	case domain.ActionReloadConfig:
 		a.ReloadConfig(ctx)
 
