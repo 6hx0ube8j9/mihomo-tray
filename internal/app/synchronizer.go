@@ -244,11 +244,15 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 	}
 
 	if resp.MixedPort != 0 && (cfg.Config.MixedPort == nil || *cfg.Config.MixedPort != resp.MixedPort) {
-		slog.Info("混合端口已变更", "to", resp.MixedPort)
+		slog.Info("混合端口被外部修改，立即同步", "to", resp.MixedPort)
 		a.Cfg.Update(func(c *domain.TrayConfig) {
 			p := resp.MixedPort
 			c.Config.MixedPort = &p
 		})
+		
+		if *cfg.General.SystemProxy {
+			a.syncSystemProxy()
+		}
 		changed = true
 	}
 
