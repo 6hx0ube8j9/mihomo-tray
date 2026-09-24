@@ -60,6 +60,7 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 
 	if !isKernelRunning {
 		a.Kernel.WakeDaemon()
+		a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, cfg.Config.Secret, cfg.Config.ExternalUIName)
 	} else {
 		time.Sleep(500 * time.Millisecond)
 		a.syncAllConfig(ctx)
@@ -166,6 +167,9 @@ func (a *Application) RestartKernel() {
 	}
 
 	a.Kernel.WakeDaemon()
+	
+	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, cfg.Config.Secret, cfg.Config.ExternalUIName)
+	
 	a.pushUIState()
 
 	a.restartWebUIIfOpen()
@@ -189,14 +193,14 @@ func (a *Application) SyncRuntimeConfig() {
 		cfg = a.Cfg.GetConfig()
 	}
 
-    if _, extracted, err := core.BuildRuntimeYAML(cfg, activePath, a.Cfg.BaseDir()); err != nil {
-        slog.Error("同步运行配置失败，系统将进入空转", "err", err)		
-        a.Cfg.SetActiveProfile("")
-    } else {
-        if tunDev, ok := extracted["tun_device"]; ok {			
-            a.State.SetActualTunDevice(tunDev)
-        }
-    }    
+	if _, extracted, err := core.BuildRuntimeYAML(cfg, activePath, a.Cfg.BaseDir()); err != nil {
+		slog.Error("同步运行配置失败，系统将进入空转", "err", err)        
+		a.Cfg.SetActiveProfile("")
+	} else {
+		if tunDev, ok := extracted["tun_device"]; ok {            
+			a.State.SetActualTunDevice(tunDev)
+		}
+	}    
 }
 
 func (a *Application) restartWebUIIfOpen() {
