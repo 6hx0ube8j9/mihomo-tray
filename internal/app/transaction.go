@@ -129,6 +129,10 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 		defer a.State.SetReloading(false)
 		defer a.pushUIState()
 
+		if err := a.Cfg.ReloadFromDisk(); err != nil {
+			slog.Warn("重载本地 JSON 配置失败", "err", err)
+		}
+
 		target := a.Cfg.GetActivePath()
 
 		if err := a.safePreflightCheck(target, "重载配置"); err != nil {
@@ -141,6 +145,31 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 			a.restartWebUIIfOpen()
 		}
 	}()
+}
+
+func (a *Application) RestartKernel() {
+	slog.Info("正在重启内核进程")
+	a.State.SetRestarting(true)
+	a.State.SetReloading(false)
+	a.State.SetPhase(domain.PhaseInitializing)
+	
+	a.Kernel.HaltDaemon()
+	
+	if err := a.Cfg.ReloadFromDisk(); err != nil {
+		slog.Warn("重启前重载本地 JSON 失败", "err", err)
+	}
+	
+	a.SyncRuntimeConfig()
+
+	cfg := a.Cfg.GetConfig()
+	if cfg.Config.Tun.Enable {
+		a.State.SetTunRequestedTime(time.Now())
+	}
+
+	a.Kernel.WakeDaemon()
+	a.pushUIState()
+
+	a.restartWebUIIfOpen()
 }
 
 func (a *Application) SyncRuntimeConfig() {
@@ -167,26 +196,6 @@ func (a *Application) SyncRuntimeConfig() {
 	} else if tunDev, ok := extracted["tun_device"]; ok && tunDev != "" {
 		a.State.SetActualTunDevice(tunDev)
 	}
-}
-
-func (a *Application) RestartKernel() {
-	slog.Info("正在重启内核进程")
-	a.State.SetRestarting(true)
-	a.State.SetReloading(false)
-	a.State.SetPhase(domain.PhaseInitializing)
-	a.Kernel.HaltDaemon()
-	
-	a.SyncRuntimeConfig()
-
-	cfg := a.Cfg.GetConfig()
-	if cfg.Config.Tun.Enable {
-		a.State.SetTunRequestedTime(time.Now())
-	}
-
-	a.Kernel.WakeDaemon()
-	a.pushUIState()
-
-	a.restartWebUIIfOpen()
 }
 
 func (a *Application) restartWebUIIfOpen() {
