@@ -86,7 +86,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	a.SyncRuntimeConfig()
 
 	initialCfg := a.Cfg.GetConfig()
-	a.State.UpdateWebUISnapshot(initialCfg.Config.ExternalController, initialCfg.Config.Secret, initialCfg.Config.ExternalUIName)
+	a.State.UpdateWebUISnapshot(initialCfg.Config.ExternalController, *initialCfg.Config.Secret, initialCfg.Config.ExternalUIName)
 	
 	if a.Cfg.GetConfig().Config.Tun.Enable {
 		a.State.SetTunRequestedTime(time.Now())
