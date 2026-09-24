@@ -48,7 +48,7 @@ func (m *Manager) LoadAndInitMemory() {
 			slog.Error("配置解析失败，启用默认设置", "path", cfgPath, "err", err)
 			_ = f.Close()
 			
-			corruptPath := cfgPath + fmt.Sprintf(".corrupt.%d.bak", time.Now().Unix())
+			corruptPath := cfgPath + fmt.Sprintf(".%d.err", time.Now().Unix())
 			_ = os.Rename(cfgPath, corruptPath)
 			
 			isTainted = true
