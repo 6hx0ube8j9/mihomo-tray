@@ -383,15 +383,17 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 		cfg := a.Cfg.GetConfig()
 		
-		slog.Info("【打开面板】", "ApiAddr", cfg.Config.ExternalController, "强制系统浏览器", *cfg.General.SystemBrowser)
+		apiAddr, secret, uiName := a.State.GetWebUISnapshot()
+		
+		slog.Info("【打开面板】", "ApiAddr", apiAddr, "强制系统浏览器", *cfg.General.SystemBrowser)
 		
 		wcfg := webui.Config{
-			APIAddr:            cfg.Config.ExternalController,
-			Secret:             cfg.Config.Secret,
+			APIAddr:            apiAddr,
+			Secret:             secret,
 			ProxyPort:          strconv.Itoa(a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort)),
 			BaseDir:            a.Cfg.BaseDir(),
-			UIName:             cfg.Config.ExternalUIName,
-			ForceSystemBrowser: *cfg.General.SystemBrowser,
+			UIName:             uiName,
+			ForceSystemBrowser: *cfg.General.SystemBrowser, 
 		}
 		
 		go webui.Launch(wcfg, a.webuiEventCh)
