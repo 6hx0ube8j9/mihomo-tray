@@ -52,8 +52,7 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 	}
 
 	a.Cfg.SetActiveProfile(targetRelPath)
-	
-	if tunDev, ok := extracted["tun_device"]; ok && tunDev != "" {
+	if tunDev, ok := extracted["tun_device"]; ok {
 		a.State.SetActualTunDevice(tunDev)
 	}
 
@@ -190,12 +189,14 @@ func (a *Application) SyncRuntimeConfig() {
 		cfg = a.Cfg.GetConfig()
 	}
 
-	if _, extracted, err := core.BuildRuntimeYAML(cfg, activePath, a.Cfg.BaseDir()); err != nil {
-		slog.Error("同步运行配置失败，系统将进入空转", "err", err)
-		a.Cfg.SetActiveProfile("")
-	} else if tunDev, ok := extracted["tun_device"]; ok && tunDev != "" {
-		a.State.SetActualTunDevice(tunDev)
-	}
+    if _, extracted, err := core.BuildRuntimeYAML(cfg, activePath, a.Cfg.BaseDir()); err != nil {
+        slog.Error("同步运行配置失败，系统将进入空转", "err", err)		
+        a.Cfg.SetActiveProfile("")
+    } else {
+        if tunDev, ok := extracted["tun_device"]; ok {			
+            a.State.SetActualTunDevice(tunDev)
+        }
+    }    
 }
 
 func (a *Application) restartWebUIIfOpen() {
