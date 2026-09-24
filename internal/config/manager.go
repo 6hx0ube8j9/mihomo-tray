@@ -245,3 +245,28 @@ func writeTmpAndRename(baseDir, targetPath string, content []byte) error {
 	cleaned = true
 	return os.Rename(tmpName, targetPath)
 }
+
+func (m *Manager) ReloadFromDisk() error {
+	jsonPath := filepath.Join(m.baseDir, ConfigFileName)
+	
+	content, err := os.ReadFile(jsonPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	var newCfg domain.TrayConfig
+	if err := json.Unmarshal(content, &newCfg); err != nil {
+		return fmt.Errorf("JSON 解析失败: %w", err)
+	}
+
+	m.Update(func(c *domain.TrayConfig) {
+		c.General = newCfg.General
+		c.Config = newCfg.Config
+		c.Profiles = newCfg.Profiles
+	})
+	
+	return nil
+}
