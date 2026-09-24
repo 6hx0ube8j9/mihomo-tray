@@ -44,6 +44,7 @@ const (
 	ActionCopyWebUIPassword   = "CopyWebUIPassword"
 	ActionClearWebUICache     = "ClearWebUICache"
 	ActionToggleAllowLan      = "ToggleAllowLan"
+	ActionOpenAppConfig       = "OpenAppConfig"
 )
 
 type UIProfileItem struct {
