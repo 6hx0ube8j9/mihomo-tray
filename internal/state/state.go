@@ -24,12 +24,31 @@ type RuntimeState struct {
 	tunDevName     atomic.Value
 
 	profileLocks sync.Map
+
+	snapshotMu    sync.RWMutex
+	activeAPIAddr string
+	activeSecret  string
+	activeUIName  string
 }
 
 func NewRuntimeState() *RuntimeState {
 	rs := &RuntimeState{}
 	rs.phase.Store(int32(domain.PhaseInitializing))
 	return rs
+}
+
+func (r *RuntimeState) UpdateWebUISnapshot(addr, secret, uiName string) {
+	r.snapshotMu.Lock()
+	defer r.snapshotMu.Unlock()
+	r.activeAPIAddr = addr
+	r.activeSecret = secret
+	r.activeUIName = uiName
+}
+
+func (r *RuntimeState) GetWebUISnapshot() (string, string, string) {
+	r.snapshotMu.RLock()
+	defer r.snapshotMu.RUnlock()
+	return r.activeAPIAddr, r.activeSecret, r.activeUIName
 }
 
 func (r *RuntimeState) TryAcquireProfileLock(path string) bool {
