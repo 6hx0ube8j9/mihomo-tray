@@ -45,9 +45,15 @@ func (m *Manager) LoadAndInitMemory() {
 	if f, err := os.Open(cfgPath); err == nil {
 		if err := json.NewDecoder(f).Decode(&m.data); err != nil {
 			slog.Error("配置解析失败，启用默认设置", "path", cfgPath, "err", err)
+			_ = f.Close()
+			
+			corruptPath := cfgPath + fmt.Sprintf(".corrupt.%d.bak", time.Now().Unix())
+			_ = os.Rename(cfgPath, corruptPath)
+			
 			isTainted = true
+		} else {
+			_ = f.Close()
 		}
-		_ = f.Close()
 	} else {
 		slog.Info("配置文件不存在，初始化默认设置", "path", cfgPath)
 		isTainted = true
@@ -70,7 +76,10 @@ func (m *Manager) ReloadFromDisk() error {
 
 	var newCfg domain.TrayConfig
 	if err := json.Unmarshal(content, &newCfg); err != nil {
-		return fmt.Errorf("JSON 解析失败: %w", err)
+		m.mu.Lock()
+		m.lockedSave()
+		m.mu.Unlock()
+		return fmt.Errorf("JSON 格式错误，已恢复为上一次配置: %w", err)
 	}
 
 	isTainted := m.applyDefaults(&newCfg)
@@ -83,6 +92,7 @@ func (m *Manager) ReloadFromDisk() error {
 	if isTainted {
 		m.lockedSave()
 	}
+	
 	return nil
 }
 
