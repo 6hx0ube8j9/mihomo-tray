@@ -53,54 +53,90 @@ func (m *Manager) LoadAndInitMemory() {
 		isTainted = true
 	}
 
-	if m.data.General.Autostart == nil { t := domain.DefaultAutostart; m.data.General.Autostart = &t; isTainted = true }
-	if m.data.General.SystemBrowser == nil { t := domain.DefaultSystemBrowser; m.data.General.SystemBrowser = &t; isTainted = true }
-	if m.data.General.SystemProxy == nil { t := domain.DefaultSystemProxy; m.data.General.SystemProxy = &t; isTainted = true }
-	if m.data.General.TrayLogLevel == "" { m.data.General.TrayLogLevel = domain.DefaultTrayLogLevel; isTainted = true }
+	if m.applyDefaults(&m.data) || isTainted {
+		m.lockedSave()
+	}
+}
 
-	if m.data.Config.MixedPort == nil { v := domain.DefaultMixedPort; m.data.Config.MixedPort = &v; isTainted = true }
-	if m.data.Config.Port == nil { v := domain.DefaultPort; m.data.Config.Port = &v; isTainted = true }
-	if m.data.Config.SocksPort == nil { v := domain.DefaultSocksPort; m.data.Config.SocksPort = &v; isTainted = true }
+func (m *Manager) ReloadFromDisk() error {
+	jsonPath := filepath.Join(m.baseDir, ConfigFileName)
+	content, err := os.ReadFile(jsonPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
 
-	if m.data.Config.Mode == "" { m.data.Config.Mode = domain.DefaultMode; isTainted = true }
-	if m.data.Config.LogLevel == "" { m.data.Config.LogLevel = domain.DefaultLogLevel; isTainted = true }
-	if m.data.Config.AllowLan == nil { t := domain.DefaultAllowLan; m.data.Config.AllowLan = &t; isTainted = true }
-	if m.data.Config.UnifiedDelay == nil { t := domain.DefaultUnifiedDelay; m.data.Config.UnifiedDelay = &t; isTainted = true }
+	var newCfg domain.TrayConfig
+	if err := json.Unmarshal(content, &newCfg); err != nil {
+		return fmt.Errorf("JSON 解析失败: %w", err)
+	}
 
-	if m.data.Config.Secret == "" { m.data.Config.Secret = generateSecureRandomSecret(12); isTainted = true }
-	if m.data.Config.ExternalController == "" { m.data.Config.ExternalController = domain.DefaultExternalController; isTainted = true }
-	if m.data.Config.ExternalUI == "" { m.data.Config.ExternalUI = domain.DefaultExternalUI; isTainted = true }
-	if m.data.Config.ExternalUIURL == "" { m.data.Config.ExternalUIURL = domain.DefaultExternalUIURL; isTainted = true }
-	
-	m.data.Config.ExternalControllerPipe = domain.IPCNamedPipe
+	isTainted := m.applyDefaults(&newCfg)
 
-	if m.data.Config.ExternalControllerCors.AllowOrigins == nil {
-		m.data.Config.ExternalControllerCors.AllowOrigins = domain.DefaultAllowOrigins
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.data = newCfg
+
+	if isTainted {
+		m.lockedSave()
+	}
+	return nil
+}
+
+func (m *Manager) applyDefaults(cfg *domain.TrayConfig) bool {
+	isTainted := false
+
+	if cfg.General.Autostart == nil { t := domain.DefaultAutostart; cfg.General.Autostart = &t; isTainted = true }
+	if cfg.General.SystemBrowser == nil { t := domain.DefaultSystemBrowser; cfg.General.SystemBrowser = &t; isTainted = true }
+	if cfg.General.SystemProxy == nil { t := domain.DefaultSystemProxy; cfg.General.SystemProxy = &t; isTainted = true }
+	if cfg.General.TrayLogLevel == "" { cfg.General.TrayLogLevel = domain.DefaultTrayLogLevel; isTainted = true }
+
+	if cfg.Config.MixedPort == nil { v := domain.DefaultMixedPort; cfg.Config.MixedPort = &v; isTainted = true }
+	if cfg.Config.Port == nil { v := domain.DefaultPort; cfg.Config.Port = &v; isTainted = true }
+	if cfg.Config.SocksPort == nil { v := domain.DefaultSocksPort; cfg.Config.SocksPort = &v; isTainted = true }
+
+	if cfg.Config.Mode == "" { cfg.Config.Mode = domain.DefaultMode; isTainted = true }
+	if cfg.Config.LogLevel == "" { cfg.Config.LogLevel = domain.DefaultLogLevel; isTainted = true }
+	if cfg.Config.AllowLan == nil { t := domain.DefaultAllowLan; cfg.Config.AllowLan = &t; isTainted = true }
+	if cfg.Config.UnifiedDelay == nil { t := domain.DefaultUnifiedDelay; cfg.Config.UnifiedDelay = &t; isTainted = true }
+
+	if cfg.Config.Secret == "" { cfg.Config.Secret = generateSecureRandomSecret(12); isTainted = true }
+	if cfg.Config.ExternalController == "" { cfg.Config.ExternalController = domain.DefaultExternalController; isTainted = true }
+	if cfg.Config.ExternalUI == "" { cfg.Config.ExternalUI = domain.DefaultExternalUI; isTainted = true }
+	if cfg.Config.ExternalUIURL == "" { cfg.Config.ExternalUIURL = domain.DefaultExternalUIURL; isTainted = true }
+
+	cfg.Config.ExternalControllerPipe = domain.IPCNamedPipe
+
+	if cfg.Config.ExternalControllerCors.AllowOrigins == nil {
+		cfg.Config.ExternalControllerCors.AllowOrigins = domain.DefaultAllowOrigins
 		isTainted = true
 	}
-	if m.data.Config.ExternalControllerCors.AllowPrivateNetwork == nil {
+	if cfg.Config.ExternalControllerCors.AllowPrivateNetwork == nil {
 		t := domain.DefaultAllowPrivateNetwork
-		m.data.Config.ExternalControllerCors.AllowPrivateNetwork = &t
+		cfg.Config.ExternalControllerCors.AllowPrivateNetwork = &t
 		isTainted = true
 	}
 
 	var validItems []domain.ProfileItem
 	activeFound := false
-	for _, item := range m.data.Profiles.Items {
+	for _, item := range cfg.Profiles.Items {
 		if filepath.Dir(filepath.ToSlash(item.Path)) != ProfilesDir {
 			isTainted = true
 			continue
 		}
 		validItems = append(validItems, item)
-		if m.data.Profiles.Active == item.Path { activeFound = true }
+		if cfg.Profiles.Active == item.Path { activeFound = true }
 	}
-	m.data.Profiles.Items = validItems
-	if !activeFound && m.data.Profiles.Active != "" {
-		m.data.Profiles.Active = ""
+	cfg.Profiles.Items = validItems
+	if !activeFound && cfg.Profiles.Active != "" {
+		cfg.Profiles.Active = ""
 		isTainted = true
 	}
 
-	if isTainted { m.lockedSave() }
+	return isTainted
 }
 
 func (m *Manager) GetConfig() domain.TrayConfig {
@@ -244,29 +280,4 @@ func writeTmpAndRename(baseDir, targetPath string, content []byte) error {
 	
 	cleaned = true
 	return os.Rename(tmpName, targetPath)
-}
-
-func (m *Manager) ReloadFromDisk() error {
-	jsonPath := filepath.Join(m.baseDir, ConfigFileName)
-	
-	content, err := os.ReadFile(jsonPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-
-	var newCfg domain.TrayConfig
-	if err := json.Unmarshal(content, &newCfg); err != nil {
-		return fmt.Errorf("JSON 解析失败: %w", err)
-	}
-
-	m.Update(func(c *domain.TrayConfig) {
-		c.General = newCfg.General
-		c.Config = newCfg.Config
-		c.Profiles = newCfg.Profiles
-	})
-	
-	return nil
 }
