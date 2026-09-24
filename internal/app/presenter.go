@@ -85,6 +85,10 @@ func (a *Application) pushUIState() {
 		newState.IsProxy != a.lastUIState.IsProxy ||
 		newState.Mode != a.lastUIState.Mode ||
 		newState.AllowLan != a.lastUIState.AllowLan ||
+		newState.AutoStart != a.lastUIState.AutoStart ||
+		newState.RunAsAdmin != a.lastUIState.RunAsAdmin ||
+		newState.UseSystemBrowser != a.lastUIState.UseSystemBrowser ||
+		newState.IsAdmin != a.lastUIState.IsAdmin ||
 		len(newState.ProfileItems) != len(a.lastUIState.ProfileItems) {
 		changed = true
 	} else {
