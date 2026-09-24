@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -28,19 +29,25 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 	isKernelRunning := a.State.GetPhase() == domain.PhaseRunning
 
 	if isKernelRunning {
-		reqCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 
 		payload := map[string]interface{}{"path": filepath.ToSlash(runtimeAbs)}
-		_, err := a.API.DoRequest(reqCtx, "PUT", "/configs?force=true", payload)
+		err := a.API.ForceReloadKernel(reqCtx, payload)
 
 		if err != nil {
-			logMsg := fmt.Errorf("热重载被内核拒绝 | 配置: %s | 原因: %v", targetRelPath, err)
-			a.Kernel.WriteCoreLog("ERROR", logMsg.Error())
-			slog.Error("内核拒载，事务回滚", "target", targetRelPath)
-			return err
+			if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
+				slog.Error("配置加载超时，内核可能仍在下载网络规则", "target", targetRelPath)
+				a.Kernel.WriteCoreLog("ERROR", fmt.Sprintf("配置加载超时，内核下载外部资源可能超时 | 配置: %s", targetRelPath))
+			} else {
+				logMsg := fmt.Errorf("配置加载失败 | 配置: %s | 原因: %v", targetRelPath, err)
+				a.Kernel.WriteCoreLog("ERROR", logMsg.Error())
+				slog.Error("配置加载失败，回滚状态", "target", targetRelPath)
+				return err
+			}
+		} else {
+			slog.Info("配置加载成功")
 		}
-		slog.Info("内核热载成功")
 	} else {
 		slog.Info("使用新配置唤醒内核")
 	}
