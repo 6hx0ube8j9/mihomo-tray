@@ -124,3 +124,11 @@ func (c *APIClient) GetKernelStatus(ctx context.Context) (*domain.KernelStatus, 
 	}
 	return &status, nil
 }
+
+func (c *APIClient) ForceReloadKernel(ctx context.Context, payload map[string]interface{}) error {
+	if c.st.IsExiting() {
+		return context.Canceled
+	}
+	_, err := c.DoRequest(ctx, http.MethodPut, "/configs?force=true", payload)
+	return err
+}
