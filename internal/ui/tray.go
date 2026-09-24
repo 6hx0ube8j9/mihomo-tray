@@ -129,6 +129,9 @@ func buildMenuSkeleton(e *UIEngine) {
 	e.addSeparator()
 
 	trayCache.menuSwitchProfile, _ = e.addSubMenu("切换配置文件")
+	
+	emptyAction := e.addActionTo(trayCache.menuSwitchProfile, "空", nil)
+	emptyAction.SetEnabled(false)
 
 	e.addAction("编辑当前配置", func() { e.sendCommand(domain.ActionEditCurrentConfig, "") })
 	e.addAction("添加配置", func() { e.sendCommand(domain.ActionOpenProfileManager, "") })
@@ -150,6 +153,11 @@ func buildMenuSkeleton(e *UIEngine) {
 	})
 
 	moreMenu, _ := e.addSubMenu("更多设置")
+
+	e.addActionTo(moreMenu, "打开应用配置 (mihomo-tray.json)", func() {
+		e.sendCommand(domain.ActionOpenAppConfig, "")
+	})
+	e.addActionTo(moreMenu, "-", nil)
 
 	e.addActionTo(moreMenu, "复制 Web 访问密码", func() {
 		e.sendCommand(domain.ActionCopyWebUIPassword, "")
