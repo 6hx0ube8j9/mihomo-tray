@@ -441,12 +441,13 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		_ = sys.ExecuteSystemCommand(absPath)
 
 	case domain.ActionCopyWebUIPassword:
-		cfg := a.Cfg.GetConfig()
-		if cfg.Config.Secret == "" {
+		_, secret, _ := a.State.GetWebUISnapshot()
+
+		if secret == "" {
 			ui.ShowInfoMessage(nil, "复制密码", "当前 Web 面板无需密码即可访问。")
 			break
 		}
-		if err := sys.WriteToClipboard(cfg.Config.Secret); err == nil {
+		if err := sys.WriteToClipboard(secret); err == nil {
 			ui.ShowTrayNotification("密码复制成功", "Web 密码已复制到剪贴板，可直接粘贴使用。")
 		} else {
 			ui.ShowErrorMessage(nil, "复制失败", "无法向剪贴板写入密码：\n\n"+err.Error())
