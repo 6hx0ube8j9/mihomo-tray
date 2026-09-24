@@ -225,6 +225,48 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		})
 		changed = true
 	}
+	
+	if resp.LogLevel != "" && resp.LogLevel != cfg.Config.LogLevel {
+		slog.Info("内核日志级别已变更", "from", cfg.Config.LogLevel, "to", resp.LogLevel)
+		a.Cfg.Update(func(c *domain.TrayConfig) {
+			c.Config.LogLevel = resp.LogLevel
+		})
+		changed = true
+	}
+
+	if cfg.Config.UnifiedDelay != nil && resp.UnifiedDelay != *cfg.Config.UnifiedDelay {
+		slog.Info("内核 Unified-Delay 已变更", "from", *cfg.Config.UnifiedDelay, "to", resp.UnifiedDelay)
+		a.Cfg.Update(func(c *domain.TrayConfig) {
+			b := resp.UnifiedDelay
+			c.Config.UnifiedDelay = &b
+		})
+		changed = true
+	}
+
+	if resp.MixedPort != 0 && (cfg.Config.MixedPort == nil || *cfg.Config.MixedPort != resp.MixedPort) {
+		slog.Info("混合端口已变更", "to", resp.MixedPort)
+		a.Cfg.Update(func(c *domain.TrayConfig) {
+			p := resp.MixedPort
+			c.Config.MixedPort = &p
+		})
+		changed = true
+	}
+
+	if resp.Port != 0 && (cfg.Config.Port == nil || *cfg.Config.Port != resp.Port) {
+		a.Cfg.Update(func(c *domain.TrayConfig) {
+			p := resp.Port
+			c.Config.Port = &p
+		})
+		changed = true
+	}
+
+	if resp.SocksPort != 0 && (cfg.Config.SocksPort == nil || *cfg.Config.SocksPort != resp.SocksPort) {
+		a.Cfg.Update(func(c *domain.TrayConfig) {
+			p := resp.SocksPort
+			c.Config.SocksPort = &p
+		})
+		changed = true
+	}
 
 	if a.reconcileTunState(resp.Tun.Enable) {
 		changed = true
