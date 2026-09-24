@@ -130,7 +130,7 @@ func buildMenuSkeleton(e *UIEngine) {
 
 	trayCache.menuSwitchProfile, _ = e.addSubMenu("切换配置文件")
 	
-	emptyAction := e.addActionTo(trayCache.menuSwitchProfile, "空", nil)
+	emptyAction := e.addActionTo(trayCache.menuSwitchProfile, "暂无配置", nil)
 	emptyAction.SetEnabled(false)
 
 	e.addAction("编辑当前配置", func() { e.sendCommand(domain.ActionEditCurrentConfig, "") })
