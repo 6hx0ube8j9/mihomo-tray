@@ -13,7 +13,20 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-const yamlHeader = "# Auto-generated runtime configuration. DO NOT EDIT.\n\n"
+const yamlHeader = "# 启动配置 请勿编辑\n\n"
+
+// 递归清除 YAML 树中的所有无意义注释
+func clearComments(node *yaml.Node) {
+	if node == nil {
+		return
+	}
+	node.HeadComment = ""
+	node.LineComment = ""
+	node.FootComment = ""
+	for _, child := range node.Content {
+		clearComments(child)
+	}
+}
 
 func BuildRuntimeYAML(cfg domain.TrayConfig, relPath string, baseDir string) (bool, map[string]string, error) {
 	var root yaml.Node
@@ -43,18 +56,13 @@ func BuildRuntimeYAML(cfg domain.TrayConfig, relPath string, baseDir string) (bo
 	var topNodes []*yaml.Node
 
 	putTop := func(key string, val any) {
-		k, v := popKey(rootMap, key)
+		k, _ := popKey(rootMap, key) 
 		if k == nil {
 			k = &yaml.Node{Kind: yaml.ScalarNode, Value: key}
 		}
 		var newVal yaml.Node
 		if err := newVal.Encode(val); err != nil {
 			return
-		}
-		if v != nil {
-			newVal.LineComment = v.LineComment
-			newVal.HeadComment = v.HeadComment
-			newVal.FootComment = v.FootComment
 		}
 		topNodes = append(topNodes, k, &newVal)
 	}
@@ -86,12 +94,17 @@ func BuildRuntimeYAML(cfg domain.TrayConfig, relPath string, baseDir string) (bo
 	if cfg.Config.ExternalControllerPipe != "" { putTop("external-controller-pipe", cfg.Config.ExternalControllerPipe) }
 	if cfg.Config.Secret != nil { putTop("secret", *cfg.Config.Secret) }
 	if cfg.Config.ExternalUI != "" { putTop("external-ui", cfg.Config.ExternalUI) }
-	if cfg.Config.ExternalUIURL != nil { putTop("external-ui-url", *cfg.Config.ExternalUIURL) }
+	
+	if cfg.Config.ExternalUIURL != nil && *cfg.Config.ExternalUIURL != "" {
+		putTop("external-ui-url", *cfg.Config.ExternalUIURL)
+	} else {
+		deleteKeys(rootMap, "external-ui-url")
+	}
+	
 	if cfg.Config.ExternalUIName != "" { putTop("external-ui-name", cfg.Config.ExternalUIName) }
 	extracted["external-ui-name"] = cfg.Config.ExternalUIName
 
 	corsNode := &yaml.Node{Kind: yaml.MappingNode}
-	
 	k1 := &yaml.Node{Kind: yaml.ScalarNode, Value: "allow-private-network"}
 	var v1 yaml.Node
 	if cfg.Config.ExternalControllerCors.AllowPrivateNetwork != nil {
@@ -99,7 +112,6 @@ func BuildRuntimeYAML(cfg domain.TrayConfig, relPath string, baseDir string) (bo
 	} else {
 		_ = v1.Encode(true)
 	}
-
 	k2 := &yaml.Node{Kind: yaml.ScalarNode, Value: "allow-origins"}
 	var v2 yaml.Node
 	_ = v2.Encode(cfg.Config.ExternalControllerCors.AllowOrigins)
@@ -110,13 +122,10 @@ func BuildRuntimeYAML(cfg domain.TrayConfig, relPath string, baseDir string) (bo
 	if tunIdx > 0 && tunV.Kind == yaml.MappingNode {
 		extracted["tun_device"] = getString(tunV, "device")
 		
-		enableIdx, enableV := findKey(tunV, "enable")
+		enableIdx, _ := findKey(tunV, "enable")
 		if enableIdx > 0 {
 			var newVal yaml.Node
 			_ = newVal.Encode(cfg.Config.Tun.Enable)
-			newVal.LineComment = enableV.LineComment
-			newVal.HeadComment = enableV.HeadComment
-			newVal.FootComment = enableV.FootComment
 			tunV.Content[enableIdx] = &newVal
 		} else {
 			ek := &yaml.Node{Kind: yaml.ScalarNode, Value: "enable"}
@@ -142,6 +151,8 @@ func BuildRuntimeYAML(cfg domain.TrayConfig, relPath string, baseDir string) (bo
 	}
 
 	rootMap.Content = append(topNodes, rootMap.Content...)
+
+	clearComments(&root)
 
 	outBytes, err := yaml.Marshal(&root)
 	if err != nil {
