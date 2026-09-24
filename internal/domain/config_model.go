@@ -29,11 +29,11 @@ type KernelConfig struct {
 	AllowLan     *bool  `json:"allow-lan"`
 	UnifiedDelay *bool  `json:"unified-delay"`
 
-	ExternalController string `json:"external-controller"`
-	Secret             string `json:"secret"`
-	ExternalUI         string `json:"external-ui"`
-	ExternalUIURL      string `json:"external-ui-url"`
-	ExternalUIName     string `json:"external-ui-name"`
+	ExternalController string  `json:"external-controller"`
+	Secret             *string `json:"secret"`           
+	ExternalUI         string  `json:"external-ui"` 
+	ExternalUIURL      *string `json:"external-ui-url"`
+	ExternalUIName     string  `json:"external-ui-name"`
 
 	ExternalControllerPipe string `json:"-"`
 
@@ -50,7 +50,7 @@ type TunConfig struct {
 	Enable bool `json:"enable"`
 }
 
-// 订阅与本地配置资产管理 (保持原样)
+// 订阅与本地配置
 
 type ProfileManager struct {
 	Active string        `json:"active"`
