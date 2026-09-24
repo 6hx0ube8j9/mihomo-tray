@@ -19,12 +19,6 @@ import (
 func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath string) error {
 	cfg := a.Cfg.GetConfig()
 	
-	if cfg.Config.Tun.Enable && !sys.IsAdmin() {
-		slog.Warn("非管理员权限无法开启 TUN，已自动关闭")
-		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = false })
-		cfg = a.Cfg.GetConfig() 
-	}
-
 	_, extracted, err := core.BuildRuntimeYAML(cfg, targetRelPath, a.Cfg.BaseDir())
 	if err != nil {
 		return fmt.Errorf("生成运行时配置失败: %w", err)
@@ -135,6 +129,7 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 			return
 		}
 
+		a.checkAndReconcilePrivileges()
 		target := a.Cfg.GetActivePath()
 
 		if err := a.safePreflightCheck(target, "重载配置"); err != nil {
@@ -160,6 +155,8 @@ func (a *Application) RestartKernel() {
 	if err := a.Cfg.ReloadFromDisk(); err != nil {
 		slog.Warn("重启前重载本地 JSON 失败", "err", err)
 		ui.ShowErrorMessage(nil, "JSON 错误", "mihomo-tray.json 存在语法错误，已阻止修改。\n\n详情：\n"+err.Error())
+	} else {
+		a.checkAndReconcilePrivileges()
 	}
 	
 	a.SyncRuntimeConfig()
@@ -190,11 +187,6 @@ func (a *Application) SyncRuntimeConfig() {
 	}
 
 	cfg := a.Cfg.GetConfig()
-	if cfg.Config.Tun.Enable && !sys.IsAdmin() {
-		slog.Warn("非管理员权限无法开启 TUN，已自动关闭")
-		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = false })
-		cfg = a.Cfg.GetConfig()
-	}
 
 	if _, extracted, err := core.BuildRuntimeYAML(cfg, activePath, a.Cfg.BaseDir()); err != nil {
 		slog.Error("同步运行配置失败，系统将进入空转", "err", err)        
@@ -228,5 +220,34 @@ func (a *Application) restartWebUIIfOpen() {
 			}
 			slog.Warn("等待内核就绪超时，自动重启 Web 面板失败")
 		}()
+	}
+}
+
+
+func (a *Application) checkAndReconcilePrivileges() {
+	cfg := a.Cfg.GetConfig()
+	
+	needsAdmin := false
+	if cfg.General.RunAsAdmin { needsAdmin = true }
+	if cfg.Config.Tun.Enable { needsAdmin = true }
+	if cfg.General.Autostart != nil && *cfg.General.Autostart { needsAdmin = true }
+
+	if needsAdmin && !sys.IsAdmin() {
+		slog.Info("检测到 JSON 手动修改了越权配置，发起 UAC 提权")
+		
+		if err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--restarting"); err == nil {
+			a.SafeShutdown(nil)
+			os.Exit(0)
+		}
+
+		slog.Warn("UAC 提权未获授权，强制回滚状态")
+		a.Cfg.Update(func(c *domain.TrayConfig) {
+			c.General.RunAsAdmin = false
+			c.Config.Tun.Enable = false
+			b := false
+			c.General.Autostart = &b
+		})
+		
+		ui.ShowInfoMessage(nil, "提权拦截", "配置项（TUN/自启）需要管理员权限。\n由于未获授权，已自动还原相关选项。")
 	}
 }
