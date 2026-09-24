@@ -113,10 +113,19 @@ func (m *Manager) applyDefaults(cfg *domain.TrayConfig) bool {
 	if cfg.Config.AllowLan == nil { t := domain.DefaultAllowLan; cfg.Config.AllowLan = &t; isTainted = true }
 	if cfg.Config.UnifiedDelay == nil { t := domain.DefaultUnifiedDelay; cfg.Config.UnifiedDelay = &t; isTainted = true }
 
-	if cfg.Config.Secret == "" { cfg.Config.Secret = generateSecureRandomSecret(12); isTainted = true }
+	if cfg.Config.Secret == nil { 
+		s := generateSecureRandomSecret(12)
+		cfg.Config.Secret = &s
+		isTainted = true 
+	}
+	if cfg.Config.ExternalUIURL == nil { 
+		s := domain.DefaultExternalUIURL
+		cfg.Config.ExternalUIURL = &s
+		isTainted = true 
+	}
+
 	if cfg.Config.ExternalController == "" { cfg.Config.ExternalController = domain.DefaultExternalController; isTainted = true }
 	if cfg.Config.ExternalUI == "" { cfg.Config.ExternalUI = domain.DefaultExternalUI; isTainted = true }
-	if cfg.Config.ExternalUIURL == "" { cfg.Config.ExternalUIURL = domain.DefaultExternalUIURL; isTainted = true }
 
 	cfg.Config.ExternalControllerPipe = domain.IPCNamedPipe
 
