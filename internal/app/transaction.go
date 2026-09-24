@@ -240,14 +240,12 @@ func (a *Application) checkAndReconcilePrivileges() {
 			os.Exit(0)
 		}
 
-		slog.Warn("UAC 提权未获授权，强制回滚状态")
+		slog.Warn("UAC 提权未获授权，静默回滚越权状态")
 		a.Cfg.Update(func(c *domain.TrayConfig) {
 			c.General.RunAsAdmin = false
 			c.Config.Tun.Enable = false
 			b := false
 			c.General.Autostart = &b
 		})
-		
-		ui.ShowInfoMessage(nil, "提权拦截", "配置项（TUN/自启）需要管理员权限。\n由于未获授权，已自动还原相关选项。")
 	}
 }
