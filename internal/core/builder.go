@@ -84,10 +84,9 @@ func BuildRuntimeYAML(cfg domain.TrayConfig, relPath string, baseDir string) (bo
 
 	if cfg.Config.ExternalController != "" { putTop("external-controller", cfg.Config.ExternalController) }
 	if cfg.Config.ExternalControllerPipe != "" { putTop("external-controller-pipe", cfg.Config.ExternalControllerPipe) }
-	if cfg.Config.Secret != "" { putTop("secret", cfg.Config.Secret) }
+	if cfg.Config.Secret != nil { putTop("secret", *cfg.Config.Secret) }
 	if cfg.Config.ExternalUI != "" { putTop("external-ui", cfg.Config.ExternalUI) }
-	if cfg.Config.ExternalUIURL != "" { putTop("external-ui-url", cfg.Config.ExternalUIURL) }
-	
+	if cfg.Config.ExternalUIURL != nil { putTop("external-ui-url", *cfg.Config.ExternalUIURL) }
 	if cfg.Config.ExternalUIName != "" { putTop("external-ui-name", cfg.Config.ExternalUIName) }
 	extracted["external-ui-name"] = cfg.Config.ExternalUIName
 
