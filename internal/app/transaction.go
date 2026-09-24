@@ -131,6 +131,9 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 
 		if err := a.Cfg.ReloadFromDisk(); err != nil {
 			slog.Warn("重载本地 JSON 配置失败", "err", err)
+			ui.ShowErrorMessage(nil, "JSON 错误", "mihomo-tray.json 存在语法错误，已阻止修改。\n\n详情：\n"+err.Error())
+			return
+		}
 		}
 
 		target := a.Cfg.GetActivePath()
@@ -140,7 +143,7 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 		}
 
 		if err := a.applyConfigTransaction(ctx, target); err != nil {
-			ui.ShowErrorMessage(nil, "配置重载失败", "内核拒绝加载当前配置文件，请检查语法：\n\n"+err.Error())
+			ui.ShowErrorMessage(nil, "配置重载失败", "内核拒绝加载当前配置文件，请检查：\n\n"+err.Error())
 		} else {
 			a.restartWebUIIfOpen()
 		}
@@ -157,6 +160,7 @@ func (a *Application) RestartKernel() {
 	
 	if err := a.Cfg.ReloadFromDisk(); err != nil {
 		slog.Warn("重启前重载本地 JSON 失败", "err", err)
+		ui.ShowErrorMessage(nil, "JSON 错误", "mihomo-tray.json 存在语法错误，已阻止修改。\n\n详情：\n"+err.Error())
 	}
 	
 	a.SyncRuntimeConfig()
@@ -217,13 +221,13 @@ func (a *Application) restartWebUIIfOpen() {
 				}
 
 				if a.State.GetPhase() == domain.PhaseRunning {
-					slog.Debug("内核已就绪，正在自动重新拉起 Web 面板")
+					slog.Debug("内核已就绪，正在自动重启 Web 面板")
 					a.UICommandCh <- domain.UICommand{Action: domain.ActionOpenWebUI}
 					return
 				}
 				time.Sleep(200 * time.Millisecond)
 			}
-			slog.Warn("等待内核就绪超时，自动拉起 Web 面板失败")
+			slog.Warn("等待内核就绪超时，自动重启 Web 面板失败")
 		}()
 	}
 }
