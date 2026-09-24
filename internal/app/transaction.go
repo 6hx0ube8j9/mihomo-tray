@@ -131,9 +131,8 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 
 		if err := a.Cfg.ReloadFromDisk(); err != nil {
 			slog.Warn("重载本地 JSON 配置失败", "err", err)
-			ui.ShowErrorMessage(nil, "JSON 错误", "mihomo-tray.json 存在语法错误，已阻止修改。\n\n详情：\n"+err.Error())
+			ui.ShowErrorMessage(nil, "JSON 错误", "mihomo-tray.json 存在语法错误，已阻止热重载。\n\n详情：\n"+err.Error())
 			return
-		}
 		}
 
 		target := a.Cfg.GetActivePath()
