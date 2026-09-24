@@ -12,6 +12,8 @@ import (
 type TrayMenuCache struct {
 	isBuilt bool
 
+	latestState domain.UIState 
+
 	actProxy      *walk.Action
 	actTun        *walk.Action
 
@@ -57,8 +59,10 @@ func (e *UIEngine) updateTrayState(state domain.UIState) {
 	}
 
 	e.app.Synchronize(func() {
+		trayCache.latestState = state
+
 		if !trayCache.isBuilt {
-			buildMenuSkeleton(e, state)
+			buildMenuSkeleton(e)
 			trayCache.isBuilt = true
 		}
 
@@ -100,22 +104,27 @@ func (e *UIEngine) updateTrayState(state domain.UIState) {
 	})
 }
 
-func buildMenuSkeleton(e *UIEngine, state domain.UIState) {
+func buildMenuSkeleton(e *UIEngine) {
 	actions := e.ni.ContextMenu().Actions()
 	actions.Clear()
 
 	e.addAction("进入 Web 面板", func() { e.sendCommand(domain.ActionOpenWebUI, "") })
 	e.addSeparator()
 
-	trayCache.actProxy = e.addCheckableAction("系统代理", state.IsProxy, func() { e.sendCommand(domain.ActionToggleProxy, fmt.Sprintf("%t", !trayCache.actProxy.Checked())) })
-	trayCache.actTun = e.addCheckableAction("TUN 模式", state.IsTun, func() { e.sendCommand(domain.ActionToggleTun, fmt.Sprintf("%t", !trayCache.actTun.Checked())) })
+	trayCache.actProxy = e.addCheckableAction("系统代理", trayCache.latestState.IsProxy, func() { 
+		e.sendCommand(domain.ActionToggleProxy, fmt.Sprintf("%t", !trayCache.latestState.IsProxy)) 
+	})
+	
+	trayCache.actTun = e.addCheckableAction("TUN 模式", trayCache.latestState.IsTun, func() { 
+		e.sendCommand(domain.ActionToggleTun, fmt.Sprintf("%t", !trayCache.latestState.IsTun)) 
+	})
 
-	modeMenu, modeMenuAction := e.addSubMenu(fmt.Sprintf("路由模式: %s", getModeName(state.Mode)))
+	modeMenu, modeMenuAction := e.addSubMenu(fmt.Sprintf("路由模式: %s", getModeName(trayCache.latestState.Mode)))
 	trayCache.actModeMenu = modeMenuAction
 
-	trayCache.actModeRule = e.addCheckableSubAction(modeMenu, "规则", state.Mode == "rule", func() { e.sendCommand(domain.ActionSwitchMode, "rule") })
-	trayCache.actModeDirect = e.addCheckableSubAction(modeMenu, "直连", state.Mode == "direct", func() { e.sendCommand(domain.ActionSwitchMode, "direct") })
-	trayCache.actModeGlobal = e.addCheckableSubAction(modeMenu, "全局", state.Mode == "global", func() { e.sendCommand(domain.ActionSwitchMode, "global") })
+	trayCache.actModeRule = e.addCheckableSubAction(modeMenu, "规则", trayCache.latestState.Mode == "rule", func() { e.sendCommand(domain.ActionSwitchMode, "rule") })
+	trayCache.actModeDirect = e.addCheckableSubAction(modeMenu, "直连", trayCache.latestState.Mode == "direct", func() { e.sendCommand(domain.ActionSwitchMode, "direct") })
+	trayCache.actModeGlobal = e.addCheckableSubAction(modeMenu, "全局", trayCache.latestState.Mode == "global", func() { e.sendCommand(domain.ActionSwitchMode, "global") })
 
 	e.addSeparator()
 
@@ -132,11 +141,12 @@ func buildMenuSkeleton(e *UIEngine, state domain.UIState) {
 	adminMenu, adminMenuAction := e.addSubMenu("运行权限")
 	trayCache.actAdminMenu = adminMenuAction
 
-	trayCache.actAutoStart = e.addCheckableSubAction(adminMenu, "开机自启（管理员）", state.AutoStart, func() {
-		e.sendCommand(domain.ActionToggleAutoStart, fmt.Sprintf("%t", !trayCache.actAutoStart.Checked()))
+	trayCache.actAutoStart = e.addCheckableSubAction(adminMenu, "开机自启（管理员）", trayCache.latestState.AutoStart, func() {
+		e.sendCommand(domain.ActionToggleAutoStart, fmt.Sprintf("%t", !trayCache.latestState.AutoStart))
 	})
-	trayCache.actRunAdmin = e.addCheckableSubAction(adminMenu, "始终以管理员身份运行", state.RunAsAdmin || state.AutoStart, func() {
-		e.sendCommand(domain.ActionToggleRunAsAdmin, fmt.Sprintf("%t", !trayCache.actRunAdmin.Checked()))
+	
+	trayCache.actRunAdmin = e.addCheckableSubAction(adminMenu, "始终以管理员身份运行", trayCache.latestState.RunAsAdmin || trayCache.latestState.AutoStart, func() {
+		e.sendCommand(domain.ActionToggleRunAsAdmin, fmt.Sprintf("%t", !trayCache.latestState.RunAsAdmin))
 	})
 
 	moreMenu, _ := e.addSubMenu("更多设置")
@@ -153,12 +163,12 @@ func buildMenuSkeleton(e *UIEngine, state domain.UIState) {
 		}()
 	})
 
-	trayCache.actSysBrowser = e.addCheckableSubAction(moreMenu, "使用默认浏览器打开面板", state.UseSystemBrowser, func() {
-		e.sendCommand(domain.ActionToggleSystemBrowser, fmt.Sprintf("%t", !trayCache.actSysBrowser.Checked()))
+	trayCache.actSysBrowser = e.addCheckableSubAction(moreMenu, "使用默认浏览器打开面板", trayCache.latestState.UseSystemBrowser, func() {
+		e.sendCommand(domain.ActionToggleSystemBrowser, fmt.Sprintf("%t", !trayCache.latestState.UseSystemBrowser))
 	})
 
-	trayCache.actAllowLan = e.addCheckableSubAction(moreMenu, "允许局域网代理", state.AllowLan, func() {
-		e.sendCommand(domain.ActionToggleAllowLan, fmt.Sprintf("%t", !trayCache.actAllowLan.Checked()))
+	trayCache.actAllowLan = e.addCheckableSubAction(moreMenu, "允许局域网代理", trayCache.latestState.AllowLan, func() {
+		e.sendCommand(domain.ActionToggleAllowLan, fmt.Sprintf("%t", !trayCache.latestState.AllowLan))
 	})
 
 	e.addActionTo(moreMenu, "-", nil)
