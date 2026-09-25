@@ -30,9 +30,8 @@ func NewAPIClient(st *state.RuntimeState) *APIClient {
 		st: st,
 		httpClient: &http.Client{
 			Transport: &http.Transport{
-				Proxy: nil, // 强制直连
+				Proxy: nil,
 				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-					// 物理级劫持：忽略外层请求的 IP:Port，全部打入命名管道
 					timeout := 2 * time.Second
 					return winio.DialPipe(domain.IPCNamedPipe, &timeout)
 				},
@@ -104,6 +103,14 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 	return body, nil
 }
 
+func (c *APIClient) ForceReloadKernel(ctx context.Context, payload map[string]interface{}) error {
+	if c.st.IsExiting() {
+		return context.Canceled
+	}
+	_, err := c.DoRequest(ctx, http.MethodPut, "/configs?force=true", payload)
+	return err
+}
+
 func (c *APIClient) SyncConfigToKernel(ctx context.Context, payload map[string]interface{}) error {
 	if c.st.IsExiting() {
 		return context.Canceled
@@ -123,12 +130,4 @@ func (c *APIClient) GetKernelStatus(ctx context.Context) (*domain.KernelStatus, 
 		return nil, fmt.Errorf("解析内核状态失败: %w", err)
 	}
 	return &status, nil
-}
-
-func (c *APIClient) ForceReloadKernel(ctx context.Context, payload map[string]interface{}) error {
-	if c.st.IsExiting() {
-		return context.Canceled
-	}
-	_, err := c.DoRequest(ctx, http.MethodPut, "/configs?force=true", payload)
-	return err
 }
