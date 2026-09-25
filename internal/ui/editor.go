@@ -10,8 +10,6 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-var isSubscriptionEditorOpen bool
-
 func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string, defaultInterval int) (string, string, int, bool) {
 	if e.app == nil || e.mw == nil {
 		return "", "", 0, false
@@ -25,11 +23,14 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 	resCh := make(chan result)
 
 	e.app.Synchronize(func() {
-		if isSubscriptionEditorOpen {
-			resCh <- result{ok: false}
-			return
+		// 无全局锁机制：通过嗅探当前活动窗口，动态拦截重复呼出
+		if active := e.app.ActiveForm(); active != nil {
+			if dlg, isDialog := active.(*walk.Dialog); isDialog && dlg.Title() == title {
+				dlg.SetFocus() // 将已存在的对话框闪烁并推向最前
+				resCh <- result{ok: false}
+				return
+			}
 		}
-		isSubscriptionEditorOpen = true
 
 		var dlg *walk.Dialog
 		var nameEdit *walk.LineEdit
@@ -43,14 +44,14 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 
 		var owner walk.Form = getValidOwner()
 
-		dialogDecl := Dialog{
+		err := Dialog{
 			AssignTo: &dlg,
 			Title:    title,
-			MinSize:  Size{Width: 450, Height: 220},
-			Layout:   VBox{},
+			MinSize:  Size{Width: 450, Height: 200},
+			Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 			Children: []Widget{
 				Composite{
-					Layout: Grid{Columns: 2},
+					Layout: Grid{Columns: 2, Spacing: 10, MarginsZero: true},
 					Children: []Widget{
 						Label{Text: "配置名称:"},
 						LineEdit{AssignTo: &nameEdit, Text: defaultName},
@@ -68,19 +69,21 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 									MinValue: 0,
 									MaxValue: float64(domain.MaxUpdateInterval),
 								},
-								Label{Text: "天 (填 0 为停止更新)"},
-								HSpacer{},
+								Label{Text: "天 (填 0 为停止自动更新)"},
+								HSpacer{}, // 将输入框固定在左侧
 							},
 						},
 					},
 				},
+				VSpacer{}, // 弹簧：将底部按钮压到底部
 				Composite{
-					Layout: HBox{},
+					Layout: HBox{MarginsZero: true, Spacing: 10},
 					Children: []Widget{
-						HSpacer{},
+						HSpacer{}, // 弹簧：将按钮挤到右侧
 						PushButton{
 							AssignTo: &acceptButton,
 							Text:     "确定",
+							MinSize:  Size{Width: 80},
 							OnClicked: func() {
 								name := strings.TrimSpace(nameEdit.Text())
 								inputUrl := strings.TrimSpace(urlEdit.Text())
@@ -92,7 +95,7 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 
 								u, parseErr := url.ParseRequestURI(inputUrl)
 								if parseErr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-									RunErrorDialog(dlg, "输入错误", "请输入有效的订阅链接")
+									RunErrorDialog(dlg, "输入错误", "请输入有效的 HTTP/HTTPS 订阅链接")
 									return
 								}
 
@@ -104,7 +107,8 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 							},
 						},
 						PushButton{
-							Text: "取消",
+							Text:    "取消",
+							MinSize: Size{Width: 80},
 							OnClicked: func() {
 								dlg.Cancel()
 							},
@@ -112,19 +116,15 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 					},
 				},
 			},
-		}
-
-		err := dialogDecl.Create(owner)
+		}.Create(owner)
 
 		if err != nil {
-			isSubscriptionEditorOpen = false
 			resCh <- result{ok: false}
 			return
 		}
 
 		dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-			isSubscriptionEditorOpen = false
-
+			// 对话框关闭时，安全交还焦点给主面板
 			if e.panelWindow != nil && e.panelWindow.Visible() && getValidOwner() != nil {
 				e.panelWindow.Show()
 				e.panelWindow.SetFocus()
