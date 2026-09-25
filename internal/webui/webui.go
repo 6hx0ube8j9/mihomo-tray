@@ -41,6 +41,7 @@ type Config struct {
 	BaseDir            string
 	UIName             string
 	ForceSystemBrowser bool
+	RemoteWebUI        bool
 }
 
 type browserInfo struct {
@@ -162,11 +163,12 @@ func getWebUITarget(debugPort string) (id string, title string, found bool) {
 	return "", "", false
 }
 
-func buildFinalURL(cfg Config) (string, string) {
-	cleanAddr := strings.TrimRight(cfg.APIAddr, "/")
+func parseAPIAddress(apiAddr string) (host string, port string, appHostPort string) {
+	cleanAddr := strings.TrimRight(apiAddr, "/")
 	cleanAddr = strings.TrimPrefix(strings.TrimPrefix(cleanAddr, "http://"), "https://")
 
-	host, port, err := net.SplitHostPort(cleanAddr)
+	var err error
+	host, port, err = net.SplitHostPort(cleanAddr)
 	if err != nil {
 		host = cleanAddr
 		port = defaultWebUIPort
@@ -177,20 +179,38 @@ func buildFinalURL(cfg Config) (string, string) {
 	if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
 		host = defaultWebUIHost
 	}
+	return host, port, net.JoinHostPort(host, port)
+}
 
-	appHostPort := net.JoinHostPort(host, port)
-
+func buildLocalWebUIURL(host, port, secret, uiName string) string {
 	uiPath := "/ui/"
-	if cfg.UIName != "" {
-		uiPath = fmt.Sprintf("/ui/%s/", strings.Trim(cfg.UIName, "/"))
+	if uiName != "" {
+		uiPath = fmt.Sprintf("/ui/%s/", strings.Trim(uiName, "/"))
 	}
-
 	query := fmt.Sprintf("hostname=%s&port=%s", host, port)
-	if cfg.Secret != "" {
-		query += fmt.Sprintf("&secret=%s", url.QueryEscape(cfg.Secret))
+	if secret != "" {
+		query += fmt.Sprintf("&secret=%s", url.QueryEscape(secret))
 	}
+	return fmt.Sprintf("http://%s:%s%s?%s#/setup?%s", host, port, uiPath, query, query)
+}
+
+func buildRemoteWebUIURL(host, port, secret string) string {
+	query := fmt.Sprintf("hostname=%s&port=%s", host, port)
+	if secret != "" {
+		query += fmt.Sprintf("&secret=%s", url.QueryEscape(secret))
+	}
+	return fmt.Sprintf("https://board.zash.run.place/#/setup?http=true&%s", query)
+}
+
+func buildFinalURL(cfg Config) (string, string) {
+	host, port, appHostPort := parseAPIAddress(cfg.APIAddr)
 	
-	finalURL := fmt.Sprintf("http://%s:%s%s?%s#/setup?%s", host, port, uiPath, query, query)
+	var finalURL string
+	if cfg.RemoteWebUI {
+		finalURL = buildRemoteWebUIURL(host, port, cfg.Secret)
+	} else {
+		finalURL = buildLocalWebUIURL(host, port, cfg.Secret, cfg.UIName)
+	}
 	
 	return finalURL, appHostPort
 }
