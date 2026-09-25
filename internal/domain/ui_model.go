@@ -40,6 +40,7 @@ const (
 	ActionOpenConfigFile      = "OpenConfigFile"
 	ActionExitApp             = "ExitApp"
 	ActionToggleSystemBrowser = "ToggleSystemBrowser"
+	ActionToggleRemoteWebUI   = "ToggleRemoteWebUI"  
 	ActionEditCurrentConfig   = "EditCurrentConfig"
 	ActionCopyWebUIPassword   = "CopyWebUIPassword"
 	ActionClearWebUICache     = "ClearWebUICache"
@@ -65,6 +66,7 @@ type UIState struct {
 	IsAdmin          bool
 	RunAsAdmin       bool
 	UseSystemBrowser bool
+	RemoteWebUI      bool  
 	AllowLan         bool
 	ProfileItems     []UIProfileItem
 	CanAddProfile    bool
