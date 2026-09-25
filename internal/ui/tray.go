@@ -28,8 +28,9 @@ type TrayMenuCache struct {
 	actRunAdmin  *walk.Action
 	actAdminMenu *walk.Action
 
-	actSysBrowser *walk.Action
-	actAllowLan   *walk.Action
+	actSysBrowser  *walk.Action
+	actRemoteWebUI *walk.Action
+	actAllowLan    *walk.Action
 
 	lastProfileFingerprint string
 }
@@ -85,6 +86,7 @@ func (e *UIEngine) updateTrayState(state domain.UIState) {
 		trayCache.actRunAdmin.SetEnabled(!state.AutoStart)
 
 		trayCache.actSysBrowser.SetChecked(state.UseSystemBrowser)
+		trayCache.actRemoteWebUI.SetChecked(state.RemoteWebUI)
 		trayCache.actAllowLan.SetChecked(state.AllowLan)
 
 		fp := generateProfileFingerprint(state.ProfileItems)
@@ -169,6 +171,12 @@ func buildMenuSkeleton(e *UIEngine) {
 				e.sendCommand(domain.ActionClearWebUICache, "")
 			}
 		}()
+	})
+	
+	e.addActionTo(moreMenu, "-", nil)
+
+	trayCache.actRemoteWebUI = e.addCheckableSubAction(moreMenu, "使用远程 Web 面板", trayCache.latestState.RemoteWebUI, func() {
+		e.sendCommand(domain.ActionToggleRemoteWebUI, fmt.Sprintf("%t", !trayCache.latestState.RemoteWebUI))
 	})
 
 	trayCache.actSysBrowser = e.addCheckableSubAction(moreMenu, "使用默认浏览器打开面板", trayCache.latestState.UseSystemBrowser, func() {
