@@ -211,7 +211,13 @@ func buildLocalWebUIURL(host, port, secret, uiName string) string {
 
 func buildRemoteWebUIURL(host, port, secret string) string {
 	query := buildQueryArgs(host, port, secret)
-	return fmt.Sprintf("https://board.zash.run.place/#/setup?http=true&%s", query)
+	
+	baseURL := strings.TrimSpace(domain.DefaultRemoteWebUIURL)
+
+	if strings.Contains(baseURL, "?") {
+		return baseURL + "&" + query
+	}
+	return baseURL + "?" + query
 }
 
 func buildFinalURL(cfg Config) (string, string) {
