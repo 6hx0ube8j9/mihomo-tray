@@ -78,7 +78,6 @@ func (e *UIEngine) showDashboard() {
 		var actionSwitch, actionEditText, actionEditSub, actionUpdate *walk.Action
 		var actionMoveUp, actionMoveDown, actionDelete *walk.Action
 		var btnMoveUp, btnMoveDown *walk.PushButton
-		var btnAddRemote, btnAddLocal *walk.PushButton
 
 		updateActionState := func() {
 			if e.tableView == nil || actionSwitch == nil { return }
@@ -114,17 +113,21 @@ func (e *UIEngine) showDashboard() {
 			Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 			Children: []Widget{
 				Composite{
-					Layout: HBox{MarginsZero: true, Spacing: 10},
+					Layout: HBox{MarginsZero: true},
 					Children: []Widget{
-						PushButton{
-							AssignTo:  &btnAddRemote,
-							Text:      "添加远程订阅",
-							OnClicked: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
-						},
-						PushButton{
-							AssignTo:  &btnAddLocal,
-							Text:      "导入本地配置",
-							OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
+						ToolBar{
+							ButtonStyle: ToolBarButtonTextOnly,
+							Items: []MenuItem{
+								Action{
+									Text:        "➕ 添加远程订阅",
+									OnTriggered: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
+								},
+								Separator{}, 
+								Action{
+									Text:        "📂 导入本地配置",
+									OnTriggered: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
+								},
+							},
 						},
 						HSpacer{},
 					},
