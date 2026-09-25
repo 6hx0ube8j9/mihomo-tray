@@ -85,102 +85,90 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 		if e.panelWindow == nil {
 			e.panelModel = &ProfileModel{Items: items}
 
-			var actionSwitch *walk.Action
-			var actionEditText *walk.Action
-			var actionEditSub *walk.Action
-			var actionUpdate *walk.Action
-			var actionMoveUp *walk.Action
-			var actionMoveDown *walk.Action
-			var actionDelete *walk.Action
+			// 预先声明控件指针
+			var actionSwitch, actionEditText, actionEditSub, actionUpdate *walk.Action
+			var actionMoveUp, actionMoveDown, actionDelete *walk.Action
+			var btnMoveUp, btnMoveDown *walk.PushButton
 
-			var btnMoveUp *walk.PushButton
-			var btnMoveDown *walk.PushButton
+			// 状态控制器：集中管理所有按钮/菜单的可用状态
+			updateActionState := func() {
+				if e.tableView == nil || actionSwitch == nil {
+					return
+				}
+				idx := e.tableView.CurrentIndex()
+				hasSelection := idx >= 0 && idx < len(e.panelModel.Items)
 
+				if !hasSelection {
+					actionSwitch.SetEnabled(false)
+					actionEditText.SetEnabled(false)
+					actionEditSub.SetEnabled(false)
+					actionUpdate.SetEnabled(false)
+					actionMoveUp.SetEnabled(false)
+					actionMoveDown.SetEnabled(false)
+					actionDelete.SetEnabled(false)
+					if btnMoveUp != nil { btnMoveUp.SetEnabled(false) }
+					if btnMoveDown != nil { btnMoveDown.SetEnabled(false) }
+					return
+				}
+
+				item := e.panelModel.Items[idx]
+				canMoveUp := idx > 0
+				canMoveDown := idx < len(e.panelModel.Items)-1
+
+				actionSwitch.SetEnabled(!item.IsActive)
+				actionDelete.SetEnabled(!item.IsActive)
+				actionEditText.SetEnabled(true)
+				actionEditSub.SetEnabled(item.IsRemote)
+				actionUpdate.SetEnabled(item.IsRemote)
+				
+				actionMoveUp.SetEnabled(canMoveUp)
+				actionMoveDown.SetEnabled(canMoveDown)
+				if btnMoveUp != nil { btnMoveUp.SetEnabled(canMoveUp) }
+				if btnMoveDown != nil { btnMoveDown.SetEnabled(canMoveDown) }
+			}
+
+			// 声明式 UI 树 (流式布局优化版)
 			err := MainWindow{
 				AssignTo: &e.panelWindow,
-				Title:    "管理配置",
-				MinSize:  Size{Width: 700, Height: 300},
-				Size:     Size{Width: 750, Height: 350},
+				Title:    "配置管理",
+				MinSize:  Size{Width: 700, Height: 350}, // 赋予合理的最小下限
 				Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
-				Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}},
+				Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 				Children: []Widget{
+					
+					// 顶部工具栏
 					Composite{
-						Layout: HBox{Margins: Margins{Left: 0, Top: 5, Right: 0, Bottom: 5}},
+						Layout: HBox{MarginsZero: true, Spacing: 10},
 						Children: []Widget{
 							PushButton{
-								Text:    "➕ 添加远程订阅",
-								MinSize: Size{Height: 28},
-								OnClicked: func() {
-									e.sendCommand(domain.ActionRequestAddRemote, "")
-								},
+								Text: "➕ 添加远程订阅",
+								OnClicked: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
 							},
 							PushButton{
-								Text:    "📂 导入本地配置",
-								MinSize: Size{Height: 28},
-								OnClicked: func() {
-									e.sendCommand(domain.ActionRequestAddLocal, "")
-								},
+								Text: "📂 导入本地配置",
+								OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
 							},
-							HSpacer{},
+							HSpacer{}, // 将按钮挤到左侧
 						},
 					},
+
+					// 核心内容区：表格 (左) + 操作列 (右)
 					Composite{
-						Layout: HBox{MarginsZero: true},
+						Layout: HBox{MarginsZero: true, Spacing: 10},
 						Children: []Widget{
+							
+							// 左侧自适应表格
 							TableView{
 								AssignTo: &e.tableView,
 								Columns: []TableViewColumn{
-									{Title: "状态", Width: 100},
-									{Title: "名称", Width: 200},
-									{Title: "类型", Width: 90},
-									{Title: "更新频率", Width: 110},
-									{Title: "上次更新", Width: 140},
+									{Title: "状态", Width: 90},
+									{Title: "名称", Width: 220},
+									{Title: "类型", Width: 80},
+									{Title: "更新频率", Width: 100},
+									{Title: "上次更新", Width: 130},
 								},
 								Model: e.panelModel,
-
-								OnCurrentIndexChanged: func() {
-									if e.tableView == nil || actionSwitch == nil {
-										return
-									}
-									idx := e.tableView.CurrentIndex()
-									if idx < 0 || idx >= len(e.panelModel.Items) {
-										actionSwitch.SetEnabled(false)
-										actionEditText.SetEnabled(false)
-										actionEditSub.SetEnabled(false)
-										actionUpdate.SetEnabled(false)
-										actionMoveUp.SetEnabled(false)
-										actionMoveDown.SetEnabled(false)
-										actionDelete.SetEnabled(false)
-
-										if btnMoveUp != nil {
-											btnMoveUp.SetEnabled(false)
-										}
-										if btnMoveDown != nil {
-											btnMoveDown.SetEnabled(false)
-										}
-										return
-									}
-
-									item := e.panelModel.Items[idx]
-									actionSwitch.SetEnabled(!item.IsActive)
-									actionDelete.SetEnabled(!item.IsActive)
-									actionEditText.SetEnabled(true)
-									actionEditSub.SetEnabled(item.IsRemote)
-									actionUpdate.SetEnabled(item.IsRemote)
-
-									canMoveUp := idx > 0
-									canMoveDown := idx < len(e.panelModel.Items)-1
-
-									actionMoveUp.SetEnabled(canMoveUp)
-									actionMoveDown.SetEnabled(canMoveDown)
-									if btnMoveUp != nil {
-										btnMoveUp.SetEnabled(canMoveUp)
-									}
-									if btnMoveDown != nil {
-										btnMoveDown.SetEnabled(canMoveDown)
-									}
-								},
-
+								OnCurrentIndexChanged: updateActionState, // 绑定独立的状态控制器
 								ContextMenuItems: []MenuItem{
 									Action{
 										AssignTo: &actionSwitch,
@@ -249,15 +237,16 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 									},
 								},
 							},
+
+							// 右侧动作按钮区
 							Composite{
-								Layout: VBox{Margins: Margins{Left: 10, Top: 0, Right: 0, Bottom: 0}},
+								Layout: VBox{MarginsZero: true, Spacing: 8},
 								Children: []Widget{
 									PushButton{
 										AssignTo: &btnMoveUp,
 										Text:     "⬆️ 上移",
 										Enabled:  false,
-										MinSize:  Size{Width: 85},
-										MaxSize:  Size{Width: 85},
+										MinSize:  Size{Width: 90}, // 仅设定最小宽度，高度自适应
 										OnClicked: func() {
 											if idx := e.tableView.CurrentIndex(); idx >= 0 {
 												e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path)
@@ -268,15 +257,14 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 										AssignTo: &btnMoveDown,
 										Text:     "⬇️ 下移",
 										Enabled:  false,
-										MinSize:  Size{Width: 85},
-										MaxSize:  Size{Width: 85},
+										MinSize:  Size{Width: 90},
 										OnClicked: func() {
 											if idx := e.tableView.CurrentIndex(); idx >= 0 {
 												e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path)
 											}
 										},
 									},
-									VSpacer{},
+									VSpacer{}, // 将按钮死死顶在上方
 								},
 							},
 						},
@@ -289,6 +277,7 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 				return
 			}
 
+			// 拦截关闭事件，转为隐藏
 			var oldWndProc uintptr
 			newWndProc := syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
 				if msg == win.WM_CLOSE {
@@ -309,7 +298,6 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 		}
 
 		hwnd := e.panelWindow.Handle()
-
 		if win.IsIconic(hwnd) {
 			win.ShowWindow(hwnd, win.SW_RESTORE)
 		}
