@@ -12,11 +12,12 @@ type TrayConfig struct {
 }
 
 type GeneralConfig struct {
-	Autostart     *bool  `json:"autostart"`
-	RunAsAdmin    bool   `json:"run_as_admin"`
-	SystemBrowser *bool  `json:"system_browser"`
-	TrayLogLevel  string `json:"tray_log_level"`
-	SystemProxy   *bool  `json:"system_proxy"`
+	Autostart      *bool  `json:"autostart"`
+	RunAsAdmin     bool   `json:"run_as_admin"`
+	SystemBrowser  *bool  `json:"system_browser"`
+	RemoteWebUI    *bool  `json:"remote_webui"` 
+	TrayLogLevel   string `json:"tray_log_level"`
+	SystemProxy    *bool  `json:"system_proxy"`
 }
 
 type KernelConfig struct {
