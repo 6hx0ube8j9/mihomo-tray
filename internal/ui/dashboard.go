@@ -114,18 +114,19 @@ func (e *UIEngine) showDashboard() {
 			Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 			Children: []Widget{
 				Composite{
-					Layout: HBox{MarginsZero: true, Spacing: 10},
+					MinSize: Size{Height: 40},
+					Layout:  HBox{Margins: Margins{Left: 0, Top: 4, Right: 0, Bottom: 4}, Spacing: 10},
 					Children: []Widget{
 						PushButton{
 							AssignTo:  &btnAddRemote,
 							Text:      "➕ 添加远程订阅",
-							MinSize:   Size{Height: 28},
+							MinSize:   Size{Height: 30},
 							OnClicked: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
 						},
 						PushButton{
 							AssignTo:  &btnAddLocal,
 							Text:      "📂 导入本地配置",
-							MinSize:   Size{Height: 28},
+							MinSize:   Size{Height: 30},
 							OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
 						},
 						HSpacer{},
