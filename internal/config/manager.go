@@ -102,6 +102,7 @@ func (m *Manager) applyDefaults(cfg *domain.TrayConfig) bool {
 
 	if cfg.General.Autostart == nil { t := domain.DefaultAutostart; cfg.General.Autostart = &t; isTainted = true }
 	if cfg.General.SystemBrowser == nil { t := domain.DefaultSystemBrowser; cfg.General.SystemBrowser = &t; isTainted = true }
+	if cfg.General.RemoteWebUI == nil { t := domain.DefaultRemoteWebUI; cfg.General.RemoteWebUI = &t; isTainted = true }
 	if cfg.General.SystemProxy == nil { t := domain.DefaultSystemProxy; cfg.General.SystemProxy = &t; isTainted = true }
 	if cfg.General.TrayLogLevel == "" { cfg.General.TrayLogLevel = domain.DefaultTrayLogLevel; isTainted = true }
 
