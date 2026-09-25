@@ -50,15 +50,11 @@ type UIEngine struct {
 
 	// ---- 仪表盘核心组件 ----
 	dashboardWindow *walk.MainWindow
-	tabWidget       *walk.TabWidget
 	
-	// ---- Tab 1: 配置管理 ----
+	// ---- 配置管理视图数据 ----
 	tableView  *walk.TableView
 	panelModel *ProfileModel
 	lastProfileItems []domain.UIProfileItem 
-
-	// ---- Tab 2: 运行日志 ----
-	logText *walk.TextEdit
 
 	lastClick time.Time
 	clickMu   sync.Mutex
