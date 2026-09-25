@@ -56,6 +56,7 @@ const (
 	DefaultAutostart           = false
 	DefaultSystemProxy         = false
 	DefaultSystemBrowser       = false
+	DefaultRemoteWebUI         = false
 	
 
 	// 业务环境限制
