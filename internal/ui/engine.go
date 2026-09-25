@@ -48,9 +48,17 @@ type UIEngine struct {
 	icons   []*walk.Icon
 	iconDir string
 
-	panelWindow *walk.MainWindow
-	tableView   *walk.TableView
-	panelModel  *ProfileModel
+	// ---- 仪表盘核心组件 ----
+	dashboardWindow *walk.MainWindow
+	tabWidget       *walk.TabWidget
+	
+	// ---- Tab 1: 配置管理 ----
+	tableView  *walk.TableView
+	panelModel *ProfileModel
+	lastProfileItems []domain.UIProfileItem 
+
+	// ---- Tab 2: 运行日志 ----
+	logText *walk.TextEdit
 
 	lastClick time.Time
 	clickMu   sync.Mutex
@@ -151,7 +159,7 @@ func (e *UIEngine) loadEmbeddedIcons() {
 }
 
 func (e *UIEngine) listenState() {
-	var lastIconId = -1 
+	var lastIconId = -1
 
 	for {
 		select {
@@ -167,7 +175,7 @@ func (e *UIEngine) listenState() {
 					e.ni.SetIcon(e.icons[state.IconState])
 					lastIconId = state.IconState
 				}
-				
+
 				e.updateTrayState(state)
 				e.RefreshPanelData(state.ProfileItems)
 			})
