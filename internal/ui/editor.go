@@ -124,10 +124,10 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 		}
 
 		dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-			// 对话框关闭时，安全交还焦点给主面板
-			if e.panelWindow != nil && e.panelWindow.Visible() && getValidOwner() != nil {
-				e.panelWindow.Show()
-				e.panelWindow.SetFocus()
+
+			if e.dashboardWindow != nil && e.dashboardWindow.Visible() && getValidOwner() != nil {
+				e.dashboardWindow.Show()
+				e.dashboardWindow.SetFocus()
 			}
 		})
 
