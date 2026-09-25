@@ -385,7 +385,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		
 		apiAddr, secret, uiName := a.State.GetWebUISnapshot()
 		
-		slog.Info("【打开面板】", "ApiAddr", apiAddr, "强制系统浏览器", *cfg.General.SystemBrowser)
+		slog.Info("【打开面板】", "强制系统浏览器", *cfg.General.SystemBrowser, "使用远程面板", *cfg.General.RemoteWebUI)
 		
 		wcfg := webui.Config{
 			APIAddr:            apiAddr,
@@ -394,6 +394,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			BaseDir:            a.Cfg.BaseDir(),
 			UIName:             uiName,
 			ForceSystemBrowser: *cfg.General.SystemBrowser, 
+			RemoteWebUI:        *cfg.General.RemoteWebUI,
 		}
 		
 		go webui.Launch(wcfg, a.webuiEventCh)
@@ -401,7 +402,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	case domain.ActionOpenBaseDir:
 		_ = sys.ExecuteSystemCommand(a.Cfg.BaseDir())
 		
-    case domain.ActionOpenAppConfig:
+	case domain.ActionOpenAppConfig:
 		jsonPath := filepath.Join(a.Cfg.BaseDir(), domain.TrayConfigName)
 		_ = sys.ExecuteSystemCommand(jsonPath)
 		
@@ -430,6 +431,13 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		a.Cfg.Update(func(c *domain.TrayConfig) {
 			b := enable
 			c.General.SystemBrowser = &b
+		})
+
+	case domain.ActionToggleRemoteWebUI:
+		enable := cmd.Payload == "true"
+		a.Cfg.Update(func(c *domain.TrayConfig) {
+			b := enable
+			c.General.RemoteWebUI = &b
 		})
 
 	case domain.ActionEditCurrentConfig:
