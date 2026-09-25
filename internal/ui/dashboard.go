@@ -115,7 +115,7 @@ func (e *UIEngine) showDashboard() {
 			Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 			Children: []Widget{
 				Composite{
-					Layout: HBox{MarginsZero: true, Spacing: 10},
+					Layout: HBox{Margins: Margins{Top: 2, Bottom: 5, Left: 0, Right: 0}, Spacing: 10},
 					Children: []Widget{
 						PushButton{
 							AssignTo: &btnAddRemote,
