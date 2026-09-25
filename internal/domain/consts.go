@@ -40,11 +40,11 @@ const (
 	DefaultPort      = 7892
 	DefaultSocksPort = 7891
 
-	// 内核参数	
+	// 内核参数    
 	DefaultAllowLan            = true
 	DefaultUnifiedDelay        = true
 	DefaultAllowPrivateNetwork = true
-	DefaultTunEnable = false
+	DefaultTunEnable           = false
 	
 	// 控制平面默认值
 	DefaultExternalController = "127.0.0.1:9090"
@@ -57,7 +57,11 @@ const (
 	DefaultSystemProxy         = false
 	DefaultSystemBrowser       = false
 	DefaultRemoteWebUI         = false
-	
+
+	// 远程面板基址
+	DefaultRemoteWebUIURL = "https://board.zash.run.place/#/setup?http=true"
+	// DefaultRemoteWebUIURL = "https://metacubex.github.io/metacubexd/#/setup?http=true"
+	// DefaultRemoteWebUIURL = "https://yacd.metacubex.one/"
 
 	// 业务环境限制
 	DefaultUserAgent      = "clash-verge (clash.meta)"
@@ -69,8 +73,8 @@ const (
 
 // 默认跨域面板白名单
 var DefaultAllowOrigins = []string{
-	"https://yacd.metacubex.one",
-	"https://metacubex.github.io",
-	"https://d.metacubex.one",
 	"https://board.zash.run.place",
+	"https://metacubex.github.io",
+	"https://yacd.metacubex.one",
+	"https://d.metacubex.one",
 }
