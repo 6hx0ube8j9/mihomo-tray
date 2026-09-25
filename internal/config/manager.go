@@ -212,9 +212,7 @@ func (m *Manager) SetActiveProfile(relPath string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	
-	if m.data.Profiles.Active == relPath {
-		return 
-	}
+	if m.data.Profiles.Active == relPath { return }
 	
 	m.data.Profiles.Active = relPath
 	m.lockedSave()
