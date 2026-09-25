@@ -16,6 +16,7 @@ func (a *Application) calculateUIState() domain.UIState {
 		AutoStart:        *cfg.General.Autostart,
 		RunAsAdmin:       cfg.General.RunAsAdmin,
 		UseSystemBrowser: *cfg.General.SystemBrowser,
+        RemoteWebUI:      *cfg.General.RemoteWebUI,
 		AllowLan:         *cfg.Config.AllowLan,
 		IsAdmin:          sys.IsAdmin(),
 	}
@@ -88,6 +89,7 @@ func (a *Application) pushUIState() {
 		newState.AutoStart != a.lastUIState.AutoStart ||
 		newState.RunAsAdmin != a.lastUIState.RunAsAdmin ||
 		newState.UseSystemBrowser != a.lastUIState.UseSystemBrowser ||
+     	newState.RemoteWebUI != a.lastUIState.RemoteWebUI ||
 		newState.IsAdmin != a.lastUIState.IsAdmin ||
 		len(newState.ProfileItems) != len(a.lastUIState.ProfileItems) {
 		changed = true
