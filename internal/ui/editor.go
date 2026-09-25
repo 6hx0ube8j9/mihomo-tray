@@ -6,9 +6,14 @@ import (
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
-	
+	"github.com/tailscale/win"
+
 	"mihomo-tray/internal/domain"
 )
+
+// 记录当前打开的订阅编辑器窗口指针
+// 这比单纯的 bool 锁更高级，可以用来精准唤醒被遮挡的弹窗
+var currentSubEditor *walk.Dialog
 
 func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string, defaultInterval int) (string, string, int, bool) {
 	if e.app == nil || e.mw == nil {
@@ -23,13 +28,16 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 	resCh := make(chan result)
 
 	e.app.Synchronize(func() {
-		// 无全局锁机制：通过嗅探当前活动窗口，动态拦截重复呼出
-		if active := e.app.ActiveForm(); active != nil {
-			if dlg, isDialog := active.(*walk.Dialog); isDialog && dlg.Title() == title {
-				dlg.SetFocus() // 将已存在的对话框闪烁并推向最前
-				resCh <- result{ok: false}
-				return
+		// 真正的防抖与窗口唤醒机制
+		if currentSubEditor != nil {
+			hwnd := currentSubEditor.Handle()
+			if win.IsIconic(hwnd) {
+				win.ShowWindow(hwnd, win.SW_RESTORE) // 如果最小化了，恢复它
 			}
+			win.SetForegroundWindow(hwnd) // 强行拉到最前
+			currentSubEditor.SetFocus()   // 给予输入焦点
+			resCh <- result{ok: false}
+			return
 		}
 
 		var dlg *walk.Dialog
@@ -123,8 +131,14 @@ func (e *UIEngine) ShowSubscriptionEditor(title, defaultName, defaultUrl string,
 			return
 		}
 
-		dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
+		// 创建成功后，记录全局窗口指针
+		currentSubEditor = dlg
 
+		dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
+			// 窗口关闭时安全释放指针
+			currentSubEditor = nil
+
+			// 对话框关闭时，安全交还焦点给主面板仪表盘
 			if e.dashboardWindow != nil && e.dashboardWindow.Visible() && getValidOwner() != nil {
 				e.dashboardWindow.Show()
 				e.dashboardWindow.SetFocus()
