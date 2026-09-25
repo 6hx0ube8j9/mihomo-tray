@@ -11,10 +11,10 @@ import (
 
 func getValidOwner() walk.Form {
 	if globalUIEngine != nil {
-		if globalUIEngine.panelWindow != nil {
-			hwnd := globalUIEngine.panelWindow.Handle()
+		if globalUIEngine.dashboardWindow != nil {
+			hwnd := globalUIEngine.dashboardWindow.Handle()
 			if win.IsWindowVisible(hwnd) && !win.IsIconic(hwnd) {
-				return globalUIEngine.panelWindow
+				return globalUIEngine.dashboardWindow
 			}
 		}
 		if globalUIEngine.mw != nil {
