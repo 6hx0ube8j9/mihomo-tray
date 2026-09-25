@@ -26,7 +26,6 @@ func getValidOwner() walk.Form {
 
 func autoWrapText(text string, maxVisualWidth int) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
-	
 	var result []string
 	lines := strings.Split(text, "\n")
 	
@@ -36,16 +35,13 @@ func autoWrapText(text string, maxVisualWidth int) string {
 			result = append(result, "")
 			continue
 		}
-
 		var currentLine []rune
 		currentWidth := 0
-
 		for _, r := range runes {
 			w := 1
 			if r > 255 {
 				w = 2
 			}
-
 			if currentWidth+w > maxVisualWidth {
 				result = append(result, string(currentLine))
 				currentLine = []rune{r}
@@ -59,7 +55,6 @@ func autoWrapText(text string, maxVisualWidth int) string {
 			result = append(result, string(currentLine))
 		}
 	}
-	
 	return strings.Join(result, "\r\n")
 }
 
@@ -87,7 +82,6 @@ func centerDialog(dlg *walk.Dialog, owner walk.Form) {
 			y = workArea.Top + (screenH-dlgH)/2
 		}
 	}
-
 	win.SetWindowPos(dlg.Handle(), win.HWND_TOP, x, y, 0, 0, win.SWP_NOSIZE)
 }
 
@@ -130,38 +124,26 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 	err := Dialog{
 		AssignTo:      &dlg,
 		Title:         title,
-		MinSize:       Size{Width: 320, Height: 150},
-		Layout:        VBox{Margins: Margins{Top: 15, Bottom: 15, Left: 15, Right: 15}, Spacing: 15},
+		MinSize:       Size{Width: 350, Height: 160},
+		Layout:        VBox{Margins: Margins{Left: 20, Top: 20, Right: 20, Bottom: 15}, Spacing: 15},
 		DefaultButton: &acceptPB,
 		Children: []Widget{
 			Composite{
-				Layout: HBox{MarginsZero: true, Spacing: 15},
+				Layout: HBox{Margins: Margins{Top: 5, Bottom: 5}, Spacing: 15},
 				Children: []Widget{
-					Composite{
-						Layout: VBox{MarginsZero: true},
-						Children: []Widget{
-							ImageView{Image: walk.IconWarning(), MinSize: Size{Width: 40, Height: 40}},
-							VSpacer{},
-						},
-					},
-					Composite{
-						Layout: VBox{MarginsZero: true}, // 回归自然放平
-						Children: []Widget{
-							TextLabel{Text: safeMsg},
-							VSpacer{},
-						},
-					},
+					ImageView{Image: walk.IconWarning(), MinSize: Size{Width: 40, Height: 40}},
+					TextLabel{Text: safeMsg},
 				},
 			},
 			VSpacer{},
 			Composite{
-				Layout: HBox{MarginsZero: true},
+				Layout: HBox{Margins: Margins{Top: 5}, Spacing: 10},
 				Children: []Widget{
 					HSpacer{},
 					PushButton{
 						AssignTo:  &acceptPB,
 						Text:      "确定",
-						MinSize:   Size{Width: 80, Height: 26},
+						MinSize:   Size{Width: 85},
 						OnClicked: func() { dlg.Accept() },
 					},
 				},
@@ -215,45 +197,33 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 	err := Dialog{
 		AssignTo:      &dlg,
 		Title:         title,
-		MinSize:       Size{Width: 320, Height: 150},
-		Layout:        VBox{Margins: Margins{Top: 15, Bottom: 15, Left: 15, Right: 15}, Spacing: 15},
+		MinSize:       Size{Width: 350, Height: 160},
+		Layout:        VBox{Margins: Margins{Left: 20, Top: 20, Right: 20, Bottom: 15}, Spacing: 15},
 		DefaultButton: &acceptPB,
 		CancelButton:  &cancelPB,
 		Children: []Widget{
 			Composite{
-				Layout: HBox{MarginsZero: true, Spacing: 15},
+				Layout: HBox{Margins: Margins{Top: 5, Bottom: 5}, Spacing: 15},
 				Children: []Widget{
-					Composite{
-						Layout: VBox{MarginsZero: true},
-						Children: []Widget{
-							ImageView{Image: walk.IconQuestion(), MinSize: Size{Width: 40, Height: 40}},
-							VSpacer{},
-						},
-					},
-					Composite{
-						Layout: VBox{MarginsZero: true},
-						Children: []Widget{
-							TextLabel{Text: safeMsg},
-							VSpacer{},
-						},
-					},
+					ImageView{Image: walk.IconQuestion(), MinSize: Size{Width: 40, Height: 40}},
+					TextLabel{Text: safeMsg},
 				},
 			},
 			VSpacer{},
 			Composite{
-				Layout: HBox{MarginsZero: true},
+				Layout: HBox{Margins: Margins{Top: 5}, Spacing: 10},
 				Children: []Widget{
 					HSpacer{},
 					PushButton{
 						AssignTo:  &acceptPB,
 						Text:      "确定",
-						MinSize:   Size{Width: 80, Height: 26},
+						MinSize:   Size{Width: 85},
 						OnClicked: func() { accepted = true; dlg.Accept() },
 					},
 					PushButton{
 						AssignTo:  &cancelPB,
 						Text:      "取消",
-						MinSize:   Size{Width: 80, Height: 26},
+						MinSize:   Size{Width: 85},
 						OnClicked: func() { dlg.Cancel() },
 					},
 				},
