@@ -105,26 +105,27 @@ func (e *UIEngine) showDashboard() {
 			if btnMoveDown != nil { btnMoveDown.SetEnabled(canMoveDown) }
 		}
 
-		// 单页面板布局，恢复舒适的四周外边距
 		err := MainWindow{
 			AssignTo: &e.dashboardWindow,
-			Title:    "Mihomo Tray 仪表盘",
+			Title:    "管理配置",
 			MinSize:  Size{Width: 700, Height: 350},
 			Size:     Size{Width: 750, Height: 400},
 			Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
 			Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 			Children: []Widget{
 				Composite{
-					Layout: HBox{Margins: Margins{Top: 2, Bottom: 5, Left: 0, Right: 0}, Spacing: 10},
+					Layout: HBox{MarginsZero: true, Spacing: 10},
 					Children: []Widget{
 						PushButton{
-							AssignTo: &btnAddRemote,
-							Text:     "➕ 添加远程订阅",
+							AssignTo:  &btnAddRemote,
+							Text:      "➕ 添加远程订阅",
+							MinSize:   Size{Height: 28},
 							OnClicked: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
 						},
 						PushButton{
-							AssignTo: &btnAddLocal,
-							Text:     "📂 导入本地配置",
+							AssignTo:  &btnAddLocal,
+							Text:      "📂 导入本地配置",
+							MinSize:   Size{Height: 28},
 							OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
 						},
 						HSpacer{},
