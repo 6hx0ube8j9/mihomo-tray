@@ -225,7 +225,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		})
 		changed = true
 	}
-	
+
 	if resp.LogLevel != "" && resp.LogLevel != cfg.Config.LogLevel {
 		slog.Info("内核日志级别已变更", "from", cfg.Config.LogLevel, "to", resp.LogLevel)
 		a.Cfg.Update(func(c *domain.TrayConfig) {
@@ -249,7 +249,6 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 			p := resp.MixedPort
 			c.Config.MixedPort = &p
 		})
-		
 		if *cfg.General.SystemProxy {
 			a.syncSystemProxy()
 		}
