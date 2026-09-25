@@ -17,12 +17,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/sys"
 )
 
 const (
 	defaultWebUIHost   = "127.0.0.1"
-	defaultWebUIPort   = "9090"
 	fallbackDebugPort1 = "52819"
 	fallbackDebugPort2 = "52820"
 )
@@ -154,7 +154,7 @@ func getWebUITarget(debugPort string) (id string, title string, found bool) {
 
 	for _, t := range targets {
 		pURL, _ := t["url"].(string)
-		if strings.Contains(pURL, "/ui/") || strings.Contains(pURL, "setup") || strings.Contains(pURL, "#/proxies") {
+		if strings.Contains(pURL, "/ui/") || strings.Contains(pURL, "setup") || strings.Contains(pURL, "#/proxies") || strings.Contains(pURL, "board.zash") {
 			id, _ = t["id"].(string)
 			title, _ = t["title"].(string)
 			return id, title, true
@@ -171,15 +171,33 @@ func parseAPIAddress(apiAddr string) (host string, port string, appHostPort stri
 	host, port, err = net.SplitHostPort(cleanAddr)
 	if err != nil {
 		host = cleanAddr
-		port = defaultWebUIPort
 	}
+
 	if port == "" {
-		port = defaultWebUIPort
+		_, defaultPort, _ := net.SplitHostPort(domain.DefaultExternalController)
+		port = defaultPort
+		if port == "" {
+			port = "9090"
+		}
 	}
-	if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
+
+	if host == "" {
+		host = defaultWebUIHost
+	} else if ip := net.ParseIP(host); ip != nil && ip.IsUnspecified() {
 		host = defaultWebUIHost
 	}
+
 	return host, port, net.JoinHostPort(host, port)
+}
+
+func buildQueryArgs(host, port, secret string) string {
+	q := url.Values{}
+	q.Set("hostname", host)
+	q.Set("port", port)
+	if secret != "" {
+		q.Set("secret", secret)
+	}
+	return q.Encode()
 }
 
 func buildLocalWebUIURL(host, port, secret, uiName string) string {
@@ -187,31 +205,25 @@ func buildLocalWebUIURL(host, port, secret, uiName string) string {
 	if uiName != "" {
 		uiPath = fmt.Sprintf("/ui/%s/", strings.Trim(uiName, "/"))
 	}
-	query := fmt.Sprintf("hostname=%s&port=%s", host, port)
-	if secret != "" {
-		query += fmt.Sprintf("&secret=%s", url.QueryEscape(secret))
-	}
+	query := buildQueryArgs(host, port, secret)
 	return fmt.Sprintf("http://%s:%s%s?%s#/setup?%s", host, port, uiPath, query, query)
 }
 
 func buildRemoteWebUIURL(host, port, secret string) string {
-	query := fmt.Sprintf("hostname=%s&port=%s", host, port)
-	if secret != "" {
-		query += fmt.Sprintf("&secret=%s", url.QueryEscape(secret))
-	}
+	query := buildQueryArgs(host, port, secret)
 	return fmt.Sprintf("https://board.zash.run.place/#/setup?http=true&%s", query)
 }
 
 func buildFinalURL(cfg Config) (string, string) {
 	host, port, appHostPort := parseAPIAddress(cfg.APIAddr)
-	
+
 	var finalURL string
 	if cfg.RemoteWebUI {
 		finalURL = buildRemoteWebUIURL(host, port, cfg.Secret)
 	} else {
 		finalURL = buildLocalWebUIURL(host, port, cfg.Secret, cfg.UIName)
 	}
-	
+
 	return finalURL, appHostPort
 }
 
@@ -301,7 +313,7 @@ func Launch(cfg Config, eventCh chan<- Event) {
 
 	if browserPath != "" {
 		slog.Info("启动独立浏览器进程运行 WebUI", "Browser", browserTag, "DebugPort", safeDebugPort)
-		
+
 		userDataDir := filepath.Join(cfg.BaseDir, "webcache", browserTag)
 		_ = os.MkdirAll(userDataDir, 0755)
 
@@ -387,7 +399,7 @@ func Launch(cfg Config, eventCh chan<- Event) {
 		}
 	} else {
 		slog.Warn("未探测到受支持的浏览器，降级为默认浏览器打开")
-		
+
 		openSystemBrowser(finalURL, eventCh)
 		return
 	}
