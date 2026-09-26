@@ -80,9 +80,7 @@ func (e *UIEngine) showDashboard() {
 		var btnAddRemote, btnAddLocal *walk.PushButton
 
 		updateActionState := func() {
-			if e.tableView == nil || actionSwitch == nil {
-				return
-			}
+			if e.tableView == nil || actionSwitch == nil { return }
 			idx := e.tableView.CurrentIndex()
 			hasSelection := idx >= 0 && idx < len(e.panelModel.Items)
 
@@ -115,7 +113,7 @@ func (e *UIEngine) showDashboard() {
 			Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 			Children: []Widget{
 				Composite{
-					Layout: HBox{Margins: Margins{Top: 10, Bottom: 10}, Spacing: 10},
+					Layout: HBox{Margins: Margins{Top: 8, Bottom: 8}, Spacing: 10},
 					Children: []Widget{
 						PushButton{
 							AssignTo:  &btnAddRemote,
@@ -139,7 +137,7 @@ func (e *UIEngine) showDashboard() {
 								{Title: "状态", Width: 90}, {Title: "名称", Width: 220}, {Title: "类型", Width: 80},
 								{Title: "更新频率", Width: 100}, {Title: "上次更新", Width: 130},
 							},
-							Model:                 e.panelModel,
+							Model: e.panelModel,
 							OnCurrentIndexChanged: updateActionState,
 							ContextMenuItems: []MenuItem{
 								Action{AssignTo: &actionSwitch, Text: "✔️ 切换配置", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionSwitchProfile, e.panelModel.Items[idx].Path) } }},
@@ -171,18 +169,12 @@ func (e *UIEngine) showDashboard() {
 			return
 		}
 
-		var oldWndProc uintptr
-		newWndProc := syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
-			if msg == win.WM_CLOSE {
-				win.ShowWindow(hwnd, win.SW_HIDE)
-				return 0 
-			}
-			return win.CallWindowProc(oldWndProc, hwnd, msg, wParam, lParam)
+		e.dashboardWindow.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
+			*canceled = true
+			e.dashboardWindow.SetVisible(false)
 		})
-		oldWndProc = win.SetWindowLongPtr(e.dashboardWindow.Handle(), win.GWLP_WNDPROC, newWndProc)
 
 		centerWindow(e.dashboardWindow)
-		updateActionState()
 	}
 
 	hwnd := e.dashboardWindow.Handle()
@@ -192,7 +184,8 @@ func (e *UIEngine) showDashboard() {
 	if !e.dashboardWindow.Visible() {
 		e.dashboardWindow.Show()
 	}
-	win.SetForegroundWindow(hwnd)
+	
+	e.dashboardWindow.BringToTop()
 	e.dashboardWindow.SetFocus()
 }
 
