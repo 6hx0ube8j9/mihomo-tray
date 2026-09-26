@@ -63,28 +63,7 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	return ""
 }
 
-type MainWindowView struct {
-	Window      *walk.MainWindow
-	TableView   *walk.TableView
-	Model       *ProfileModel
-	StatusLabel *walk.Label
-}
-
-func (v *MainWindowView) Wake() {
-	if v.Window == nil {
-		return
-	}
-	hwnd := v.Window.Handle()
-	if win.IsIconic(hwnd) {
-		win.ShowWindow(hwnd, win.SW_RESTORE)
-	}
-	if !v.Window.Visible() {
-		v.Window.Show()
-	}
-	win.SetForegroundWindow(hwnd)
-	v.Window.SetFocus()
-}
-
+// 辅助：窗口居中
 func centerWindow(winHandle *walk.MainWindow) {
 	if winHandle == nil {
 		return
@@ -111,15 +90,9 @@ func centerWindow(winHandle *walk.MainWindow) {
 	})
 }
 
-func CreateMainWindow(title string) (*MainWindowView, error) {
-	view := &MainWindowView{
-		Model: &ProfileModel{
-			Items: []ProfileItem{
-				{IsActive: true, Name: "示例节点订阅 - 香港", IsRemote: true, Interval: 1, LastUpdate: "2026-03-30 10:00", Path: "sub1"},
-				{IsActive: false, Name: "本地自建备用节点", IsRemote: false, Interval: 0, LastUpdate: "-", Path: "local1"},
-				{IsActive: false, Name: "团队公共订阅 - 日本", IsRemote: true, Interval: 7, LastUpdate: "2026-03-28 14:20", Path: "sub2"},
-			},
-		},
+func (e *UIEngine) InitDashboardWindow() error {
+	e.panelModel = &ProfileModel{
+		Items: []ProfileItem{},
 	}
 
 	var actionSwitch, actionEditText, actionEditSub, actionUpdate *walk.Action
@@ -128,11 +101,11 @@ func CreateMainWindow(title string) (*MainWindowView, error) {
 	var btnAddRemote, btnAddLocal *walk.PushButton
 
 	updateActionState := func() {
-		if view.TableView == nil || actionSwitch == nil {
+		if e.tableView == nil || actionSwitch == nil {
 			return
 		}
-		idx := view.TableView.CurrentIndex()
-		hasSelection := idx >= 0 && idx < len(view.Model.Items)
+		idx := e.tableView.CurrentIndex()
+		hasSelection := idx >= 0 && idx < len(e.panelModel.Items)
 
 		if !hasSelection {
 			actionSwitch.SetEnabled(false)
@@ -151,9 +124,9 @@ func CreateMainWindow(title string) (*MainWindowView, error) {
 			return
 		}
 
-		item := view.Model.Items[idx]
+		item := e.panelModel.Items[idx]
 		canMoveUp := idx > 0
-		canMoveDown := idx < len(view.Model.Items)-1
+		canMoveDown := idx < len(e.panelModel.Items)-1
 
 		actionSwitch.SetEnabled(!item.IsActive)
 		actionDelete.SetEnabled(!item.IsActive)
@@ -171,41 +144,42 @@ func CreateMainWindow(title string) (*MainWindowView, error) {
 	}
 
 	err := MainWindow{
-		AssignTo: &view.Window,
-		Title:    title,
+		AssignTo: &e.dashboardWindow,
+		Title:    "Mihomo Tray",
 		MinSize:  Size{Width: 700, Height: 350},
 		Size:     Size{Width: 750, Height: 400},
 		Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
 		Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 		Children: []Widget{
-			// 顶部栏：显示约束 MinSize 指定高度 32px 预防按钮挤压截断
+			// 1. 顶部操作栏：设置 MinSize 支撑高度，防止 PushButton 被压缩截断
 			Composite{
-				Layout: HBox{Margins: Margins{Left: 0, Top: 5, Right: 0, Bottom: 5}, Spacing: 10},
+				MinSize: Size{Height: 36},
+				Layout:  HBox{Margins: Margins{Left: 0, Top: 0, Right: 0, Bottom: 0}, Spacing: 10},
 				Children: []Widget{
 					PushButton{
 						AssignTo:  &btnAddRemote,
-						MinSize:   Size{Height: 32},
+						MinSize:   Size{Height: 30},
 						Text:      "➕ 添加远程订阅",
 						OnClicked: func() {},
 					},
 					PushButton{
 						AssignTo:  &btnAddLocal,
-						MinSize:   Size{Height: 32},
+						MinSize:   Size{Height: 30},
 						Text:      "📂 导入本地配置",
 						OnClicked: func() {},
 					},
 					HSpacer{},
 					Label{
-						AssignTo: &view.StatusLabel,
-						Text:     "",
+						Text: "",
 					},
 				},
 			},
+			// 2. 主体表格与侧边移动按钮
 			Composite{
 				Layout: HBox{MarginsZero: true, Spacing: 10},
 				Children: []Widget{
 					TableView{
-						AssignTo: &view.TableView,
+						AssignTo: &e.tableView,
 						Columns: []TableViewColumn{
 							{Title: "状态", Width: 90},
 							{Title: "名称", Width: 220},
@@ -213,7 +187,7 @@ func CreateMainWindow(title string) (*MainWindowView, error) {
 							{Title: "更新频率", Width: 100},
 							{Title: "上次更新", Width: 130},
 						},
-						Model:                 view.Model,
+						Model:                 e.panelModel,
 						OnCurrentIndexChanged: updateActionState,
 						ContextMenuItems: []MenuItem{
 							Action{AssignTo: &actionSwitch, Text: "✔️ 切换配置", OnTriggered: func() {}},
@@ -230,8 +204,8 @@ func CreateMainWindow(title string) (*MainWindowView, error) {
 					Composite{
 						Layout: VBox{MarginsZero: true, Spacing: 8},
 						Children: []Widget{
-							PushButton{AssignTo: &btnMoveUp, Text: "⬆️ 上移", Enabled: false, MinSize: Size{Width: 90, Height: 32}, OnClicked: func() {}},
-							PushButton{AssignTo: &btnMoveDown, Text: "⬇️ 下移", Enabled: false, MinSize: Size{Width: 90, Height: 32}, OnClicked: func() {}},
+							PushButton{AssignTo: &btnMoveUp, Text: "⬆️ 上移", Enabled: false, MinSize: Size{Width: 90, Height: 30}, OnClicked: func() {}},
+							PushButton{AssignTo: &btnMoveDown, Text: "⬇️ 下移", Enabled: false, MinSize: Size{Width: 90, Height: 30}, OnClicked: func() {}},
 							VSpacer{},
 						},
 					},
@@ -241,16 +215,25 @@ func CreateMainWindow(title string) (*MainWindowView, error) {
 	}.Create()
 
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	view.Window.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
+	e.dashboardWindow.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 		*canceled = true
-		view.Window.SetVisible(false)
+		e.dashboardWindow.SetVisible(false)
 	})
 
-	centerWindow(view.Window)
+	centerWindow(e.dashboardWindow)
 	updateActionState()
 
-	return view, nil
+	return nil
+}
+
+
+func (e *UIEngine) RefreshPanelData(items []ProfileItem) {
+	if e.panelModel == nil {
+		return
+	}
+	e.panelModel.Items = items
+	e.panelModel.PublishRowsReset()
 }
