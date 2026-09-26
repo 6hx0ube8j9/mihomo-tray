@@ -57,8 +57,7 @@ type UIEngine struct {
 
 	lastClick time.Time
 	clickMu   sync.Mutex
-	
-	statusLabel *walk.Label
+	 
 }
 
 func NewUIEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- domain.UICommand, stateCh <-chan domain.UIState) *UIEngine {
