@@ -224,3 +224,13 @@ func (e *UIEngine) sendCommand(action, payload string) {
 		slog.Warn("UI 指令管道阻塞，已丢弃", "action", action)
 	}
 }
+
+ 
+func (e *UIEngine) GetOwnerWindow() *walk.MainWindow {
+	if e.dashboardView != nil && e.dashboardView.Window != nil {
+		return e.dashboardView.Window
+	}
+	return e.mw
+}
+
+ 
