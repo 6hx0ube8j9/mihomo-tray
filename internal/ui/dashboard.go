@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"log/slog"
+	"syscall"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
@@ -98,8 +99,6 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 
 func (e *UIEngine) showDashboard() {
 	if e.dashboardWindow == nil {
-		walk.App().SetExitOnLastWindowClosed(false)
-
 		e.panelModel = &ProfileModel{Items: e.lastProfileItems}
 
 		var actionSwitch, actionEditText, actionEditSub, actionUpdate *walk.Action
@@ -175,7 +174,7 @@ func (e *UIEngine) showDashboard() {
 						},
 						HSpacer{},
 						Label{
-							Text: "就绪 (GUI 骨架测试)",
+							Text: "就绪 (配置管理)",
 						},
 					},
 				},
@@ -263,10 +262,15 @@ func (e *UIEngine) showDashboard() {
 			return
 		}
 
-		e.dashboardWindow.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-			*canceled = true
-			e.dashboardWindow.SetVisible(false)
+		var oldWndProc uintptr
+		newWndProc := syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
+			if msg == win.WM_CLOSE {
+				win.ShowWindow(hwnd, win.SW_HIDE)
+				return 0
+			}
+			return win.CallWindowProc(oldWndProc, hwnd, msg, wParam, lParam)
 		})
+		oldWndProc = win.SetWindowLongPtr(e.dashboardWindow.Handle(), win.GWLP_WNDPROC, newWndProc)
 
 		centerWindow(e.dashboardWindow)
 		updateActionState()
