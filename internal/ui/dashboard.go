@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"syscall"
 
 	"github.com/tailscale/walk"
