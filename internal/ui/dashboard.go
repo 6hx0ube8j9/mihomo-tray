@@ -134,16 +134,20 @@ func NewMainWindowView(onCommand func(action, payload string)) (*MainWindowView,
 		Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
 		Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 		Children: []Widget{
+			// 顶部按钮栏：强行指定容器与按钮的高度，彻底规避字体裁剪
 			Composite{
-				Layout: HBox{Margins: Margins{Left: 0, Top: 5, Right: 0, Bottom: 5}, Spacing: 10},
+				Layout:  HBox{MarginsZero: true, Spacing: 10},
+				MinSize: Size{Height: 36},
 				Children: []Widget{
 					PushButton{
-						AssignTo:  &btnAddRemote,
-						Text:      "➕ 添加远程订阅",
+						AssignTo: &btnAddRemote,
+						Text:     "➕ 添加远程订阅",
+						MinSize:  Size{Width: 120, Height: 32},
 					},
 					PushButton{
-						AssignTo:  &btnAddLocal,
-						Text:      "📂 导入本地配置",
+						AssignTo: &btnAddLocal,
+						Text:     "📂 导入本地配置",
+						MinSize:  Size{Width: 120, Height: 32},
 					},
 					HSpacer{},
 					Label{
@@ -214,7 +218,7 @@ func NewMainWindowView(onCommand func(action, payload string)) (*MainWindowView,
 								AssignTo: &btnMoveUp,
 								Text:     "⬆️ 上移",
 								Enabled:  false,
-								MinSize:  Size{Width: 90},
+								MinSize:  Size{Width: 90, Height: 32},
 								OnClicked: func() {
 									if idx := v.TableView.CurrentIndex(); idx >= 0 {
 										triggerCmd(domain.ActionMoveProfileUp, v.Model.Items[idx].Path)
@@ -225,7 +229,7 @@ func NewMainWindowView(onCommand func(action, payload string)) (*MainWindowView,
 								AssignTo: &btnMoveDown,
 								Text:     "⬇️ 下移",
 								Enabled:  false,
-								MinSize:  Size{Width: 90},
+								MinSize:  Size{Width: 90, Height: 32},
 								OnClicked: func() {
 									if idx := v.TableView.CurrentIndex(); idx >= 0 {
 										triggerCmd(domain.ActionMoveProfileDown, v.Model.Items[idx].Path)
