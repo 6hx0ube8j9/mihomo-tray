@@ -29,7 +29,7 @@ jobs:
       - name: Install dependencies
         shell: pwsh
         run: |
-          go mod tidy
+          go mod download
 
       - name: Generate Windows Resources
         shell: pwsh
@@ -51,7 +51,7 @@ jobs:
           $env:GOARCH="${{ matrix.goarch }}"
           go env GOOS GOARCH CGO_ENABLED
           New-Item -ItemType Directory -Force -Path "release/mihomo-tray"
-          go build -ldflags="-s -w -H=windowsgui" -o "release/mihomo-tray/mihomo-tray.exe" .
+          go build -mod=readonly -ldflags="-s -w -H=windowsgui" -o "release/mihomo-tray/mihomo-tray.exe" .
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
