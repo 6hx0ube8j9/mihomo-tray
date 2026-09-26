@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"syscall"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
@@ -10,12 +11,19 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
+var (
+	dashboardOldWndProc uintptr
+	dashboardNewWndProc uintptr
+)
+
 type ProfileModel struct {
 	walk.TableModelBase
 	Items []domain.UIProfileItem
 }
 
-func (m *ProfileModel) RowCount() int { return len(m.Items) }
+func (m *ProfileModel) RowCount() int {
+	return len(m.Items)
+}
 
 func (m *ProfileModel) Value(row, col int) interface{} {
 	if row < 0 || row >= len(m.Items) {
@@ -24,17 +32,29 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	item := m.Items[row]
 	switch col {
 	case 0:
-		if item.IsActive { return "使用中" } else { return "" }
+		if item.IsActive {
+			return "使用中"
+		}
+		return ""
 	case 1:
 		return item.Name
 	case 2:
-		if item.IsRemote { return "订阅配置" } else { return "本地配置" }
+		if item.IsRemote {
+			return "订阅配置"
+		}
+		return "本地配置"
 	case 3:
-		if !item.IsRemote { return "-" }
-		if item.Interval > 0 { return fmt.Sprintf("%d 天", item.Interval) }
+		if !item.IsRemote {
+			return "-"
+		}
+		if item.Interval > 0 {
+			return fmt.Sprintf("%d 天", item.Interval)
+		}
 		return "停止更新"
 	case 4:
-		if !item.IsRemote { return "-" }
+		if !item.IsRemote {
+			return "-"
+		}
 		return item.LastUpdate
 	}
 	return ""
@@ -51,14 +71,30 @@ func centerWindow(winHandle *walk.MainWindow) {
 	x := (screenW - bounds.Width) / 2
 	y := (screenH - bounds.Height) / 2
 
-	if x < 0 { x = 0 }
-	if y < 0 { y = 0 }
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
 
-	winHandle.SetBounds(walk.Rectangle{X: x, Y: y, Width: bounds.Width, Height: bounds.Height})
+	winHandle.SetBounds(walk.Rectangle{
+		X:      x,
+		Y:      y,
+		Width:  bounds.Width,
+		Height: bounds.Height,
+	})
 }
 
 func (e *UIEngine) InitDashboardWindow() error {
-	e.panelModel = &ProfileModel{Items: []domain.UIProfileItem{}}
+	// 完全保持代码 1 的做法：初始化时装载 3 条示例数据
+	e.panelModel = &ProfileModel{
+		Items: []domain.UIProfileItem{
+			{IsActive: true, Name: "示例节点订阅 - 香港", IsRemote: true, Interval: 1, LastUpdate: "2026-03-30 10:00", Path: "sub1"},
+			{IsActive: false, Name: "本地自建备用节点", IsRemote: false, Interval: 0, LastUpdate: "-", Path: "local1"},
+			{IsActive: false, Name: "团队公共订阅 - 日本", IsRemote: true, Interval: 7, LastUpdate: "2026-03-28 14:20", Path: "sub2"},
+		},
+	}
 
 	var actionSwitch, actionEditText, actionEditSub, actionUpdate *walk.Action
 	var actionMoveUp, actionMoveDown, actionDelete *walk.Action
@@ -67,16 +103,26 @@ func (e *UIEngine) InitDashboardWindow() error {
 	var statusLabel *walk.Label
 
 	updateActionState := func() {
-		if e.tableView == nil || actionSwitch == nil { return }
+		if e.tableView == nil || actionSwitch == nil {
+			return
+		}
 		idx := e.tableView.CurrentIndex()
 		hasSelection := idx >= 0 && idx < len(e.panelModel.Items)
 
 		if !hasSelection {
-			actionSwitch.SetEnabled(false); actionEditText.SetEnabled(false)
-			actionEditSub.SetEnabled(false); actionUpdate.SetEnabled(false)
-			actionMoveUp.SetEnabled(false); actionMoveDown.SetEnabled(false); actionDelete.SetEnabled(false)
-			if btnMoveUp != nil { btnMoveUp.SetEnabled(false) }
-			if btnMoveDown != nil { btnMoveDown.SetEnabled(false) }
+			actionSwitch.SetEnabled(false)
+			actionEditText.SetEnabled(false)
+			actionEditSub.SetEnabled(false)
+			actionUpdate.SetEnabled(false)
+			actionMoveUp.SetEnabled(false)
+			actionMoveDown.SetEnabled(false)
+			actionDelete.SetEnabled(false)
+			if btnMoveUp != nil {
+				btnMoveUp.SetEnabled(false)
+			}
+			if btnMoveDown != nil {
+				btnMoveDown.SetEnabled(false)
+			}
 			return
 		}
 
@@ -84,11 +130,19 @@ func (e *UIEngine) InitDashboardWindow() error {
 		canMoveUp := idx > 0
 		canMoveDown := idx < len(e.panelModel.Items)-1
 
-		actionSwitch.SetEnabled(!item.IsActive); actionDelete.SetEnabled(!item.IsActive)
-		actionEditText.SetEnabled(true); actionEditSub.SetEnabled(item.IsRemote); actionUpdate.SetEnabled(item.IsRemote)
-		actionMoveUp.SetEnabled(canMoveUp); actionMoveDown.SetEnabled(canMoveDown)
-		if btnMoveUp != nil { btnMoveUp.SetEnabled(canMoveUp) }
-		if btnMoveDown != nil { btnMoveDown.SetEnabled(canMoveDown) }
+		actionSwitch.SetEnabled(!item.IsActive)
+		actionDelete.SetEnabled(!item.IsActive)
+		actionEditText.SetEnabled(true)
+		actionEditSub.SetEnabled(item.IsRemote)
+		actionUpdate.SetEnabled(item.IsRemote)
+		actionMoveUp.SetEnabled(canMoveUp)
+		actionMoveDown.SetEnabled(canMoveDown)
+		if btnMoveUp != nil {
+			btnMoveUp.SetEnabled(canMoveUp)
+		}
+		if btnMoveDown != nil {
+			btnMoveDown.SetEnabled(canMoveDown)
+		}
 	}
 
 	err := MainWindow{
@@ -113,7 +167,10 @@ func (e *UIEngine) InitDashboardWindow() error {
 						OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
 					},
 					HSpacer{},
-					Label{AssignTo: &statusLabel, Text: ""},
+					Label{
+						AssignTo: &statusLabel,
+						Text:     "",
+					},
 				},
 			},
 			Composite{
@@ -122,8 +179,11 @@ func (e *UIEngine) InitDashboardWindow() error {
 					TableView{
 						AssignTo: &e.tableView,
 						Columns: []TableViewColumn{
-							{Title: "状态", Width: 90}, {Title: "名称", Width: 220}, {Title: "类型", Width: 80},
-							{Title: "更新频率", Width: 100}, {Title: "上次更新", Width: 130},
+							{Title: "状态", Width: 90},
+							{Title: "名称", Width: 220},
+							{Title: "类型", Width: 80},
+							{Title: "更新频率", Width: 100},
+							{Title: "上次更新", Width: 130},
 						},
 						Model:                 e.panelModel,
 						OnCurrentIndexChanged: updateActionState,
@@ -156,20 +216,38 @@ func (e *UIEngine) InitDashboardWindow() error {
 		return err
 	}
 
-	// 利用 Walk 框架自身的拦截机制（完全不需要底层的 SetWindowLongPtr Hook）
 	e.dashboardWindow.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 		*canceled = true
 		e.dashboardWindow.SetVisible(false)
 	})
 
+	// 完全移植代码 1 的生命周期步骤：
+	// 1. 强制居中
+	centerWindow(e.dashboardWindow)
+
+	// 2. 挂载 WndProc 钩子
+	if dashboardOldWndProc == 0 {
+		dashboardNewWndProc = syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
+			if msg == win.WM_CLOSE {
+				win.ShowWindow(hwnd, win.SW_HIDE)
+				return 0
+			}
+			return win.CallWindowProc(dashboardOldWndProc, hwnd, msg, wParam, lParam)
+		})
+		dashboardOldWndProc = win.SetWindowLongPtr(e.dashboardWindow.Handle(), win.GWLP_WNDPROC, dashboardNewWndProc)
+	}
+
 	updateActionState()
+
 	e.mw = e.dashboardWindow
 
 	return nil
 }
 
 func (e *UIEngine) showDashboard() {
-	if e.dashboardWindow == nil { return }
+	if e.dashboardWindow == nil {
+		return
+	}
 	hwnd := e.dashboardWindow.Handle()
 
 	if win.IsIconic(hwnd) {
@@ -180,24 +258,20 @@ func (e *UIEngine) showDashboard() {
 		e.dashboardWindow.Show()
 	}
 
-	centerWindow(e.dashboardWindow)
 	win.SetForegroundWindow(hwnd)
 	e.dashboardWindow.SetFocus()
 }
 
-// ShowProfileManager 显示配置管理仪表盘并更新数据
 func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 	if e.app == nil {
 		return
 	}
 	e.app.Synchronize(func() {
 		e.lastProfileItems = items
-		// 1. 刷新表格数据
 		if e.panelModel != nil {
 			e.panelModel.Items = items
 			e.panelModel.PublishRowsReset()
 		}
-		// 2. 显示并激活仪表盘窗口
 		e.showDashboard()
 	})
 }
@@ -223,7 +297,6 @@ func (e *UIEngine) RefreshPanelData(items []domain.UIProfileItem) {
 		e.panelModel.Items = items
 		e.panelModel.PublishRowsReset()
 
-		// 恢复选中项
 		if e.tableView != nil && selectedPath != "" {
 			newIdx := -1
 			for i, item := range items {
