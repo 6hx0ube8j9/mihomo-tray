@@ -5,6 +5,7 @@ import (
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
+	"github.com/tailscale/win"
 
 	"mihomo-tray/internal/domain"
 )
@@ -53,13 +54,36 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	return ""
 }
 
+// 居中并触发底层的 Bounds 重算（解决顶栏截断的关键点）
+func centerWindow(winHandle *walk.MainWindow) {
+	if winHandle == nil {
+		return
+	}
+	bounds := winHandle.Bounds()
+	screenW := int(win.GetSystemMetrics(win.SM_CXSCREEN))
+	screenH := int(win.GetSystemMetrics(win.SM_CYSCREEN))
+
+	x := (screenW - bounds.Width) / 2
+	y := (screenH - bounds.Height) / 2
+
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+
+	winHandle.SetBounds(walk.Rectangle{
+		X:      x,
+		Y:      y,
+		Width:  bounds.Width,
+		Height: bounds.Height,
+	})
+}
+
 func (e *UIEngine) InitDashboardWindow() error {
 	e.panelModel = &ProfileModel{
-		Items: []domain.UIProfileItem{
-			{IsActive: true, Name: "示例节点订阅 - 香港", IsRemote: true, Interval: 1, LastUpdate: "2026-03-30 10:00", Path: "sub1"},
-			{IsActive: false, Name: "本地自建备用节点", IsRemote: false, Interval: 0, LastUpdate: "-", Path: "local1"},
-			{IsActive: false, Name: "团队公共订阅 - 日本", IsRemote: true, Interval: 7, LastUpdate: "2026-03-28 14:20", Path: "sub2"},
-		},
+		Items: []domain.UIProfileItem{},
 	}
 
 	var actionSwitch, actionEditText, actionEditSub, actionUpdate *walk.Action
@@ -113,31 +137,24 @@ func (e *UIEngine) InitDashboardWindow() error {
 
 	err := MainWindow{
 		AssignTo: &e.dashboardWindow,
-		Title:    "Mihomo Tray 仪表盘",
+		Title:    "Mihomo Tray",
 		MinSize:  Size{Width: 700, Height: 350},
 		Size:     Size{Width: 750, Height: 400},
 		Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
 		Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 		Children: []Widget{
+			// 顶部操作栏
 			Composite{
-				Layout: HBox{
-					Margins:   Margins{Left: 0, Top: 8, Right: 0, Bottom: 8},
-					Spacing:   10,
-					Alignment: AlignHNearVCenter,
-				},
-				// 保障约束：明确要求 Composite 给内部控件分配至少 42px 的高，防止初次计算被压扁
-				MinSize: Size{Height: 42},
+				Layout: HBox{Margins: Margins{Left: 0, Top: 5, Right: 0, Bottom: 5}, Spacing: 10},
 				Children: []Widget{
 					PushButton{
 						AssignTo:  &btnAddRemote,
 						Text:      "➕ 添加远程订阅",
-						MinSize:   Size{Width: 130, Height: 32},
 						OnClicked: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
 					},
 					PushButton{
 						AssignTo:  &btnAddLocal,
 						Text:      "📂 导入本地配置",
-						MinSize:   Size{Width: 130, Height: 32},
 						OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
 					},
 					HSpacer{},
@@ -147,6 +164,7 @@ func (e *UIEngine) InitDashboardWindow() error {
 					},
 				},
 			},
+			// 主体表格与侧边按键
 			Composite{
 				Layout: HBox{MarginsZero: true, Spacing: 10},
 				Children: []Widget{
@@ -204,12 +222,12 @@ func (e *UIEngine) InitDashboardWindow() error {
 					Composite{
 						Layout: VBox{MarginsZero: true, Spacing: 8},
 						Children: []Widget{
-							PushButton{AssignTo: &btnMoveUp, Text: "⬆️ 上移", Enabled: false, MinSize: Size{Width: 90, Height: 32}, OnClicked: func() {
+							PushButton{AssignTo: &btnMoveUp, Text: "⬆️ 上移", Enabled: false, MinSize: Size{Width: 90}, OnClicked: func() {
 								if idx := e.tableView.CurrentIndex(); idx >= 0 {
 									e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path)
 								}
 							}},
-							PushButton{AssignTo: &btnMoveDown, Text: "⬇️ 下移", Enabled: false, MinSize: Size{Width: 90, Height: 32}, OnClicked: func() {
+							PushButton{AssignTo: &btnMoveDown, Text: "⬇️ 下移", Enabled: false, MinSize: Size{Width: 90}, OnClicked: func() {
 								if idx := e.tableView.CurrentIndex(); idx >= 0 {
 									e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path)
 								}
@@ -226,10 +244,14 @@ func (e *UIEngine) InitDashboardWindow() error {
 		return err
 	}
 
+	// 拦截关闭事件，仅隐藏窗口
 	e.dashboardWindow.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 		*canceled = true
 		e.dashboardWindow.SetVisible(false)
 	})
+
+	// 创建后立即重算坐标并定位
+	centerWindow(e.dashboardWindow)
 
 	updateActionState()
 	e.mw = e.dashboardWindow
@@ -242,12 +264,14 @@ func (e *UIEngine) showDashboard() {
 		return
 	}
 
-	// 核心修复：在展示窗口时，通知 Walk 结合当前 DPI 重算全量布局
-	e.dashboardWindow.AsFormBase().RequestLayout()
-
+	hwnd := e.dashboardWindow.Handle()
+	if win.IsIconic(hwnd) {
+		win.ShowWindow(hwnd, win.SW_RESTORE)
+	}
 	if !e.dashboardWindow.Visible() {
 		e.dashboardWindow.Show()
 	}
+	win.SetForegroundWindow(hwnd)
 	e.dashboardWindow.SetFocus()
 }
 
