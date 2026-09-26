@@ -48,6 +48,9 @@ type UIEngine struct {
 	icons   []*walk.Icon
 	iconDir string
 
+	// ---- 兼容 dialog.go / editor.go 的旧指针 ----
+	dashboardWindow *walk.MainWindow
+
 	// ---- 独立的仪表盘视图句柄 ----
 	dashboardView *MainWindowView
 
@@ -97,7 +100,7 @@ func (e *UIEngine) Run() error {
 
 	e.loadEmbeddedIcons()
 
-	// 初始化仪表盘视图（插头接入）
+	// 初始化仪表盘视图
 	e.initDashboard()
 
 	go e.listenState()
@@ -134,6 +137,8 @@ func (e *UIEngine) initDashboard() {
 		return
 	}
 	e.dashboardView = view
+	// 挂载到旧的 dashboardWindow 变量，满足 dialog.go 和 editor.go
+	e.dashboardWindow = view.Window
 }
 
 func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
@@ -212,10 +217,6 @@ func (e *UIEngine) listenState() {
 	}
 }
 
-func (e *UIEngine) updateTrayState(state domain.UIState) {
-	// 留空或后续处理托盘右键菜单
-}
-
 func (e *UIEngine) sendCommand(action, payload string) {
 	slog.Debug("发送 UI 指令", "action", action, "payload", payload)
 	select {
@@ -224,13 +225,3 @@ func (e *UIEngine) sendCommand(action, payload string) {
 		slog.Warn("UI 指令管道阻塞，已丢弃", "action", action)
 	}
 }
-
- 
-func (e *UIEngine) GetOwnerWindow() *walk.MainWindow {
-	if e.dashboardView != nil && e.dashboardView.Window != nil {
-		return e.dashboardView.Window
-	}
-	return e.mw
-}
-
- 
