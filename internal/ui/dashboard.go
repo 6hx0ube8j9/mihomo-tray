@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"syscall"
 
 	"github.com/tailscale/walk"
@@ -34,15 +35,34 @@ func centerWindow(winHandle *walk.MainWindow) {
 }
 
 // ==========================================
-// 数据模型 (极简)
+// 数据模型
 // ==========================================
 
 type ProfileModel struct {
 	walk.TableModelBase
 	Items []domain.UIProfileItem
 }
+
 func (m *ProfileModel) RowCount() int { return len(m.Items) }
-func (m *ProfileModel) Value(row, col int) interface{} { return "" } // 屏蔽数据渲染，专心排查 UI
+
+func (m *ProfileModel) Value(row, col int) interface{} {
+	item := m.Items[row]
+	switch col {
+	case 0:
+		if item.IsActive { return "使用中" } else { return "" }
+	case 1: return item.Name
+	case 2:
+		if item.IsRemote { return "订阅配置" } else { return "本地配置" }
+	case 3:
+		if !item.IsRemote { return "-" }
+		if item.Interval > 0 { return fmt.Sprintf("%d 天", item.Interval) }
+		return "停止更新"
+	case 4:
+		if !item.IsRemote { return "-" }
+		return item.LastUpdate
+	}
+	return ""
+}
 
 func (e *UIEngine) ForceExitApp() {
 	isAppExiting = true
@@ -55,34 +75,104 @@ func (e *UIEngine) ForceExitApp() {
 }
 
 // ==========================================
-// 终极排查版：去掉一切容器嵌套和字体约束
+// 完整仪表盘
 // ==========================================
 
 func (e *UIEngine) InitDashboardWindow() error {
 	e.panelModel = &ProfileModel{Items: []domain.UIProfileItem{}}
 
+	var actionSwitch, actionEditText, actionEditSub, actionUpdate *walk.Action
+	var actionMoveUp, actionMoveDown, actionDelete *walk.Action
+	var btnMoveUp, btnMoveDown *walk.PushButton
+	var btnAddRemote, btnAddLocal *walk.PushButton
+
+	updateActionState := func() {
+		if e.tableView == nil || actionSwitch == nil { return }
+		idx := e.tableView.CurrentIndex()
+		hasSelection := idx >= 0 && idx < len(e.panelModel.Items)
+
+		if !hasSelection {
+			actionSwitch.SetEnabled(false); actionEditText.SetEnabled(false)
+			actionEditSub.SetEnabled(false); actionUpdate.SetEnabled(false)
+			actionMoveUp.SetEnabled(false); actionMoveDown.SetEnabled(false); actionDelete.SetEnabled(false)
+			if btnMoveUp != nil { btnMoveUp.SetEnabled(false) }
+			if btnMoveDown != nil { btnMoveDown.SetEnabled(false) }
+			return
+		}
+
+		item := e.panelModel.Items[idx]
+		canMoveUp := idx > 0
+		canMoveDown := idx < len(e.panelModel.Items)-1
+
+		actionSwitch.SetEnabled(!item.IsActive); actionDelete.SetEnabled(!item.IsActive)
+		actionEditText.SetEnabled(true); actionEditSub.SetEnabled(item.IsRemote); actionUpdate.SetEnabled(item.IsRemote)
+		actionMoveUp.SetEnabled(canMoveUp); actionMoveDown.SetEnabled(canMoveDown)
+		if btnMoveUp != nil { btnMoveUp.SetEnabled(canMoveUp) }
+		if btnMoveDown != nil { btnMoveDown.SetEnabled(canMoveDown) }
+	}
+
 	err := MainWindow{
 		AssignTo: &e.dashboardWindow,
-		Title:    "Mihomo Tray 终极扒皮测试",
-		Size:     Size{Width: 700, Height: 400},
-
-		Layout:   VBox{Margins: Margins{Left: 20, Top: 20, Right: 20, Bottom: 20}, Spacing: 15},
+		Title:    "Mihomo Tray 仪表盘",
+		MinSize:  Size{Width: 700, Height: 350},
+		Size:     Size{Width: 750, Height: 400},
+		Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
+		
+		// 【按你的思路解决】：修改 Margins 的 Top 值，从原来的 15 直接加大到 35。
+		// 这会在窗口顶部强制留出一大块空白，完美避开系统隐藏窗口计算带来的“吞噬效应”。
+		Layout:   VBox{Margins: Margins{Left: 15, Top: 35, Right: 15, Bottom: 15}, Spacing: 10},
+		
 		Children: []Widget{
-			PushButton{
-				Text: "测试按钮 1：如果我不截断，说明是之前的 Composite 容器引发了坍塌",
-				OnClicked: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
-			},
-			PushButton{
-				Text: "测试按钮 2：导入本地配置",
-				OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
-			},
-			TableView{
-				AssignTo: &e.tableView,
-				Columns: []TableViewColumn{
-					{Title: "状态", Width: 90}, 
-					{Title: "名称", Width: 220}, 
+			Composite{
+				Layout: HBox{MarginsZero: true, Spacing: 10},
+				Children: []Widget{
+					PushButton{
+						AssignTo:  &btnAddRemote,
+						Text:      "➕ 添加远程订阅",
+						MinSize:   Size{Height: 28},
+						OnClicked: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
+					},
+					PushButton{
+						AssignTo:  &btnAddLocal,
+						Text:      "📂 导入本地配置",
+						MinSize:   Size{Height: 28},
+						OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
+					},
+					HSpacer{},
 				},
-				Model: e.panelModel,
+			},
+			Composite{
+				Layout: HBox{MarginsZero: true, Spacing: 10},
+				Children: []Widget{
+					TableView{
+						AssignTo: &e.tableView,
+						Columns: []TableViewColumn{
+							{Title: "状态", Width: 90}, {Title: "名称", Width: 220}, {Title: "类型", Width: 80},
+							{Title: "更新频率", Width: 100}, {Title: "上次更新", Width: 130},
+						},
+						Model: e.panelModel,
+						OnCurrentIndexChanged: updateActionState,
+						ContextMenuItems: []MenuItem{
+							Action{AssignTo: &actionSwitch, Text: "✔️ 切换配置", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionSwitchProfile, e.panelModel.Items[idx].Path) } }},
+							Action{AssignTo: &actionEditText, Text: "📝 打开文本", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionOpenConfigFile, e.panelModel.Items[idx].Path) } }},
+							Action{AssignTo: &actionEditSub, Text: "⚙️ 编辑订阅", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionRequestEditRemote, e.panelModel.Items[idx].Path) } }},
+							Action{AssignTo: &actionUpdate, Text: "🔄 立即更新", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionUpdateRemoteProfile, e.panelModel.Items[idx].Path) } }},
+							Separator{},
+							Action{AssignTo: &actionMoveUp, Text: "⬆️ 向上移动", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path) } }},
+							Action{AssignTo: &actionMoveDown, Text: "⬇️ 向下移动", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path) } }},
+							Separator{},
+							Action{AssignTo: &actionDelete, Text: "❌ 删除配置", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionRemoveProfile, e.panelModel.Items[idx].Path) } }},
+						},
+					},
+					Composite{
+						Layout: VBox{MarginsZero: true, Spacing: 8},
+						Children: []Widget{
+							PushButton{AssignTo: &btnMoveUp, Text: "⬆️ 上移", Enabled: false, MinSize: Size{Width: 90}, OnClicked: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path) } }},
+							PushButton{AssignTo: &btnMoveDown, Text: "⬇️ 下移", Enabled: false, MinSize: Size{Width: 90}, OnClicked: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path) } }},
+							VSpacer{},
+						},
+					},
+				},
 			},
 		},
 	}.Create()
@@ -127,5 +217,32 @@ func (e *UIEngine) showDashboard() {
 	e.dashboardWindow.SetFocus()
 }
 
-func (e *UIEngine) RefreshPanelData(items []domain.UIProfileItem) {}
+func (e *UIEngine) RefreshPanelData(items []domain.UIProfileItem) {
+	if e.app == nil { return }
+	e.app.Synchronize(func() {
+		e.lastProfileItems = items
+		if e.dashboardWindow == nil || !e.dashboardWindow.Visible() { return }
+
+		var selectedPath string
+		if e.tableView != nil {
+			idx := e.tableView.CurrentIndex()
+			if idx >= 0 && idx < len(e.panelModel.Items) {
+				selectedPath = e.panelModel.Items[idx].Path
+			}
+		}
+
+		e.panelModel.Items = items
+		e.panelModel.PublishRowsReset()
+		
+		if e.tableView != nil && selectedPath != "" {
+			newIdx := -1
+			for i, item := range items {
+				if item.Path == selectedPath { newIdx = i; break }
+			}
+			if newIdx >= 0 { e.tableView.SetCurrentIndex(newIdx) }
+			e.tableView.Invalidate()
+		}
+	})
+}
+
 func (e *UIEngine) AppendLog(msg string) {}
