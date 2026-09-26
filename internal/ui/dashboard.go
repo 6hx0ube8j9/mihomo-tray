@@ -230,7 +230,7 @@ func (e *UIEngine) InitDashboardWindow() error {
 }
 
 
-func (e *UIEngine) RefreshPanelData(items []ProfileItem) {
+func (e *UIEngine) RefreshPanelData(items []domain.UIProfileItem) {
 	if e.panelModel == nil {
 		return
 	}
