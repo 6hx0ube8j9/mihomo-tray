@@ -48,11 +48,13 @@ type UIEngine struct {
 	icons   []*walk.Icon
 	iconDir string
 
-	// ---- 兼容 dialog.go / editor.go 的旧指针 ----
+	// ---- 仪表盘核心组件 ----
 	dashboardWindow *walk.MainWindow
-
-	// ---- 独立的仪表盘视图句柄 ----
-	dashboardView *MainWindowView
+	
+	// ---- 配置管理视图数据 ----
+	tableView  *walk.TableView
+	panelModel *ProfileModel
+	lastProfileItems []domain.UIProfileItem 
 
 	lastClick time.Time
 	clickMu   sync.Mutex
@@ -100,18 +102,12 @@ func (e *UIEngine) Run() error {
 
 	e.loadEmbeddedIcons()
 
-	// 初始化仪表盘视图
-	e.initDashboard()
-
 	go e.listenState()
 
 	slog.Debug("UI 引擎消息循环已启动")
 	app.Run()
 
 	e.ni.Dispose()
-	if e.dashboardView != nil && e.dashboardView.Window != nil {
-		e.dashboardView.Window.Dispose()
-	}
 	e.mw.Dispose()
 
 	for _, icon := range e.icons {
@@ -126,40 +122,6 @@ func (e *UIEngine) Run() error {
 		}
 	}
 	return nil
-}
-
-func (e *UIEngine) initDashboard() {
-	view, err := NewMainWindowView(func(action, payload string) {
-		e.sendCommand(action, payload)
-	})
-	if err != nil {
-		slog.Error("初始化配置管理窗口失败", "err", err)
-		return
-	}
-	e.dashboardView = view
-	// 挂载到旧的 dashboardWindow 变量，满足 dialog.go 和 editor.go
-	e.dashboardWindow = view.Window
-}
-
-func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
-	if e.app == nil {
-		return
-	}
-	e.app.Synchronize(func() {
-		if e.dashboardView == nil {
-			e.initDashboard()
-		}
-		if e.dashboardView != nil {
-			e.dashboardView.RefreshData(items)
-			e.dashboardView.Show()
-		}
-	})
-}
-
-func (e *UIEngine) RefreshPanelData(items []domain.UIProfileItem) {
-	if e.dashboardView != nil {
-		e.dashboardView.RefreshData(items)
-	}
 }
 
 func (e *UIEngine) loadEmbeddedIcons() {
