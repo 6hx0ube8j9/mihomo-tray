@@ -210,16 +210,28 @@ func NewMainWindowView(onCommand func(action, payload string)) (*MainWindowView,
 					Composite{
 						Layout: VBox{MarginsZero: true, Spacing: 8},
 						Children: []Widget{
-							PushButton{AssignTo: &btnMoveUp, Text: "⬆️ 上移", Enabled: false, MinSize: Size{Width: 90, Height: 30}, OnClicked: func() {
-								if idx := v.TableView.CurrentIndex(); idx >= 0 {
-									triggerCmd(domain.ActionMoveProfileUp, v.Model.Items[idx].Path)
-								}
-							}},
-							PushButton{AssignTo: &btnMoveDown, Text: "⬇️ 下移", Enabled: false, MinSize: Size{Width: 90, Height: 30}, OnClicked: func() {
-								if idx := v.TableView.CurrentIndex(); idx >= 0 {
-									triggerCmd(domain.ActionMoveProfileDown, v.Model.Items[idx].Path)
-								}
-							}},
+							PushButton{
+								AssignTo: &btnMoveUp,
+								Text:     "⬆️ 上移",
+								Enabled:  false,
+								MinSize:  Size{Width: 90},
+								OnClicked: func() {
+									if idx := v.TableView.CurrentIndex(); idx >= 0 {
+										triggerCmd(domain.ActionMoveProfileUp, v.Model.Items[idx].Path)
+									}
+								},
+							},
+							PushButton{
+								AssignTo: &btnMoveDown,
+								Text:     "⬇️ 下移",
+								Enabled:  false,
+								MinSize:  Size{Width: 90},
+								OnClicked: func() {
+									if idx := v.TableView.CurrentIndex(); idx >= 0 {
+										triggerCmd(domain.ActionMoveProfileDown, v.Model.Items[idx].Path)
+									}
+								},
+							},
 							VSpacer{},
 						},
 					},
@@ -279,7 +291,6 @@ func (v *MainWindowView) Show() {
 	if !v.Window.Visible() {
 		v.Window.Show()
 	}
-	v.Window.AsFormBase().RequestLayout()
 	win.SetForegroundWindow(hwnd)
 	v.Window.SetFocus()
 }
