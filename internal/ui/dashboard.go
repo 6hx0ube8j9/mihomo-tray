@@ -68,7 +68,7 @@ func (e *UIEngine) ForceExitApp() {
 }
 
 // ==========================================
-// 1:1 像素级复刻 CreateMainWindow
+// 初始化仪表盘窗口
 // ==========================================
 func (e *UIEngine) InitDashboardWindow() error {
 	e.panelModel = &ProfileModel{Items: []domain.UIProfileItem{}}
@@ -126,7 +126,6 @@ func (e *UIEngine) InitDashboardWindow() error {
 						OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
 					},
 					HSpacer{},
-					// 1:1 还原你刚才测试成功的空标签承重墙
 					Label{AssignTo: &statusLabel, Text: ""}, 
 				},
 			},
@@ -173,7 +172,6 @@ func (e *UIEngine) InitDashboardWindow() error {
 		e.dashboardWindow.SetVisible(false)
 	})
 
-	centerWindow(e.dashboardWindow)
 	updateActionState()
 
 	e.mw = e.dashboardWindow
@@ -202,12 +200,21 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 func (e *UIEngine) showDashboard() {
 	if e.dashboardWindow == nil { return }
 	hwnd := e.dashboardWindow.Handle()
+
 	if win.IsIconic(hwnd) {
 		win.ShowWindow(hwnd, win.SW_RESTORE)
 	}
+
 	if !e.dashboardWindow.Visible() {
 		e.dashboardWindow.Show()
 	}
+
+	centerWindow(e.dashboardWindow)
+
+	if dashboardOldWndProc == 0 {
+		e.AttachHook()
+	}
+
 	win.SetForegroundWindow(hwnd)
 	e.dashboardWindow.SetFocus()
 }
