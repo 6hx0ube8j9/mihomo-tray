@@ -158,18 +158,18 @@ func (e *UIEngine) showDashboard() {
 			Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 			Children: []Widget{
 				Composite{
-					MinSize: Size{Height: 45},
-					MaxSize: Size{Height: 45},
-					Layout:  HBox{Margins: Margins{Left: 0, Top: 5, Right: 0, Bottom: 5}, Spacing: 10},
+					Layout: HBox{MarginsZero: true, Spacing: 10},
 					Children: []Widget{
 						PushButton{
 							AssignTo:  &btnAddRemote,
 							Text:      "➕ 添加远程订阅",
+							MinSize:   Size{Height: 30},
 							OnClicked: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
 						},
 						PushButton{
 							AssignTo:  &btnAddLocal,
 							Text:      "📂 导入本地配置",
+							MinSize:   Size{Height: 30},
 							OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
 						},
 						HSpacer{},
@@ -239,14 +239,14 @@ func (e *UIEngine) showDashboard() {
 									AssignTo:  &btnMoveUp,
 									Text:      "⬆️ 上移",
 									Enabled:   false,
-									MinSize:   Size{Width: 90},
+									MinSize:   Size{Width: 90, Height: 28},
 									OnClicked: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path) } },
 								},
 								PushButton{
 									AssignTo:  &btnMoveDown,
 									Text:      "⬇️ 下移",
 									Enabled:   false,
-									MinSize:   Size{Width: 90},
+									MinSize:   Size{Width: 90, Height: 28},
 									OnClicked: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path) } },
 								},
 								VSpacer{},
@@ -276,10 +276,14 @@ func (e *UIEngine) showDashboard() {
 		updateActionState()
 	}
 
+	hwnd := e.dashboardWindow.Handle()
+	if win.IsIconic(hwnd) {
+		win.ShowWindow(hwnd, win.SW_RESTORE)
+	}
 	if !e.dashboardWindow.Visible() {
 		e.dashboardWindow.Show()
 	}
-	e.dashboardWindow.BringToTop()
+	win.SetForegroundWindow(hwnd)
 	e.dashboardWindow.SetFocus()
 }
 
