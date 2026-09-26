@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"log/slog"
-	"syscall"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
@@ -158,23 +157,23 @@ func (e *UIEngine) showDashboard() {
 			Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 			Children: []Widget{
 				Composite{
-					Layout: HBox{MarginsZero: true, Spacing: 10},
+					MinSize: Size{Height: 45},
+					MaxSize: Size{Height: 45},
+					Layout:  HBox{Margins: Margins{Left: 0, Top: 5, Right: 0, Bottom: 5}, Spacing: 10},
 					Children: []Widget{
 						PushButton{
 							AssignTo:  &btnAddRemote,
 							Text:      "➕ 添加远程订阅",
-							MinSize:   Size{Height: 30},
 							OnClicked: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
 						},
 						PushButton{
 							AssignTo:  &btnAddLocal,
 							Text:      "📂 导入本地配置",
-							MinSize:   Size{Height: 30},
 							OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
 						},
 						HSpacer{},
 						Label{
-							Text: "就绪 (配置管理)",
+							Text: "就绪 (GUI 骨架测试)",
 						},
 					},
 				},
@@ -239,14 +238,14 @@ func (e *UIEngine) showDashboard() {
 									AssignTo:  &btnMoveUp,
 									Text:      "⬆️ 上移",
 									Enabled:   false,
-									MinSize:   Size{Width: 90, Height: 28},
+									MinSize:   Size{Width: 90},
 									OnClicked: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path) } },
 								},
 								PushButton{
 									AssignTo:  &btnMoveDown,
 									Text:      "⬇️ 下移",
 									Enabled:   false,
-									MinSize:   Size{Width: 90, Height: 28},
+									MinSize:   Size{Width: 90},
 									OnClicked: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path) } },
 								},
 								VSpacer{},
@@ -262,28 +261,19 @@ func (e *UIEngine) showDashboard() {
 			return
 		}
 
-		var oldWndProc uintptr
-		newWndProc := syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
-			if msg == win.WM_CLOSE {
-				win.ShowWindow(hwnd, win.SW_HIDE)
-				return 0
-			}
-			return win.CallWindowProc(oldWndProc, hwnd, msg, wParam, lParam)
+		e.dashboardWindow.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
+			*canceled = true
+			e.dashboardWindow.SetVisible(false)
 		})
-		oldWndProc = win.SetWindowLongPtr(e.dashboardWindow.Handle(), win.GWLP_WNDPROC, newWndProc)
 
 		centerWindow(e.dashboardWindow)
 		updateActionState()
 	}
 
-	hwnd := e.dashboardWindow.Handle()
-	if win.IsIconic(hwnd) {
-		win.ShowWindow(hwnd, win.SW_RESTORE)
-	}
 	if !e.dashboardWindow.Visible() {
 		e.dashboardWindow.Show()
 	}
-	win.SetForegroundWindow(hwnd)
+	e.dashboardWindow.BringToTop()
 	e.dashboardWindow.SetFocus()
 }
 
