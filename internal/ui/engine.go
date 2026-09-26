@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/tailscale/walk"
-	. "github.com/tailscale/walk/declarative"
 
 	"mihomo-tray/internal/domain"
 )
