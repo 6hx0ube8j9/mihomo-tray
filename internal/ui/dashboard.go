@@ -7,8 +7,24 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
+type ProfileModel struct {
+	walk.TableModelBase
+	Items []domain.UIProfileItem
+}
+
+func (m *ProfileModel) RowCount() int {
+	return len(m.Items)
+}
+
+func (m *ProfileModel) Value(row, col int) interface{} {
+	return ""
+}
+
 func (e *UIEngine) InitDashboardWindow() error {
-	// 【测试 1 段】：最简窗口骨架，测试窗口顶栏与最上方控件是否截断
+	// 初始化空模型，防止 e.panelModel 为 nil
+	e.panelModel = &ProfileModel{}
+
+	// 极简排查 UI
 	err := MainWindow{
 		AssignTo: &e.dashboardWindow,
 		Title:    "排查测试 - 最小骨架",
@@ -29,7 +45,6 @@ func (e *UIEngine) InitDashboardWindow() error {
 		return err
 	}
 
-	// 拦截关闭按钮，仅作隐藏
 	e.dashboardWindow.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 		*canceled = true
 		e.dashboardWindow.SetVisible(false)
@@ -50,5 +65,5 @@ func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 }
 
 func (e *UIEngine) RefreshPanelData(items []domain.UIProfileItem) {
-	// 占位防报错
+	// 占位
 }
