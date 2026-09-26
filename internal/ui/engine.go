@@ -76,10 +76,13 @@ func (e *UIEngine) Run() error {
 		return fmt.Errorf("Walk 引擎初始化失败: %w", err)
 	}
 	e.app = app
+
 	err = e.InitDashboardWindow()
 	if err != nil {
 		return fmt.Errorf("仪表盘主窗口创建失败: %w", err)
 	}
+	
+	e.dashboardWindow.Hide()
 
 	e.ni, err = walk.NewNotifyIcon()
 	if err != nil {
@@ -93,8 +96,9 @@ func (e *UIEngine) Run() error {
 		}
 	})
 
-	e.loadEmbeddedIcons()
+	e.AttachHook()
 
+	e.loadEmbeddedIcons()
 	go e.listenState()
 
 	slog.Debug("UI 引擎消息循环已启动")
