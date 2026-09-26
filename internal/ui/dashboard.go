@@ -14,33 +14,34 @@ import (
 var (
 	dashboardNewWndProc uintptr
 	dashboardOldWndProc uintptr
-	isAppExiting        bool // 强制退出标志
+	isAppExiting        bool
 )
 
 func centerWindow(winHandle *walk.MainWindow) {
 	if winHandle == nil {
 		return
 	}
-	monitor := walk.PrimaryMonitor()
-	workArea := monitor.WorkArea()
 	bounds := winHandle.Bounds()
+	screenW := int(win.GetSystemMetrics(win.SM_CXSCREEN))
+	screenH := int(win.GetSystemMetrics(win.SM_CYSCREEN))
 
-	newX := workArea.X + (workArea.Width-bounds.Width)/2
-	newY := workArea.Y + (workArea.Height-bounds.Height)/2
+	x := (screenW - bounds.Width) / 2
+	y := (screenH - bounds.Height) / 2
 
-	if newX < 0 { newX = 0 }
-	if newY < 0 { newY = 0 }
+	if x < 0 { x = 0 }
+	if y < 0 { y = 0 }
 
-	winHandle.SetBounds(walk.Rectangle{X: newX, Y: newY, Width: bounds.Width, Height: bounds.Height})
+	winHandle.SetBounds(walk.Rectangle{X: x, Y: y, Width: bounds.Width, Height: bounds.Height})
 }
 
+// ==========================================
+// 数据模型
+// ==========================================
 type ProfileModel struct {
 	walk.TableModelBase
 	Items []domain.UIProfileItem
 }
-
 func (m *ProfileModel) RowCount() int { return len(m.Items) }
-
 func (m *ProfileModel) Value(row, col int) interface{} {
 	item := m.Items[row]
 	switch col {
@@ -62,18 +63,13 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 
 func (e *UIEngine) ForceExitApp() {
 	isAppExiting = true
-	if e.dashboardWindow != nil {
-		e.dashboardWindow.Close()
-	}
-	if e.app != nil {
-		e.app.Exit(0)
-	}
+	if e.dashboardWindow != nil { e.dashboardWindow.Close() }
+	if e.app != nil { e.app.Exit(0) }
 }
 
 // ==========================================
-// 完美原生形态仪表盘
+// 1:1 像素级复刻 CreateMainWindow
 // ==========================================
-
 func (e *UIEngine) InitDashboardWindow() error {
 	e.panelModel = &ProfileModel{Items: []domain.UIProfileItem{}}
 
@@ -81,9 +77,7 @@ func (e *UIEngine) InitDashboardWindow() error {
 	var actionMoveUp, actionMoveDown, actionDelete *walk.Action
 	var btnMoveUp, btnMoveDown *walk.PushButton
 	var btnAddRemote, btnAddLocal *walk.PushButton
-	
-	// 供 engine.go 使用的状态标签占位符（防止闪退的微型承重墙）
-	var statusLabel *walk.Label
+	var statusLabel *walk.Label // 承重墙
 
 	updateActionState := func() {
 		if e.tableView == nil || actionSwitch == nil { return }
@@ -110,7 +104,6 @@ func (e *UIEngine) InitDashboardWindow() error {
 		if btnMoveDown != nil { btnMoveDown.SetEnabled(canMoveDown) }
 	}
 
-	// 1. 创建可视窗口 (Walk 此时开始计算坐标)
 	err := MainWindow{
 		AssignTo: &e.dashboardWindow,
 		Title:    "Mihomo Tray 仪表盘",
@@ -133,7 +126,8 @@ func (e *UIEngine) InitDashboardWindow() error {
 						OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
 					},
 					HSpacer{},
-					Label{AssignTo: &statusLabel, Text: ""}, // 1:1 还原防闪退结构
+					// 1:1 还原你刚才测试成功的空标签承重墙
+					Label{AssignTo: &statusLabel, Text: ""}, 
 				},
 			},
 			Composite{
@@ -172,21 +166,22 @@ func (e *UIEngine) InitDashboardWindow() error {
 		},
 	}.Create()
 
-	if err != nil {
-		return err
-	}
-	e.mw = e.dashboardWindow
+	if err != nil { return err }
 
-	// 2. 居中窗口
+	e.dashboardWindow.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
+		*canceled = true
+		e.dashboardWindow.SetVisible(false)
+	})
+
 	centerWindow(e.dashboardWindow)
-
-	// 3. 【致命修复点】强制触发一次 UI 状态更新，让系统刷新 Layout 边界固化坐标！
 	updateActionState()
 
-	// 4. 隐藏窗口 (此时坐标已 100% 正确固化)
-	e.dashboardWindow.Hide()
+	e.mw = e.dashboardWindow
+	
+	return nil
+}
 
-	// 5. 挂载保命 Hook (1:1 还原空壳版 engine.go 调用 SetupTray 的时机，绝对不干扰 Hide 逻辑)
+func (e *UIEngine) AttachHook() {
 	dashboardNewWndProc = syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
 		if msg == win.WM_CLOSE && !isAppExiting {
 			win.ShowWindow(hwnd, win.SW_HIDE)
@@ -195,8 +190,6 @@ func (e *UIEngine) InitDashboardWindow() error {
 		return win.CallWindowProc(dashboardOldWndProc, hwnd, msg, wParam, lParam)
 	})
 	dashboardOldWndProc = win.SetWindowLongPtr(e.dashboardWindow.Handle(), win.GWLP_WNDPROC, dashboardNewWndProc)
-
-	return nil
 }
 
 func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
