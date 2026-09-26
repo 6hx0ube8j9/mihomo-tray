@@ -6,6 +6,7 @@ import (
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
 	"github.com/tailscale/win"
+	"mihomo-tray/internal/domain"
 )
 
 // ProfileItem 数据项结构
