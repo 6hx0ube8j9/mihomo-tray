@@ -14,7 +14,7 @@ import (
 var (
 	dashboardNewWndProc uintptr
 	dashboardOldWndProc uintptr
-	isAppExiting        bool // 强制退出标志
+	isAppExiting        bool
 )
 
 func centerWindow(winHandle *walk.MainWindow) {
@@ -64,6 +64,9 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	return ""
 }
 
+// ==========================================
+// 强制退出机制 (供托盘调用)
+// ==========================================
 func (e *UIEngine) ForceExitApp() {
 	isAppExiting = true
 	if e.dashboardWindow != nil {
@@ -75,7 +78,7 @@ func (e *UIEngine) ForceExitApp() {
 }
 
 // ==========================================
-// 完整仪表盘
+// 完美原生形态仪表盘 (零补丁)
 // ==========================================
 
 func (e *UIEngine) InitDashboardWindow() error {
@@ -117,25 +120,19 @@ func (e *UIEngine) InitDashboardWindow() error {
 		MinSize:  Size{Width: 700, Height: 350},
 		Size:     Size{Width: 750, Height: 400},
 		Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
-		
-		// 【按你的思路解决】：修改 Margins 的 Top 值，从原来的 15 直接加大到 35。
-		// 这会在窗口顶部强制留出一大块空白，完美避开系统隐藏窗口计算带来的“吞噬效应”。
-		Layout:   VBox{Margins: Margins{Left: 15, Top: 35, Right: 15, Bottom: 15}, Spacing: 10},
-		
+		Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 		Children: []Widget{
 			Composite{
-				Layout: HBox{MarginsZero: true, Spacing: 10},
+				Layout:  HBox{Margins: Margins{Left: 0, Top: 5, Right: 0, Bottom: 5}, Spacing: 10},
 				Children: []Widget{
 					PushButton{
 						AssignTo:  &btnAddRemote,
 						Text:      "➕ 添加远程订阅",
-						MinSize:   Size{Height: 28},
 						OnClicked: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
 					},
 					PushButton{
 						AssignTo:  &btnAddLocal,
 						Text:      "📂 导入本地配置",
-						MinSize:   Size{Height: 28},
 						OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
 					},
 					HSpacer{},
@@ -182,9 +179,10 @@ func (e *UIEngine) InitDashboardWindow() error {
 	}
 
 	e.dashboardWindow.Hide()
+	
 	e.mw = e.dashboardWindow
 	centerWindow(e.dashboardWindow)
-
+	
 	dashboardNewWndProc = syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
 		if msg == win.WM_CLOSE && !isAppExiting {
 			win.ShowWindow(hwnd, win.SW_HIDE)
