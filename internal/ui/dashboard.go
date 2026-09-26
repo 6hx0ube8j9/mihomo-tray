@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"log/slog"
+	"syscall"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
@@ -11,30 +12,21 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-func centerWindow(winHandle *walk.MainWindow) {
-	if winHandle == nil {
+func centerWindow(win *walk.MainWindow) {
+	if win == nil {
 		return
 	}
-	bounds := winHandle.Bounds()
-	screenW := int(win.GetSystemMetrics(win.SM_CXSCREEN))
-	screenH := int(win.GetSystemMetrics(win.SM_CYSCREEN))
+	monitor := walk.PrimaryMonitor()
+	workArea := monitor.WorkArea()
+	bounds := win.Bounds()
 
-	x := (screenW - bounds.Width) / 2
-	y := (screenH - bounds.Height) / 2
+	newX := workArea.X + (workArea.Width-bounds.Width)/2
+	newY := workArea.Y + (workArea.Height-bounds.Height)/2
 
-	if x < 0 {
-		x = 0
-	}
-	if y < 0 {
-		y = 0
-	}
+	if newX < 0 { newX = 0 }
+	if newY < 0 { newY = 0 }
 
-	winHandle.SetBounds(walk.Rectangle{
-		X:      x,
-		Y:      y,
-		Width:  bounds.Width,
-		Height: bounds.Height,
-	})
+	win.SetBounds(walk.Rectangle{X: newX, Y: newY, Width: bounds.Width, Height: bounds.Height})
 }
 
 // ==========================================
@@ -46,47 +38,30 @@ type ProfileModel struct {
 	Items []domain.UIProfileItem
 }
 
-func (m *ProfileModel) RowCount() int {
-	return len(m.Items)
-}
+func (m *ProfileModel) RowCount() int { return len(m.Items) }
 
 func (m *ProfileModel) Value(row, col int) interface{} {
-	if row < 0 || row >= len(m.Items) {
-		return ""
-	}
 	item := m.Items[row]
 	switch col {
 	case 0:
-		if item.IsActive {
-			return "使用中"
-		}
-		return ""
+		if item.IsActive { return "使用中" } else { return "" }
 	case 1:
 		return item.Name
 	case 2:
-		if item.IsRemote {
-			return "订阅配置"
-		}
-		return "本地配置"
+		if item.IsRemote { return "订阅配置" } else { return "本地配置" }
 	case 3:
-		if !item.IsRemote {
-			return "-"
-		}
-		if item.Interval > 0 {
-			return fmt.Sprintf("%d 天", item.Interval)
-		}
+		if !item.IsRemote { return "-" }
+		if item.Interval > 0 { return fmt.Sprintf("%d 天", item.Interval) }
 		return "停止更新"
 	case 4:
-		if !item.IsRemote {
-			return "-"
-		}
+		if !item.IsRemote { return "-" }
 		return item.LastUpdate
 	}
 	return ""
 }
 
 // ==========================================
-// 仪表盘核心逻辑
+// 统一仪表盘 (Dashboard) 核心控制器
 // ==========================================
 
 func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
@@ -120,12 +95,8 @@ func (e *UIEngine) showDashboard() {
 				actionMoveUp.SetEnabled(false)
 				actionMoveDown.SetEnabled(false)
 				actionDelete.SetEnabled(false)
-				if btnMoveUp != nil {
-					btnMoveUp.SetEnabled(false)
-				}
-				if btnMoveDown != nil {
-					btnMoveDown.SetEnabled(false)
-				}
+				if btnMoveUp != nil { btnMoveUp.SetEnabled(false) }
+				if btnMoveDown != nil { btnMoveDown.SetEnabled(false) }
 				return
 			}
 
@@ -140,12 +111,8 @@ func (e *UIEngine) showDashboard() {
 			actionUpdate.SetEnabled(item.IsRemote)
 			actionMoveUp.SetEnabled(canMoveUp)
 			actionMoveDown.SetEnabled(canMoveDown)
-			if btnMoveUp != nil {
-				btnMoveUp.SetEnabled(canMoveUp)
-			}
-			if btnMoveDown != nil {
-				btnMoveDown.SetEnabled(canMoveDown)
-			}
+			if btnMoveUp != nil { btnMoveUp.SetEnabled(canMoveUp) }
+			if btnMoveDown != nil { btnMoveDown.SetEnabled(canMoveDown) }
 		}
 
 		err := MainWindow{
@@ -172,9 +139,6 @@ func (e *UIEngine) showDashboard() {
 							OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
 						},
 						HSpacer{},
-						Label{
-							Text: "就绪 (GUI 骨架测试)",
-						},
 					},
 				},
 				Composite{
@@ -192,42 +156,71 @@ func (e *UIEngine) showDashboard() {
 							Model:                 e.panelModel,
 							OnCurrentIndexChanged: updateActionState,
 							ContextMenuItems: []MenuItem{
+								// 修复点 2：将地狱单行代码展开，方便维护
 								Action{
-									AssignTo:    &actionSwitch,
-									Text:        "✔️ 切换配置",
-									OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionSwitchProfile, e.panelModel.Items[idx].Path) } },
+									AssignTo: &actionSwitch,
+									Text:     "✔️ 切换配置",
+									OnTriggered: func() {
+										if idx := e.tableView.CurrentIndex(); idx >= 0 {
+											e.sendCommand(domain.ActionSwitchProfile, e.panelModel.Items[idx].Path)
+										}
+									},
 								},
 								Action{
-									AssignTo:    &actionEditText,
-									Text:        "📝 打开文本",
-									OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionOpenConfigFile, e.panelModel.Items[idx].Path) } },
+									AssignTo: &actionEditText,
+									Text:     "📝 打开文本",
+									OnTriggered: func() {
+										if idx := e.tableView.CurrentIndex(); idx >= 0 {
+											e.sendCommand(domain.ActionOpenConfigFile, e.panelModel.Items[idx].Path)
+										}
+									},
 								},
 								Action{
-									AssignTo:    &actionEditSub,
-									Text:        "⚙️ 编辑订阅",
-									OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionRequestEditRemote, e.panelModel.Items[idx].Path) } },
+									AssignTo: &actionEditSub,
+									Text:     "⚙️ 编辑订阅",
+									OnTriggered: func() {
+										if idx := e.tableView.CurrentIndex(); idx >= 0 {
+											e.sendCommand(domain.ActionRequestEditRemote, e.panelModel.Items[idx].Path)
+										}
+									},
 								},
 								Action{
-									AssignTo:    &actionUpdate,
-									Text:        "🔄 立即更新",
-									OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionUpdateRemoteProfile, e.panelModel.Items[idx].Path) } },
+									AssignTo: &actionUpdate,
+									Text:     "🔄 立即更新",
+									OnTriggered: func() {
+										if idx := e.tableView.CurrentIndex(); idx >= 0 {
+											e.sendCommand(domain.ActionUpdateRemoteProfile, e.panelModel.Items[idx].Path)
+										}
+									},
 								},
 								Separator{},
 								Action{
-									AssignTo:    &actionMoveUp,
-									Text:        "⬆️ 向上移动",
-									OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path) } },
+									AssignTo: &actionMoveUp,
+									Text:     "⬆️ 向上移动",
+									OnTriggered: func() {
+										if idx := e.tableView.CurrentIndex(); idx >= 0 {
+											e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path)
+										}
+									},
 								},
 								Action{
-									AssignTo:    &actionMoveDown,
-									Text:        "⬇️ 向下移动",
-									OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path) } },
+									AssignTo: &actionMoveDown,
+									Text:     "⬇️ 向下移动",
+									OnTriggered: func() {
+										if idx := e.tableView.CurrentIndex(); idx >= 0 {
+											e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path)
+										}
+									},
 								},
 								Separator{},
 								Action{
-									AssignTo:    &actionDelete,
-									Text:        "❌ 删除配置",
-									OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionRemoveProfile, e.panelModel.Items[idx].Path) } },
+									AssignTo: &actionDelete,
+									Text:     "❌ 删除配置",
+									OnTriggered: func() {
+										if idx := e.tableView.CurrentIndex(); idx >= 0 {
+											e.sendCommand(domain.ActionRemoveProfile, e.panelModel.Items[idx].Path)
+										}
+									},
 								},
 							},
 						},
@@ -235,18 +228,26 @@ func (e *UIEngine) showDashboard() {
 							Layout: VBox{MarginsZero: true, Spacing: 8},
 							Children: []Widget{
 								PushButton{
-									AssignTo:  &btnMoveUp,
-									Text:      "⬆️ 上移",
-									Enabled:   false,
-									MinSize:   Size{Width: 90},
-									OnClicked: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path) } },
+									AssignTo: &btnMoveUp,
+									Text:     "⬆️ 上移",
+									Enabled:  false,
+									MinSize:  Size{Width: 90},
+									OnClicked: func() {
+										if idx := e.tableView.CurrentIndex(); idx >= 0 {
+											e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path)
+										}
+									},
 								},
 								PushButton{
-									AssignTo:  &btnMoveDown,
-									Text:      "⬇️ 下移",
-									Enabled:   false,
-									MinSize:   Size{Width: 90},
-									OnClicked: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path) } },
+									AssignTo: &btnMoveDown,
+									Text:     "⬇️ 下移",
+									Enabled:  false,
+									MinSize:  Size{Width: 90},
+									OnClicked: func() {
+										if idx := e.tableView.CurrentIndex(); idx >= 0 {
+											e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path)
+										}
+									},
 								},
 								VSpacer{},
 							},
@@ -270,9 +271,13 @@ func (e *UIEngine) showDashboard() {
 		updateActionState()
 	}
 
+	if win.IsIconic(e.dashboardWindow.Handle()) {
+		win.ShowWindow(e.dashboardWindow.Handle(), win.SW_RESTORE)
+	}
 	if !e.dashboardWindow.Visible() {
 		e.dashboardWindow.Show()
 	}
+
 	e.dashboardWindow.BringToTop()
 	e.dashboardWindow.SetFocus()
 }
@@ -314,4 +319,7 @@ func (e *UIEngine) RefreshPanelData(items []domain.UIProfileItem) {
 	})
 }
 
-func (e *UIEngine) AppendLog(msg string) {}
+// 占位函数：为未来扩展日志面板保留安全空接口
+func (e *UIEngine) AppendLog(msg string) {
+	// 目前无日志控件渲染需求，静默丢弃
+}
