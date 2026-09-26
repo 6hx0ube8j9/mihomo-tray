@@ -185,6 +185,22 @@ func (e *UIEngine) showDashboard() {
 	e.dashboardWindow.SetFocus()
 }
 
+// ShowProfileManager 显示配置管理仪表盘并更新数据
+func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
+	if e.app == nil {
+		return
+	}
+	e.app.Synchronize(func() {
+		e.lastProfileItems = items
+		// 1. 刷新表格数据
+		if e.panelModel != nil {
+			e.panelModel.Items = items
+			e.panelModel.PublishRowsReset()
+		}
+		// 2. 显示并激活仪表盘窗口
+		e.showDashboard()
+	})
+}
 
 func (e *UIEngine) RefreshPanelData(items []domain.UIProfileItem) {
 	if e.app == nil {
