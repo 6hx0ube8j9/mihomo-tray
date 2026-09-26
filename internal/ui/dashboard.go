@@ -134,20 +134,17 @@ func NewMainWindowView(onCommand func(action, payload string)) (*MainWindowView,
 		Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
 		Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 		Children: []Widget{
-			// 顶部按钮栏：强行指定容器与按钮的高度，彻底规避字体裁剪
+			// 1. 顶部工具栏：移除硬编码 MinSize，保留上下边距
 			Composite{
-				Layout:  HBox{MarginsZero: true, Spacing: 10},
-				MinSize: Size{Height: 36},
+				Layout: HBox{Margins: Margins{Left: 0, Top: 4, Right: 0, Bottom: 4}, Spacing: 10},
 				Children: []Widget{
 					PushButton{
 						AssignTo: &btnAddRemote,
 						Text:     "➕ 添加远程订阅",
-						MinSize:  Size{Width: 120, Height: 32},
 					},
 					PushButton{
 						AssignTo: &btnAddLocal,
 						Text:     "📂 导入本地配置",
-						MinSize:  Size{Width: 120, Height: 32},
 					},
 					HSpacer{},
 					Label{
@@ -156,7 +153,7 @@ func NewMainWindowView(onCommand func(action, payload string)) (*MainWindowView,
 					},
 				},
 			},
-			// 中间表格与右侧按钮栏
+			// 2. 中间表格与右侧按钮栏
 			Composite{
 				Layout: HBox{MarginsZero: true, Spacing: 10},
 				Children: []Widget{
@@ -218,7 +215,6 @@ func NewMainWindowView(onCommand func(action, payload string)) (*MainWindowView,
 								AssignTo: &btnMoveUp,
 								Text:     "⬆️ 上移",
 								Enabled:  false,
-								MinSize:  Size{Width: 90, Height: 32},
 								OnClicked: func() {
 									if idx := v.TableView.CurrentIndex(); idx >= 0 {
 										triggerCmd(domain.ActionMoveProfileUp, v.Model.Items[idx].Path)
@@ -229,7 +225,6 @@ func NewMainWindowView(onCommand func(action, payload string)) (*MainWindowView,
 								AssignTo: &btnMoveDown,
 								Text:     "⬇️ 下移",
 								Enabled:  false,
-								MinSize:  Size{Width: 90, Height: 32},
 								OnClicked: func() {
 									if idx := v.TableView.CurrentIndex(); idx >= 0 {
 										triggerCmd(domain.ActionMoveProfileDown, v.Model.Items[idx].Path)
@@ -247,6 +242,21 @@ func NewMainWindowView(onCommand func(action, payload string)) (*MainWindowView,
 	if err != nil {
 		return nil, err
 	}
+
+	dpi := v.Window.DPI()
+	if dpi <= 0 {
+		dpi = 96
+	}
+	scale := float64(dpi) / 96.0
+
+	btnHeight := int(34 * scale) // 100%->34px, 125%->42px, 150%->51px
+	topBtnWidth := int(130 * scale)
+	sideBtnWidth := int(90 * scale)
+
+	btnAddRemote.SetMinMaxSize(walk.Size{Width: topBtnWidth, Height: btnHeight}, walk.Size{})
+	btnAddLocal.SetMinMaxSize(walk.Size{Width: topBtnWidth, Height: btnHeight}, walk.Size{})
+	btnMoveUp.SetMinMaxSize(walk.Size{Width: sideBtnWidth, Height: btnHeight}, walk.Size{})
+	btnMoveDown.SetMinMaxSize(walk.Size{Width: sideBtnWidth, Height: btnHeight}, walk.Size{})
 
 	v.Window.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 		*canceled = true
