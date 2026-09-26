@@ -184,3 +184,42 @@ func (e *UIEngine) showDashboard() {
 	win.SetForegroundWindow(hwnd)
 	e.dashboardWindow.SetFocus()
 }
+
+
+func (e *UIEngine) RefreshPanelData(items []domain.UIProfileItem) {
+	if e.app == nil {
+		return
+	}
+	e.app.Synchronize(func() {
+		e.lastProfileItems = items
+		if e.dashboardWindow == nil || !e.dashboardWindow.Visible() {
+			return
+		}
+
+		var selectedPath string
+		if e.tableView != nil {
+			idx := e.tableView.CurrentIndex()
+			if idx >= 0 && idx < len(e.panelModel.Items) {
+				selectedPath = e.panelModel.Items[idx].Path
+			}
+		}
+
+		e.panelModel.Items = items
+		e.panelModel.PublishRowsReset()
+
+		// 恢复选中项
+		if e.tableView != nil && selectedPath != "" {
+			newIdx := -1
+			for i, item := range items {
+				if item.Path == selectedPath {
+					newIdx = i
+					break
+				}
+			}
+			if newIdx >= 0 {
+				e.tableView.SetCurrentIndex(newIdx)
+			}
+			e.tableView.Invalidate()
+		}
+	})
+}
