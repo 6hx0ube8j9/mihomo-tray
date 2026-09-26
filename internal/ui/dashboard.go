@@ -87,13 +87,9 @@ func (e *UIEngine) showDashboard() {
 			hasSelection := idx >= 0 && idx < len(e.panelModel.Items)
 
 			if !hasSelection {
-				actionSwitch.SetEnabled(false)
-				actionEditText.SetEnabled(false)
-				actionEditSub.SetEnabled(false)
-				actionUpdate.SetEnabled(false)
-				actionMoveUp.SetEnabled(false)
-				actionMoveDown.SetEnabled(false)
-				actionDelete.SetEnabled(false)
+				actionSwitch.SetEnabled(false); actionEditText.SetEnabled(false)
+				actionEditSub.SetEnabled(false); actionUpdate.SetEnabled(false)
+				actionMoveUp.SetEnabled(false); actionMoveDown.SetEnabled(false); actionDelete.SetEnabled(false)
 				if btnMoveUp != nil { btnMoveUp.SetEnabled(false) }
 				if btnMoveDown != nil { btnMoveDown.SetEnabled(false) }
 				return
@@ -103,13 +99,9 @@ func (e *UIEngine) showDashboard() {
 			canMoveUp := idx > 0
 			canMoveDown := idx < len(e.panelModel.Items)-1
 
-			actionSwitch.SetEnabled(!item.IsActive)
-			actionDelete.SetEnabled(!item.IsActive)
-			actionEditText.SetEnabled(true)
-			actionEditSub.SetEnabled(item.IsRemote)
-			actionUpdate.SetEnabled(item.IsRemote)
-			actionMoveUp.SetEnabled(canMoveUp)
-			actionMoveDown.SetEnabled(canMoveDown)
+			actionSwitch.SetEnabled(!item.IsActive); actionDelete.SetEnabled(!item.IsActive)
+			actionEditText.SetEnabled(true); actionEditSub.SetEnabled(item.IsRemote); actionUpdate.SetEnabled(item.IsRemote)
+			actionMoveUp.SetEnabled(canMoveUp); actionMoveDown.SetEnabled(canMoveDown)
 			if btnMoveUp != nil { btnMoveUp.SetEnabled(canMoveUp) }
 			if btnMoveDown != nil { btnMoveDown.SetEnabled(canMoveDown) }
 		}
@@ -123,9 +115,7 @@ func (e *UIEngine) showDashboard() {
 			Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 			Children: []Widget{
 				Composite{
-					MinSize: Size{Height: 45},
-					MaxSize: Size{Height: 45},
-					Layout:  HBox{Margins: Margins{Left: 0, Top: 5, Right: 0, Bottom: 5}, Spacing: 10},
+					Layout: HBox{Margins: Margins{Top: 10, Bottom: 10}, Spacing: 10},
 					Children: []Widget{
 						PushButton{
 							AssignTo:  &btnAddRemote,
@@ -146,108 +136,28 @@ func (e *UIEngine) showDashboard() {
 						TableView{
 							AssignTo: &e.tableView,
 							Columns: []TableViewColumn{
-								{Title: "状态", Width: 90},
-								{Title: "名称", Width: 220},
-								{Title: "类型", Width: 80},
-								{Title: "更新频率", Width: 100},
-								{Title: "上次更新", Width: 130},
+								{Title: "状态", Width: 90}, {Title: "名称", Width: 220}, {Title: "类型", Width: 80},
+								{Title: "更新频率", Width: 100}, {Title: "上次更新", Width: 130},
 							},
 							Model:                 e.panelModel,
 							OnCurrentIndexChanged: updateActionState,
 							ContextMenuItems: []MenuItem{
-								// 修复点 2：将地狱单行代码展开，方便维护
-								Action{
-									AssignTo: &actionSwitch,
-									Text:     "✔️ 切换配置",
-									OnTriggered: func() {
-										if idx := e.tableView.CurrentIndex(); idx >= 0 {
-											e.sendCommand(domain.ActionSwitchProfile, e.panelModel.Items[idx].Path)
-										}
-									},
-								},
-								Action{
-									AssignTo: &actionEditText,
-									Text:     "📝 打开文本",
-									OnTriggered: func() {
-										if idx := e.tableView.CurrentIndex(); idx >= 0 {
-											e.sendCommand(domain.ActionOpenConfigFile, e.panelModel.Items[idx].Path)
-										}
-									},
-								},
-								Action{
-									AssignTo: &actionEditSub,
-									Text:     "⚙️ 编辑订阅",
-									OnTriggered: func() {
-										if idx := e.tableView.CurrentIndex(); idx >= 0 {
-											e.sendCommand(domain.ActionRequestEditRemote, e.panelModel.Items[idx].Path)
-										}
-									},
-								},
-								Action{
-									AssignTo: &actionUpdate,
-									Text:     "🔄 立即更新",
-									OnTriggered: func() {
-										if idx := e.tableView.CurrentIndex(); idx >= 0 {
-											e.sendCommand(domain.ActionUpdateRemoteProfile, e.panelModel.Items[idx].Path)
-										}
-									},
-								},
+								Action{AssignTo: &actionSwitch, Text: "✔️ 切换配置", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionSwitchProfile, e.panelModel.Items[idx].Path) } }},
+								Action{AssignTo: &actionEditText, Text: "📝 打开文本", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionOpenConfigFile, e.panelModel.Items[idx].Path) } }},
+								Action{AssignTo: &actionEditSub, Text: "⚙️ 编辑订阅", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionRequestEditRemote, e.panelModel.Items[idx].Path) } }},
+								Action{AssignTo: &actionUpdate, Text: "🔄 立即更新", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionUpdateRemoteProfile, e.panelModel.Items[idx].Path) } }},
 								Separator{},
-								Action{
-									AssignTo: &actionMoveUp,
-									Text:     "⬆️ 向上移动",
-									OnTriggered: func() {
-										if idx := e.tableView.CurrentIndex(); idx >= 0 {
-											e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path)
-										}
-									},
-								},
-								Action{
-									AssignTo: &actionMoveDown,
-									Text:     "⬇️ 向下移动",
-									OnTriggered: func() {
-										if idx := e.tableView.CurrentIndex(); idx >= 0 {
-											e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path)
-										}
-									},
-								},
+								Action{AssignTo: &actionMoveUp, Text: "⬆️ 向上移动", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path) } }},
+								Action{AssignTo: &actionMoveDown, Text: "⬇️ 向下移动", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path) } }},
 								Separator{},
-								Action{
-									AssignTo: &actionDelete,
-									Text:     "❌ 删除配置",
-									OnTriggered: func() {
-										if idx := e.tableView.CurrentIndex(); idx >= 0 {
-											e.sendCommand(domain.ActionRemoveProfile, e.panelModel.Items[idx].Path)
-										}
-									},
-								},
+								Action{AssignTo: &actionDelete, Text: "❌ 删除配置", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionRemoveProfile, e.panelModel.Items[idx].Path) } }},
 							},
 						},
 						Composite{
 							Layout: VBox{MarginsZero: true, Spacing: 8},
 							Children: []Widget{
-								PushButton{
-									AssignTo: &btnMoveUp,
-									Text:     "⬆️ 上移",
-									Enabled:  false,
-									MinSize:  Size{Width: 90},
-									OnClicked: func() {
-										if idx := e.tableView.CurrentIndex(); idx >= 0 {
-											e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path)
-										}
-									},
-								},
-								PushButton{
-									AssignTo: &btnMoveDown,
-									Text:     "⬇️ 下移",
-									Enabled:  false,
-									MinSize:  Size{Width: 90},
-									OnClicked: func() {
-										if idx := e.tableView.CurrentIndex(); idx >= 0 {
-											e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path)
-										}
-									},
-								},
+								PushButton{AssignTo: &btnMoveUp, Text: "⬆️ 上移", Enabled: false, MinSize: Size{Width: 90}, OnClicked: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path) } }},
+								PushButton{AssignTo: &btnMoveDown, Text: "⬇️ 下移", Enabled: false, MinSize: Size{Width: 90}, OnClicked: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path) } }},
 								VSpacer{},
 							},
 						},
@@ -261,23 +171,28 @@ func (e *UIEngine) showDashboard() {
 			return
 		}
 
-		e.dashboardWindow.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-			*canceled = true
-			e.dashboardWindow.SetVisible(false)
+		var oldWndProc uintptr
+		newWndProc := syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
+			if msg == win.WM_CLOSE {
+				win.ShowWindow(hwnd, win.SW_HIDE)
+				return 0 
+			}
+			return win.CallWindowProc(oldWndProc, hwnd, msg, wParam, lParam)
 		})
+		oldWndProc = win.SetWindowLongPtr(e.dashboardWindow.Handle(), win.GWLP_WNDPROC, newWndProc)
 
 		centerWindow(e.dashboardWindow)
 		updateActionState()
 	}
 
-	if win.IsIconic(e.dashboardWindow.Handle()) {
-		win.ShowWindow(e.dashboardWindow.Handle(), win.SW_RESTORE)
+	hwnd := e.dashboardWindow.Handle()
+	if win.IsIconic(hwnd) {
+		win.ShowWindow(hwnd, win.SW_RESTORE)
 	}
 	if !e.dashboardWindow.Visible() {
 		e.dashboardWindow.Show()
 	}
-
-	e.dashboardWindow.BringToTop()
+	win.SetForegroundWindow(hwnd)
 	e.dashboardWindow.SetFocus()
 }
 
