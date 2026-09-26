@@ -134,22 +134,20 @@ func NewMainWindowView(onCommand func(action, payload string)) (*MainWindowView,
 		Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
 		Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 		Children: []Widget{
-			// 顶部按钮栏：给 Composite 和 PushButton 显式设定高度，免疫布局挤压
 			Composite{
-				MinSize: Size{Height: 36},
-				Layout:  HBox{MarginsZero: true, Spacing: 10},
+				Layout: HBox{Margins: Margins{Left: 0, Top: 5, Right: 0, Bottom: 5}, Spacing: 10},
 				Children: []Widget{
 					PushButton{
 						AssignTo:  &btnAddRemote,
-						MinSize:   Size{Width: 120, Height: 32},
+						MinSize:   Size{Width: 120},
 						Text:      "➕ 添加远程订阅",
-						OnClicked: func() { triggerCmd(domain.ActionRequestAddRemote, "") },
+						OnClicked: func() { triggerCmd(...) },
 					},
 					PushButton{
 						AssignTo:  &btnAddLocal,
-						MinSize:   Size{Width: 120, Height: 32},
+						MinSize:   Size{Width: 120},
 						Text:      "📂 导入本地配置",
-						OnClicked: func() { triggerCmd(domain.ActionRequestAddLocal, "") },
+						OnClicked: func() { triggerCmd(...) },
 					},
 					HSpacer{},
 					Label{
