@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"syscall"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
@@ -11,11 +10,35 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-var (
-	dashboardNewWndProc uintptr
-	dashboardOldWndProc uintptr
-	isAppExiting        bool
-)
+type ProfileModel struct {
+	walk.TableModelBase
+	Items []domain.UIProfileItem
+}
+
+func (m *ProfileModel) RowCount() int { return len(m.Items) }
+
+func (m *ProfileModel) Value(row, col int) interface{} {
+	if row < 0 || row >= len(m.Items) {
+		return ""
+	}
+	item := m.Items[row]
+	switch col {
+	case 0:
+		if item.IsActive { return "使用中" } else { return "" }
+	case 1:
+		return item.Name
+	case 2:
+		if item.IsRemote { return "订阅配置" } else { return "本地配置" }
+	case 3:
+		if !item.IsRemote { return "-" }
+		if item.Interval > 0 { return fmt.Sprintf("%d 天", item.Interval) }
+		return "停止更新"
+	case 4:
+		if !item.IsRemote { return "-" }
+		return item.LastUpdate
+	}
+	return ""
+}
 
 func centerWindow(winHandle *walk.MainWindow) {
 	if winHandle == nil {
@@ -34,42 +57,6 @@ func centerWindow(winHandle *walk.MainWindow) {
 	winHandle.SetBounds(walk.Rectangle{X: x, Y: y, Width: bounds.Width, Height: bounds.Height})
 }
 
-// ==========================================
-// 数据模型
-// ==========================================
-type ProfileModel struct {
-	walk.TableModelBase
-	Items []domain.UIProfileItem
-}
-func (m *ProfileModel) RowCount() int { return len(m.Items) }
-func (m *ProfileModel) Value(row, col int) interface{} {
-	item := m.Items[row]
-	switch col {
-	case 0:
-		if item.IsActive { return "使用中" } else { return "" }
-	case 1: return item.Name
-	case 2:
-		if item.IsRemote { return "订阅配置" } else { return "本地配置" }
-	case 3:
-		if !item.IsRemote { return "-" }
-		if item.Interval > 0 { return fmt.Sprintf("%d 天", item.Interval) }
-		return "停止更新"
-	case 4:
-		if !item.IsRemote { return "-" }
-		return item.LastUpdate
-	}
-	return ""
-}
-
-func (e *UIEngine) ForceExitApp() {
-	isAppExiting = true
-	if e.dashboardWindow != nil { e.dashboardWindow.Close() }
-	if e.app != nil { e.app.Exit(0) }
-}
-
-// ==========================================
-// 初始化仪表盘窗口
-// ==========================================
 func (e *UIEngine) InitDashboardWindow() error {
 	e.panelModel = &ProfileModel{Items: []domain.UIProfileItem{}}
 
@@ -77,7 +64,7 @@ func (e *UIEngine) InitDashboardWindow() error {
 	var actionMoveUp, actionMoveDown, actionDelete *walk.Action
 	var btnMoveUp, btnMoveDown *walk.PushButton
 	var btnAddRemote, btnAddLocal *walk.PushButton
-	var statusLabel *walk.Label // 承重墙
+	var statusLabel *walk.Label
 
 	updateActionState := func() {
 		if e.tableView == nil || actionSwitch == nil { return }
@@ -113,7 +100,7 @@ func (e *UIEngine) InitDashboardWindow() error {
 		Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 		Children: []Widget{
 			Composite{
-				Layout:  HBox{Margins: Margins{Left: 0, Top: 5, Right: 0, Bottom: 5}, Spacing: 10},
+				Layout: HBox{Margins: Margins{Left: 0, Top: 5, Right: 0, Bottom: 5}, Spacing: 10},
 				Children: []Widget{
 					PushButton{
 						AssignTo:  &btnAddRemote,
@@ -126,7 +113,7 @@ func (e *UIEngine) InitDashboardWindow() error {
 						OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
 					},
 					HSpacer{},
-					Label{AssignTo: &statusLabel, Text: ""}, 
+					Label{AssignTo: &statusLabel, Text: ""},
 				},
 			},
 			Composite{
@@ -138,7 +125,7 @@ func (e *UIEngine) InitDashboardWindow() error {
 							{Title: "状态", Width: 90}, {Title: "名称", Width: 220}, {Title: "类型", Width: 80},
 							{Title: "更新频率", Width: 100}, {Title: "上次更新", Width: 130},
 						},
-						Model: e.panelModel,
+						Model:                 e.panelModel,
 						OnCurrentIndexChanged: updateActionState,
 						ContextMenuItems: []MenuItem{
 							Action{AssignTo: &actionSwitch, Text: "✔️ 切换配置", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionSwitchProfile, e.panelModel.Items[idx].Path) } }},
@@ -165,36 +152,20 @@ func (e *UIEngine) InitDashboardWindow() error {
 		},
 	}.Create()
 
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
+	// 利用 Walk 框架自身的拦截机制（完全不需要底层的 SetWindowLongPtr Hook）
 	e.dashboardWindow.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 		*canceled = true
 		e.dashboardWindow.SetVisible(false)
 	})
 
 	updateActionState()
-
 	e.mw = e.dashboardWindow
-	
+
 	return nil
-}
-
-func (e *UIEngine) AttachHook() {
-	dashboardNewWndProc = syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
-		if msg == win.WM_CLOSE && !isAppExiting {
-			win.ShowWindow(hwnd, win.SW_HIDE)
-			return 0
-		}
-		return win.CallWindowProc(dashboardOldWndProc, hwnd, msg, wParam, lParam)
-	})
-	dashboardOldWndProc = win.SetWindowLongPtr(e.dashboardWindow.Handle(), win.GWLP_WNDPROC, dashboardNewWndProc)
-}
-
-func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
-	e.app.Synchronize(func() {
-		e.lastProfileItems = items
-		e.showDashboard()
-	})
 }
 
 func (e *UIEngine) showDashboard() {
@@ -210,41 +181,6 @@ func (e *UIEngine) showDashboard() {
 	}
 
 	centerWindow(e.dashboardWindow)
-
-	if dashboardOldWndProc == 0 {
-		e.AttachHook()
-	}
-
 	win.SetForegroundWindow(hwnd)
 	e.dashboardWindow.SetFocus()
 }
-
-func (e *UIEngine) RefreshPanelData(items []domain.UIProfileItem) {
-	if e.app == nil { return }
-	e.app.Synchronize(func() {
-		e.lastProfileItems = items
-		if e.dashboardWindow == nil || !e.dashboardWindow.Visible() { return }
-
-		var selectedPath string
-		if e.tableView != nil {
-			idx := e.tableView.CurrentIndex()
-			if idx >= 0 && idx < len(e.panelModel.Items) {
-				selectedPath = e.panelModel.Items[idx].Path
-			}
-		}
-
-		e.panelModel.Items = items
-		e.panelModel.PublishRowsReset()
-		
-		if e.tableView != nil && selectedPath != "" {
-			newIdx := -1
-			for i, item := range items {
-				if item.Path == selectedPath { newIdx = i; break }
-			}
-			if newIdx >= 0 { e.tableView.SetCurrentIndex(newIdx) }
-			e.tableView.Invalidate()
-		}
-	})
-}
-
-func (e *UIEngine) AppendLog(msg string) {}
