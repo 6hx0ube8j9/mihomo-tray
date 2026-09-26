@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"log/slog"
-	"syscall"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
