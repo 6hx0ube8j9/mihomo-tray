@@ -117,17 +117,15 @@ func (e *UIEngine) InitDashboardWindow() error {
 		MinSize:  Size{Width: 700, Height: 350},
 		Size:     Size{Width: 750, Height: 400},
 		Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
-		// 1. 增加窗口整体的 Top 留白到 20px
-		Layout:   VBox{Margins: Margins{Left: 15, Top: 20, Right: 15, Bottom: 15}, Spacing: 10},
+		Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 		Children: []Widget{
 			Composite{
-				// 2. 使用 AlignHNearVCenter 实现垂直居中，Top 留白 12px
 				Layout: HBox{
-					Margins:   Margins{Left: 0, Top: 12, Right: 0, Bottom: 8},
+					Margins:   Margins{Left: 0, Top: 8, Right: 0, Bottom: 8},
 					Spacing:   10,
 					Alignment: AlignHNearVCenter,
 				},
-				// 3. 限制 Composite 容器最小高度为 42px，防止视口裁剪
+				// 保障约束：明确要求 Composite 给内部控件分配至少 42px 的高，防止初次计算被压扁
 				MinSize: Size{Height: 42},
 				Children: []Widget{
 					PushButton{
@@ -243,7 +241,14 @@ func (e *UIEngine) showDashboard() {
 	if e.dashboardWindow == nil {
 		return
 	}
-	e.dashboardWindow.Show()
+
+	// 核心修复：在展示窗口时，通知 Walk 结合当前 DPI 重算全量布局
+	e.dashboardWindow.AsFormBase().RequestLayout()
+
+	if !e.dashboardWindow.Visible() {
+		e.dashboardWindow.Show()
+	}
+	e.dashboardWindow.SetFocus()
 }
 
 func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
