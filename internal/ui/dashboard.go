@@ -262,3 +262,38 @@ func (e *UIEngine) RefreshPanelData(items []domain.UIProfileItem) {
 	e.panelModel.Items = items
 	e.panelModel.PublishRowsReset()
 }
+
+func (e *UIEngine) showDashboard() {
+	if e.dashboardWindow == nil {
+		return
+	}
+
+	hwnd := e.dashboardWindow.Handle()
+	if win.IsIconic(hwnd) {
+		win.ShowWindow(hwnd, win.SW_RESTORE)
+	}
+
+	if !e.dashboardWindow.Visible() {
+		e.dashboardWindow.Show()
+	}
+
+ 
+	e.dashboardWindow.AsFormBase().RequestLayout()
+
+	win.SetForegroundWindow(hwnd)
+	e.dashboardWindow.SetFocus()
+}
+
+func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
+	if e.app == nil {
+		return
+	}
+	e.app.Synchronize(func() {
+		e.lastProfileItems = items
+		if e.panelModel != nil {
+			e.panelModel.Items = items
+			e.panelModel.PublishRowsReset()
+		}
+		e.showDashboard()
+	})
+}
