@@ -139,12 +139,10 @@ func NewMainWindowView(onCommand func(action, payload string)) (*MainWindowView,
 				Children: []Widget{
 					PushButton{
 						AssignTo:  &btnAddRemote,
-						MinSize:   Size{Width: 120},
 						Text:      "➕ 添加远程订阅",
 					},
 					PushButton{
 						AssignTo:  &btnAddLocal,
-						MinSize:   Size{Width: 120},
 						Text:      "📂 导入本地配置",
 					},
 					HSpacer{},
