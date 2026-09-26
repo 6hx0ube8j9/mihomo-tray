@@ -60,9 +60,7 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	return ""
 }
 
-// ==========================================
-// 统一仪表盘 (Dashboard) 核心控制器
-// ==========================================
+// 仪表盘 (Dashboard) 核心控制器
 
 func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 	e.app.Synchronize(func() {
@@ -78,6 +76,7 @@ func (e *UIEngine) showDashboard() {
 		var actionSwitch, actionEditText, actionEditSub, actionUpdate *walk.Action
 		var actionMoveUp, actionMoveDown, actionDelete *walk.Action
 		var btnMoveUp, btnMoveDown *walk.PushButton
+		var btnAddRemote, btnAddLocal *walk.PushButton
 
 		updateActionState := func() {
 			if e.tableView == nil || actionSwitch == nil { return }
@@ -112,26 +111,26 @@ func (e *UIEngine) showDashboard() {
 			Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
 			Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 			Children: []Widget{
+				
 				Composite{
-					Layout: HBox{MarginsZero: true},
+					MinSize: Size{Height: 45},
+					MaxSize: Size{Height: 45},
+					Layout:  HBox{Margins: Margins{Left: 0, Top: 5, Right: 0, Bottom: 5}, Spacing: 10},
 					Children: []Widget{
-						ToolBar{
-							ButtonStyle: ToolBarButtonTextOnly,
-							Items: []MenuItem{
-								Action{
-									Text:        "➕ 添加远程订阅",
-									OnTriggered: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
-								},
-								Separator{}, 
-								Action{
-									Text:        "📂 导入本地配置",
-									OnTriggered: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
-								},
-							},
+						PushButton{
+							AssignTo:  &btnAddRemote,
+							Text:      "➕ 添加远程订阅",
+							OnClicked: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
+						},
+						PushButton{
+							AssignTo:  &btnAddLocal,
+							Text:      "📂 导入本地配置",
+							OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
 						},
 						HSpacer{},
 					},
 				},
+				
 				Composite{
 					Layout: HBox{MarginsZero: true, Spacing: 10},
 					Children: []Widget{
@@ -144,22 +143,22 @@ func (e *UIEngine) showDashboard() {
 							Model: e.panelModel,
 							OnCurrentIndexChanged: updateActionState,
 							ContextMenuItems: []MenuItem{
-								Action{AssignTo: &actionSwitch, Text: "切换配置", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionSwitchProfile, e.panelModel.Items[idx].Path) } }},
-								Action{AssignTo: &actionEditText, Text: "打开文本", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionOpenConfigFile, e.panelModel.Items[idx].Path) } }},
-								Action{AssignTo: &actionEditSub, Text: "编辑订阅", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionRequestEditRemote, e.panelModel.Items[idx].Path) } }},
-								Action{AssignTo: &actionUpdate, Text: "立即更新", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionUpdateRemoteProfile, e.panelModel.Items[idx].Path) } }},
+								Action{AssignTo: &actionSwitch, Text: "✔️ 切换配置", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionSwitchProfile, e.panelModel.Items[idx].Path) } }},
+								Action{AssignTo: &actionEditText, Text: "📝 打开文本", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionOpenConfigFile, e.panelModel.Items[idx].Path) } }},
+								Action{AssignTo: &actionEditSub, Text: "⚙️ 编辑订阅", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionRequestEditRemote, e.panelModel.Items[idx].Path) } }},
+								Action{AssignTo: &actionUpdate, Text: "🔄 立即更新", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionUpdateRemoteProfile, e.panelModel.Items[idx].Path) } }},
 								Separator{},
-								Action{AssignTo: &actionMoveUp, Text: "向上移动", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path) } }},
-								Action{AssignTo: &actionMoveDown, Text: "向下移动", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path) } }},
+								Action{AssignTo: &actionMoveUp, Text: "⬆️ 向上移动", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path) } }},
+								Action{AssignTo: &actionMoveDown, Text: "⬇️ 向下移动", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path) } }},
 								Separator{},
-								Action{AssignTo: &actionDelete, Text: "删除配置", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionRemoveProfile, e.panelModel.Items[idx].Path) } }},
+								Action{AssignTo: &actionDelete, Text: "❌ 删除配置", OnTriggered: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionRemoveProfile, e.panelModel.Items[idx].Path) } }},
 							},
 						},
 						Composite{
 							Layout: VBox{MarginsZero: true, Spacing: 8},
 							Children: []Widget{
-								PushButton{AssignTo: &btnMoveUp, Text: "上移", Enabled: false, MinSize: Size{Width: 90}, OnClicked: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path) } }},
-								PushButton{AssignTo: &btnMoveDown, Text: "下移", Enabled: false, MinSize: Size{Width: 90}, OnClicked: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path) } }},
+								PushButton{AssignTo: &btnMoveUp, Text: "⬆️ 上移", Enabled: false, MinSize: Size{Width: 90}, OnClicked: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path) } }},
+								PushButton{AssignTo: &btnMoveDown, Text: "⬇️ 下移", Enabled: false, MinSize: Size{Width: 90}, OnClicked: func() { if idx := e.tableView.CurrentIndex(); idx >= 0 { e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path) } }},
 								VSpacer{},
 							},
 						},
