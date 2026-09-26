@@ -97,8 +97,6 @@ func (e *UIEngine) Run() error {
 		}
 	})
 
-	e.AttachHook()
-
 	e.loadEmbeddedIcons()
 	go e.listenState()
 
