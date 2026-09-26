@@ -6,23 +6,14 @@ import (
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
 	"github.com/tailscale/win"
+
 	"mihomo-tray/internal/domain"
 )
 
-// ProfileItem 数据项结构
-type ProfileItem struct {
-	IsActive   bool
-	Name       string
-	IsRemote   bool
-	Interval   int
-	LastUpdate string
-	Path       string
-}
-
-// ProfileModel 表格数据模型
+// ProfileModel 表格数据模型，使用 domain.UIProfileItem
 type ProfileModel struct {
 	walk.TableModelBase
-	Items []ProfileItem
+	Items []domain.UIProfileItem
 }
 
 func (m *ProfileModel) RowCount() int {
@@ -64,7 +55,7 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	return ""
 }
 
-// 辅助：窗口居中
+// 居中辅助
 func centerWindow(winHandle *walk.MainWindow) {
 	if winHandle == nil {
 		return
@@ -93,13 +84,14 @@ func centerWindow(winHandle *walk.MainWindow) {
 
 func (e *UIEngine) InitDashboardWindow() error {
 	e.panelModel = &ProfileModel{
-		Items: []ProfileItem{},
+		Items: []domain.UIProfileItem{},
 	}
 
 	var actionSwitch, actionEditText, actionEditSub, actionUpdate *walk.Action
 	var actionMoveUp, actionMoveDown, actionDelete *walk.Action
 	var btnMoveUp, btnMoveDown *walk.PushButton
 	var btnAddRemote, btnAddLocal *walk.PushButton
+	var statusLabel *walk.Label
 
 	updateActionState := func() {
 		if e.tableView == nil || actionSwitch == nil {
@@ -152,30 +144,26 @@ func (e *UIEngine) InitDashboardWindow() error {
 		Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
 		Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 		Children: []Widget{
-			// 1. 顶部操作栏：设置 MinSize 支撑高度，防止 PushButton 被压缩截断
 			Composite{
-				MinSize: Size{Height: 36},
-				Layout:  HBox{Margins: Margins{Left: 0, Top: 0, Right: 0, Bottom: 0}, Spacing: 10},
+				Layout: HBox{Margins: Margins{Left: 0, Top: 5, Right: 0, Bottom: 5}, Spacing: 10},
 				Children: []Widget{
 					PushButton{
 						AssignTo:  &btnAddRemote,
-						MinSize:   Size{Height: 30},
 						Text:      "➕ 添加远程订阅",
-						OnClicked: func() {},
+						OnClicked: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
 					},
 					PushButton{
 						AssignTo:  &btnAddLocal,
-						MinSize:   Size{Height: 30},
 						Text:      "📂 导入本地配置",
-						OnClicked: func() {},
+						OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
 					},
 					HSpacer{},
 					Label{
-						Text: "",
+						AssignTo: &statusLabel,
+						Text:     "",
 					},
 				},
 			},
-			// 2. 主体表格与侧边移动按钮
 			Composite{
 				Layout: HBox{MarginsZero: true, Spacing: 10},
 				Children: []Widget{
@@ -191,22 +179,58 @@ func (e *UIEngine) InitDashboardWindow() error {
 						Model:                 e.panelModel,
 						OnCurrentIndexChanged: updateActionState,
 						ContextMenuItems: []MenuItem{
-							Action{AssignTo: &actionSwitch, Text: "✔️ 切换配置", OnTriggered: func() {}},
-							Action{AssignTo: &actionEditText, Text: "📝 打开文本", OnTriggered: func() {}},
-							Action{AssignTo: &actionEditSub, Text: "⚙️ 编辑订阅", OnTriggered: func() {}},
-							Action{AssignTo: &actionUpdate, Text: "🔄 立即更新", OnTriggered: func() {}},
+							Action{AssignTo: &actionSwitch, Text: "✔️ 切换配置", OnTriggered: func() {
+								if idx := e.tableView.CurrentIndex(); idx >= 0 {
+									e.sendCommand(domain.ActionSwitchProfile, e.panelModel.Items[idx].Path)
+								}
+							}},
+							Action{AssignTo: &actionEditText, Text: "📝 打开文本", OnTriggered: func() {
+								if idx := e.tableView.CurrentIndex(); idx >= 0 {
+									e.sendCommand(domain.ActionOpenConfigFile, e.panelModel.Items[idx].Path)
+								}
+							}},
+							Action{AssignTo: &actionEditSub, Text: "⚙️ 编辑订阅", OnTriggered: func() {
+								if idx := e.tableView.CurrentIndex(); idx >= 0 {
+									e.sendCommand(domain.ActionRequestEditRemote, e.panelModel.Items[idx].Path)
+								}
+							}},
+							Action{AssignTo: &actionUpdate, Text: "🔄 立即更新", OnTriggered: func() {
+								if idx := e.tableView.CurrentIndex(); idx >= 0 {
+									e.sendCommand(domain.ActionUpdateRemoteProfile, e.panelModel.Items[idx].Path)
+								}
+							}},
 							Separator{},
-							Action{AssignTo: &actionMoveUp, Text: "⬆️ 向上移动", OnTriggered: func() {}},
-							Action{AssignTo: &actionMoveDown, Text: "⬇️ 向下移动", OnTriggered: func() {}},
+							Action{AssignTo: &actionMoveUp, Text: "⬆️ 向上移动", OnTriggered: func() {
+								if idx := e.tableView.CurrentIndex(); idx >= 0 {
+									e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path)
+								}
+							}},
+							Action{AssignTo: &actionMoveDown, Text: "⬇️ 向下移动", OnTriggered: func() {
+								if idx := e.tableView.CurrentIndex(); idx >= 0 {
+									e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path)
+								}
+							}},
 							Separator{},
-							Action{AssignTo: &actionDelete, Text: "❌ 删除配置", OnTriggered: func() {}},
+							Action{AssignTo: &actionDelete, Text: "❌ 删除配置", OnTriggered: func() {
+								if idx := e.tableView.CurrentIndex(); idx >= 0 {
+									e.sendCommand(domain.ActionRemoveProfile, e.panelModel.Items[idx].Path)
+								}
+							}},
 						},
 					},
 					Composite{
 						Layout: VBox{MarginsZero: true, Spacing: 8},
 						Children: []Widget{
-							PushButton{AssignTo: &btnMoveUp, Text: "⬆️ 上移", Enabled: false, MinSize: Size{Width: 90, Height: 30}, OnClicked: func() {}},
-							PushButton{AssignTo: &btnMoveDown, Text: "⬇️ 下移", Enabled: false, MinSize: Size{Width: 90, Height: 30}, OnClicked: func() {}},
+							PushButton{AssignTo: &btnMoveUp, Text: "⬆️ 上移", Enabled: false, MinSize: Size{Width: 90}, OnClicked: func() {
+								if idx := e.tableView.CurrentIndex(); idx >= 0 {
+									e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path)
+								}
+							}},
+							PushButton{AssignTo: &btnMoveDown, Text: "⬇️ 下移", Enabled: false, MinSize: Size{Width: 90}, OnClicked: func() {
+								if idx := e.tableView.CurrentIndex(); idx >= 0 {
+									e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path)
+								}
+							}},
 							VSpacer{},
 						},
 					},
@@ -226,10 +250,10 @@ func (e *UIEngine) InitDashboardWindow() error {
 
 	centerWindow(e.dashboardWindow)
 	updateActionState()
+	e.mw = e.dashboardWindow
 
 	return nil
 }
-
 
 func (e *UIEngine) RefreshPanelData(items []domain.UIProfileItem) {
 	if e.panelModel == nil {
