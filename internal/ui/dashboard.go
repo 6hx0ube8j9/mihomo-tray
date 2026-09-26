@@ -34,10 +34,6 @@ func centerWindow(winHandle *walk.MainWindow) {
 	winHandle.SetBounds(walk.Rectangle{X: newX, Y: newY, Width: bounds.Width, Height: bounds.Height})
 }
 
-// ==========================================
-// 数据模型
-// ==========================================
-
 type ProfileModel struct {
 	walk.TableModelBase
 	Items []domain.UIProfileItem
@@ -64,9 +60,6 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	return ""
 }
 
-// ==========================================
-// 强制退出机制
-// ==========================================
 func (e *UIEngine) ForceExitApp() {
 	isAppExiting = true
 	if e.dashboardWindow != nil {
@@ -78,7 +71,7 @@ func (e *UIEngine) ForceExitApp() {
 }
 
 // ==========================================
-// 仪表盘主视窗
+// 完美原生形态仪表盘
 // ==========================================
 
 func (e *UIEngine) InitDashboardWindow() error {
@@ -88,6 +81,9 @@ func (e *UIEngine) InitDashboardWindow() error {
 	var actionMoveUp, actionMoveDown, actionDelete *walk.Action
 	var btnMoveUp, btnMoveDown *walk.PushButton
 	var btnAddRemote, btnAddLocal *walk.PushButton
+	
+	// 供 engine.go 使用的状态标签占位符（防止闪退的微型承重墙）
+	var statusLabel *walk.Label
 
 	updateActionState := func() {
 		if e.tableView == nil || actionSwitch == nil { return }
@@ -114,6 +110,7 @@ func (e *UIEngine) InitDashboardWindow() error {
 		if btnMoveDown != nil { btnMoveDown.SetEnabled(canMoveDown) }
 	}
 
+	// 1. 创建可视窗口 (Walk 此时开始计算坐标)
 	err := MainWindow{
 		AssignTo: &e.dashboardWindow,
 		Title:    "Mihomo Tray 仪表盘",
@@ -136,8 +133,7 @@ func (e *UIEngine) InitDashboardWindow() error {
 						OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
 					},
 					HSpacer{},
-					// 【致命承重墙】：不要删！这是撑开 walk 字体基线的物理锚点！
-					Label{Text: ""},
+					Label{AssignTo: &statusLabel, Text: ""}, // 1:1 还原防闪退结构
 				},
 			},
 			Composite{
@@ -179,11 +175,18 @@ func (e *UIEngine) InitDashboardWindow() error {
 	if err != nil {
 		return err
 	}
-
 	e.mw = e.dashboardWindow
+
+	// 2. 居中窗口
 	centerWindow(e.dashboardWindow)
 
-	// 托盘防崩溃保命 Hook
+	// 3. 【致命修复点】强制触发一次 UI 状态更新，让系统刷新 Layout 边界固化坐标！
+	updateActionState()
+
+	// 4. 隐藏窗口 (此时坐标已 100% 正确固化)
+	e.dashboardWindow.Hide()
+
+	// 5. 挂载保命 Hook (1:1 还原空壳版 engine.go 调用 SetupTray 的时机，绝对不干扰 Hide 逻辑)
 	dashboardNewWndProc = syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
 		if msg == win.WM_CLOSE && !isAppExiting {
 			win.ShowWindow(hwnd, win.SW_HIDE)
@@ -192,9 +195,6 @@ func (e *UIEngine) InitDashboardWindow() error {
 		return win.CallWindowProc(dashboardOldWndProc, hwnd, msg, wParam, lParam)
 	})
 	dashboardOldWndProc = win.SetWindowLongPtr(e.dashboardWindow.Handle(), win.GWLP_WNDPROC, dashboardNewWndProc)
-
-	// 确保所有坐标和 Hook 都注册完毕后，再隐藏窗口
-	e.dashboardWindow.Hide()
 
 	return nil
 }
