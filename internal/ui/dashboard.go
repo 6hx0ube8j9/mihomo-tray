@@ -14,6 +14,7 @@ import (
 var (
 	dashboardNewWndProc uintptr
 	dashboardOldWndProc uintptr
+	isAppExiting        bool // 强制退出标志
 )
 
 func centerWindow(winHandle *walk.MainWindow) {
@@ -34,7 +35,7 @@ func centerWindow(winHandle *walk.MainWindow) {
 }
 
 // ==========================================
-// 数据模型 (保持不变)
+// 数据模型 (保持极简)
 // ==========================================
 
 type ProfileModel struct {
@@ -63,6 +64,20 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	return ""
 }
 
+// ==========================================
+// 强制退出机制 (供 tray_2.go 里的退出按钮调用)
+// ==========================================
+func (e *UIEngine) ForceExitApp() {
+	isAppExiting = true
+	if e.dashboardWindow != nil {
+		e.dashboardWindow.Close()
+	}
+	if e.app != nil {
+		e.app.Exit(0)
+	}
+}
+
+
 func (e *UIEngine) InitDashboardWindow() error {
 	e.panelModel = &ProfileModel{Items: []domain.UIProfileItem{}}
 
@@ -70,10 +85,9 @@ func (e *UIEngine) InitDashboardWindow() error {
 
 	err := MainWindow{
 		AssignTo: &e.dashboardWindow,
-		Title:    "Mihomo Tray 排查专用",
+		Title:    "Mihomo Tray 空壳排查版",
 		MinSize:  Size{Width: 700, Height: 350},
 		Size:     Size{Width: 750, Height: 400},
-		Visible:  false,
 		Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
 		Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 		Children: []Widget{
@@ -94,7 +108,7 @@ func (e *UIEngine) InitDashboardWindow() error {
 					},
 					HSpacer{},
 					Label{
-						Text: "就绪 (UI 骨架测试)",
+						Text: "就绪 (GUI 骨架测试)",
 					},
 				},
 			},
@@ -109,6 +123,14 @@ func (e *UIEngine) InitDashboardWindow() error {
 						},
 						Model: e.panelModel,
 					},
+					Composite{
+						Layout: VBox{MarginsZero: true, Spacing: 8},
+						Children: []Widget{
+							PushButton{Text: "⬆️ 上移", Enabled: false, MinSize: Size{Width: 90}},
+							PushButton{Text: "⬇️ 下移", Enabled: false, MinSize: Size{Width: 90}},
+							VSpacer{},
+						},
+					},
 				},
 			},
 		},
@@ -118,12 +140,12 @@ func (e *UIEngine) InitDashboardWindow() error {
 		return err
 	}
 
+	e.dashboardWindow.Hide()
+
 	e.mw = e.dashboardWindow
 	centerWindow(e.dashboardWindow)
-
-	// 保留防崩溃 Hook
 	dashboardNewWndProc = syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
-		if msg == win.WM_CLOSE {
+		if msg == win.WM_CLOSE && !isAppExiting {
 			win.ShowWindow(hwnd, win.SW_HIDE)
 			return 0
 		}
@@ -134,7 +156,6 @@ func (e *UIEngine) InitDashboardWindow() error {
 	return nil
 }
 
-// 维持对接方法不变
 func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 	e.app.Synchronize(func() {
 		e.lastProfileItems = items
