@@ -129,8 +129,8 @@ func NewMainWindowView(onCommand func(action, payload string)) (*MainWindowView,
 	err := MainWindow{
 		AssignTo: &v.Window,
 		Title:    "Mihomo Tray - 配置管理",
-		MinSize:  Size{Width: 700, Height: 400},
-		Size:     Size{Width: 750, Height: 420},
+		MinSize:  Size{Width: 700, Height: 350},
+		Size:     Size{Width: 750, Height: 400},
 		Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
 		Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 		Children: []Widget{
