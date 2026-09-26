@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"log/slog"
+	"syscall"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
@@ -11,13 +12,19 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-func centerWindow(win *walk.MainWindow) {
-	if win == nil {
+// 【核心修复 1】将回调函数指针提升为包级全局变量，绝对防止被 Go GC（垃圾回收）清理！
+var (
+	dashboardNewWndProc uintptr
+	dashboardOldWndProc uintptr
+)
+
+func centerWindow(winHandle *walk.MainWindow) {
+	if winHandle == nil {
 		return
 	}
 	monitor := walk.PrimaryMonitor()
 	workArea := monitor.WorkArea()
-	bounds := win.Bounds()
+	bounds := winHandle.Bounds()
 
 	newX := workArea.X + (workArea.Width-bounds.Width)/2
 	newY := workArea.Y + (workArea.Height-bounds.Height)/2
@@ -25,7 +32,7 @@ func centerWindow(win *walk.MainWindow) {
 	if newX < 0 { newX = 0 }
 	if newY < 0 { newY = 0 }
 
-	win.SetBounds(walk.Rectangle{X: newX, Y: newY, Width: bounds.Width, Height: bounds.Height})
+	winHandle.SetBounds(walk.Rectangle{X: newX, Y: newY, Width: bounds.Width, Height: bounds.Height})
 }
 
 // ==========================================
@@ -113,7 +120,9 @@ func (e *UIEngine) showDashboard() {
 			Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 			Children: []Widget{
 				Composite{
-					Layout: HBox{Margins: Margins{Top: 8, Bottom: 8}, Spacing: 10},
+					MinSize: Size{Height: 45},
+					MaxSize: Size{Height: 45},
+					Layout:  HBox{Margins: Margins{Left: 0, Top: 5, Right: 0, Bottom: 5}, Spacing: 10},
 					Children: []Widget{
 						PushButton{
 							AssignTo:  &btnAddRemote,
@@ -126,6 +135,7 @@ func (e *UIEngine) showDashboard() {
 							OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
 						},
 						HSpacer{},
+						Label{Text: " ", MinSize: Size{Width: 1, Height: 20}},
 					},
 				},
 				Composite{
@@ -169,10 +179,14 @@ func (e *UIEngine) showDashboard() {
 			return
 		}
 
-		e.dashboardWindow.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-			*canceled = true
-			e.dashboardWindow.SetVisible(false)
+		dashboardNewWndProc = syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
+			if msg == win.WM_CLOSE {
+				win.ShowWindow(hwnd, win.SW_HIDE)
+				return 0 // 直接把关闭信号吃掉，不给 walk 库任何反应的机会
+			}
+			return win.CallWindowProc(dashboardOldWndProc, hwnd, msg, wParam, lParam)
 		})
+		dashboardOldWndProc = win.SetWindowLongPtr(e.dashboardWindow.Handle(), win.GWLP_WNDPROC, dashboardNewWndProc)
 
 		centerWindow(e.dashboardWindow)
 	}
@@ -185,7 +199,7 @@ func (e *UIEngine) showDashboard() {
 		e.dashboardWindow.Show()
 	}
 	
-	e.dashboardWindow.BringToTop()
+	win.SetForegroundWindow(hwnd)
 	e.dashboardWindow.SetFocus()
 }
 
