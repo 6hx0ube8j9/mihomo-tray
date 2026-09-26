@@ -14,7 +14,7 @@ import (
 var (
 	dashboardNewWndProc uintptr
 	dashboardOldWndProc uintptr
-	isAppExiting        bool
+	isAppExiting        bool // 强制退出标志
 )
 
 func centerWindow(winHandle *walk.MainWindow) {
@@ -65,7 +65,7 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 }
 
 // ==========================================
-// 强制退出机制 (供托盘调用)
+// 强制退出机制
 // ==========================================
 func (e *UIEngine) ForceExitApp() {
 	isAppExiting = true
@@ -78,7 +78,7 @@ func (e *UIEngine) ForceExitApp() {
 }
 
 // ==========================================
-// 完美原生形态仪表盘 (零补丁)
+// 仪表盘主视窗
 // ==========================================
 
 func (e *UIEngine) InitDashboardWindow() error {
@@ -136,6 +136,8 @@ func (e *UIEngine) InitDashboardWindow() error {
 						OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
 					},
 					HSpacer{},
+					// 【致命承重墙】：不要删！这是撑开 walk 字体基线的物理锚点！
+					Label{Text: ""},
 				},
 			},
 			Composite{
@@ -181,6 +183,7 @@ func (e *UIEngine) InitDashboardWindow() error {
 	e.mw = e.dashboardWindow
 	centerWindow(e.dashboardWindow)
 
+	// 托盘防崩溃保命 Hook
 	dashboardNewWndProc = syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
 		if msg == win.WM_CLOSE && !isAppExiting {
 			win.ShowWindow(hwnd, win.SW_HIDE)
@@ -190,6 +193,7 @@ func (e *UIEngine) InitDashboardWindow() error {
 	})
 	dashboardOldWndProc = win.SetWindowLongPtr(e.dashboardWindow.Handle(), win.GWLP_WNDPROC, dashboardNewWndProc)
 
+	// 确保所有坐标和 Hook 都注册完毕后，再隐藏窗口
 	e.dashboardWindow.Hide()
 
 	return nil
