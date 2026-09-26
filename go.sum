@@ -2,8 +2,8 @@ github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERo
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
 github.com/dblohm7/wingoes v0.0.0-20231019175336-f6e33aa7cc34 h1:FBMro26TLQwBk+n4fbTSmSf3QUKb09pvW4fz49lxpl0=
 github.com/dblohm7/wingoes v0.0.0-20231019175336-f6e33aa7cc34/go.mod h1:6NCrWM5jRefaG7iN0iMShPalLsljHWBh9v1zxM2f8Xs=
-github.com/tailscale/walk v0.0.0-20251016200523-963e260a8227 h1:GxDCM3S+bXZJrkhnbS5+ntEITYeTiF7YiJ41TAEgP/Q=
-github.com/tailscale/walk v0.0.0-20251016200523-963e260a8227/go.mod h1:PKuneJOUfDSPfcEvlsR+F6nBJNsFzkx6BHP8N2/8bIo=
+github.com/tailscale/walk v0.0.0-20240820200907-e7deaa84abf2 h1:NDmDthu2UoAXp2VfI7sBvjJm5oLvv59R1HHmphWZexc=
+github.com/tailscale/walk v0.0.0-20240820200907-e7deaa84abf2/go.mod h1:Bkwxog+YQ7WwEE+i/n0iT5SNoyVOYUlWV9XkvwN0PW8=
 github.com/tailscale/win v0.0.0-20260619195133-2d76c33a64c1 h1:QzOW7bZOlg5/hi1W6dStSN9qazTHkHj5kO7sTA5aymY=
 github.com/tailscale/win v0.0.0-20260619195133-2d76c33a64c1/go.mod h1:vwG7VvIPzIYNJd0Nio6PZW7yr8KNNFEc8EVQ+J/B4bk=
 golang.org/x/exp v0.0.0-20230425010034-47ecfdc1ba53 h1:5llv2sWeaMSnA3w2kS57ouQQ4pudlXrR0dCgw51QK9o=
