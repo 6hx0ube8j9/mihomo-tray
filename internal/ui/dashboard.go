@@ -35,38 +35,16 @@ func centerWindow(winHandle *walk.MainWindow) {
 }
 
 // ==========================================
-// 数据模型 (保持极简)
+// 数据模型 (极简)
 // ==========================================
 
 type ProfileModel struct {
 	walk.TableModelBase
 	Items []domain.UIProfileItem
 }
-
 func (m *ProfileModel) RowCount() int { return len(m.Items) }
+func (m *ProfileModel) Value(row, col int) interface{} { return "" } // 屏蔽数据渲染，专心排查 UI
 
-func (m *ProfileModel) Value(row, col int) interface{} {
-	item := m.Items[row]
-	switch col {
-	case 0:
-		if item.IsActive { return "使用中" } else { return "" }
-	case 1: return item.Name
-	case 2:
-		if item.IsRemote { return "订阅配置" } else { return "本地配置" }
-	case 3:
-		if !item.IsRemote { return "-" }
-		if item.Interval > 0 { return fmt.Sprintf("%d 天", item.Interval) }
-		return "停止更新"
-	case 4:
-		if !item.IsRemote { return "-" }
-		return item.LastUpdate
-	}
-	return ""
-}
-
-// ==========================================
-// 强制退出机制 (供 tray_2.go 里的退出按钮调用)
-// ==========================================
 func (e *UIEngine) ForceExitApp() {
 	isAppExiting = true
 	if e.dashboardWindow != nil {
@@ -77,61 +55,35 @@ func (e *UIEngine) ForceExitApp() {
 	}
 }
 
+// ==========================================
+// 终极排查版：去掉一切容器嵌套和字体约束
+// ==========================================
 
 func (e *UIEngine) InitDashboardWindow() error {
 	e.panelModel = &ProfileModel{Items: []domain.UIProfileItem{}}
 
-	var btnAddRemote, btnAddLocal *walk.PushButton
-
 	err := MainWindow{
 		AssignTo: &e.dashboardWindow,
-		Title:    "Mihomo Tray 空壳排查版",
-		MinSize:  Size{Width: 700, Height: 350},
-		Size:     Size{Width: 750, Height: 400},
-		Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
-		Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
+		Title:    "Mihomo Tray 终极扒皮测试",
+		Size:     Size{Width: 700, Height: 400},
+
+		Layout:   VBox{Margins: Margins{Left: 20, Top: 20, Right: 20, Bottom: 20}, Spacing: 15},
 		Children: []Widget{
-			Composite{
-				MinSize: Size{Height: 45},
-				MaxSize: Size{Height: 45},
-				Layout:  HBox{Margins: Margins{Left: 0, Top: 5, Right: 0, Bottom: 5}, Spacing: 10},
-				Children: []Widget{
-					PushButton{
-						AssignTo:  &btnAddRemote,
-						Text:      "➕ 添加远程订阅",
-						OnClicked: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
-					},
-					PushButton{
-						AssignTo:  &btnAddLocal,
-						Text:      "📂 导入本地配置",
-						OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
-					},
-					HSpacer{},
-					Label{
-						Text: "就绪 (GUI 骨架测试)",
-					},
-				},
+			PushButton{
+				Text: "测试按钮 1：如果我不截断，说明是之前的 Composite 容器引发了坍塌",
+				OnClicked: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
 			},
-			Composite{
-				Layout: HBox{MarginsZero: true, Spacing: 10},
-				Children: []Widget{
-					TableView{
-						AssignTo: &e.tableView,
-						Columns: []TableViewColumn{
-							{Title: "状态", Width: 90}, {Title: "名称", Width: 220}, {Title: "类型", Width: 80},
-							{Title: "更新频率", Width: 100}, {Title: "上次更新", Width: 130},
-						},
-						Model: e.panelModel,
-					},
-					Composite{
-						Layout: VBox{MarginsZero: true, Spacing: 8},
-						Children: []Widget{
-							PushButton{Text: "⬆️ 上移", Enabled: false, MinSize: Size{Width: 90}},
-							PushButton{Text: "⬇️ 下移", Enabled: false, MinSize: Size{Width: 90}},
-							VSpacer{},
-						},
-					},
+			PushButton{
+				Text: "测试按钮 2：导入本地配置",
+				OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
+			},
+			TableView{
+				AssignTo: &e.tableView,
+				Columns: []TableViewColumn{
+					{Title: "状态", Width: 90}, 
+					{Title: "名称", Width: 220}, 
 				},
+				Model: e.panelModel,
 			},
 		},
 	}.Create()
@@ -141,9 +93,9 @@ func (e *UIEngine) InitDashboardWindow() error {
 	}
 
 	e.dashboardWindow.Hide()
-
 	e.mw = e.dashboardWindow
 	centerWindow(e.dashboardWindow)
+
 	dashboardNewWndProc = syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
 		if msg == win.WM_CLOSE && !isAppExiting {
 			win.ShowWindow(hwnd, win.SW_HIDE)
@@ -176,19 +128,5 @@ func (e *UIEngine) showDashboard() {
 	e.dashboardWindow.SetFocus()
 }
 
-func (e *UIEngine) RefreshPanelData(items []domain.UIProfileItem) {
-	if e.app == nil { return }
-	e.app.Synchronize(func() {
-		e.lastProfileItems = items
-		if e.dashboardWindow == nil || !e.dashboardWindow.Visible() { return }
-
-		e.panelModel.Items = items
-		e.panelModel.PublishRowsReset()
-		
-		if e.tableView != nil {
-			e.tableView.Invalidate()
-		}
-	})
-}
-
+func (e *UIEngine) RefreshPanelData(items []domain.UIProfileItem) {}
 func (e *UIEngine) AppendLog(msg string) {}
