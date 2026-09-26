@@ -178,11 +178,9 @@ func (e *UIEngine) InitDashboardWindow() error {
 		return err
 	}
 
-	e.dashboardWindow.Hide()
-	
 	e.mw = e.dashboardWindow
 	centerWindow(e.dashboardWindow)
-	
+
 	dashboardNewWndProc = syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
 		if msg == win.WM_CLOSE && !isAppExiting {
 			win.ShowWindow(hwnd, win.SW_HIDE)
@@ -191,6 +189,8 @@ func (e *UIEngine) InitDashboardWindow() error {
 		return win.CallWindowProc(dashboardOldWndProc, hwnd, msg, wParam, lParam)
 	})
 	dashboardOldWndProc = win.SetWindowLongPtr(e.dashboardWindow.Handle(), win.GWLP_WNDPROC, dashboardNewWndProc)
+
+	e.dashboardWindow.Hide()
 
 	return nil
 }
