@@ -117,20 +117,29 @@ func (e *UIEngine) InitDashboardWindow() error {
 		MinSize:  Size{Width: 700, Height: 350},
 		Size:     Size{Width: 750, Height: 400},
 		Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
-		Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
+		// 1. 增加窗口整体的 Top 留白到 20px
+		Layout:   VBox{Margins: Margins{Left: 15, Top: 20, Right: 15, Bottom: 15}, Spacing: 10},
 		Children: []Widget{
-			// 修复关键：Top: 8, Bottom: 8 留足垂直空间，避免子控件按钮被 Composite 窗口上边缘裁剪
 			Composite{
-				Layout: HBox{Margins: Margins{Left: 0, Top: 8, Right: 0, Bottom: 8}, Spacing: 10},
+				// 2. 使用 AlignHNearVCenter 实现垂直居中，Top 留白 12px
+				Layout: HBox{
+					Margins:   Margins{Left: 0, Top: 12, Right: 0, Bottom: 8},
+					Spacing:   10,
+					Alignment: AlignHNearVCenter,
+				},
+				// 3. 限制 Composite 容器最小高度为 42px，防止视口裁剪
+				MinSize: Size{Height: 42},
 				Children: []Widget{
 					PushButton{
 						AssignTo:  &btnAddRemote,
 						Text:      "➕ 添加远程订阅",
+						MinSize:   Size{Width: 130, Height: 32},
 						OnClicked: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
 					},
 					PushButton{
 						AssignTo:  &btnAddLocal,
 						Text:      "📂 导入本地配置",
+						MinSize:   Size{Width: 130, Height: 32},
 						OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
 					},
 					HSpacer{},
@@ -197,12 +206,12 @@ func (e *UIEngine) InitDashboardWindow() error {
 					Composite{
 						Layout: VBox{MarginsZero: true, Spacing: 8},
 						Children: []Widget{
-							PushButton{AssignTo: &btnMoveUp, Text: "⬆️ 上移", Enabled: false, MinSize: Size{Width: 90}, OnClicked: func() {
+							PushButton{AssignTo: &btnMoveUp, Text: "⬆️ 上移", Enabled: false, MinSize: Size{Width: 90, Height: 32}, OnClicked: func() {
 								if idx := e.tableView.CurrentIndex(); idx >= 0 {
 									e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path)
 								}
 							}},
-							PushButton{AssignTo: &btnMoveDown, Text: "⬇️ 下移", Enabled: false, MinSize: Size{Width: 90}, OnClicked: func() {
+							PushButton{AssignTo: &btnMoveDown, Text: "⬇️ 下移", Enabled: false, MinSize: Size{Width: 90, Height: 32}, OnClicked: func() {
 								if idx := e.tableView.CurrentIndex(); idx >= 0 {
 									e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path)
 								}
