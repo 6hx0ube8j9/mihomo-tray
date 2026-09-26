@@ -300,5 +300,4 @@ func (v *MainWindowView) RefreshData(items []domain.UIProfileItem) {
 		return
 	}
 	v.Model.Items = items
-	v.Model.PublishRowsReset()
 }
