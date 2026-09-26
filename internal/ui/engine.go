@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tailscale/walk"
+	. "github.com/tailscale/walk/declarative"
 
 	"mihomo-tray/internal/domain"
 )
@@ -47,17 +48,11 @@ type UIEngine struct {
 	icons   []*walk.Icon
 	iconDir string
 
-	// ---- 仪表盘核心组件 ----
-	dashboardWindow *walk.MainWindow
-	
-	// ---- 配置管理视图数据 ----
-	tableView  *walk.TableView
-	panelModel *ProfileModel
-	lastProfileItems []domain.UIProfileItem 
+	// ---- 独立的仪表盘视图句柄 ----
+	dashboardView *MainWindowView
 
 	lastClick time.Time
 	clickMu   sync.Mutex
-	 
 }
 
 func NewUIEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- domain.UICommand, stateCh <-chan domain.UIState) *UIEngine {
@@ -78,12 +73,15 @@ func (e *UIEngine) Run() error {
 	}
 	e.app = app
 
-	err = e.InitDashboardWindow()
+	err = MainWindow{
+		AssignTo: &e.mw,
+		Title:    MainWindowTitle,
+		Visible:  false,
+	}.Create()
+
 	if err != nil {
-		return fmt.Errorf("仪表盘主窗口创建失败: %w", err)
+		return fmt.Errorf("主控窗口创建失败: %w", err)
 	}
-	
-	e.dashboardWindow.Hide()
 
 	e.ni, err = walk.NewNotifyIcon()
 	if err != nil {
@@ -98,12 +96,19 @@ func (e *UIEngine) Run() error {
 	})
 
 	e.loadEmbeddedIcons()
+
+	// 初始化仪表盘视图（插头接入）
+	e.initDashboard()
+
 	go e.listenState()
 
 	slog.Debug("UI 引擎消息循环已启动")
 	app.Run()
 
 	e.ni.Dispose()
+	if e.dashboardView != nil && e.dashboardView.Window != nil {
+		e.dashboardView.Window.Dispose()
+	}
 	e.mw.Dispose()
 
 	for _, icon := range e.icons {
@@ -118,6 +123,38 @@ func (e *UIEngine) Run() error {
 		}
 	}
 	return nil
+}
+
+func (e *UIEngine) initDashboard() {
+	view, err := NewMainWindowView(func(action, payload string) {
+		e.sendCommand(action, payload)
+	})
+	if err != nil {
+		slog.Error("初始化配置管理窗口失败", "err", err)
+		return
+	}
+	e.dashboardView = view
+}
+
+func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
+	if e.app == nil {
+		return
+	}
+	e.app.Synchronize(func() {
+		if e.dashboardView == nil {
+			e.initDashboard()
+		}
+		if e.dashboardView != nil {
+			e.dashboardView.RefreshData(items)
+			e.dashboardView.Show()
+		}
+	})
+}
+
+func (e *UIEngine) RefreshPanelData(items []domain.UIProfileItem) {
+	if e.dashboardView != nil {
+		e.dashboardView.RefreshData(items)
+	}
 }
 
 func (e *UIEngine) loadEmbeddedIcons() {
@@ -173,6 +210,10 @@ func (e *UIEngine) listenState() {
 			})
 		}
 	}
+}
+
+func (e *UIEngine) updateTrayState(state domain.UIState) {
+	// 留空或后续处理托盘右键菜单
 }
 
 func (e *UIEngine) sendCommand(action, payload string) {
