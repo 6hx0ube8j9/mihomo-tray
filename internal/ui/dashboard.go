@@ -51,7 +51,6 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 }
 
 func (e *UIEngine) InitDashboardWindow() error {
-	// 装载测试数据以撑开表格
 	e.panelModel = &ProfileModel{
 		Items: []domain.UIProfileItem{
 			{IsActive: true, Name: "示例节点订阅 - 香港", IsRemote: true, Interval: 1, LastUpdate: "2026-03-30 10:00", Path: "sub1"},
@@ -64,27 +63,29 @@ func (e *UIEngine) InitDashboardWindow() error {
 	var btnMoveUp, btnMoveDown *walk.PushButton
 	var statusLabel *walk.Label
 
-	// 【测试 3 段】：恢复 顶栏 + 表格 + 右侧侧边栏按钮
 	err := MainWindow{
 		AssignTo: &e.dashboardWindow,
-		Title:    "排查测试 - 阶段 2：表格与侧边栏",
+		Title:    "Mihomo Tray 仪表盘",
 		MinSize:  Size{Width: 700, Height: 350},
 		Size:     Size{Width: 750, Height: 400},
 		Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
-		Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
+		Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 12},
 		Children: []Widget{
-			// 顶栏按钮
+			// 修复 1：MarginsZero 消除边距冲突，锁定 Composite 最小高度为 32px
 			Composite{
-				Layout: HBox{Margins: Margins{Left: 0, Top: 5, Right: 0, Bottom: 5}, Spacing: 10},
+				Layout:  HBox{MarginsZero: true, Spacing: 10},
+				MinSize: Size{Height: 32},
 				Children: []Widget{
 					PushButton{
 						AssignTo:  &btnAddRemote,
 						Text:      "➕ 添加远程订阅",
+						MinSize:   Size{Width: 130, Height: 30}, // 修复 2：给按钮赋予固定的安全高度
 						OnClicked: func() {},
 					},
 					PushButton{
 						AssignTo:  &btnAddLocal,
 						Text:      "📂 导入本地配置",
+						MinSize:   Size{Width: 130, Height: 30},
 						OnClicked: func() {},
 					},
 					HSpacer{},
@@ -112,8 +113,8 @@ func (e *UIEngine) InitDashboardWindow() error {
 					Composite{
 						Layout: VBox{MarginsZero: true, Spacing: 8},
 						Children: []Widget{
-							PushButton{AssignTo: &btnMoveUp, Text: "⬆️ 上移", Enabled: false, MinSize: Size{Width: 90}},
-							PushButton{AssignTo: &btnMoveDown, Text: "⬇️ 下移", Enabled: false, MinSize: Size{Width: 90}},
+							PushButton{AssignTo: &btnMoveUp, Text: "⬆️ 上移", Enabled: false, MinSize: Size{Width: 90, Height: 30}},
+							PushButton{AssignTo: &btnMoveDown, Text: "⬇️ 下移", Enabled: false, MinSize: Size{Width: 90, Height: 30}},
 							VSpacer{},
 						},
 					},
