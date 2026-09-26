@@ -77,15 +77,9 @@ func (e *UIEngine) Run() error {
 		return fmt.Errorf("Walk 引擎初始化失败: %w", err)
 	}
 	e.app = app
-
-	err = MainWindow{
-		AssignTo: &e.mw,
-		Title:    MainWindowTitle,
-		Visible:  false,
-	}.Create()
-
+	err = e.InitDashboardWindow()
 	if err != nil {
-		return fmt.Errorf("主控窗口创建失败: %w", err)
+		return fmt.Errorf("仪表盘主窗口创建失败: %w", err)
 	}
 
 	e.ni, err = walk.NewNotifyIcon()
