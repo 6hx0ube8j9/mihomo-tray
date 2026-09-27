@@ -12,7 +12,6 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-// WARNING: DO NOT DELETE!
 // Workaround for tailscale/walk bug (Commit 3490772, 2024-12-03).
 // Upstream forces WS_VISIBLE on the implicit window toolbar, which overlaps and truncates top buttons.
 // We must manually hide this phantom toolbar to restore layout.
