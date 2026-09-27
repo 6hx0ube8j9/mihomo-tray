@@ -98,7 +98,6 @@ func (e *UIEngine) showDashboard() {
 		var actionSwitch, actionEditText, actionEditSub, actionUpdate *walk.Action
 		var actionMoveUp, actionMoveDown, actionDelete *walk.Action
 		var btnMoveUp, btnMoveDown *walk.PushButton
-		var btnAddRemote, btnAddLocal *walk.PushButton
 
 		updateActionState := func() {
 			if e.tableView == nil || actionSwitch == nil {
@@ -154,16 +153,8 @@ func (e *UIEngine) showDashboard() {
 				Composite{
 					Layout: HBox{MarginsZero: true, Spacing: 10},
 					Children: []Widget{
-						PushButton{
-							AssignTo: &btnAddRemote,
-							Text:     "添加远程订阅",
-							OnClicked: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
-						},
-						PushButton{
-							AssignTo: &btnAddLocal,
-							Text:     "导入本地配置",
-							OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
-						},
+						PushButton{Text: "添加远程订阅", OnClicked: func() { e.sendCommand(domain.ActionRequestAddRemote, "") }},
+						PushButton{Text: "导入本地配置", OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") }},
 						HSpacer{},
 					},
 				},
