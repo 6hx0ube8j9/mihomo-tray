@@ -159,7 +159,7 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	item := m.Items[row]
 	switch col {
 	case 0:
-		if item.IsActive { return "使用中" }
+		if item.IsActive { return "✅ 使用中" }
 		return ""
 	case 1:
 		return item.Name
