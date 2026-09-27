@@ -1,212 +1,222 @@
 package ui
 
 import (
+	"embed"
 	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/tailscale/walk"
-	
 	"mihomo-tray/internal/domain"
 )
 
-type TrayMenuCache struct {
-	isBuilt bool
+//go:embed icons/*.ico
+var iconFs embed.FS
 
-	latestState domain.UIState 
+var trayIconAssets = []string{
+	domain.IconStop:    "stop.ico",
+	domain.IconError:   "error.ico",
+	domain.IconTun:     "tun.ico",
+	domain.IconProxy:   "proxy.ico",
+	domain.IconDefault: "default.ico",
+}
 
-	actProxy      *walk.Action
-	actTun        *walk.Action
+type Tray struct {
+	engine     *Engine
+	ni         *walk.NotifyIcon
+	icons      []*walk.Icon
+	iconDir    string
+	lastIconId int
 
-	actModeRule   *walk.Action
-	actModeDirect *walk.Action
-	actModeGlobal *walk.Action
-	actModeMenu   *walk.Action
-
-	menuSwitchProfile *walk.Menu
-
-	actAutoStart *walk.Action
-	actRunAdmin  *walk.Action
-	actAdminMenu *walk.Action
-
-	actSysBrowser  *walk.Action
-	actRemoteWebUI *walk.Action
-	actAllowLan    *walk.Action
-
+	isBuilt                bool
+	latestState            domain.UIState
 	lastProfileFingerprint string
+
+	actProxy          *walk.Action
+	actTun            *walk.Action
+	actModeRule       *walk.Action
+	actModeDirect     *walk.Action
+	actModeGlobal     *walk.Action
+	actModeMenu       *walk.Action
+	menuSwitchProfile *walk.Menu
+	actAutoStart      *walk.Action
+	actRunAdmin       *walk.Action
+	actAdminMenu      *walk.Action
+	actSysBrowser     *walk.Action
+	actRemoteWebUI    *walk.Action
+	actAllowLan       *walk.Action
 }
 
-var trayCache = &TrayMenuCache{}
-
-func ShowTrayNotification(title, message string) {
-	if globalUIEngine != nil && globalUIEngine.ni != nil {
-		globalUIEngine.app.Synchronize(func() {
-			_ = globalUIEngine.ni.ShowInfo(title, message)
-		})
+func NewTray(e *Engine) *Tray {
+	ni, err := walk.NewNotifyIcon()
+	if err != nil {
+		slog.Error("托盘图标创建失败", "err", err)
+		return nil
 	}
-}
+	ni.SetVisible(true)
+	ni.SetToolTip("Mihomo Tray")
 
-func ShowInfoMessage(owner walk.Form, title, message string) {
-	if globalUIEngine == nil || globalUIEngine.app == nil {
-		return
+	t := &Tray{
+		engine:     e,
+		ni:         ni,
+		lastIconId: -1,
 	}
-	globalUIEngine.app.Synchronize(func() {
-		RunErrorDialog(owner, title, message)
+
+	t.loadEmbeddedIcons()
+
+	ni.MouseUp().Attach(func(x, y int, button walk.MouseButton) {
+		if button == walk.LeftButton {
+			t.engine.Dashboard.Show()
+		}
 	})
+
+	return t
 }
 
-func (e *UIEngine) updateTrayState(state domain.UIState) {
-	if e.ni == nil || e.app == nil {
+func (t *Tray) loadEmbeddedIcons() {
+	t.icons = make([]*walk.Icon, len(trayIconAssets))
+	tmpDir, err := os.MkdirTemp("", "mihomo-tray-icons-*")
+	if err != nil {
+		slog.Error("创建图标缓存目录失败", "err", err)
 		return
 	}
+	t.iconDir = tmpDir
 
-	e.app.Synchronize(func() {
-		trayCache.latestState = state
-
-		if !trayCache.isBuilt {
-			buildMenuSkeleton(e)
-			trayCache.isBuilt = true
+	for id, name := range trayIconAssets {
+		if name == "" {
+			continue
 		}
-
-		trayCache.actProxy.SetChecked(state.IsProxy)
-		trayCache.actTun.SetChecked(state.IsTun)
-
-		trayCache.actModeRule.SetChecked(state.Mode == "rule")
-		trayCache.actModeDirect.SetChecked(state.Mode == "direct")
-		trayCache.actModeGlobal.SetChecked(state.Mode == "global")
-		trayCache.actModeMenu.SetText(fmt.Sprintf("路由模式: %s", getModeName(state.Mode)))
-
-		adminText := "运行权限：普通用户"
-		if state.IsAdmin {
-			adminText = "运行权限：管理员"
-		}
-		trayCache.actAdminMenu.SetText(adminText)
-
-		trayCache.actAutoStart.SetChecked(state.AutoStart)
-		trayCache.actRunAdmin.SetChecked(state.RunAsAdmin || state.AutoStart)
-		trayCache.actRunAdmin.SetEnabled(!state.AutoStart)
-
-		trayCache.actSysBrowser.SetChecked(state.UseSystemBrowser)
-		trayCache.actRemoteWebUI.SetChecked(state.RemoteWebUI)
-		trayCache.actAllowLan.SetChecked(state.AllowLan)
-
-		fp := generateProfileFingerprint(state.ProfileItems)
-		if fp != trayCache.lastProfileFingerprint {
-			rebuildProfilesMenu(e, state)
-			trayCache.lastProfileFingerprint = fp
-		} else {
-			if trayCache.menuSwitchProfile != nil && len(state.ProfileItems) > 0 {
-				actions := trayCache.menuSwitchProfile.Actions()
-				for i, item := range state.ProfileItems {
-					if i < actions.Len() {
-						actions.At(i).SetChecked(item.IsActive)
-					}
-				}
+		if b, err := iconFs.ReadFile("icons/" + name); err == nil {
+			tmpPath := filepath.Join(tmpDir, name)
+			_ = os.WriteFile(tmpPath, b, 0644)
+			if ico, err := walk.NewIconFromFile(tmpPath); err == nil {
+				t.icons[id] = ico
 			}
 		}
-	})
+	}
+	if len(t.icons) > 0 && t.icons[domain.IconStop] != nil {
+		t.ni.SetIcon(t.icons[domain.IconStop])
+	}
 }
 
-func buildMenuSkeleton(e *UIEngine) {
-	actions := e.ni.ContextMenu().Actions()
+func (t *Tray) UpdateState(state domain.UIState) {
+	if t.ni == nil {
+		return
+	}
+	t.latestState = state
+
+	if state.IconState != t.lastIconId && state.IconState >= 0 && state.IconState < len(t.icons) && t.icons[state.IconState] != nil {
+		t.ni.SetIcon(t.icons[state.IconState])
+		t.lastIconId = state.IconState
+	}
+
+	if !t.isBuilt {
+		t.buildMenuSkeleton()
+		t.isBuilt = true
+	}
+
+	t.actProxy.SetChecked(state.IsProxy)
+	t.actTun.SetChecked(state.IsTun)
+	t.actModeRule.SetChecked(state.Mode == "rule")
+	t.actModeDirect.SetChecked(state.Mode == "direct")
+	t.actModeGlobal.SetChecked(state.Mode == "global")
+	t.actModeMenu.SetText(fmt.Sprintf("路由模式: %s", getModeName(state.Mode)))
+
+	adminText := "运行权限：普通用户"
+	if state.IsAdmin {
+		adminText = "运行权限：管理员"
+	}
+	t.actAdminMenu.SetText(adminText)
+
+	t.actAutoStart.SetChecked(state.AutoStart)
+	t.actRunAdmin.SetChecked(state.RunAsAdmin || state.AutoStart)
+	t.actRunAdmin.SetEnabled(!state.AutoStart)
+
+	t.actSysBrowser.SetChecked(state.UseSystemBrowser)
+	t.actRemoteWebUI.SetChecked(state.RemoteWebUI)
+	t.actAllowLan.SetChecked(state.AllowLan)
+
+	fp := generateProfileFingerprint(state.ProfileItems)
+	if fp != t.lastProfileFingerprint {
+		t.rebuildProfilesMenu(state)
+		t.lastProfileFingerprint = fp
+	} else if t.menuSwitchProfile != nil && len(state.ProfileItems) > 0 {
+		actions := t.menuSwitchProfile.Actions()
+		for i, item := range state.ProfileItems {
+			if i < actions.Len() {
+				actions.At(i).SetChecked(item.IsActive)
+			}
+		}
+	}
+}
+
+func (t *Tray) buildMenuSkeleton() {
+	actions := t.ni.ContextMenu().Actions()
 	actions.Clear()
 
-	e.addAction("进入 Web 面板", func() { e.sendCommand(domain.ActionOpenWebUI, "") })
-	e.addSeparator()
+	t.addAction("进入 Web 面板", func() { t.engine.SendCommand(domain.ActionOpenWebUI, "") })
+	t.addSeparator()
 
-	trayCache.actProxy = e.addCheckableAction("系统代理", trayCache.latestState.IsProxy, func() { 
-		e.sendCommand(domain.ActionToggleProxy, fmt.Sprintf("%t", !trayCache.latestState.IsProxy)) 
-	})
-	
-	trayCache.actTun = e.addCheckableAction("TUN 模式", trayCache.latestState.IsTun, func() { 
-		e.sendCommand(domain.ActionToggleTun, fmt.Sprintf("%t", !trayCache.latestState.IsTun)) 
-	})
+	t.actProxy = t.addCheckableAction("系统代理", t.latestState.IsProxy, func() { t.engine.SendCommand(domain.ActionToggleProxy, fmt.Sprintf("%t", !t.latestState.IsProxy)) })
+	t.actTun = t.addCheckableAction("TUN 模式", t.latestState.IsTun, func() { t.engine.SendCommand(domain.ActionToggleTun, fmt.Sprintf("%t", !t.latestState.IsTun)) })
 
-	modeMenu, modeMenuAction := e.addSubMenu(fmt.Sprintf("路由模式: %s", getModeName(trayCache.latestState.Mode)))
-	trayCache.actModeMenu = modeMenuAction
+	modeMenu, modeMenuAction := t.addSubMenu(fmt.Sprintf("路由模式: %s", getModeName(t.latestState.Mode)))
+	t.actModeMenu = modeMenuAction
+	t.actModeRule = t.addCheckableSubAction(modeMenu, "规则", t.latestState.Mode == "rule", func() { t.engine.SendCommand(domain.ActionSwitchMode, "rule") })
+	t.actModeDirect = t.addCheckableSubAction(modeMenu, "直连", t.latestState.Mode == "direct", func() { t.engine.SendCommand(domain.ActionSwitchMode, "direct") })
+	t.actModeGlobal = t.addCheckableSubAction(modeMenu, "全局", t.latestState.Mode == "global", func() { t.engine.SendCommand(domain.ActionSwitchMode, "global") })
 
-	trayCache.actModeRule = e.addCheckableSubAction(modeMenu, "规则", trayCache.latestState.Mode == "rule", func() { e.sendCommand(domain.ActionSwitchMode, "rule") })
-	trayCache.actModeDirect = e.addCheckableSubAction(modeMenu, "直连", trayCache.latestState.Mode == "direct", func() { e.sendCommand(domain.ActionSwitchMode, "direct") })
-	trayCache.actModeGlobal = e.addCheckableSubAction(modeMenu, "全局", trayCache.latestState.Mode == "global", func() { e.sendCommand(domain.ActionSwitchMode, "global") })
+	t.addSeparator()
 
-	e.addSeparator()
-
-	trayCache.menuSwitchProfile, _ = e.addSubMenu("切换配置文件")
-	
-	emptyAction := e.addActionTo(trayCache.menuSwitchProfile, "无配置", nil)
+	t.menuSwitchProfile, _ = t.addSubMenu("切换配置文件")
+	emptyAction := t.addActionTo(t.menuSwitchProfile, "无配置", nil)
 	emptyAction.SetEnabled(false)
 
-	e.addAction("编辑当前配置", func() { e.sendCommand(domain.ActionEditCurrentConfig, "") })
-	e.addAction("添加配置", func() { e.sendCommand(domain.ActionOpenProfileManager, "") })
+	t.addAction("管理/添加配置", func() { t.engine.Dashboard.Show() })
+	t.addSeparator()
+	t.addAction("打开程序目录", func() { t.engine.SendCommand(domain.ActionOpenBaseDir, "") })
+	t.addSeparator()
 
-	e.addSeparator()
+	adminMenu, adminMenuAction := t.addSubMenu("运行权限")
+	t.actAdminMenu = adminMenuAction
+	t.actAutoStart = t.addCheckableSubAction(adminMenu, "开机自启（管理员）", t.latestState.AutoStart, func() { t.engine.SendCommand(domain.ActionToggleAutoStart, fmt.Sprintf("%t", !t.latestState.AutoStart)) })
+	t.actRunAdmin = t.addCheckableSubAction(adminMenu, "始终以管理员身份运行", t.latestState.RunAsAdmin || t.latestState.AutoStart, func() { t.engine.SendCommand(domain.ActionToggleRunAsAdmin, fmt.Sprintf("%t", !t.latestState.RunAsAdmin)) })
 
-	e.addAction("打开程序目录", func() { e.sendCommand(domain.ActionOpenBaseDir, "") })
-	e.addSeparator()
-
-	adminMenu, adminMenuAction := e.addSubMenu("运行权限")
-	trayCache.actAdminMenu = adminMenuAction
-
-	trayCache.actAutoStart = e.addCheckableSubAction(adminMenu, "开机自启（管理员）", trayCache.latestState.AutoStart, func() {
-		e.sendCommand(domain.ActionToggleAutoStart, fmt.Sprintf("%t", !trayCache.latestState.AutoStart))
-	})
-	
-	trayCache.actRunAdmin = e.addCheckableSubAction(adminMenu, "始终以管理员身份运行", trayCache.latestState.RunAsAdmin || trayCache.latestState.AutoStart, func() {
-		e.sendCommand(domain.ActionToggleRunAsAdmin, fmt.Sprintf("%t", !trayCache.latestState.RunAsAdmin))
-	})
-
-	moreMenu, _ := e.addSubMenu("更多设置")
-
-	e.addActionTo(moreMenu, "打开应用配置 (mihomo-tray.json)", func() {
-		e.sendCommand(domain.ActionOpenAppConfig, "")
-	})
-	e.addActionTo(moreMenu, "-", nil)
-
-	e.addActionTo(moreMenu, "复制 Web 访问密码", func() {
-		e.sendCommand(domain.ActionCopyWebUIPassword, "")
-	})
-
-	e.addActionTo(moreMenu, "清理 Web 面板缓存", func() {
+	moreMenu, _ := t.addSubMenu("更多设置")
+	t.addActionTo(moreMenu, "打开应用配置 (mihomo-tray.json)", func() { t.engine.SendCommand(domain.ActionOpenAppConfig, "") })
+	t.addActionTo(moreMenu, "-", nil)
+	t.addActionTo(moreMenu, "复制 Web 访问密码", func() { t.engine.SendCommand(domain.ActionCopyWebUIPassword, "") })
+	t.addActionTo(moreMenu, "清理 Web 面板缓存", func() {
 		go func() {
-			if ShowConfirmMessage(nil, "确认清理缓存？", "清理 Web 面板缓存将同时清除面板配置（包含布局、主题等），且无法恢复。建议在操作前先导出备份。\n\n是否继续？") {
-				e.sendCommand(domain.ActionClearWebUICache, "")
+			if ShowConfirmMessage(nil, "确认清理缓存？", "清理 Web 面板缓存将同时清除面板配置，且无法恢复。\n是否继续？") {
+				t.engine.SendCommand(domain.ActionClearWebUICache, "")
 			}
 		}()
 	})
-	
-	e.addActionTo(moreMenu, "-", nil)
+	t.addActionTo(moreMenu, "-", nil)
+	t.actRemoteWebUI = t.addCheckableSubAction(moreMenu, "使用远程 Web 面板", t.latestState.RemoteWebUI, func() { t.engine.SendCommand(domain.ActionToggleRemoteWebUI, fmt.Sprintf("%t", !t.latestState.RemoteWebUI)) })
+	t.actSysBrowser = t.addCheckableSubAction(moreMenu, "使用默认浏览器打开面板", t.latestState.UseSystemBrowser, func() { t.engine.SendCommand(domain.ActionToggleSystemBrowser, fmt.Sprintf("%t", !t.latestState.UseSystemBrowser)) })
+	t.actAllowLan = t.addCheckableSubAction(moreMenu, "允许局域网代理", t.latestState.AllowLan, func() { t.engine.SendCommand(domain.ActionToggleAllowLan, fmt.Sprintf("%t", !t.latestState.AllowLan)) })
+	t.addActionTo(moreMenu, "-", nil)
+	t.addActionTo(moreMenu, "重载当前配置", func() { t.engine.SendCommand(domain.ActionReloadConfig, "") })
+	t.addActionTo(moreMenu, "重启内核", func() { t.engine.SendCommand(domain.ActionRestartKernel, "") })
 
-	trayCache.actRemoteWebUI = e.addCheckableSubAction(moreMenu, "使用远程 Web 面板", trayCache.latestState.RemoteWebUI, func() {
-		e.sendCommand(domain.ActionToggleRemoteWebUI, fmt.Sprintf("%t", !trayCache.latestState.RemoteWebUI))
-	})
-
-	trayCache.actSysBrowser = e.addCheckableSubAction(moreMenu, "使用默认浏览器打开面板", trayCache.latestState.UseSystemBrowser, func() {
-		e.sendCommand(domain.ActionToggleSystemBrowser, fmt.Sprintf("%t", !trayCache.latestState.UseSystemBrowser))
-	})
-
-	trayCache.actAllowLan = e.addCheckableSubAction(moreMenu, "允许局域网代理", trayCache.latestState.AllowLan, func() {
-		e.sendCommand(domain.ActionToggleAllowLan, fmt.Sprintf("%t", !trayCache.latestState.AllowLan))
-	})
-
-	e.addActionTo(moreMenu, "-", nil)
-	e.addActionTo(moreMenu, "重载当前配置", func() { e.sendCommand(domain.ActionReloadConfig, "") })
-	e.addActionTo(moreMenu, "重启内核", func() { e.sendCommand(domain.ActionRestartKernel, "") })
-
-	e.addSeparator()
-	e.addAction("退出程序", func() {
-		e.sendCommand(domain.ActionExitApp, "")
-		e.app.Synchronize(func() { e.mw.Close() })
+	t.addSeparator()
+	t.addAction("退出程序", func() {
+		t.engine.SendCommand(domain.ActionExitApp, "")
+		t.engine.app.Synchronize(func() { t.engine.mw.Close() })
 	})
 }
 
-func rebuildProfilesMenu(e *UIEngine, state domain.UIState) {
-	if trayCache.menuSwitchProfile == nil {
+func (t *Tray) rebuildProfilesMenu(state domain.UIState) {
+	if t.menuSwitchProfile == nil {
 		return
 	}
-
-	actions := trayCache.menuSwitchProfile.Actions()
+	actions := t.menuSwitchProfile.Actions()
 	for i := 0; i < actions.Len(); i++ {
-		action := actions.At(i)
-		action.Dispose()
+		actions.At(i).Dispose()
 	}
 	actions.Clear()
 
@@ -222,27 +232,45 @@ func rebuildProfilesMenu(e *UIEngine, state domain.UIState) {
 			if item.IsRemote {
 				suffix = " (订阅)"
 			}
-			e.addCheckableSubAction(trayCache.menuSwitchProfile, item.Name+suffix, item.IsActive, func() {
-				e.sendCommand(domain.ActionSwitchProfile, targetPath)
+			t.addCheckableSubAction(t.menuSwitchProfile, item.Name+suffix, item.IsActive, func() {
+				t.engine.SendCommand(domain.ActionSwitchProfile, targetPath)
 			})
 		}
 	}
 }
 
+func (t *Tray) ShowNotification(title, message string) {
+	if t.ni != nil {
+		t.engine.app.Synchronize(func() { _ = t.ni.ShowInfo(title, message) })
+	}
+}
+
+func (t *Tray) Dispose() {
+	if t.ni != nil {
+		t.ni.Dispose()
+	}
+	for _, icon := range t.icons {
+		if icon != nil {
+			icon.Dispose()
+		}
+	}
+	if t.iconDir != "" {
+		_ = os.RemoveAll(t.iconDir)
+	}
+}
+
 func getModeName(mode string) string {
 	modeNames := map[string]string{"rule": "规则", "direct": "直连", "global": "全局"}
-	name := modeNames[mode]
-	if name == "" {
-		return "未知"
+	if name := modeNames[mode]; name != "" {
+		return name
 	}
-	return name
+	return "未知"
 }
 
 func generateProfileFingerprint(items []domain.UIProfileItem) string {
 	var sb strings.Builder
 	for _, item := range items {
-		sb.WriteString(item.Name)
-		sb.WriteString(item.Path)
+		sb.WriteString(item.Name + item.Path)
 		if item.IsActive {
 			sb.WriteString("Y")
 		}
@@ -253,43 +281,37 @@ func generateProfileFingerprint(items []domain.UIProfileItem) string {
 	return sb.String()
 }
 
-func (e *UIEngine) addAction(text string, onTriggered func()) *walk.Action {
-	return e.addActionTo(e.ni.ContextMenu(), text, onTriggered)
+func (t *Tray) addAction(text string, f func()) *walk.Action {
+	return t.addActionTo(t.ni.ContextMenu(), text, f)
 }
-
-func (e *UIEngine) addActionTo(menu *walk.Menu, text string, onTriggered func()) *walk.Action {
+func (t *Tray) addActionTo(menu *walk.Menu, text string, f func()) *walk.Action {
 	action := walk.NewAction()
 	action.SetText(text)
-	if onTriggered != nil {
-		action.Triggered().Attach(onTriggered)
+	if f != nil {
+		action.Triggered().Attach(f)
 	}
 	menu.Actions().Add(action)
 	return action
 }
-
-func (e *UIEngine) addCheckableAction(text string, checked bool, onTriggered func()) *walk.Action {
-	action := e.addAction(text, onTriggered)
+func (t *Tray) addCheckableAction(text string, checked bool, f func()) *walk.Action {
+	action := t.addAction(text, f)
 	action.SetCheckable(true)
 	action.SetChecked(checked)
 	return action
 }
-
-func (e *UIEngine) addCheckableSubAction(menu *walk.Menu, text string, checked bool, onTriggered func()) *walk.Action {
-	action := e.addActionTo(menu, text, onTriggered)
+func (t *Tray) addCheckableSubAction(menu *walk.Menu, text string, checked bool, f func()) *walk.Action {
+	action := t.addActionTo(menu, text, f)
 	action.SetCheckable(true)
 	action.SetChecked(checked)
 	return action
 }
-
-func (e *UIEngine) addSubMenu(text string) (*walk.Menu, *walk.Action) {
+func (t *Tray) addSubMenu(text string) (*walk.Menu, *walk.Action) {
 	subMenu, _ := walk.NewMenu()
 	subAction := walk.NewMenuAction(subMenu)
 	subAction.SetText(text)
-	e.ni.ContextMenu().Actions().Add(subAction)
+	t.ni.ContextMenu().Actions().Add(subAction)
 	return subMenu, subAction
 }
-
-func (e *UIEngine) addSeparator() {
-	separator := walk.NewSeparatorAction()
-	e.ni.ContextMenu().Actions().Add(separator)
+func (t *Tray) addSeparator() {
+	t.ni.ContextMenu().Actions().Add(walk.NewSeparatorAction())
 }
