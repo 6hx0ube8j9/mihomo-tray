@@ -47,10 +47,11 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultUrl string, d
 		var owner walk.Form = getValidOwner()
 
 		err := Dialog{
-			AssignTo: &dlg,
-			Title:    title,
-			MinSize:  Size{Width: 450, Height: 200},
-			Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
+			AssignTo:      &dlg,
+			Title:         title,
+			MinSize:       Size{Width: 450, Height: 200},
+			DefaultButton: &acceptButton, // 体验增强：绑定系统回车键快速提交
+			Layout:        VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 			Children: []Widget{
 				Composite{
 					Layout: Grid{Columns: 2, Spacing: 10, MarginsZero: true},
@@ -114,6 +115,9 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultUrl string, d
 			resCh <- result{ok: false}
 			return
 		}
+
+		// 稳定性增强：绝对的内存防漏屏障，强制回收底层句柄
+		defer dlg.Dispose()
 
 		currentSubEditor = dlg
 		dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
