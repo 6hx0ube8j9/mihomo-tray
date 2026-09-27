@@ -46,10 +46,6 @@ func centerWindow(win *walk.MainWindow) {
 	win.SetBounds(walk.Rectangle{X: newX, Y: newY, Width: bounds.Width, Height: bounds.Height})
 }
 
-// ==========================================
-// 数据模型
-// ==========================================
-
 type ProfileModel struct {
 	walk.TableModelBase
 	Items []domain.UIProfileItem
@@ -88,10 +84,6 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	}
 	return ""
 }
-
-// ==========================================
-// 统一仪表盘 (Dashboard) 核心控制器
-// ==========================================
 
 func (e *UIEngine) ShowProfileManager(items []domain.UIProfileItem) {
 	e.app.Synchronize(func() {
@@ -154,9 +146,9 @@ func (e *UIEngine) showDashboard() {
 
 		err := MainWindow{
 			AssignTo: &e.dashboardWindow,
-			Title:    "Mihomo Tray 仪表盘",
+			Title:    "管理配置",
 			MinSize:  Size{Width: 700, Height: 350},
-			Size:     Size{Width: 750, Height: 400},
+			Size:     Size{Width: 780, Height: 450},
 			Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
 			Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 			Children: []Widget{
@@ -182,16 +174,23 @@ func (e *UIEngine) showDashboard() {
 						TableView{
 							AssignTo: &e.tableView,
 							Columns: []TableViewColumn{
-								{Title: "状态", Width: 90},
+								{Title: "状态", Width: 90, Alignment: AlignCenter},
 								{Title: "名称", Width: 220},
-								{Title: "类型", Width: 80},
-								{Title: "更新频率", Width: 100},
-								{Title: "上次更新", Width: 130},
+								{Title: "类型", Width: 80, Alignment: AlignCenter},
+								{Title: "更新频率", Width: 100, Alignment: AlignCenter},
+								{Title: "上次更新", Width: 130, Alignment: AlignCenter},
 							},
 							Model:                 e.panelModel,
 							OnCurrentIndexChanged: updateActionState,
+							
+							OnItemActivated: func() {
+								if idx := e.tableView.CurrentIndex(); idx >= 0 {
+									e.sendCommand(domain.ActionSwitchProfile, e.panelModel.Items[idx].Path)
+								}
+							},
+							
 							ContextMenuItems: []MenuItem{
-								Action{AssignTo: &actionSwitch, Text: "切换配置", OnTriggered: func() {
+								Action{AssignTo: &actionSwitch, Text: "切换配置", Default: true, OnTriggered: func() {
 									if idx := e.tableView.CurrentIndex(); idx >= 0 {
 										e.sendCommand(domain.ActionSwitchProfile, e.panelModel.Items[idx].Path)
 									}
@@ -201,6 +200,7 @@ func (e *UIEngine) showDashboard() {
 										e.sendCommand(domain.ActionOpenConfigFile, e.panelModel.Items[idx].Path)
 									}
 								}},
+// ... 后面的菜单代码保持原样 ...
 								Action{AssignTo: &actionEditSub, Text: "编辑订阅", OnTriggered: func() {
 									if idx := e.tableView.CurrentIndex(); idx >= 0 {
 										e.sendCommand(domain.ActionRequestEditRemote, e.panelModel.Items[idx].Path)
@@ -320,7 +320,7 @@ func (e *UIEngine) RefreshPanelData(items []domain.UIProfileItem) {
 	})
 }
 
-// AppendLog 占位函数：为未来扩展日志面板保留安全空接口
+// AppendLog 占位函数：为扩展日志面板保留安全空接口
 func (e *UIEngine) AppendLog(msg string) {
 	// 目前无日志控件渲染需求，静默丢弃
 }
