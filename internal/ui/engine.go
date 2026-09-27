@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/tailscale/walk"
+	. "github.com/tailscale/walk/declarative" // 核心修复：引入声明式宏包
 	"mihomo-tray/internal/domain"
 )
 
@@ -20,6 +21,7 @@ type Engine struct {
 	app *walk.Application
 	mw  *walk.MainWindow
 
+	// --- UI 独立组件 ---
 	Tray      *Tray
 	Dashboard *Dashboard
 }
@@ -42,7 +44,8 @@ func (e *Engine) Run() error {
 	}
 	e.app = app
 
-	err = walk.Declarative.MainWindow{
+	// 核心修复：直接使用 MainWindow，不再带前缀
+	err = MainWindow{
 		AssignTo: &e.mw,
 		Title:    "Mihomo Tray Host",
 		Visible:  false,
@@ -52,14 +55,17 @@ func (e *Engine) Run() error {
 		return fmt.Errorf("主控窗口创建失败: %w", err)
 	}
 
+	// 初始化组件
 	e.Tray = NewTray(e)
 	e.Dashboard = NewDashboard(e)
 
+	// 启动数据流监听
 	go e.listenState()
 
 	slog.Debug("UI 引擎消息循环已启动")
-	app.Run()
-	
+	app.Run() // 阻塞运行
+
+	// 优雅释放资源
 	e.Tray.Dispose()
 	e.Dashboard.Dispose()
 	e.mw.Dispose()
@@ -78,6 +84,7 @@ func (e *Engine) listenState() {
 				return
 			}
 			e.app.Synchronize(func() {
+				// 精准分发，互不干扰
 				e.Tray.UpdateState(state)
 				e.Dashboard.Refresh(state)
 			})
