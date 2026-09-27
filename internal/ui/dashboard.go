@@ -191,9 +191,13 @@ func (e *UIEngine) showDashboard() {
         e.dashboardWindow.Show()
     }
  
-    e.dashboardWindow.SetSuspended(true)
-    e.dashboardWindow.SetSuspended(false)
+    win.SetWindowPos(hwnd, 0, 0, 0, 0, 0, win.SWP_NOMOVE|win.SWP_NOSIZE|win.SWP_NOZORDER|win.SWP_FRAMECHANGED)
 
+    b := e.dashboardWindow.Bounds()
+    e.dashboardWindow.SetBounds(walk.Rectangle{X: b.X, Y: b.Y, Width: b.Width, Height: b.Height + 1})
+    e.dashboardWindow.SetBounds(b)
+
+    centerWindow(e.dashboardWindow)
     win.SetForegroundWindow(hwnd)
     e.dashboardWindow.SetFocus()
 }
