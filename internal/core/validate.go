@@ -1,7 +1,7 @@
 package core
 
 import (
-	"fmt"
+	"errors"
 	"strings"
 
 	"mihomo-tray/internal/sys"
@@ -24,7 +24,7 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 		}
 	}
 
-	return fmt.Errorf("预检失败: %s", errMsg)
+	return errors.New(errMsg)
 }
 
 func extractLogMsg(output string) string {
