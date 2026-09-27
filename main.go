@@ -337,7 +337,7 @@ func main() {
 	application := app.NewApplication(cfgMgr, runtimeState)
 
 	slog.Debug("挂载 UI 引擎")
-	uiEngine := ui.NewUIEngine(ctx, cancel, application.UICommandCh, application.UIStateCh)
+	UiEngine := ui.NewEngine(ctx, cancel, application.UICommandCh, application.UIStateCh)
 
 	application.ShowProfileManager = uiEngine.ShowProfileManager
 	application.ShowSubscriptionEditor = uiEngine.ShowSubscriptionEditor
