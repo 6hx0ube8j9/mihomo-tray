@@ -4,7 +4,7 @@ go 1.25
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
-	github.com/tailscale/walk v0.0.0-20241217000324-6508f86cca3d
+	github.com/tailscale/walk v0.0.0-20241213171613-3626b87e119d
 	github.com/tailscale/win v0.0.0-20260619195133-2d76c33a64c1
 	golang.org/x/sys v0.37.0
 	gopkg.in/yaml.v3 v3.0.1
