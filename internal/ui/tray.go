@@ -34,6 +34,7 @@ type Tray struct {
 	latestState            domain.UIState
 	lastProfileFingerprint string
 
+	// 菜单项句柄
 	actProxy          *walk.Action
 	actTun            *walk.Action
 	actModeRule       *walk.Action
@@ -66,6 +67,7 @@ func NewTray(e *Engine) *Tray {
 
 	t.loadEmbeddedIcons()
 
+	// 左键弹出仪表盘面板
 	ni.MouseUp().Attach(func(x, y int, button walk.MouseButton) {
 		if button == walk.LeftButton {
 			t.engine.Dashboard.Show()
@@ -140,9 +142,11 @@ func (t *Tray) UpdateState(state domain.UIState) {
 
 	fp := generateProfileFingerprint(state.ProfileItems)
 	if fp != t.lastProfileFingerprint {
+		// 结构改变：销毁并重建子菜单
 		t.rebuildProfilesMenu(state)
 		t.lastProfileFingerprint = fp
 	} else if t.menuSwitchProfile != nil && len(state.ProfileItems) > 0 {
+		// 快速通道：结构没变，只刷新使用状态（打钩），不碰底层句柄
 		actions := t.menuSwitchProfile.Actions()
 		for i, item := range state.ProfileItems {
 			if i < actions.Len() {
@@ -188,6 +192,8 @@ func (t *Tray) buildMenuSkeleton() {
 	t.addActionTo(moreMenu, "打开应用配置 (mihomo-tray.json)", func() { t.engine.SendCommand(domain.ActionOpenAppConfig, "") })
 	t.addActionTo(moreMenu, "-", nil)
 	t.addActionTo(moreMenu, "复制 Web 访问密码", func() { t.engine.SendCommand(domain.ActionCopyWebUIPassword, "") })
+	
+	// 注意此处的 go func() 是关键防死锁机制，严禁移除
 	t.addActionTo(moreMenu, "清理 Web 面板缓存", func() {
 		go func() {
 			if ShowConfirmMessage(nil, "确认清理缓存？", "清理 Web 面板缓存将同时清除面板配置，且无法恢复。\n是否继续？") {
@@ -195,6 +201,7 @@ func (t *Tray) buildMenuSkeleton() {
 			}
 		}()
 	})
+	
 	t.addActionTo(moreMenu, "-", nil)
 	t.actRemoteWebUI = t.addCheckableSubAction(moreMenu, "使用远程 Web 面板", t.latestState.RemoteWebUI, func() { t.engine.SendCommand(domain.ActionToggleRemoteWebUI, fmt.Sprintf("%t", !t.latestState.RemoteWebUI)) })
 	t.actSysBrowser = t.addCheckableSubAction(moreMenu, "使用默认浏览器打开面板", t.latestState.UseSystemBrowser, func() { t.engine.SendCommand(domain.ActionToggleSystemBrowser, fmt.Sprintf("%t", !t.latestState.UseSystemBrowser)) })
@@ -267,13 +274,11 @@ func getModeName(mode string) string {
 	return "未知"
 }
 
+// 极致优化：剔除 IsActive，使指纹只与菜单的“结构”相关，完美激活快速通道
 func generateProfileFingerprint(items []domain.UIProfileItem) string {
 	var sb strings.Builder
 	for _, item := range items {
 		sb.WriteString(item.Name + item.Path)
-		if item.IsActive {
-			sb.WriteString("Y")
-		}
 		if item.IsRemote {
 			sb.WriteString("R")
 		}
