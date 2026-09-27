@@ -337,10 +337,15 @@ func main() {
 	application := app.NewApplication(cfgMgr, runtimeState)
 
 	slog.Debug("挂载 UI 引擎")
-	UiEngine := ui.NewEngine(ctx, cancel, application.UICommandCh, application.UIStateCh)
+	
+	// 【修正 1】：统一使用 engine，避免大小写混淆
+	engine := ui.NewEngine(ctx, cancel, application.UICommandCh, application.UIStateCh)
 
-	application.ShowProfileManager = uiEngine.ShowProfileManager
-	application.ShowSubscriptionEditor = uiEngine.ShowSubscriptionEditor
+	// 【修正 2】：对接新架构，用闭包将数据驱动交给 Dashboard 组件处理
+	application.ShowProfileManager = func(items []domain.UIProfileItem) {
+		engine.Dashboard.Show()
+	}
+	application.ShowSubscriptionEditor = engine.ShowSubscriptionEditor
 
 	go func() {
 		sigCh := make(chan os.Signal, 1)
@@ -376,7 +381,8 @@ func main() {
 	go application.Bootstrap(ctx)
 
 	slog.Debug("进入主线程事件循环")
-	if err := uiEngine.Run(); err != nil {
+	// 【修正 3】：对应上方，使用小写的 engine
+	if err := engine.Run(); err != nil {
 		slog.Error("UI 引擎启动失败", "err", err)
 	}
 
