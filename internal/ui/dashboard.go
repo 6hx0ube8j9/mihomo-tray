@@ -113,22 +113,25 @@ func (e *UIEngine) showDashboard() {
 			Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
 			Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 			Children: []Widget{
-				Composite{
-					Layout: HBox{MarginsZero: true, Spacing: 10},
-					Children: []Widget{
-						PushButton{
-							AssignTo:  &btnAddRemote,
-							Text:      "添加远程订阅",
-							OnClicked: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
-						},
-						PushButton{
-							AssignTo:  &btnAddLocal,
-							Text:      "导入本地配置",
-							OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
-						},
-						HSpacer{},
-					},
-				},
+                Composite{
+                    Layout: HBox{MarginsZero: true, Spacing: 10},
+                    MinSize: Size{Height: 35},
+                    Children: []Widget{
+                        PushButton{
+                            AssignTo:  &btnAddRemote,
+                            Text:      "添加远程订阅",
+                            MinSize:   Size{Width: 100, Height: 28},
+                            OnClicked: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
+                        },
+                        PushButton{
+                            AssignTo:  &btnAddLocal,
+                            Text:      "导入本地配置",
+                            MinSize:   Size{Width: 100, Height: 28},
+                            OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
+                        },
+                        HSpacer{},
+                    },
+                },
 				Composite{
 					Layout: HBox{MarginsZero: true, Spacing: 10},
 					Children: []Widget{
