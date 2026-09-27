@@ -183,16 +183,18 @@ func (e *UIEngine) showDashboard() {
 		})
 		oldWndProc = win.SetWindowLongPtr(e.dashboardWindow.Handle(), win.GWLP_WNDPROC, newWndProc)
 
-		centerWindow(e.dashboardWindow)
 	}
 
 	hwnd := e.dashboardWindow.Handle()
+	
 	if win.IsIconic(hwnd) {
 		win.ShowWindow(hwnd, win.SW_RESTORE)
 	}
 	if !e.dashboardWindow.Visible() {
 		e.dashboardWindow.Show()
 	}
+
+	centerWindow(e.dashboardWindow)
 	win.SetForegroundWindow(hwnd)
 	e.dashboardWindow.SetFocus()
 }
