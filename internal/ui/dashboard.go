@@ -170,6 +170,10 @@ func (e *UIEngine) showDashboard() {
 			return
 		}
 
+        if tb := e.dashboardWindow.ToolBar(); tb != nil {
+            tb.SetVisible(false)
+        }
+		
 		var oldWndProc uintptr
 		newWndProc := syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
 			if msg == win.WM_CLOSE {
@@ -179,27 +183,19 @@ func (e *UIEngine) showDashboard() {
 			return win.CallWindowProc(oldWndProc, hwnd, msg, wParam, lParam)
 		})
 		oldWndProc = win.SetWindowLongPtr(e.dashboardWindow.Handle(), win.GWLP_WNDPROC, newWndProc)
+		
         centerWindow(e.dashboardWindow)
     }
 
     hwnd := e.dashboardWindow.Handle()
-    if win.IsIconic(hwnd) {
-        win.ShowWindow(hwnd, win.SW_RESTORE)
-    }
-    
-    if !e.dashboardWindow.Visible() {
-        e.dashboardWindow.Show()
-    }
- 
-    win.SetWindowPos(hwnd, 0, 0, 0, 0, 0, win.SWP_NOMOVE|win.SWP_NOSIZE|win.SWP_NOZORDER|win.SWP_FRAMECHANGED)
-
-    b := e.dashboardWindow.Bounds()
-    e.dashboardWindow.SetBounds(walk.Rectangle{X: b.X, Y: b.Y, Width: b.Width, Height: b.Height + 1})
-    e.dashboardWindow.SetBounds(b)
-
-    centerWindow(e.dashboardWindow)
-    win.SetForegroundWindow(hwnd)
-    e.dashboardWindow.SetFocus()
+	if win.IsIconic(hwnd) {
+		win.ShowWindow(hwnd, win.SW_RESTORE)
+	}
+	if !e.dashboardWindow.Visible() {
+		e.dashboardWindow.Show()
+	}
+	win.SetForegroundWindow(hwnd)
+	e.dashboardWindow.SetFocus()
 }
 
 func (e *UIEngine) RefreshPanelData(items []domain.UIProfileItem) {
