@@ -100,15 +100,15 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 			exePath := core.GetKernelPath(a.Cfg.BaseDir())
 			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), sourcePath); err != nil {
-				log.Printf("[WARN] 校验配置文件 [%s] 未通过: %v", sourcePath, err)
-				ui.ShowErrorMessage(a.mw, "导入失败", fmt.Sprintf("配置文件存在错误：\n%v", err))
+				slog.Warn("校验配置文件未通过", "path", sourcePath, "err", err)
+				ui.ShowErrorMessage(nil, "导入失败", fmt.Sprintf("配置文件存在错误：\n%v", err))
 				return
 			}
 
 			targetName, _, err := a.Cfg.SafeCopyUntrustedConfig(sourcePath)
 			if err != nil {
-				log.Printf("[WARN] 拷贝配置文件 [%s] 失败: %v", sourcePath, err)
-				ui.ShowErrorMessage(a.mw, "导入失败", fmt.Sprintf("文件拷贝失败：\n%v", err))
+				slog.Warn("拷贝配置文件失败", "path", sourcePath, "err", err)
+				ui.ShowErrorMessage(nil, "导入失败", fmt.Sprintf("文件拷贝失败：\n%v", err))
 				return
 			}
 			a.Cfg.RegisterNewProfile(targetName)
@@ -226,7 +226,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			slog.Warn("拒绝删除活跃配置")
 			break
 		}
-		if !ui.ShowConfirmMessage(a.mw, "确认删除", "确定要删除此配置文件吗？\n此操作不可恢复，本地文件将被同时删除。") {	
+		if !ui.ShowConfirmMessage(nil, "确认删除", "确定要删除此配置文件吗？\n此操作不可恢复，本地文件将被同时删除。") {
 			break
 		}
 		absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetPath))
@@ -243,7 +243,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionToggleAutoStart:
 		enable := cmd.Payload == "true"
-		
+
 		a.Cfg.Update(func(c *domain.TrayConfig) {
 			b := enable
 			c.General.Autostart = &b
@@ -274,9 +274,9 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionToggleRunAsAdmin:
 		enable := cmd.Payload == "true"
-		
+
 		a.Cfg.Update(func(c *domain.TrayConfig) { c.General.RunAsAdmin = enable })
-		
+
 		if enable && !sys.IsAdmin() {
 			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--restarting")
 			if err == nil {
@@ -290,7 +290,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionToggleTun:
 		enable := cmd.Payload == "true"
-		
+
 		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = enable })
 
 		if enable && !sys.IsAdmin() {
@@ -312,11 +312,11 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		go func() {
 			defer a.State.SetConfigSyncing(false)
 			tunPayload := map[string]interface{}{"enable": enable}
-			
+
 			if dev := a.State.GetActualTunDevice(); dev != "" {
 				tunPayload["device"] = dev
 			}
-			
+
 			reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
 
@@ -351,7 +351,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			default:
 			}
 		}()
-		
+
 	case domain.ActionToggleAllowLan:
 		enable := cmd.Payload == "true"
 		a.Cfg.Update(func(c *domain.TrayConfig) {
@@ -369,7 +369,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			default:
 			}
 		}()
-		
+
 	case domain.ActionForceSyncAPI:
 		select {
 		case a.apiPollCh <- struct{}{}:
@@ -384,30 +384,30 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		}
 
 		cfg := a.Cfg.GetConfig()
-		
+
 		apiAddr, secret, uiName := a.State.GetWebUISnapshot()
-		
+
 		slog.Info("【打开面板】", "强制系统浏览器", *cfg.General.SystemBrowser, "使用远程面板", *cfg.General.RemoteWebUI)
-		
+
 		wcfg := webui.Config{
 			APIAddr:            apiAddr,
 			Secret:             secret,
 			ProxyPort:          strconv.Itoa(a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort)),
 			BaseDir:            a.Cfg.BaseDir(),
 			UIName:             uiName,
-			ForceSystemBrowser: *cfg.General.SystemBrowser, 
+			ForceSystemBrowser: *cfg.General.SystemBrowser,
 			RemoteWebUI:        *cfg.General.RemoteWebUI,
 		}
-		
+
 		go webui.Launch(wcfg, a.webuiEventCh)
 
 	case domain.ActionOpenBaseDir:
 		_ = sys.ExecuteSystemCommand(a.Cfg.BaseDir())
-		
+
 	case domain.ActionOpenAppConfig:
 		jsonPath := filepath.Join(a.Cfg.BaseDir(), domain.TrayConfigName)
 		_ = sys.ExecuteSystemCommand(jsonPath)
-		
+
 	case domain.ActionReloadConfig:
 		a.ReloadConfig(ctx)
 
@@ -427,7 +427,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionExitApp:
 		webui.Cleanup()
-		
+
 	case domain.ActionToggleSystemBrowser:
 		enable := cmd.Payload == "true"
 		a.Cfg.Update(func(c *domain.TrayConfig) {
@@ -458,11 +458,13 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		_, secret, _ := a.State.GetWebUISnapshot()
 
 		if secret == "" {
-			ui.ShowInfoMessage(nil, "复制密码", "当前 Web 面板无需密码即可访问。")
+			ui.ShowInfoModeless(nil, "复制密码", "当前 Web 面板无需密码即可访问。")
 			break
 		}
 		if err := sys.WriteToClipboard(secret); err == nil {
-			ui.ShowTrayNotification("密码复制成功", "Web 密码已复制到剪贴板，可直接粘贴使用。")
+			if ui.GlobalEngine != nil && ui.GlobalEngine.Tray != nil {
+				ui.GlobalEngine.Tray.ShowNotification("密码复制成功", "Web 密码已复制到剪贴板，可直接粘贴使用。")
+			}
 		} else {
 			ui.ShowErrorMessage(nil, "复制失败", "无法向剪贴板写入密码：\n\n"+err.Error())
 		}
@@ -471,7 +473,9 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		cacheDir := filepath.Join(a.Cfg.BaseDir(), "webcache")
 		err := os.RemoveAll(cacheDir)
 		if err == nil {
-			ui.ShowTrayNotification("清理完成", "Web 面板缓存目录已完成清理。")
+			if ui.GlobalEngine != nil && ui.GlobalEngine.Tray != nil {
+				ui.GlobalEngine.Tray.ShowNotification("清理完成", "Web 面板缓存目录已完成清理。")
+			}
 		} else {
 			ui.ShowErrorMessage(nil, "清理失败", "无法清除缓存目录，文件可能被占用：\n\n"+err.Error())
 		}
