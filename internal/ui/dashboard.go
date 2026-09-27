@@ -113,25 +113,22 @@ func (e *UIEngine) showDashboard() {
 			Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
 			Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 			Children: []Widget{
-                Composite{
-                    Layout: HBox{MarginsZero: true, Spacing: 10},
-                    MinSize: Size{Height: 35},
-                    Children: []Widget{
-                        PushButton{
-                            AssignTo:  &btnAddRemote,
-                            Text:      "添加远程订阅",
-                            MinSize:   Size{Width: 100, Height: 28},
-                            OnClicked: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
-                        },
-                        PushButton{
-                            AssignTo:  &btnAddLocal,
-                            Text:      "导入本地配置",
-                            MinSize:   Size{Width: 100, Height: 28},
-                            OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
-                        },
-                        HSpacer{},
-                    },
-                },
+				Composite{
+					Layout: HBox{MarginsZero: true, Spacing: 10},
+					Children: []Widget{
+						PushButton{
+							AssignTo:  &btnAddRemote,
+							Text:      "添加远程订阅",
+							OnClicked: func() { e.sendCommand(domain.ActionRequestAddRemote, "") },
+						},
+						PushButton{
+							AssignTo:  &btnAddLocal,
+							Text:      "导入本地配置",
+							OnClicked: func() { e.sendCommand(domain.ActionRequestAddLocal, "") },
+						},
+						HSpacer{},
+					},
+				},
 				Composite{
 					Layout: HBox{MarginsZero: true, Spacing: 10},
 					Children: []Widget{
@@ -182,21 +179,23 @@ func (e *UIEngine) showDashboard() {
 			return win.CallWindowProc(oldWndProc, hwnd, msg, wParam, lParam)
 		})
 		oldWndProc = win.SetWindowLongPtr(e.dashboardWindow.Handle(), win.GWLP_WNDPROC, newWndProc)
+        centerWindow(e.dashboardWindow)
+    }
 
-	}
+    hwnd := e.dashboardWindow.Handle()
+    if win.IsIconic(hwnd) {
+        win.ShowWindow(hwnd, win.SW_RESTORE)
+    }
+    
+    if !e.dashboardWindow.Visible() {
+        e.dashboardWindow.Show()
+    }
 
-	hwnd := e.dashboardWindow.Handle()
-	
-	if win.IsIconic(hwnd) {
-		win.ShowWindow(hwnd, win.SW_RESTORE)
-	}
-	if !e.dashboardWindow.Visible() {
-		e.dashboardWindow.Show()
-	}
+    e.dashboardWindow.Suspend()
+    e.dashboardWindow.Resume()
 
-	centerWindow(e.dashboardWindow)
-	win.SetForegroundWindow(hwnd)
-	e.dashboardWindow.SetFocus()
+    win.SetForegroundWindow(hwnd)
+    e.dashboardWindow.SetFocus()
 }
 
 func (e *UIEngine) RefreshPanelData(items []domain.UIProfileItem) {
