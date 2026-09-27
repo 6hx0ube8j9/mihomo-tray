@@ -10,15 +10,15 @@ import (
 )
 
 func getValidOwner() walk.Form {
-	if globalUIEngine != nil {
-		if globalUIEngine.dashboardWindow != nil {
-			hwnd := globalUIEngine.dashboardWindow.Handle()
+	if GlobalEngine != nil {
+		if GlobalEngine.Dashboard != nil && GlobalEngine.Dashboard.window != nil {
+			hwnd := GlobalEngine.Dashboard.window.Handle()
 			if win.IsWindowVisible(hwnd) && !win.IsIconic(hwnd) {
-				return globalUIEngine.dashboardWindow
+				return GlobalEngine.Dashboard.window
 			}
 		}
-		if globalUIEngine.mw != nil {
-			return globalUIEngine.mw
+		if GlobalEngine.mw != nil {
+			return GlobalEngine.mw
 		}
 	}
 	return nil
@@ -60,50 +60,41 @@ func autoWrapText(text string, maxVisualWidth int) string {
 func centerDialog(dlg *walk.Dialog, owner walk.Form) {
 	var rect win.RECT
 	win.GetWindowRect(dlg.Handle(), &rect)
-	dlgW := rect.Right - rect.Left
-	dlgH := rect.Bottom - rect.Top
+	dlgW, dlgH := rect.Right-rect.Left, rect.Bottom-rect.Top
 
 	var x, y int32
-
 	if owner != nil && owner.Visible() && !win.IsIconic(owner.Handle()) {
 		var pRect win.RECT
 		win.GetWindowRect(owner.Handle(), &pRect)
-		pW := pRect.Right - pRect.Left
-		pH := pRect.Bottom - pRect.Top
-		x = pRect.Left + (pW-dlgW)/2
-		y = pRect.Top + (pH-dlgH)/2
+		x = pRect.Left + (pRect.Right-pRect.Left-dlgW)/2
+		y = pRect.Top + (pRect.Bottom-pRect.Top-dlgH)/2
 	} else {
 		var workArea win.RECT
 		if win.SystemParametersInfo(0x0030, 0, unsafe.Pointer(&workArea), 0) {
-			screenW := workArea.Right - workArea.Left
-			screenH := workArea.Bottom - workArea.Top
-			x = workArea.Left + (screenW-dlgW)/2
-			y = workArea.Top + (screenH-dlgH)/2
+			x = workArea.Left + (workArea.Right-workArea.Left-dlgW)/2
+			y = workArea.Top + (workArea.Bottom-workArea.Top-dlgH)/2
 		}
 	}
 	win.SetWindowPos(dlg.Handle(), win.HWND_TOP, x, y, 0, 0, win.SWP_NOSIZE)
 }
 
 func OpenYAMLFileDialog() (string, bool) {
-	if globalUIEngine == nil || globalUIEngine.app == nil {
+	if GlobalEngine == nil || GlobalEngine.app == nil {
 		return "", false
 	}
-
 	type fileResult struct {
 		Path string
 		OK   bool
 	}
 	resultCh := make(chan fileResult)
 
-	globalUIEngine.app.Synchronize(func() {
+	GlobalEngine.app.Synchronize(func() {
 		dlg := new(walk.FileDialog)
 		dlg.Title = "选择本地 YAML 配置文件"
 		dlg.Filter = "YAML 配置文件 (*.yaml;*.yml)|*.yaml;*.yml|所有文件 (*.*)|*.*"
-
 		ok, _ := dlg.ShowOpen(getValidOwner())
 		resultCh <- fileResult{Path: dlg.FilePath, OK: ok}
 	})
-
 	res := <-resultCh
 	return res.Path, res.OK
 }
@@ -113,10 +104,8 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 	if parent == nil {
 		parent = getValidOwner()
 	}
-
 	safeMsg := autoWrapText(message, 55)
 	hActive := win.GetForegroundWindow()
-
 	var dlg *walk.Dialog
 	var acceptPB *walk.PushButton
 
@@ -139,12 +128,7 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 				Layout: HBox{MarginsZero: true},
 				Children: []Widget{
 					HSpacer{},
-					PushButton{
-						AssignTo:  &acceptPB,
-						Text:      "确定",
-						MinSize:   Size{Width: 90, Height: 26},
-						OnClicked: func() { dlg.Accept() },
-					},
+					PushButton{AssignTo: &acceptPB, Text: "确定", MinSize: Size{Width: 90, Height: 26}, OnClicked: func() { dlg.Accept() }},
 				},
 			},
 		},
@@ -153,30 +137,16 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 	if err != nil {
 		return
 	}
-
-	dlg.Starting().Attach(func() {
-		centerDialog(dlg, parent)
-		win.MessageBeep(win.MB_ICONWARNING)
-	})
-
+	dlg.Starting().Attach(func() { centerDialog(dlg, parent); win.MessageBeep(win.MB_ICONWARNING) })
 	dlg.Run()
-
-	if parent != nil && parent.Visible() && !win.IsIconic(parent.Handle()) {
-		win.SetForegroundWindow(parent.Handle())
-		win.SetFocus(parent.Handle())
-	} else if hActive != 0 && win.IsWindowVisible(hActive) && !win.IsIconic(hActive) {
-		win.SetForegroundWindow(hActive)
-		win.SetFocus(hActive)
-	}
+	restoreFocus(parent, hActive)
 }
 
+func ShowInfoModeless(owner walk.Form, title, message string) { ShowErrorMessage(owner, title, message) }
 func ShowErrorMessage(owner walk.Form, title, message string) {
-	if globalUIEngine == nil || globalUIEngine.app == nil {
-		return
+	if GlobalEngine != nil && GlobalEngine.app != nil {
+		GlobalEngine.app.Synchronize(func() { RunErrorDialog(owner, title, message) })
 	}
-	globalUIEngine.app.Synchronize(func() {
-		RunErrorDialog(owner, title, message)
-	})
 }
 
 func RunConfirmDialog(owner walk.Form, title, message string) bool {
@@ -184,13 +154,10 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 	if parent == nil {
 		parent = getValidOwner()
 	}
-
 	safeMsg := autoWrapText(message, 55)
 	hActive := win.GetForegroundWindow()
-
 	var dlg *walk.Dialog
-	var acceptPB *walk.PushButton
-	var cancelPB *walk.PushButton
+	var acceptPB, cancelPB *walk.PushButton
 	accepted := false
 
 	err := Dialog{
@@ -213,18 +180,8 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 				Layout: HBox{MarginsZero: true, Spacing: 10},
 				Children: []Widget{
 					HSpacer{},
-					PushButton{
-						AssignTo:  &acceptPB,
-						Text:      "确定",
-						MinSize:   Size{Width: 90, Height: 26},
-						OnClicked: func() { accepted = true; dlg.Accept() },
-					},
-					PushButton{
-						AssignTo:  &cancelPB,
-						Text:      "取消",
-						MinSize:   Size{Width: 90, Height: 26},
-						OnClicked: func() { dlg.Cancel() },
-					},
+					PushButton{AssignTo: &acceptPB, Text: "确定", MinSize: Size{Width: 90, Height: 26}, OnClicked: func() { accepted = true; dlg.Accept() }},
+					PushButton{AssignTo: &cancelPB, Text: "取消", MinSize: Size{Width: 90, Height: 26}, OnClicked: func() { dlg.Cancel() }},
 				},
 			},
 		},
@@ -233,14 +190,22 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 	if err != nil {
 		return false
 	}
-
-	dlg.Starting().Attach(func() {
-		centerDialog(dlg, parent)
-		win.MessageBeep(win.MB_ICONQUESTION)
-	})
-
+	dlg.Starting().Attach(func() { centerDialog(dlg, parent); win.MessageBeep(win.MB_ICONQUESTION) })
 	dlg.Run()
+	restoreFocus(parent, hActive)
+	return accepted
+}
 
+func ShowConfirmMessage(owner walk.Form, title, message string) bool {
+	if GlobalEngine == nil || GlobalEngine.app == nil {
+		return false
+	}
+	resultCh := make(chan bool)
+	GlobalEngine.app.Synchronize(func() { resultCh <- RunConfirmDialog(owner, title, message) })
+	return <-resultCh
+}
+
+func restoreFocus(parent walk.Form, hActive win.HWND) {
 	if parent != nil && parent.Visible() && !win.IsIconic(parent.Handle()) {
 		win.SetForegroundWindow(parent.Handle())
 		win.SetFocus(parent.Handle())
@@ -248,19 +213,4 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 		win.SetForegroundWindow(hActive)
 		win.SetFocus(hActive)
 	}
-
-	return accepted
-}
-
-func ShowConfirmMessage(owner walk.Form, title, message string) bool {
-	if globalUIEngine == nil || globalUIEngine.app == nil {
-		return false
-	}
-
-	resultCh := make(chan bool)
-	globalUIEngine.app.Synchronize(func() {
-		res := RunConfirmDialog(owner, title, message)
-		resultCh <- res
-	})
-	return <-resultCh
 }
