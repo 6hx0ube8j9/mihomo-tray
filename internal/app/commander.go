@@ -226,7 +226,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			slog.Warn("拒绝删除活跃配置")
 			break
 		}
-		if !ui.ShowConfirmMessage(nil, "确认删除", "确定要删除此配置文件吗？\n\n此操作不可恢复，本地文件将被同时删除。") {
+		if !ui.ShowConfirmMessage(a.mw, "确认删除", "确定要删除此配置文件吗？\n此操作不可恢复，本地文件将被同时删除。") {	
 			break
 		}
 		absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetPath))
