@@ -190,9 +190,9 @@ func (e *UIEngine) showDashboard() {
     if !e.dashboardWindow.Visible() {
         e.dashboardWindow.Show()
     }
-
-    e.dashboardWindow.Suspend()
-    e.dashboardWindow.Resume()
+ 
+    e.dashboardWindow.SetSuspended(true)
+    e.dashboardWindow.SetSuspended(false)
 
     win.SetForegroundWindow(hwnd)
     e.dashboardWindow.SetFocus()
