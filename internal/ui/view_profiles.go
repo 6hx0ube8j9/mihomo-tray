@@ -21,6 +21,7 @@ func NewProfileView(e *Engine) *ProfileView {
 	}
 }
 
+// Declarative 对外暴露一个纯粹的控件列表，供 Dashboard 容器平铺挂载
 func (v *ProfileView) Declarative() []Widget {
 	var actionSwitch, actionEditText, actionEditSub, actionUpdate *walk.Action
 	var actionMoveUp, actionMoveDown, actionDelete *walk.Action
@@ -149,6 +150,7 @@ func (v *ProfileView) RefreshData(items []domain.UIProfileItem) {
 	}
 }
 
+// ProfileModel 专供此表格使用的数据源模型
 type ProfileModel struct {
 	walk.TableModelBase
 	Items []domain.UIProfileItem
@@ -159,7 +161,7 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	item := m.Items[row]
 	switch col {
 	case 0:
-		if item.IsActive { return "✅ 使用中" }
+		if item.IsActive { return "使用中" }
 		return ""
 	case 1:
 		return item.Name
