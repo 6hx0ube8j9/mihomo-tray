@@ -41,6 +41,17 @@ func (d *Dashboard) Show() {
 	})
 }
 
+// Workaround for tailscale/walk bug (Commit 3490772, 2024-12-03). 
+// Upstream forces WS_VISIBLE on the default toolbar, currently known to only affect MainWindow.
+// This empty toolbar overlaps top UI elements. Manually hiding it restores the correct layout.
+func disableGhostToolbar(win *walk.MainWindow) {
+	if win != nil {
+		if tb := win.ToolBar(); tb != nil {
+			tb.SetVisible(false)
+		}
+	}
+}
+
 func (d *Dashboard) createWindow() {
 	err := MainWindow{
 		AssignTo: &d.window,
@@ -57,6 +68,7 @@ func (d *Dashboard) createWindow() {
 		return
 	}
 
+	// Apply upstream layout patch.
 	disableGhostToolbar(d.window)
 
 	var oldWndProc uintptr
@@ -83,14 +95,6 @@ func (d *Dashboard) Refresh(state domain.UIState) {
 func (d *Dashboard) Dispose() {
 	if d.window != nil {
 		d.window.Dispose()
-	}
-}
-
-func disableGhostToolbar(win *walk.MainWindow) {
-	if win != nil {
-		if tb := win.ToolBar(); tb != nil {
-			tb.SetVisible(false)
-		}
 	}
 }
 
