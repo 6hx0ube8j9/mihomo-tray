@@ -200,7 +200,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			exePath := core.GetKernelPath(a.Cfg.BaseDir())
 			absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(target))
 			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), absPath); err != nil {
-				ui.ShowErrorMessage(nil, "加载失败", "该配置存在错误，拒绝加载：\n\n"+err.Error())
+				ui.ShowErrorMessage(nil, "加载失败", "该配置存在错误：\n"+err.Error())
 				isTransactionFailed = true
 				return
 			}
