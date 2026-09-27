@@ -1,9 +1,6 @@
 module mihomo-tray
 
-<<<<<<< HEAD
-go 1.25
-=======
-go 1.26.0
+go 1.27.1
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
@@ -14,8 +11,7 @@ require (
 )
 
 require (
-	github.com/dblohm7/wingoes v0.0.0-20260526185140-fb298caac7ca // indirect
-	golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba // indirect
+	github.com/dblohm7/wingoes v0.0.0-20231019175336-f6e33aa7cc34 // indirect
+	golang.org/x/exp v0.0.0-20230425010034-47ecfdc1ba53 // indirect
 	gopkg.in/Knetic/govaluate.v3 v3.0.0 // indirect
 )
->>>>>>> c7a6bb9 (chore: update dependencies)
