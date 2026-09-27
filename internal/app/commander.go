@@ -100,13 +100,15 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 			exePath := core.GetKernelPath(a.Cfg.BaseDir())
 			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), sourcePath); err != nil {
-				ui.ShowErrorMessage(nil, "导入失败", "配置文件存在错误：\n\n"+err.Error())
+				log.Printf("[WARN] 校验配置文件 [%s] 未通过: %v", sourcePath, err)
+				ui.ShowErrorMessage(a.mw, "导入失败", fmt.Sprintf("配置文件存在错误：\n%v", err))
 				return
 			}
 
 			targetName, _, err := a.Cfg.SafeCopyUntrustedConfig(sourcePath)
 			if err != nil {
-				ui.ShowErrorMessage(nil, "导入失败", "文件拷贝失败:\n"+err.Error())
+				log.Printf("[WARN] 拷贝配置文件 [%s] 失败: %v", sourcePath, err)
+				ui.ShowErrorMessage(a.mw, "导入失败", fmt.Sprintf("文件拷贝失败：\n%v", err))
 				return
 			}
 			a.Cfg.RegisterNewProfile(targetName)
