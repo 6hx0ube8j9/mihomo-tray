@@ -189,7 +189,7 @@ func (e *UIEngine) showDashboard() {
 							},
 							
 							ContextMenuItems: []MenuItem{
-								Action{AssignTo: &actionSwitch, Text: "切换配置", Default: true, OnTriggered: func() {
+								Action{AssignTo: &actionSwitch, Text: "切换配置", OnTriggered: func() {
 									if idx := e.tableView.CurrentIndex(); idx >= 0 {
 										e.sendCommand(domain.ActionSwitchProfile, e.panelModel.Items[idx].Path)
 									}
@@ -199,7 +199,6 @@ func (e *UIEngine) showDashboard() {
 										e.sendCommand(domain.ActionOpenConfigFile, e.panelModel.Items[idx].Path)
 									}
 								}},
-// ... 后面的菜单代码保持原样 ...
 								Action{AssignTo: &actionEditSub, Text: "编辑订阅", OnTriggered: func() {
 									if idx := e.tableView.CurrentIndex(); idx >= 0 {
 										e.sendCommand(domain.ActionRequestEditRemote, e.panelModel.Items[idx].Path)
@@ -232,12 +231,12 @@ func (e *UIEngine) showDashboard() {
 						Composite{
 							Layout: VBox{MarginsZero: true, Spacing: 8},
 							Children: []Widget{
-								PushButton{AssignTo: &btnMoveUp, Text: "上移", Enabled: false, MinSize: Size{Width: 90}, OnTriggered: func() {
-									if idx := e.tableView.CurrentIndex(); idx >= 0 {
-										e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path)
-									}
-								}},
-								PushButton{AssignTo: &btnMoveDown, Text: "下移", Enabled: false, MinSize: Size{Width: 90}, OnTriggered: func() {
+								PushButton{AssignTo: &btnMoveUp, Text: "上移", Enabled: false, MinSize: Size{Width: 90}, OnClicked: func() {
+	                                if idx := e.tableView.CurrentIndex(); idx >= 0 {							
+	                                    e.sendCommand(domain.ActionMoveProfileUp, e.panelModel.Items[idx].Path)
+	                                }
+                                }},
+								PushButton{AssignTo: &btnMoveDown, Text: "下移", Enabled: false, MinSize: Size{Width: 90}, OnClicked: func() {
 									if idx := e.tableView.CurrentIndex(); idx >= 0 {
 										e.sendCommand(domain.ActionMoveProfileDown, e.panelModel.Items[idx].Path)
 									}
