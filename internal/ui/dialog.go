@@ -57,24 +57,43 @@ func autoWrapText(text string, maxVisualWidth int) string {
 	return strings.Join(result, "\r\n")
 }
 
-func centerDialog(dlg *walk.Dialog, owner walk.Form) {
+func centerDialog(dlg *walk.Dialog, owner walk.Form, hActive win.HWND) {
 	var rect win.RECT
 	win.GetWindowRect(dlg.Handle(), &rect)
-	dlgW, dlgH := rect.Right-rect.Left, rect.Bottom-rect.Top
+	dlgW := rect.Right - rect.Left
+	dlgH := rect.Bottom - rect.Top
+
+	var workArea win.RECT
+	win.SystemParametersInfo(0x0030, 0, unsafe.Pointer(&workArea), 0)
 
 	var x, y int32
-	if owner != nil && owner.Visible() && !win.IsIconic(owner.Handle()) {
+	shouldFollowOwner := owner != nil && owner.Visible() && !win.IsIconic(owner.Handle())
+	if shouldFollowOwner && hActive != 0 && hActive != owner.Handle() {
+		shouldFollowOwner = false
+	}
+
+	if shouldFollowOwner {
 		var pRect win.RECT
 		win.GetWindowRect(owner.Handle(), &pRect)
 		x = pRect.Left + (pRect.Right-pRect.Left-dlgW)/2
 		y = pRect.Top + (pRect.Bottom-pRect.Top-dlgH)/2
 	} else {
-		var workArea win.RECT
-		if win.SystemParametersInfo(0x0030, 0, unsafe.Pointer(&workArea), 0) {
-			x = workArea.Left + (workArea.Right-workArea.Left-dlgW)/2
-			y = workArea.Top + (workArea.Bottom-workArea.Top-dlgH)/2
-		}
+		x = workArea.Left + (workArea.Right-workArea.Left-dlgW)/2
+		y = workArea.Top + (workArea.Bottom-workArea.Top-dlgH)/2
 	}
+
+	if x < workArea.Left {
+		x = workArea.Left
+	} else if x+dlgW > workArea.Right {
+		x = workArea.Right - dlgW
+	}
+
+	if y < workArea.Top {
+		y = workArea.Top
+	} else if y+dlgH > workArea.Bottom {
+		y = workArea.Bottom - dlgH
+	}
+
 	win.SetWindowPos(dlg.Handle(), win.HWND_TOP, x, y, 0, 0, win.SWP_NOSIZE)
 }
 
@@ -119,7 +138,13 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 			Composite{
 				Layout: HBox{MarginsZero: true, Spacing: 15},
 				Children: []Widget{
-					ImageView{Image: walk.IconWarning(), MinSize: Size{Width: 32, Height: 32}},
+					Composite{
+						Layout: VBox{Margins: Margins{Top: 4}},
+						Children: []Widget{
+							ImageView{Image: walk.IconWarning(), MinSize: Size{Width: 32, Height: 32}},
+							VSpacer{},
+						},
+					},
 					TextLabel{Text: safeMsg},
 				},
 			},
@@ -137,12 +162,13 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 	if err != nil {
 		return
 	}
-	dlg.Starting().Attach(func() { centerDialog(dlg, parent); win.MessageBeep(win.MB_ICONWARNING) })
+	dlg.Starting().Attach(func() { centerDialog(dlg, parent, hActive); win.MessageBeep(win.MB_ICONWARNING) })
 	dlg.Run()
 	restoreFocus(parent, hActive)
 }
 
 func ShowInfoModeless(owner walk.Form, title, message string) { ShowErrorMessage(owner, title, message) }
+
 func ShowErrorMessage(owner walk.Form, title, message string) {
 	if GlobalEngine != nil && GlobalEngine.app != nil {
 		GlobalEngine.app.Synchronize(func() { RunErrorDialog(owner, title, message) })
@@ -171,7 +197,13 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 			Composite{
 				Layout: HBox{MarginsZero: true, Spacing: 15},
 				Children: []Widget{
-					ImageView{Image: walk.IconQuestion(), MinSize: Size{Width: 32, Height: 32}},
+					Composite{
+						Layout: VBox{Margins: Margins{Top: 4}},
+						Children: []Widget{
+							ImageView{Image: walk.IconQuestion(), MinSize: Size{Width: 32, Height: 32}},
+							VSpacer{},
+						},
+					},
 					TextLabel{Text: safeMsg},
 				},
 			},
@@ -190,7 +222,7 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 	if err != nil {
 		return false
 	}
-	dlg.Starting().Attach(func() { centerDialog(dlg, parent); win.MessageBeep(win.MB_ICONQUESTION) })
+	dlg.Starting().Attach(func() { centerDialog(dlg, parent, hActive); win.MessageBeep(win.MB_ICONQUESTION) })
 	dlg.Run()
 	restoreFocus(parent, hActive)
 	return accepted
