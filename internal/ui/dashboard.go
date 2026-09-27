@@ -12,9 +12,9 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-// Workaround for tailscale/walk bug (Commit 3490772, 2024-12-03).
-// Upstream forces WS_VISIBLE on the implicit window toolbar, which overlaps and truncates top buttons.
-// We must manually hide this phantom toolbar to restore layout.
+// Workaround for tailscale/walk bug (Commit 3490772, 2024-12-03). 
+// Upstream forces WS_VISIBLE on the default toolbar, currently known to only affect MainWindow.
+// This empty toolbar overlaps top UI elements. Manually hiding it restores the correct layout.
 func disableGhostToolbar(win *walk.MainWindow) {
 	if win == nil {
 		return
