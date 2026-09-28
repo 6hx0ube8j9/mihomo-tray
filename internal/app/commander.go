@@ -491,6 +491,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionExitApp:
 		webui.Cleanup()
+		a.SafeShutdown(nil)
+		os.Exit(0)
 		
 	case domain.ActionToggleSystemBrowser:
 		enable := cmd.Payload == "true"
