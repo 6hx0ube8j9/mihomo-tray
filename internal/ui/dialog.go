@@ -158,9 +158,9 @@ func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, bee
 	if err != nil {
 		return
 	}
-	
+
 	dlg.Starting().Attach(func() { centerDialog(dlg, parent); win.MessageBeep(beep) })
-	
+
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 		if parent != nil && parent.Visible() {
 			win.SetForegroundWindow(parent.Handle())
@@ -217,8 +217,9 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 	if err != nil {
 		return false
 	}
-	
+
 	dlg.Starting().Attach(func() { centerDialog(dlg, parent); win.MessageBeep(win.MB_ICONQUESTION) })
+
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 		if parent != nil && parent.Visible() {
 			win.SetForegroundWindow(parent.Handle())
@@ -229,15 +230,23 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 	return accepted
 }
 
+func RunErrorDialog(owner walk.Form, title, message string) {
+	RunAlertDialog(owner, title, message, walk.IconWarning(), win.MB_ICONWARNING)
+}
+
 func ShowErrorMessage(owner walk.Form, title, message string) {
 	if GlobalEngine != nil && GlobalEngine.app != nil {
-		GlobalEngine.app.Synchronize(func() { RunAlertDialog(owner, title, message, walk.IconWarning(), win.MB_ICONWARNING) })
+		GlobalEngine.app.Synchronize(func() {
+			RunAlertDialog(owner, title, message, walk.IconWarning(), win.MB_ICONWARNING)
+		})
 	}
 }
 
 func ShowInfoMessage(owner walk.Form, title, message string) {
 	if GlobalEngine != nil && GlobalEngine.app != nil {
-		GlobalEngine.app.Synchronize(func() { RunAlertDialog(owner, title, message, walk.IconInformation(), win.MB_ICONINFORMATION) })
+		GlobalEngine.app.Synchronize(func() {
+			RunAlertDialog(owner, title, message, walk.IconInformation(), win.MB_ICONINFORMATION)
+		})
 	}
 }
 
@@ -246,7 +255,9 @@ func ShowConfirmMessage(owner walk.Form, title, message string) bool {
 		return false
 	}
 	resultCh := make(chan bool)
-	GlobalEngine.app.Synchronize(func() { resultCh <- RunConfirmDialog(owner, title, message) })
+	GlobalEngine.app.Synchronize(func() {
+		resultCh <- RunConfirmDialog(owner, title, message)
+	})
 	return <-resultCh
 }
 
