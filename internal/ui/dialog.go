@@ -104,11 +104,17 @@ func centerDialog(dlg *walk.Dialog, owner walk.Form, hActive win.HWND) {
 		y = workArea.Top + (workArea.Bottom-workArea.Top-dlgH)/2
 	}
 
-	if x < workArea.Left { x = workArea.Left } 
-	else if x+dlgW > workArea.Right { x = workArea.Right - dlgW }
+	if x < workArea.Left {
+		x = workArea.Left
+	} else if x+dlgW > workArea.Right {
+		x = workArea.Right - dlgW
+	}
 	
-	if y < workArea.Top { y = workArea.Top } 
-	else if y+dlgH > workArea.Bottom { y = workArea.Bottom - dlgH }
+	if y < workArea.Top {
+		y = workArea.Top
+	} else if y+dlgH > workArea.Bottom {
+		y = workArea.Bottom - dlgH
+	}
 
 	win.SetWindowPos(dlg.Handle(), win.HWND_TOP, x, y, 0, 0, win.SWP_NOSIZE)
 }
