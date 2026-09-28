@@ -71,4 +71,7 @@ type UIState struct {
 	AllowLan         bool
 	ProfileItems     []UIProfileItem
 	CanAddProfile    bool
+	MixedPort        int
+	SocksPort        int
+	HttpPort         int
 }
