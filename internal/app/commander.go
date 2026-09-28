@@ -34,8 +34,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		copy(items, a.lastUIState.ProfileItems)
 		a.uiStateMutex.Unlock()
 
-		if a.ShowProfileManager != nil {
-			a.ShowProfileManager(items)
+		if ui.GlobalEngine != nil {
+			ui.GlobalEngine.ShowProfileManager(items)
 		}
 		return
 
@@ -49,8 +49,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionRequestAddRemote:
 		go func() {
-			if a.ShowSubscriptionEditor != nil {
-				name, url, interval, ok := a.ShowSubscriptionEditor("添加远程订阅", "", "", domain.DefaultUpdateInterval)
+			if ui.GlobalEngine != nil {
+				name, url, interval, ok := ui.GlobalEngine.ShowSubscriptionEditor("添加远程订阅", "", "", domain.DefaultUpdateInterval)
 				if ok {
 					autoUpdate := interval > 0
 					payload := fmt.Sprintf("%s|%s|%d|%t", name, url, interval, autoUpdate)
@@ -64,8 +64,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		targetRelPath := cmd.Payload
 		if p, ok := a.Cfg.GetProfileByPath(targetRelPath); ok {
 			go func(profile domain.ProfileItem) {
-				if a.ShowSubscriptionEditor != nil {
-					name, url, interval, ok := a.ShowSubscriptionEditor("编辑订阅信息", profile.Name, profile.URL, profile.Interval)
+				if ui.GlobalEngine != nil {
+					name, url, interval, ok := ui.GlobalEngine.ShowSubscriptionEditor("编辑订阅信息", profile.Name, profile.URL, profile.Interval)
 					if ok {
 						if name != profile.Name || url != profile.URL || interval != profile.Interval {
 							oldURL := profile.URL
