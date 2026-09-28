@@ -68,12 +68,6 @@ func (e *Engine) ShowPortEditor(defaultMixed, defaultSocks, defaultHttp int) (in
 					Children: []Widget{
 						HSpacer{},
 						PushButton{
-							AssignTo:  &cancelButton,
-							Text:      "取消",
-							MinSize:   Size{Width: 80, Height: 26},
-							OnClicked: func() { dlg.Cancel() },
-						},
-						PushButton{
 							AssignTo: &acceptButton,
 							Text:     "保存",
 							MinSize:  Size{Width: 80, Height: 26},
@@ -111,6 +105,12 @@ func (e *Engine) ShowPortEditor(defaultMixed, defaultSocks, defaultHttp int) (in
 								accepted = true
 								dlg.Accept()
 							},
+						},
+						PushButton{
+							AssignTo:  &cancelButton,
+							Text:      "取消",
+							MinSize:   Size{Width: 80, Height: 26},
+							OnClicked: func() { dlg.Cancel() },
 						},
 					},
 				},
