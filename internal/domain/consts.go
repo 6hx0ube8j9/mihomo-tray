@@ -6,7 +6,7 @@ const (
 	RuntimeConfigName = "config.yaml"
 	TrayConfigName    = "mihomo-tray.json"
 
-	// IPCNamedPipe 命名管道，底层硬编码
+	// IPCNamedPipe 命名管道
 	IPCNamedPipe = `\\.\pipe\mihomo-tray-ipc`
 )
 
@@ -68,7 +68,7 @@ const (
 	DefaultUpdateInterval = 3
 	MaxProfileCount       = 10
 	MaxProfileBytes       = 15 * 1024 * 1024
-	MaxUpdateInterval     = 90
+	MaxUpdateInterval     = 365
 )
 
 // 默认跨域面板白名单
