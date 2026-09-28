@@ -46,6 +46,7 @@ const (
 	ActionClearWebUICache     = "ClearWebUICache"
 	ActionToggleAllowLan      = "ToggleAllowLan"
 	ActionOpenAppConfig       = "OpenAppConfig"
+	ActionRequestEditPort     = "RequestEditPort"
 )
 
 type UIProfileItem struct {
