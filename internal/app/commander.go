@@ -30,6 +30,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	switch cmd.Action {
 	case domain.ActionOpenProfileManager:
 		a.uiStateMutex.Lock()
+		stateSnapshot := a.lastUIState
 		items := make([]domain.UIProfileItem, len(a.lastUIState.ProfileItems))
 		copy(items, a.lastUIState.ProfileItems)
 		a.uiStateMutex.Unlock()
