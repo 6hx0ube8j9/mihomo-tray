@@ -9,9 +9,10 @@ import (
 )
 
 type ProfileView struct {
-	engine    *Engine
-	tableView *walk.TableView
-	model     *ProfileModel
+	engine     *Engine
+	tableView  *walk.TableView
+	model      *ProfileModel
+	portsLabel *walk.Label
 }
 
 func NewProfileView(e *Engine) *ProfileView {
@@ -54,11 +55,14 @@ func (v *ProfileView) Declarative() []Widget {
 
 	return []Widget{
 		Composite{
-			Layout: HBox{MarginsZero: true, Spacing: 10},
+			Layout: HBox{MarginsZero: true, Spacing: 12},
 			Children: []Widget{
 				PushButton{Text: "添加远程订阅", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestAddRemote, "") }},
 				PushButton{Text: "导入本地配置", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestAddLocal, "") }},
 				PushButton{Text: "更改代理端口", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestEditPort, "") }},
+				Label{
+					AssignTo: &v.portsLabel,
+				},
 				HSpacer{},
 			},
 		},
@@ -124,7 +128,13 @@ func (v *ProfileView) Declarative() []Widget {
 	}
 }
 
-func (v *ProfileView) RefreshData(items []domain.UIProfileItem) {
+func (v *ProfileView) RefreshData(state domain.UIState) {
+	if v.portsLabel != nil {
+		v.portsLabel.SetText(fmt.Sprintf("当前端口 ➔ Mixed: %d | Socks: %d | HTTP: %d", state.MixedPort, state.SocksPort, state.HttpPort))
+	}
+
+	items := state.ProfileItems
+
 	var selectedPath string
 	if v.tableView != nil {
 		if idx := v.tableView.CurrentIndex(); idx >= 0 && idx < len(v.model.Items) {
