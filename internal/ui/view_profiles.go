@@ -150,18 +150,18 @@ func (v *ProfileView) RefreshData(items []domain.UIProfileItem) {
 	}
 }
 
-// ProfileModel 专供此表格使用的数据源模型
 type ProfileModel struct {
 	walk.TableModelBase
 	Items []domain.UIProfileItem
 }
 
 func (m *ProfileModel) RowCount() int { return len(m.Items) }
+
 func (m *ProfileModel) Value(row, col int) interface{} {
 	item := m.Items[row]
 	switch col {
 	case 0:
-		if item.IsActive { return "使用中" }
+		if item.IsActive { return "✔ 使用中" }
 		return ""
 	case 1:
 		return item.Name
