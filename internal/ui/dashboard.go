@@ -78,11 +78,11 @@ func (d *Dashboard) Refresh(state domain.UIState) {
 	if d.window == nil || !d.window.Visible() {
 		return
 	}
-	d.ProfileView.RefreshData(state.ProfileItems)
+	d.ProfileView.RefreshData(state)
 }
 
-func (d *Dashboard) RefreshData(items []domain.UIProfileItem) {
-	d.ProfileView.RefreshData(items) 
+func (d *Dashboard) RefreshData(state domain.UIState) {
+	d.ProfileView.RefreshData(state) 
 }
 
 func (d *Dashboard) Dispose() {
