@@ -5,10 +5,22 @@ import (
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/sys"
 )
-
 func (a *Application) calculateUIState() domain.UIState {
 	cfg := a.Cfg.GetConfig()
 	
+	mixed := domain.DefaultMixedPort
+	if cfg.Config.MixedPort != nil {
+		mixed = *cfg.Config.MixedPort
+	}
+	socks := domain.DefaultSocksPort
+	if cfg.Config.SocksPort != nil {
+		socks = *cfg.Config.SocksPort
+	}
+	httpPort := domain.DefaultPort
+	if cfg.Config.Port != nil {
+		httpPort = *cfg.Config.Port
+	}
+
 	s := domain.UIState{
 		IsTun:            cfg.Config.Tun.Enable,
 		IsProxy:          *cfg.General.SystemProxy,
@@ -19,6 +31,9 @@ func (a *Application) calculateUIState() domain.UIState {
 		RemoteWebUI:      *cfg.General.RemoteWebUI,
 		AllowLan:         *cfg.Config.AllowLan,
 		IsAdmin:          sys.IsAdmin(),
+		MixedPort: mixed,
+		SocksPort: socks,
+		HttpPort:  httpPort,
 	}
 
 	activePath := a.Cfg.GetActivePath()
@@ -91,6 +106,9 @@ func (a *Application) pushUIState() {
 		newState.UseSystemBrowser != a.lastUIState.UseSystemBrowser ||
 		newState.RemoteWebUI != a.lastUIState.RemoteWebUI ||
 		newState.IsAdmin != a.lastUIState.IsAdmin ||
+		newState.MixedPort != a.lastUIState.MixedPort ||
+		newState.SocksPort != a.lastUIState.SocksPort ||
+		newState.HttpPort != a.lastUIState.HttpPort ||
 		len(newState.ProfileItems) != len(a.lastUIState.ProfileItems) {
 		changed = true
 	} else {
