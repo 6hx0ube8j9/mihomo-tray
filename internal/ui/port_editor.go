@@ -114,40 +114,40 @@ func (e *Engine) ShowPortEditor(defaultMixed, defaultSocks, defaultHttp int) (in
 						},
 					},
 				},
-			}.Create(owner)
+			},
+		}.Create(owner)
 
-			if err != nil {
-				resCh <- result{ok: false}
-				return
-			}
+		if err != nil {
+			resCh <- result{ok: false}
+			return
+		}
 
-			defer dlg.Dispose()
-			currentPortEditor = dlg
+		defer dlg.Dispose()
+		currentPortEditor = dlg
 
-			dlg.Starting().Attach(func() {
-				centerDialog(dlg, owner, hActive)
-			})
-
-			dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-				currentPortEditor = nil
-				if e.Dashboard != nil && e.Dashboard.window != nil && e.Dashboard.window.Visible() {
-					hwnd := e.Dashboard.window.Handle()
-					if win.IsIconic(hwnd) {
-						win.ShowWindow(hwnd, win.SW_RESTORE)
-					}
-					win.SetForegroundWindow(hwnd)
-					e.Dashboard.window.SetFocus()
-				} else if hActive != 0 && win.IsWindowVisible(hActive) && !win.IsIconic(hActive) {
-					win.SetForegroundWindow(hActive)
-					win.SetFocus(hActive)
-				}
-			})
-
-			dlg.Run()
-			resCh <- result{outMixed, outSocks, outHttp, accepted}
+		dlg.Starting().Attach(func() {
+			centerDialog(dlg, owner, hActive)
 		})
 
-		res := <-resCh
-		return res.mixed, res.socks, res.http, res.ok
-	}
+		dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
+			currentPortEditor = nil
+			if e.Dashboard != nil && e.Dashboard.window != nil && e.Dashboard.window.Visible() {
+				hwnd := e.Dashboard.window.Handle()
+				if win.IsIconic(hwnd) {
+					win.ShowWindow(hwnd, win.SW_RESTORE)
+				}
+				win.SetForegroundWindow(hwnd)
+				e.Dashboard.window.SetFocus()
+			} else if hActive != 0 && win.IsWindowVisible(hActive) && !win.IsIconic(hActive) {
+				win.SetForegroundWindow(hActive)
+				win.SetFocus(hActive)
+			}
+		})
+
+		dlg.Run()
+		resCh <- result{outMixed, outSocks, outHttp, accepted}
+	})
+
+	res := <-resCh
+	return res.mixed, res.socks, res.http, res.ok
 }
