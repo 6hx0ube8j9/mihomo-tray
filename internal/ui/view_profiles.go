@@ -130,11 +130,12 @@ func (v *ProfileView) Declarative() []Widget {
 
 func (v *ProfileView) RefreshData(state domain.UIState) {
 	if v.portsLabel != nil {
-		v.portsLabel.SetText(fmt.Sprintf("当前端口 ➔ Mixed: %d | Socks: %d | HTTP: %d", state.MixedPort, state.SocksPort, state.HttpPort))
+		v.portsLabel.SetText(fmt.Sprintf("Mixed: %d   Socks: %d   HTTP(S): %d", 
+			state.MixedPort, state.SocksPort, state.HttpPort))
 	}
 
 	items := state.ProfileItems
-
+	
 	var selectedPath string
 	if v.tableView != nil {
 		if idx := v.tableView.CurrentIndex(); idx >= 0 && idx < len(v.model.Items) {
