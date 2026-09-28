@@ -160,6 +160,13 @@ func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, bee
 	}
 	
 	dlg.Starting().Attach(func() { centerDialog(dlg, parent); win.MessageBeep(beep) })
+	
+	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
+		if parent != nil && parent.Visible() {
+			win.SetForegroundWindow(parent.Handle())
+		}
+	})
+
 	dlg.Run()
 }
 
@@ -210,7 +217,14 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 	if err != nil {
 		return false
 	}
+	
 	dlg.Starting().Attach(func() { centerDialog(dlg, parent); win.MessageBeep(win.MB_ICONQUESTION) })
+	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
+		if parent != nil && parent.Visible() {
+			win.SetForegroundWindow(parent.Handle())
+		}
+	})
+
 	dlg.Run()
 	return accepted
 }
