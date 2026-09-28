@@ -139,7 +139,8 @@ func RunErrorDialog(owner walk.Form, title, message string) {
 				Layout: HBox{MarginsZero: true, Spacing: 15},
 				Children: []Widget{
 					Composite{
-						Layout: VBox{Margins: Margins{Top: 4}},
+						Layout: VBox{MarginsZero: true},
+						Alignment: AlignHNearVNear,
 						Children: []Widget{
 							ImageView{Image: walk.IconWarning(), MinSize: Size{Width: 32, Height: 32}},
 							VSpacer{},
@@ -198,7 +199,8 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 				Layout: HBox{MarginsZero: true, Spacing: 15},
 				Children: []Widget{
 					Composite{
-						Layout: VBox{Margins: Margins{Top: 4}},
+						Layout: VBox{MarginsZero: true},
+						Alignment: AlignHNearVNear,
 						Children: []Widget{
 							ImageView{Image: walk.IconQuestion(), MinSize: Size{Width: 32, Height: 32}},
 							VSpacer{},
