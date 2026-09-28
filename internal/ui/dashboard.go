@@ -77,6 +77,7 @@ func (d *Dashboard) createWindow() {
 }
 
 func (d *Dashboard) Refresh(state domain.UIState) {
+	d.lastState = state
 	if d.window == nil || !d.window.Visible() {
 		return
 	}
@@ -84,6 +85,7 @@ func (d *Dashboard) Refresh(state domain.UIState) {
 }
 
 func (d *Dashboard) RefreshData(state domain.UIState) {
+	d.lastState = state
 	d.ProfileView.RefreshData(state) 
 }
 
