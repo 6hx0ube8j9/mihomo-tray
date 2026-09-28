@@ -205,7 +205,8 @@ func (t *Tray) buildMenuSkeleton() {
 	t.addSeparator()
 	t.addAction("退出程序", func() {
 		t.engine.SendCommand(domain.ActionExitApp, "")
-		t.engine.app.Synchronize(func() { t.engine.mw.Close() })
+		t.engine.app.Synchronize(func() {
+			win.PostQuitMessage(0)
 	})
 }
 
