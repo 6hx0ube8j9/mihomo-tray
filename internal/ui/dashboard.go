@@ -80,13 +80,15 @@ func (d *Dashboard) Refresh(state domain.UIState) {
 	d.ProfileView.RefreshData(state.ProfileItems)
 }
 
+func (d *Dashboard) RefreshData(items []domain.UIProfileItem) {
+	d.ProfileView.RefreshData(items) 
+}
+
 func (d *Dashboard) Dispose() {
 	if d.window != nil {
 		d.window.Dispose()
 	}
 }
-
-// --- 窗口布局工具函数 ---
 
 func disableGhostToolbar(win *walk.MainWindow) {
 	if win != nil {
