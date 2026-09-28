@@ -51,8 +51,6 @@ type TunConfig struct {
 	Enable bool `json:"enable"`
 }
 
-// 订阅与本地配置
-
 type ProfileManager struct {
 	Active string        `json:"active"`
 	Items  []ProfileItem `json:"items"`
