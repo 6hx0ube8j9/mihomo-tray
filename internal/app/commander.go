@@ -87,7 +87,66 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			}(p)
 		}
 		return
+		
+    case domain.ActionRequestEditPort:
+		go func() {
+			cfg := a.Cfg.GetConfig()
+			
+			currentMixed := domain.DefaultMixedPort
+			if cfg.Config.MixedPort != nil { currentMixed = *cfg.Config.MixedPort }
+			
+			currentSocks := domain.DefaultSocksPort
+			if cfg.Config.SocksPort != nil { currentSocks = *cfg.Config.SocksPort }
+			
+			currentHttp := domain.DefaultPort
+			if cfg.Config.Port != nil { currentHttp = *cfg.Config.Port }
 
+			if ui.GlobalEngine != nil {
+				newMixed, newSocks, newHttp, ok := ui.GlobalEngine.ShowPortEditor(currentMixed, currentSocks, currentHttp)
+				
+				if ok && (newMixed != currentMixed || newSocks != currentSocks || newHttp != currentHttp) {
+					
+					a.Cfg.Update(func(c *domain.TrayConfig) {
+						m, s, h := newMixed, newSocks, newHttp
+						c.Config.MixedPort = &m
+						c.Config.SocksPort = &s
+						c.Config.Port = &h
+					})
+
+					if *a.Cfg.GetConfig().General.SystemProxy {
+						a.syncSystemProxy()
+					}
+
+					a.State.SetConfigSyncing(true)
+					
+					go func() {
+						defer a.State.SetConfigSyncing(false)
+						
+						if a.State.GetPhase() == domain.PhaseRunning {
+							reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+							defer cancel()
+							
+							payload := map[string]interface{}{
+								"mixed-port": newMixed,
+								"socks-port": newSocks,
+								"port":       newHttp,
+							}
+							
+							if err := a.API.SyncConfigToKernel(reqCtx, payload); err != nil {
+								slog.Warn("热刷端口到内核失败，等待下次内核重载生效", "err", err)
+							}
+						}
+						
+						select {
+						case a.apiPollCh <- struct{}{}:
+						default:
+						}
+					}()
+				}
+			}
+		}()
+		return
+		
 	case domain.ActionAddLocalProfile:
 		if a.State.IsProfileSwitching() {
 			break
