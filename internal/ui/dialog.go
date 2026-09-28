@@ -78,7 +78,7 @@ func autoWrapText(text string, maxVisualWidth int) string {
 	return strings.Join(result, "\r\n")
 }
 
-func centerDialog(dlg *walk.Dialog, owner walk.Form) {
+func centerDialog(dlg *walk.Dialog, owner walk.Form, hActive win.HWND) {
 	var rect win.RECT
 	win.GetWindowRect(dlg.Handle(), &rect)
 	dlgW := rect.Right - rect.Left
@@ -90,6 +90,10 @@ func centerDialog(dlg *walk.Dialog, owner walk.Form) {
 	var x, y int32
 	shouldFollowOwner := owner != nil && owner.Visible() && !win.IsIconic(owner.Handle())
 
+	if shouldFollowOwner && hActive != 0 && hActive != owner.Handle() {
+		shouldFollowOwner = false
+	}
+
 	if shouldFollowOwner {
 		var pRect win.RECT
 		win.GetWindowRect(owner.Handle(), &pRect)
@@ -100,16 +104,11 @@ func centerDialog(dlg *walk.Dialog, owner walk.Form) {
 		y = workArea.Top + (workArea.Bottom-workArea.Top-dlgH)/2
 	}
 
-	if x < workArea.Left {
-		x = workArea.Left
-	} else if x+dlgW > workArea.Right {
-		x = workArea.Right - dlgW
-	}
-	if y < workArea.Top {
-		y = workArea.Top
-	} else if y+dlgH > workArea.Bottom {
-		y = workArea.Bottom - dlgH
-	}
+	if x < workArea.Left { x = workArea.Left } 
+	else if x+dlgW > workArea.Right { x = workArea.Right - dlgW }
+	
+	if y < workArea.Top { y = workArea.Top } 
+	else if y+dlgH > workArea.Bottom { y = workArea.Bottom - dlgH }
 
 	win.SetWindowPos(dlg.Handle(), win.HWND_TOP, x, y, 0, 0, win.SWP_NOSIZE)
 }
@@ -119,6 +118,9 @@ func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, bee
 	if parent == nil {
 		parent = getValidOwner()
 	}
+
+	hActive := win.GetForegroundWindow()
+	
 	safeMsg := autoWrapText(message, 55)
 	var dlg *walk.Dialog
 	var acceptPB *walk.PushButton
@@ -159,11 +161,16 @@ func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, bee
 		return
 	}
 
-	dlg.Starting().Attach(func() { centerDialog(dlg, parent); win.MessageBeep(beep) })
+	dlg.Starting().Attach(func() { centerDialog(dlg, parent, hActive); win.MessageBeep(beep) })
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-		if parent != nil && parent.Visible() {
+
+		if parent != nil && parent.Visible() && !win.IsIconic(parent.Handle()) {
 			win.SetForegroundWindow(parent.Handle())
+			win.SetFocus(parent.Handle())
+		} else if hActive != 0 && win.IsWindowVisible(hActive) && !win.IsIconic(hActive) {
+			win.SetForegroundWindow(hActive)
+			win.SetFocus(hActive)
 		}
 	})
 
