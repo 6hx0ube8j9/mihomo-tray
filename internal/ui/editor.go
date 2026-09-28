@@ -84,12 +84,12 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultUrl string, d
 								name := strings.TrimSpace(nameEdit.Text())
 								inputUrl := strings.TrimSpace(urlEdit.Text())
 								if inputUrl == "" {
-									ui.ShowErrorMessage(dlg, "输入错误", "订阅链接不能为空！")
+									RunErrorDialog(dlg, "输入错误", "订阅链接不能为空！")
 									return
 								}
 								u, parseErr := url.ParseRequestURI(inputUrl)
 								if parseErr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-									ui.ShowErrorMessage(dlg, "输入错误", "请输入有效的 HTTP/HTTPS 订阅链接")
+									RunErrorDialog(dlg, "输入错误", "请输入有效的 HTTP/HTTPS 订阅链接")
 									return
 								}
 								outName = name
