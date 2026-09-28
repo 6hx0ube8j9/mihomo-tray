@@ -5,22 +5,10 @@ import (
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/sys"
 )
+
 func (a *Application) calculateUIState() domain.UIState {
 	cfg := a.Cfg.GetConfig()
 	
-	mixed := domain.DefaultMixedPort
-	if cfg.Config.MixedPort != nil {
-		mixed = *cfg.Config.MixedPort
-	}
-	socks := domain.DefaultSocksPort
-	if cfg.Config.SocksPort != nil {
-		socks = *cfg.Config.SocksPort
-	}
-	httpPort := domain.DefaultPort
-	if cfg.Config.Port != nil {
-		httpPort = *cfg.Config.Port
-	}
-
 	s := domain.UIState{
 		IsTun:            cfg.Config.Tun.Enable,
 		IsProxy:          *cfg.General.SystemProxy,
@@ -31,11 +19,12 @@ func (a *Application) calculateUIState() domain.UIState {
 		RemoteWebUI:      *cfg.General.RemoteWebUI,
 		AllowLan:         *cfg.Config.AllowLan,
 		IsAdmin:          sys.IsAdmin(),
-		MixedPort: mixed,
-		SocksPort: socks,
-		HttpPort:  httpPort,
-	}
 
+		MixedPort: a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort),
+		SocksPort: a.Cfg.GetEffectivePort(cfg.Config.SocksPort, domain.DefaultSocksPort),
+		HttpPort:  a.Cfg.GetEffectivePort(cfg.Config.Port, domain.DefaultPort),
+	}
+	
 	activePath := a.Cfg.GetActivePath()
 	profiles := a.Cfg.GetProfiles()
 	s.CanAddProfile = len(profiles) < domain.MaxProfileCount
