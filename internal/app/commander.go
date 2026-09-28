@@ -28,15 +28,18 @@ func (a *Application) safePreflightCheck(targetRelPath string, actionTitle strin
 
 func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand) {
 	switch cmd.Action {
+		
 	case domain.ActionOpenProfileManager:
 		a.uiStateMutex.Lock()
 		stateSnapshot := a.lastUIState
 		items := make([]domain.UIProfileItem, len(a.lastUIState.ProfileItems))
 		copy(items, a.lastUIState.ProfileItems)
+		
+		stateSnapshot.ProfileItems = items 
 		a.uiStateMutex.Unlock()
 
 		if ui.GlobalEngine != nil {
-			ui.GlobalEngine.ShowProfileManager(items)
+			ui.GlobalEngine.ShowProfileManager(stateSnapshot) 
 		}
 		return
 
