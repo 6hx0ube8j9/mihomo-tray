@@ -246,3 +246,7 @@ func restoreFocus(parent walk.Form, hActive win.HWND) {
 		win.SetFocus(hActive)
 	}
 }
+
+func ShowInfoMessage(owner walk.Form, title, message string) {
+	ShowErrorMessage(owner, title, message) 
+}
