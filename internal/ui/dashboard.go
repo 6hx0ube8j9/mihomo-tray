@@ -10,10 +10,10 @@ import (
 )
 
 type Dashboard struct {
-	engine *Engine
-	window *walk.MainWindow
-
+	engine      *Engine
+	window      *walk.MainWindow
 	ProfileView *ProfileView
+	lastState   domain.UIState 
 }
 
 func NewDashboard(e *Engine) *Dashboard {
@@ -56,22 +56,24 @@ func (d *Dashboard) createWindow() {
 		return
 	}
 
-	// Apply upstream layout patch.
+    // Apply upstream layout patch.
 	disableGhostToolbar(d.window)
 
 	var oldWndProc uintptr
 	newWndProc := syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
-		
 		if msg == win.WM_CLOSE {
 			win.ShowWindow(hwnd, win.SW_HIDE)
 			return 0
 		}
-		
 		return win.CallWindowProc(oldWndProc, hwnd, msg, wParam, lParam)
 	})
 	oldWndProc = win.SetWindowLongPtr(d.window.Handle(), win.GWLP_WNDPROC, newWndProc)
 
 	centerWindow(d.window)
+
+	if len(d.lastState.ProfileItems) > 0 || d.lastState.MixedPort != 0 {
+		d.ProfileView.RefreshData(d.lastState)
+	}
 }
 
 func (d *Dashboard) Refresh(state domain.UIState) {
