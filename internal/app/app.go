@@ -31,9 +31,6 @@ type Application struct {
 
 	lastUIState  domain.UIState
 	uiStateMutex sync.Mutex
-
-	ShowProfileManager     func(items []domain.UIProfileItem)
-	ShowSubscriptionEditor func(title, defaultName, defaultUrl string, defaultInterval int) (string, string, int, bool)
 }
 
 func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
