@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 	"unsafe"
@@ -18,6 +17,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"mihomo-tray/internal/app"
+	"mihomo-tray/internal/applog"
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
@@ -28,131 +28,7 @@ import (
 const (
 	AppMutex    = "Local\\Mihomo_Tray_Mutex"
 	ShowUIEvent = "Local\\Mihomo_Tray_Mutex_ShowUI"
-	MaxLogSize  = 1024 * 1024
 )
-
-var GlobalLogLevel = new(slog.LevelVar)
-
-type rollingLogWriter struct {
-	mu       sync.Mutex
-	logPath  string
-	bakPath  string
-	file     *os.File
-	currSize int64
-}
-
-func newRollingLogWriter(baseDir string) *rollingLogWriter {
-	logDir := filepath.Join(baseDir, "logs")
-	return &rollingLogWriter{
-		logPath: filepath.Join(logDir, "mihomo-tray.log"),
-		bakPath: filepath.Join(logDir, "mihomo-tray.log.bak"),
-	}
-}
-
-func (w *rollingLogWriter) open() {
-	_ = os.MkdirAll(filepath.Dir(w.logPath), 0755)
-
-	fi, err := os.Stat(w.logPath)
-	if err == nil {
-		w.currSize = fi.Size()
-		if w.currSize >= MaxLogSize {
-			w.rotate()
-			return
-		}
-	} else {
-		w.currSize = 0
-	}
-	w.file, _ = os.OpenFile(w.logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-}
-
-func (w *rollingLogWriter) rotate() {
-	if w.file != nil {
-		w.file.Close()
-		w.file = nil
-	}
-	_ = os.Remove(w.bakPath)
-	renameErr := os.Rename(w.logPath, w.bakPath)
-	var file *os.File
-	var err error
-	if renameErr == nil {
-		file, err = os.OpenFile(w.logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	} else {
-		file, err = os.OpenFile(w.logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
-	}
-	if err == nil {
-		w.file = file
-		w.currSize = 0
-	}
-}
-
-func (w *rollingLogWriter) Write(p []byte) (n int, err error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.file == nil {
-		w.open()
-		if w.file == nil {
-			return len(p), nil
-		}
-	}
-	if w.currSize+int64(len(p)) > MaxLogSize {
-		w.rotate()
-		if w.file == nil {
-			return len(p), nil
-		}
-	}
-	n, err = w.file.Write(p)
-	if err == nil {
-		w.currSize += int64(n)
-	}
-	return n, err
-}
-
-func (w *rollingLogWriter) Close() {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.file != nil {
-		w.file.Close()
-		w.file = nil
-	}
-}
-
-func initEarlyLogger(baseDir string) *rollingLogWriter {
-	writer := newRollingLogWriter(baseDir)
-	GlobalLogLevel.Set(slog.LevelError)
-	opts := &slog.HandlerOptions{
-		Level: GlobalLogLevel,
-		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-			if a.Key == slog.TimeKey {
-				t := a.Value.Time()
-				a.Value = slog.StringValue(t.Format("2006/01/02 15:04:05"))
-			}
-			return a
-		},
-	}
-	logger := slog.New(slog.NewTextHandler(writer, opts))
-	slog.SetDefault(logger)
-	return writer
-}
-
-func syncLogLevel(cfgMgr *config.Manager) {
-	cfg := cfgMgr.GetConfig()
-	levelStr := cfg.General.TrayLogLevel
-	
-	switch strings.ToLower(levelStr) {
-	case "silent":
-		GlobalLogLevel.Set(slog.Level(100))
-	case "debug":
-		GlobalLogLevel.Set(slog.LevelDebug)
-	case "info":
-		GlobalLogLevel.Set(slog.LevelInfo)
-	case "warn":
-		GlobalLogLevel.Set(slog.LevelWarn)
-	case "error":
-		GlobalLogLevel.Set(slog.LevelError)
-	default:
-		GlobalLogLevel.Set(slog.LevelError)
-	}
-}
 
 func getPermissiveSecAttr() *windows.SecurityAttributes {
 	sd, err := windows.SecurityDescriptorFromString("D:(A;;GA;;;WD)S:(ML;;NW;;;LW)")
@@ -191,7 +67,7 @@ func main() {
 
 	var hM windows.Handle
 	var isAlreadyExist bool
-	
+
 	maxRetries := 1
 	if isRestarting {
 		maxRetries = 50
@@ -211,7 +87,6 @@ func main() {
 			_ = windows.CloseHandle(hM)
 			hM = 0
 		}
-
 		time.Sleep(200 * time.Millisecond)
 	}
 
@@ -228,7 +103,7 @@ func main() {
 		return
 	}
 
-	logWriter := initEarlyLogger(baseDir)
+	logWriter := applog.Init(baseDir)
 	if logWriter != nil {
 		defer logWriter.Close()
 	}
@@ -236,10 +111,11 @@ func main() {
 	admin := sys.IsAdmin()
 	cfgMgr := config.NewManager(baseDir, exePath, admin)
 	cfgMgr.LoadAndInitMemory()
-	syncLogLevel(cfgMgr)
+
+	applog.SyncLogLevel(cfgMgr.GetConfig().General.TrayLogLevel)
 
 	slog.Info("程序启动", "pid", os.Getpid(), "dir", baseDir, "admin", admin)
-	
+
 	cfg := cfgMgr.GetConfig()
 
 	osTaskExists := sys.CheckAutoStartStatus(domain.AppTaskName)
@@ -301,7 +177,6 @@ func main() {
 			}
 
 			err := sys.RunAsAdmin(exePath, baseDir, "--restarting")
-
 			if sys.IsUserCancelled(err) {
 				slog.Info("用户取消提权，程序退出")
 				if hM != 0 {
@@ -337,7 +212,6 @@ func main() {
 	application := app.NewApplication(cfgMgr, runtimeState)
 
 	slog.Debug("挂载 UI 引擎")
-	uiEngine := ui.NewUIEngine(ctx, cancel, application.UICommandCh, application.UIStateCh)
 	uiEngine := ui.NewEngine(ctx, cancel, application.UICommandCh, application.UIStateCh)
 
 	go func() {
