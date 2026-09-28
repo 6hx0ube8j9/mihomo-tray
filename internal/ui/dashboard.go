@@ -44,7 +44,7 @@ func (d *Dashboard) Show() {
 func (d *Dashboard) createWindow() {
 	err := MainWindow{
 		AssignTo: &d.window,
-		Title:    "Mihomo 控制面板",
+		Title:    "管理配置",
 		MinSize:  Size{Width: 700, Height: 350},
 		Size:     Size{Width: 780, Height: 450},
 		Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
