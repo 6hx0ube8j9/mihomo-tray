@@ -206,13 +206,14 @@ func (t *Tray) buildMenuSkeleton() {
 	t.addSeparator()
 	t.addAction("退出程序", func() {
 		t.engine.SendCommand(domain.ActionExitApp, "")
-		
-		if t.engine.Dashboard != nil && t.engine.Dashboard.window != nil {
-			t.engine.Dashboard.window.Dispose()
-		}
-		if t.engine.mw != nil {
+		t.engine.app.Synchronize(func() {		
+		    if t.engine.Dashboard != nil && t.engine.Dashboard.window != nil {			
+			    t.engine.Dashboard.window.Dispose()
+		    }
+		    if t.engine.mw != nil {
 			t.engine.mw.Close()
-		}	
+		    }	
+		})	
 	})
 }
 
