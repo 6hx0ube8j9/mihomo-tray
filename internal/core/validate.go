@@ -35,13 +35,15 @@ func extractLogMsg(output string) string {
 				return msg
 			}
 		}
+		
 		msg, _, _ := strings.Cut(after, "\n")
-		msg, _, _ = strings.Cut(msg, " ")
+		msg = strings.TrimRight(msg, "\r") 
 		return strings.TrimSpace(msg)
 	}
 
 	if _, after, ok := strings.Cut(output, "level="); ok {
 		msg, _, _ := strings.Cut(after, "\n")
+		msg = strings.TrimRight(msg, "\r")
 		return strings.TrimSpace(msg)
 	}
 
