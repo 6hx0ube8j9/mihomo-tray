@@ -13,9 +13,8 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-const yamlHeader = "# 启动配置 请勿编辑\n\n"
+const yamlHeader = "# Bootstrap Config - DO NOT EDIT.\n\n";
 
-// 递归清除 YAML 树中的所有无意义注释
 func clearComments(node *yaml.Node) {
 	if node == nil {
 		return
