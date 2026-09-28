@@ -50,7 +50,7 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultUrl string, d
 			AssignTo:      &dlg,
 			Title:         title,
 			MinSize:       Size{Width: 450, Height: 200},
-			DefaultButton: &acceptButton, // 体验增强：绑定系统回车键快速提交
+			DefaultButton: &acceptButton,
 			Layout:        VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 			Children: []Widget{
 				Composite{
@@ -116,7 +116,6 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultUrl string, d
 			return
 		}
 
-		// 稳定性增强：绝对的内存防漏屏障，强制回收底层句柄
 		defer dlg.Dispose()
 
 		currentSubEditor = dlg
