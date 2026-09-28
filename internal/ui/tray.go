@@ -174,10 +174,10 @@ func (t *Tray) buildMenuSkeleton() {
 	emptyAction := t.addActionTo(t.menuSwitchProfile, "无配置", nil)
 	emptyAction.SetEnabled(false)
 
-	t.addAction("编辑当前配置", func() { t.engine.SendCommand(domain.ActionEditCurrentConfig, "") })
 	t.addAction("管理/添加配置", func() { t.engine.SendCommand(domain.ActionOpenProfileManager, "") })
 	
 	t.addSeparator()
+	t.addAction("编辑当前配置", func() { t.engine.SendCommand(domain.ActionEditCurrentConfig, "") })
 	t.addAction("打开程序目录", func() { t.engine.SendCommand(domain.ActionOpenBaseDir, "") })
 	t.addSeparator()
 
@@ -205,6 +205,7 @@ func (t *Tray) buildMenuSkeleton() {
 	t.addSeparator()
 	t.addAction("退出程序", func() {
 		t.engine.SendCommand(domain.ActionExitApp, "")
+		t.engine.app.Synchronize(func() { t.engine.mw.Close() })
 	})
 }
 
