@@ -13,7 +13,7 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-const yamlHeader = "# Bootstrap Config - DO NOT EDIT.\n\n";
+const yamlHeader = "# Auto-generated config. DO NOT EDIT.\n\n";
 
 func clearComments(node *yaml.Node) {
 	if node == nil {
