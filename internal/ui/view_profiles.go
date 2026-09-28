@@ -21,7 +21,6 @@ func NewProfileView(e *Engine) *ProfileView {
 	}
 }
 
-// Declarative 对外暴露一个纯粹的控件列表，供 Dashboard 容器平铺挂载
 func (v *ProfileView) Declarative() []Widget {
 	var actionSwitch, actionEditText, actionEditSub, actionUpdate *walk.Action
 	var actionMoveUp, actionMoveDown, actionDelete *walk.Action
@@ -59,6 +58,7 @@ func (v *ProfileView) Declarative() []Widget {
 			Children: []Widget{
 				PushButton{Text: "添加远程订阅", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestAddRemote, "") }},
 				PushButton{Text: "导入本地配置", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestAddLocal, "") }},
+				PushButton{Text: "更改代理端口", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestEditPort, "") }},
 				HSpacer{},
 			},
 		},
