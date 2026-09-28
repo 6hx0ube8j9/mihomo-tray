@@ -191,11 +191,8 @@ func (t *Tray) buildMenuSkeleton() {
 	t.addActionTo(moreMenu, "复制 Web 访问密码", func() { t.engine.SendCommand(domain.ActionCopyWebUIPassword, "") })
 	
 	t.addActionTo(moreMenu, "清理 Web 面板缓存", func() {
-		go func() {
-			if ShowConfirmMessage(nil, "确认清理缓存？", "清理 Web 面板缓存将同时清除面板配置，且无法恢复。\n是否继续？") {
-				t.engine.SendCommand(domain.ActionClearWebUICache, "")
-			}
-		}()
+	t.addActionTo(moreMenu, "清理 Web 面板缓存", func() {
+		t.engine.SendCommand(domain.ActionClearWebUICache, "")
 	})
 	
 	t.addActionTo(moreMenu, "-", nil)
