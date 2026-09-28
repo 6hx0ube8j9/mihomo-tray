@@ -65,7 +65,7 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultUrl string, d
 							Layout: HBox{MarginsZero: true},
 							Children: []Widget{
 								NumberEdit{AssignTo: &intervalEdit, Value: float64(defaultInterval), MinValue: 0, MaxValue: float64(domain.MaxUpdateInterval)},
-								Label{Text: "天 (填 0 为停止自动更新)"},
+								Label{Text: "天 (填 0 为禁用自动更新)"},
 								HSpacer{},
 							},
 						},
@@ -84,12 +84,12 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultUrl string, d
 								name := strings.TrimSpace(nameEdit.Text())
 								inputUrl := strings.TrimSpace(urlEdit.Text())
 								if inputUrl == "" {
-									RunErrorDialog(dlg, "输入错误", "订阅链接不能为空！")
+									walk.MsgBox(dlg, "输入错误", "订阅链接不能为空！", walk.MsgBoxIconError)
 									return
 								}
 								u, parseErr := url.ParseRequestURI(inputUrl)
 								if parseErr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-									RunErrorDialog(dlg, "输入错误", "请输入有效的 HTTP/HTTPS 订阅链接")
+									walk.MsgBox(dlg, "输入错误", "请输入有效的 HTTP/HTTPS 订阅链接", walk.MsgBoxIconError)
 									return
 								}
 								outName = name
