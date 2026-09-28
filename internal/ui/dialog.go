@@ -124,9 +124,7 @@ func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, bee
 	if parent == nil {
 		parent = getValidOwner()
 	}
-
 	hActive := win.GetForegroundWindow()
-	
 	safeMsg := autoWrapText(message, 55)
 	var dlg *walk.Dialog
 	var acceptPB *walk.PushButton
@@ -170,7 +168,6 @@ func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, bee
 	dlg.Starting().Attach(func() { centerDialog(dlg, parent, hActive); win.MessageBeep(beep) })
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-
 		if parent != nil && parent.Visible() && !win.IsIconic(parent.Handle()) {
 			win.SetForegroundWindow(parent.Handle())
 			win.SetFocus(parent.Handle())
@@ -188,6 +185,7 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 	if parent == nil {
 		parent = getValidOwner()
 	}
+	hActive := win.GetForegroundWindow()
 	safeMsg := autoWrapText(message, 55)
 	var dlg *walk.Dialog
 	var acceptPB, cancelPB *walk.PushButton
@@ -231,11 +229,15 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 		return false
 	}
 
-	dlg.Starting().Attach(func() { centerDialog(dlg, parent); win.MessageBeep(win.MB_ICONQUESTION) })
+	dlg.Starting().Attach(func() { centerDialog(dlg, parent, hActive); win.MessageBeep(win.MB_ICONQUESTION) })
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-		if parent != nil && parent.Visible() {
+		if parent != nil && parent.Visible() && !win.IsIconic(parent.Handle()) {
 			win.SetForegroundWindow(parent.Handle())
+			win.SetFocus(parent.Handle())
+		} else if hActive != 0 && win.IsWindowVisible(hActive) && !win.IsIconic(hActive) {
+			win.SetForegroundWindow(hActive)
+			win.SetFocus(hActive)
 		}
 	})
 
