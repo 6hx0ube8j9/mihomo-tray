@@ -21,7 +21,28 @@ func getValidOwner() walk.Form {
 	return nil
 }
 
-// ShowErrorMessage 弹出包含错误图标的原生提示框
+// OpenYAMLFileDialog 打开本地 YAML 配置文件选择器 (补回误删的方法)
+func OpenYAMLFileDialog() (string, bool) {
+	if GlobalEngine == nil || GlobalEngine.app == nil {
+		return "", false
+	}
+	type fileResult struct {
+		Path string
+		OK   bool
+	}
+	resultCh := make(chan fileResult)
+
+	GlobalEngine.app.Synchronize(func() {
+		dlg := new(walk.FileDialog)
+		dlg.Title = "选择本地 YAML 配置文件"
+		dlg.Filter = "YAML 配置文件 (*.yaml;*.yml)|*.yaml;*.yml|所有文件 (*.*)|*.*"
+		ok, _ := dlg.ShowOpen(getValidOwner())
+		resultCh <- fileResult{Path: dlg.FilePath, OK: ok}
+	})
+	res := <-resultCh
+	return res.Path, res.OK
+}
+
 func ShowErrorMessage(owner walk.Form, title, message string) {
 	if GlobalEngine != nil && GlobalEngine.app != nil {
 		GlobalEngine.app.Synchronize(func() {
@@ -29,13 +50,11 @@ func ShowErrorMessage(owner walk.Form, title, message string) {
 			if parent == nil {
 				parent = getValidOwner()
 			}
-			// 调用原生 MessageBox，系统级死锁焦点，绝对防抖
 			walk.MsgBox(parent, title, message, walk.MsgBoxIconError)
 		})
 	}
 }
 
-// ShowInfoMessage 弹出包含信息图标的原生提示框
 func ShowInfoMessage(owner walk.Form, title, message string) {
 	if GlobalEngine != nil && GlobalEngine.app != nil {
 		GlobalEngine.app.Synchronize(func() {
@@ -48,7 +67,6 @@ func ShowInfoMessage(owner walk.Form, title, message string) {
 	}
 }
 
-// ShowConfirmMessage 弹出包含问号图标的确认框，返回布尔值
 func ShowConfirmMessage(owner walk.Form, title, message string) bool {
 	if GlobalEngine == nil || GlobalEngine.app == nil {
 		return false
@@ -65,7 +83,6 @@ func ShowConfirmMessage(owner walk.Form, title, message string) bool {
 	return <-resultCh
 }
 
-// 兼容旧版调用的别名
-func ShowInfoModeless(owner walk.Form, title, message string) { 
-	ShowInfoMessage(owner, title, message) 
+func ShowInfoModeless(owner walk.Form, title, message string) {
+	ShowInfoMessage(owner, title, message)
 }
