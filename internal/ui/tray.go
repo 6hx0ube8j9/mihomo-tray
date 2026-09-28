@@ -174,8 +174,9 @@ func (t *Tray) buildMenuSkeleton() {
 	emptyAction := t.addActionTo(t.menuSwitchProfile, "无配置", nil)
 	emptyAction.SetEnabled(false)
 
-	t.addAction("管理/添加配置", func() { t.engine.SendCommand(domain.ActionOpenProfileManager, "") })
 	t.addAction("编辑当前配置", func() { t.engine.SendCommand(domain.ActionEditCurrentConfig, "") })
+	t.addAction("管理/添加配置", func() { t.engine.SendCommand(domain.ActionOpenProfileManager, "") })
+	
 	t.addSeparator()
 	t.addAction("打开程序目录", func() { t.engine.SendCommand(domain.ActionOpenBaseDir, "") })
 	t.addSeparator()
@@ -189,8 +190,6 @@ func (t *Tray) buildMenuSkeleton() {
 	t.addActionTo(moreMenu, "打开应用配置 (mihomo-tray.json)", func() { t.engine.SendCommand(domain.ActionOpenAppConfig, "") })
 	t.addActionTo(moreMenu, "-", nil)
 	t.addActionTo(moreMenu, "复制 Web 访问密码", func() { t.engine.SendCommand(domain.ActionCopyWebUIPassword, "") })
-	
-	t.addActionTo(moreMenu, "清理 Web 面板缓存", func() {
 	t.addActionTo(moreMenu, "清理 Web 面板缓存", func() {
 		t.engine.SendCommand(domain.ActionClearWebUICache, "")
 	})
