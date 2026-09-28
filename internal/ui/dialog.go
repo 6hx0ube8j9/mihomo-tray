@@ -165,6 +165,8 @@ func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, bee
 		return
 	}
 
+	defer dlg.Dispose()
+	
 	dlg.Starting().Attach(func() { centerDialog(dlg, parent, hActive); win.MessageBeep(beep) })
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
@@ -229,6 +231,8 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 		return false
 	}
 
+	defer dlg.Dispose()
+	
 	dlg.Starting().Attach(func() { centerDialog(dlg, parent, hActive); win.MessageBeep(win.MB_ICONQUESTION) })
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
