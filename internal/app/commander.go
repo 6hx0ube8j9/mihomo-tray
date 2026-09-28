@@ -20,7 +20,7 @@ import (
 
 func (a *Application) safePreflightCheck(targetRelPath string, actionTitle string) error {
 	if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
-		ui.ShowErrorMessage(nil, actionTitle+"失败", "目标配置异常，请求中止：\n\n"+err.Error())
+		ui.ShowErrorMessage(nil, actionTitle+"失败", fmt.Sprintf("目标配置异常，请求已取消。\n\n错误: %v", err))
 		return err
 	}
 	return nil
@@ -95,18 +95,18 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		a.State.SetProfileSwitching(true)
 
 		go func(sourcePath string) {
-			defer a.State.SetProfileSwitching(false)
 			defer a.pushUIState()
+			defer a.State.SetProfileSwitching(false)
 
 			exePath := core.GetKernelPath(a.Cfg.BaseDir())
 			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), sourcePath); err != nil {
-				ui.ShowErrorMessage(nil, "导入失败", "配置文件存在错误：\n\n"+err.Error())
+				ui.ShowErrorMessage(nil, "导入失败", fmt.Sprintf("配置文件存在语法或规则错误。\n\n错误: %v", err))
 				return
 			}
 
 			targetName, _, err := a.Cfg.SafeCopyUntrustedConfig(sourcePath)
 			if err != nil {
-				ui.ShowErrorMessage(nil, "导入失败", "文件拷贝失败:\n"+err.Error())
+				ui.ShowErrorMessage(nil, "导入失败", fmt.Sprintf("文件复制失败，请检查系统权限。\n\n错误: %v", err))
 				return
 			}
 			a.Cfg.RegisterNewProfile(targetName)
@@ -151,7 +151,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 					p.Interval = interval
 					p.AutoUpdate = interval > 0
 					a.Cfg.UpsertProfile(p)
-					slog.Info("修改订阅自动更新频率", "path", targetPath, "interval", interval)
+					slog.Info("修改订阅更新频率", "path", targetPath, "interval", interval)
 				}
 			}
 		}
@@ -163,7 +163,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionSwitchProfile:
 		if cmd.Payload != "" && cmd.Payload == a.Cfg.GetActivePath() {
-			slog.Debug("配置已激活，忽略重复切换", "path", cmd.Payload)
+			slog.Debug("配置已在使用中，忽略重复切换", "path", cmd.Payload)
 			a.ForcePushUIState()
 			break
 		}
@@ -180,7 +180,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			defer func() {
 				a.State.SetProfileSwitching(false)
 				if isTransactionFailed {
-					slog.Debug("配置切换事务回滚，触发 UI 强调整")
+					slog.Debug("配置切换失败，恢复原状态并刷新界面")
 					a.ForcePushUIState()
 				} else {
 					a.pushUIState()
@@ -200,7 +200,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			exePath := core.GetKernelPath(a.Cfg.BaseDir())
 			absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(target))
 			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), absPath); err != nil {
-				ui.ShowErrorMessage(nil, "加载失败", "该配置存在错误，拒绝加载：\n\n"+err.Error())
+				ui.ShowErrorMessage(nil, "加载失败", fmt.Sprintf("该配置存在错误，拒绝加载。\n\n错误: %v", err))
 				isTransactionFailed = true
 				return
 			}
@@ -210,7 +210,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			a.pushUIState()
 
 			if err := a.applyConfigTransaction(context.Background(), target); err != nil {
-				ui.ShowErrorMessage(nil, "内核重启异常", "运行时发生错误：\n\n"+err.Error())
+				ui.ShowErrorMessage(nil, "内核异常", fmt.Sprintf("配置加载失败，已自动恢复原配置。\n\n错误: %v", err))
 				a.Cfg.SetActiveProfile(oldActive)
 				isTransactionFailed = true
 			} else {
@@ -221,17 +221,23 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	case domain.ActionRemoveProfile:
 		targetPath := cmd.Payload
 		if targetPath == a.Cfg.GetActivePath() {
-			slog.Warn("拒绝删除活跃配置")
+			slog.Warn("拒绝删除当前正在使用的配置")
 			break
 		}
-		if !ui.ShowConfirmMessage(nil, "确认删除", "确定要删除此配置文件吗？\n\n此操作不可恢复，本地文件将被同时删除。") {
-			break
-		}
-		absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetPath))
-		if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
-			slog.Warn("清理物理文件失败", "path", absPath, "err", err)
-		}
-		a.Cfg.RemoveProfile(targetPath)
+
+		go func(path string) {
+			if !ui.ShowConfirmMessage(nil, "确认删除", "确定要删除此配置文件吗？\n\n此操作不可恢复，本地文件将被同时删除。") {
+				return
+			}
+
+			absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(path))
+			if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
+				slog.Warn("清理本地文件失败", "path", absPath, "err", err)
+			}
+
+			a.Cfg.RemoveProfile(path)
+			a.pushUIState()
+		}(targetPath)
 
 	case domain.ActionMoveProfileUp:
 		a.Cfg.MoveProfile(cmd.Payload, -1)
@@ -248,10 +254,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		})
 
 		if !sys.IsAdmin() {
-			slog.Info("修改自启需要管理员权限，发起 UAC 提权")
+			slog.Info("修改自启状态需要管理员权限，正在申请")
 			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--restarting")
 			if sys.IsUserCancelled(err) {
-				slog.Info("用户取消提权，回滚 JSON 状态")
+				slog.Info("用户取消授权，操作已取消")
 				a.Cfg.Update(func(c *domain.TrayConfig) {
 					b := !enable
 					c.General.Autostart = &b
@@ -276,6 +282,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		a.Cfg.Update(func(c *domain.TrayConfig) { c.General.RunAsAdmin = enable })
 		
 		if enable && !sys.IsAdmin() {
+			slog.Info("设置始终以管理员运行，正在申请权限")
 			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--restarting")
 			if err == nil {
 				a.SafeShutdown(nil)
@@ -292,6 +299,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = enable })
 
 		if enable && !sys.IsAdmin() {
+			slog.Info("开启 TUN 模式需要管理员权限，正在申请")
 			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--restarting")
 			if err == nil {
 				a.SafeShutdown(nil)
@@ -377,15 +385,14 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionOpenWebUI:
 		if a.State.GetPhase() != domain.PhaseRunning {
-			slog.Warn("内核未就绪，无法打开 WebUI")
+			slog.Warn("内核未启动完成，暂无法打开 WebUI")
 			break
 		}
 
 		cfg := a.Cfg.GetConfig()
-		
 		apiAddr, secret, uiName := a.State.GetWebUISnapshot()
 		
-		slog.Info("【打开面板】", "强制系统浏览器", *cfg.General.SystemBrowser, "使用远程面板", *cfg.General.RemoteWebUI)
+		slog.Info("正在打开面板", "强制系统浏览器", *cfg.General.SystemBrowser, "使用远程面板", *cfg.General.RemoteWebUI)
 		
 		wcfg := webui.Config{
 			APIAddr:            apiAddr,
@@ -460,23 +467,23 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			break
 		}
 		if err := sys.WriteToClipboard(secret); err == nil {
-			ui.ShowTrayNotification("密码复制成功", "Web 密码已复制到剪贴板，可直接粘贴使用。")
+			ui.ShowTrayNotification("复制成功", "Web 密码已复制到剪贴板。")
 		} else {
-			ui.ShowErrorMessage(nil, "复制失败", "无法向剪贴板写入密码：\n\n"+err.Error())
+			ui.ShowErrorMessage(nil, "复制失败", fmt.Sprintf("无法写入系统剪贴板。\n\n错误: %v", err))
 		}
 
 	case domain.ActionClearWebUICache:
 		go func() {
-			if !ui.ShowConfirmMessage(nil, "确认清理缓存？", "清理 Web 面板缓存将同时清除面板配置（包含布局、主题等），且无法恢复。建议在操作前先导出备份。\n\n是否继续？") {
+			if !ui.ShowConfirmMessage(nil, "确认清理？", "清理 Web 面板缓存将同时清除所有面板设置（如主题、布局等），且无法恢复。\n\n是否继续？") {
 				return
 			}
 			
 			cacheDir := filepath.Join(a.Cfg.BaseDir(), "webcache")
 			err := os.RemoveAll(cacheDir)
 			if err == nil {
-				ui.ShowTrayNotification("清理完成", "Web 面板缓存目录已完成清理。")
+				ui.ShowTrayNotification("清理完成", "Web 面板缓存已清除。")
 			} else {
-				ui.ShowErrorMessage(nil, "清理失败", "无法清除缓存目录，文件可能被占用：\n\n"+err.Error())
+				ui.ShowErrorMessage(nil, "清理失败", fmt.Sprintf("无法彻底清除缓存目录，文件可能正在被使用。\n\n错误: %v", err))
 			}
 		}()
 	}
