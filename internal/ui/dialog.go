@@ -128,8 +128,8 @@ func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, bee
 	err := Dialog{
 		AssignTo:      &dlg,
 		Title:         title,
-		MinSize:       Size{Width: 380, Height: 160},
-		Layout:        VBox{Margins: Margins{Left: 20, Top: 25, Right: 20, Bottom: 15}, Spacing: 15},
+		MinSize:       Size{Width: 320, Height: 125},
+		Layout:        VBox{Margins: Margins{Left: 15, Top: 20, Right: 15, Bottom: 12}, Spacing: 12},
 		DefaultButton: &acceptPB,
 		Children: []Widget{
 			Composite{
@@ -190,8 +190,8 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 	err := Dialog{
 		AssignTo:      &dlg,
 		Title:         title,
-		MinSize:       Size{Width: 380, Height: 160},
-		Layout:        VBox{Margins: Margins{Left: 20, Top: 25, Right: 20, Bottom: 15}, Spacing: 15},
+		MinSize:       Size{Width: 320, Height: 125},
+		Layout:        VBox{Margins: Margins{Left: 15, Top: 20, Right: 15, Bottom: 12}, Spacing: 12},
 		DefaultButton: &acceptPB,
 		CancelButton:  &cancelPB,
 		Children: []Widget{
