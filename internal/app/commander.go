@@ -466,13 +466,19 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		}
 
 	case domain.ActionClearWebUICache:
-		cacheDir := filepath.Join(a.Cfg.BaseDir(), "webcache")
-		err := os.RemoveAll(cacheDir)
-		if err == nil {
-			ui.ShowTrayNotification("清理完成", "Web 面板缓存目录已完成清理。")
-		} else {
-			ui.ShowErrorMessage(nil, "清理失败", "无法清除缓存目录，文件可能被占用：\n\n"+err.Error())
-		}
+		go func() {
+			if !ui.ShowConfirmMessage(nil, "确认清理缓存？", "清理 Web 面板缓存将同时清除面板配置（包含布局、主题等），且无法恢复。建议在操作前先导出备份。\n\n是否继续？") {
+				return
+			}
+			
+			cacheDir := filepath.Join(a.Cfg.BaseDir(), "webcache")
+			err := os.RemoveAll(cacheDir)
+			if err == nil {
+				ui.ShowTrayNotification("清理完成", "Web 面板缓存目录已完成清理。")
+			} else {
+				ui.ShowErrorMessage(nil, "清理失败", "无法清除缓存目录，文件可能被占用：\n\n"+err.Error())
+			}
+		}()
 	}
 
 	a.pushUIState()
