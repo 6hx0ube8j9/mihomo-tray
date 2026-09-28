@@ -92,15 +92,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
     case domain.ActionRequestEditPort:
 		go func() {
 			cfg := a.Cfg.GetConfig()
-			
-			currentMixed := domain.DefaultMixedPort
-			if cfg.Config.MixedPort != nil { currentMixed = *cfg.Config.MixedPort }
-			
-			currentSocks := domain.DefaultSocksPort
-			if cfg.Config.SocksPort != nil { currentSocks = *cfg.Config.SocksPort }
-			
-			currentHttp := domain.DefaultPort
-			if cfg.Config.Port != nil { currentHttp = *cfg.Config.Port }
+
+			currentMixed := a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort)
+			currentSocks := a.Cfg.GetEffectivePort(cfg.Config.SocksPort, domain.DefaultSocksPort)
+			currentHttp := a.Cfg.GetEffectivePort(cfg.Config.Port, domain.DefaultPort)
 
 			if ui.GlobalEngine != nil {
 				newMixed, newSocks, newHttp, ok := ui.GlobalEngine.ShowPortEditor(currentMixed, currentSocks, currentHttp)
@@ -114,6 +109,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 						c.Config.Port = &h
 					})
 
+					a.pushUIState()
+
 					if *a.Cfg.GetConfig().General.SystemProxy {
 						a.syncSystemProxy()
 					}
@@ -124,7 +121,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 						defer a.State.SetConfigSyncing(false)
 						
 						if a.State.GetPhase() == domain.PhaseRunning {
-							reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+							reqCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 							defer cancel()
 							
 							payload := map[string]interface{}{
