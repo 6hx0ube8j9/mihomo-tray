@@ -6,7 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/tailscale/walk"
-	. "github.com/tailscale/walk/declarative" // 核心修复：引入声明式宏包
+	. "github.com/tailscale/walk/declarative"
 	"mihomo-tray/internal/domain"
 )
 
@@ -21,7 +21,6 @@ type Engine struct {
 	app *walk.Application
 	mw  *walk.MainWindow
 
-	// --- UI 独立组件 ---
 	Tray      *Tray
 	Dashboard *Dashboard
 }
@@ -44,7 +43,6 @@ func (e *Engine) Run() error {
 	}
 	e.app = app
 
-	// 核心修复：直接使用 MainWindow，不再带前缀
 	err = MainWindow{
 		AssignTo: &e.mw,
 		Title:    "Mihomo Tray Host",
@@ -55,17 +53,14 @@ func (e *Engine) Run() error {
 		return fmt.Errorf("主控窗口创建失败: %w", err)
 	}
 
-	// 初始化组件
 	e.Tray = NewTray(e)
 	e.Dashboard = NewDashboard(e)
 
-	// 启动数据流监听
 	go e.listenState()
 
 	slog.Debug("UI 引擎消息循环已启动")
-	app.Run() // 阻塞运行
+	app.Run()
 
-	// 优雅释放资源
 	e.Tray.Dispose()
 	e.Dashboard.Dispose()
 	e.mw.Dispose()
@@ -84,7 +79,6 @@ func (e *Engine) listenState() {
 				return
 			}
 			e.app.Synchronize(func() {
-				// 精准分发，互不干扰
 				e.Tray.UpdateState(state)
 				e.Dashboard.Refresh(state)
 			})
@@ -98,5 +92,24 @@ func (e *Engine) SendCommand(action, payload string) {
 	case e.commandCh <- domain.UICommand{Action: action, Payload: payload}:
 	default:
 		slog.Warn("UI 指令管道阻塞，已丢弃", "action", action)
+	}
+}
+
+
+func (e *Engine) ShowProfileManager(items []domain.UIProfileItem) {
+	if e.Dashboard != nil {
+		e.app.Synchronize(func() {
+			e.Dashboard.RefreshData(items)
+			e.Dashboard.Show()
+		})
+	}
+}
+
+func (e *Engine) AppendLog(msg string) {
+}
+
+func ShowTrayNotification(title, message string) {
+	if GlobalEngine != nil && GlobalEngine.Tray != nil {
+		GlobalEngine.Tray.ShowNotification(title, message)
 	}
 }
