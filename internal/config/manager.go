@@ -116,7 +116,7 @@ func (m *Manager) applyDefaults(cfg *domain.TrayConfig) bool {
 	if cfg.Config.UnifiedDelay == nil { t := domain.DefaultUnifiedDelay; cfg.Config.UnifiedDelay = &t; isTainted = true }
 
 	if cfg.Config.Secret == nil { 
-		s := generateSecureRandomSecret(12)
+		s := generateSecureRandomSecret(16)
 		cfg.Config.Secret = &s
 		isTainted = true 
 	}
