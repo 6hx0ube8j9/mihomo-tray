@@ -96,10 +96,10 @@ func (e *Engine) SendCommand(action, payload string) {
 }
 
 
-func (e *Engine) ShowProfileManager(items []domain.UIProfileItem) {
+func (e *Engine) ShowProfileManager(state domain.UIState) {
 	if e.Dashboard != nil {
 		e.app.Synchronize(func() {
-			e.Dashboard.RefreshData(items)
+			e.Dashboard.RefreshData(state) 
 			e.Dashboard.Show()
 		})
 	}
