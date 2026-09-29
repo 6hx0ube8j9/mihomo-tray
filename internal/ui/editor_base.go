@@ -27,6 +27,21 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 		return EditorResult{Accepted: false}
 	}
 
+	if cfg.AssignTo != nil && *cfg.AssignTo != nil {
+		GlobalEngine.app.Synchronize(func() {
+			dlg := *cfg.AssignTo
+			if dlg.Visible() {
+				hwnd := dlg.Handle()
+				if win.IsIconic(hwnd) {
+					win.ShowWindow(hwnd, win.SW_RESTORE)
+				}
+				win.SetForegroundWindow(hwnd)
+				dlg.SetFocus()
+			}
+		})
+		return EditorResult{Accepted: false}
+	}
+
 	if cfg.AcceptBtnText == "" {
 		cfg.AcceptBtnText = "保存"
 	}
@@ -108,13 +123,11 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 		})
 
 		dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-			if parent != nil && parent.Visible() && !win.IsIconic(parent.Handle()) {
-				win.SetForegroundWindow(parent.Handle())
-				win.SetFocus(parent.Handle())
-			} else if hActive != 0 && win.IsWindowVisible(hActive) && !win.IsIconic(hActive) {
-				win.SetForegroundWindow(hActive)
-				win.SetFocus(hActive)
+			if cfg.AssignTo != nil {
+				*cfg.AssignTo = nil
 			}
+			
+			restoreFocus(parent, hActive)
 		})
 
 		dlg.Run()
