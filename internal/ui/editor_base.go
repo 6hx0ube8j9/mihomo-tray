@@ -16,7 +16,6 @@ type EditorConfig struct {
 	AssignTo      **walk.Dialog
 }
 
-// EditorResult 是通用的返回值
 type EditorResult struct {
 	Accepted bool
 	Error    error
