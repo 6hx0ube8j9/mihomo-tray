@@ -153,21 +153,16 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			cfg := a.Cfg.GetConfig()
 
 			currAddr := cfg.Config.ExternalController
-			if currAddr == "" {
-				currAddr = domain.DefaultExternalController
-			}
+			if currAddr == "" { currAddr = domain.DefaultExternalController }
+			
 			currSecret := ""
-			if cfg.Config.Secret != nil {
-				currSecret = *cfg.Config.Secret
-			}
+			if cfg.Config.Secret != nil { currSecret = *cfg.Config.Secret }
+			
 			currOnline := false
-			if cfg.General.RemoteWebUI != nil {
-				currOnline = *cfg.General.RemoteWebUI
-			}
+			if cfg.General.RemoteWebUI != nil { currOnline = *cfg.General.RemoteWebUI }
+			
 			currSysBrowser := false
-			if cfg.General.SystemBrowser != nil {
-				currSysBrowser = *cfg.General.SystemBrowser
-			}
+			if cfg.General.SystemBrowser != nil { currSysBrowser = *cfg.General.SystemBrowser }
 
 			if ui.GlobalEngine != nil {
 				newAddr, newSecret, newOnline, newSysBrowser, ok := ui.GlobalEngine.ShowControllerEditor(
@@ -175,33 +170,33 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				)
 				
 				if ok {
-					changed := false
+					coreChanged := (currAddr != newAddr) || (currSecret != newSecret)
+					appChanged := (currOnline != newOnline) || (currSysBrowser != newSysBrowser)
+
+					if !coreChanged && !appChanged {
+						return
+					}
 					
 					a.Cfg.Update(func(c *domain.TrayConfig) {
-						if c.Config.ExternalController != newAddr {
+						if coreChanged {
 							c.Config.ExternalController = newAddr
-							changed = true
-						}
-						if c.Config.Secret == nil || *c.Config.Secret != newSecret {
 							c.Config.Secret = &newSecret
-							changed = true
 						}
-						if c.General.RemoteWebUI == nil || *c.General.RemoteWebUI != newOnline {
-							bOnline := newOnline
+						if appChanged {
+							bOnline, bSys := newOnline, newSysBrowser
 							c.General.RemoteWebUI = &bOnline
-							changed = true
-						}
-						if c.General.SystemBrowser == nil || *c.General.SystemBrowser != newSysBrowser {
-							bSys := newSysBrowser
 							c.General.SystemBrowser = &bSys
-							changed = true
 						}
 					})
 
-					if changed {
-						a.pushUIState()
-						
-						a.RestartKernel()
+					a.pushUIState()
+
+					if coreChanged {
+						slog.Info("Web 面板核心网络参数已变更，重启内核生效")
+						a.RestartKernel() 
+					} else if appChanged {
+						slog.Info("Web 面板应用偏好已保存")
+						ui.GlobalEngine.ShowTrayNotification("提示", "Web 面板偏好设置已保存生效")
 					}
 				}
 			}
