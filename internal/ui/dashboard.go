@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"syscall"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
