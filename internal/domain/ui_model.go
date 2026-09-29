@@ -47,6 +47,7 @@ const (
 	ActionToggleAllowLan      = "ToggleAllowLan"
 	ActionOpenAppConfig       = "OpenAppConfig"
 	ActionRequestEditPort     = "RequestEditPort"
+	ActionRequestEditController = "RequestEditController"
 )
 
 type UIProfileItem struct {
