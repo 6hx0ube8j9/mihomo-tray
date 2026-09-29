@@ -39,7 +39,7 @@ func (e *Engine) ShowPortEditor(defaultMixed, defaultSocks, defaultHttp int) (in
 				Children: []Widget{
 					Label{Text: "Mixed 端口:"},
 					LineEdit{AssignTo: &mixedEdit, Text: strconv.Itoa(defaultMixed)},
-					Label{Text: "Socks 端口:"},
+					Label{Text: "SOCKS 端口:"},
 					LineEdit{AssignTo: &socksEdit, Text: strconv.Itoa(defaultSocks)},
 					Label{Text: "HTTP(S) 端口:"},
 					LineEdit{AssignTo: &httpEdit, Text: strconv.Itoa(defaultHttp)},
