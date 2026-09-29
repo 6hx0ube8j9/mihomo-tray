@@ -195,7 +195,7 @@ func (t *Tray) buildMenuSkeleton() {
 	})
 	
 	t.addActionTo(moreMenu, "-", nil)
-	t.actRemoteWebUI = t.addCheckableSubAction(moreMenu, "使用远程 Web 面板", t.latestState.RemoteWebUI, func() { t.engine.SendCommand(domain.ActionToggleRemoteWebUI, fmt.Sprintf("%t", !t.latestState.RemoteWebUI)) })
+	t.actRemoteWebUI = t.addCheckableSubAction(moreMenu, "使用在线 Web 面板", t.latestState.RemoteWebUI, func() { t.engine.SendCommand(domain.ActionToggleRemoteWebUI, fmt.Sprintf("%t", !t.latestState.RemoteWebUI)) })
 	t.actSysBrowser = t.addCheckableSubAction(moreMenu, "使用默认浏览器打开面板", t.latestState.UseSystemBrowser, func() { t.engine.SendCommand(domain.ActionToggleSystemBrowser, fmt.Sprintf("%t", !t.latestState.UseSystemBrowser)) })
 	t.actAllowLan = t.addCheckableSubAction(moreMenu, "允许局域网代理", t.latestState.AllowLan, func() { t.engine.SendCommand(domain.ActionToggleAllowLan, fmt.Sprintf("%t", !t.latestState.AllowLan)) })
 	t.addActionTo(moreMenu, "-", nil)
