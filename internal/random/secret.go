@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 )
 
-// Secret 生成指定长度的十六进制安全随机字符串
 func Secret(length int) string {
 	byteLen := (length / 2) + 1
 	b := make([]byte, byteLen)
