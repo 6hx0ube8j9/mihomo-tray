@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"syscall"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
@@ -13,6 +14,9 @@ type Dashboard struct {
 	window      *walk.MainWindow
 	ProfileView *ProfileView
 	lastState   domain.UIState 
+
+	wndProcCb  uintptr
+	oldWndProc uintptr
 }
 
 func NewDashboard(e *Engine) *Dashboard {
@@ -58,12 +62,14 @@ func (d *Dashboard) createWindow() {
     // Apply upstream layout patch.
 	disableGhostToolbar(d.window)
 
-	d.window.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-		if reason == walk.CloseReasonUser {
-			*canceled = true   // 阻止窗口被物理销毁
-			d.window.Hide()    // 仅仅将其隐藏
+	d.wndProcCb = syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
+		if msg == win.WM_SYSCOMMAND && (wParam&0xFFF0) == win.SC_CLOSE {
+			win.ShowWindow(hwnd, win.SW_HIDE)
+			return 0
 		}
+		return win.CallWindowProc(d.oldWndProc, hwnd, msg, wParam, lParam)
 	})
+	d.oldWndProc = win.SetWindowLongPtr(d.window.Handle(), win.GWLP_WNDPROC, d.wndProcCb)
 
 	centerWindow(d.window)
 
@@ -87,7 +93,14 @@ func (d *Dashboard) RefreshData(state domain.UIState) {
 
 func (d *Dashboard) Dispose() {
 	if d.window != nil {
+		hwnd := d.window.Handle()
+
+		if d.oldWndProc != 0 && hwnd != 0 {
+			win.SetWindowLongPtr(hwnd, win.GWLP_WNDPROC, d.oldWndProc)
+			d.oldWndProc = 0
+		}
 		d.window.Dispose()
+		d.window = nil
 	}
 }
 
