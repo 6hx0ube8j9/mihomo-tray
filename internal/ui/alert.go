@@ -75,9 +75,18 @@ func centerDialog(dlg *walk.Dialog, owner walk.Form, hActive win.HWND) {
 		return
 	}
 
-	dlgBounds := dlg.Bounds()
-	dlgW := int32(dlgBounds.Width)
-	dlgH := int32(dlgBounds.Height)
+	var dRect win.RECT
+	win.GetWindowRect(dlg.Handle(), &dRect)
+	dlgW := dRect.Right - dRect.Left
+	dlgH := dRect.Bottom - dRect.Top
+
+	var dcRect win.RECT
+	win.GetClientRect(dlg.Handle(), &dcRect)
+	dPtLT := win.POINT{X: 0, Y: 0}
+	win.ClientToScreen(dlg.Handle(), &dPtLT)
+
+	dcOffsetCX := (dPtLT.X - dRect.Left) + dcRect.Right/2
+	dcOffsetCY := (dPtLT.Y - dRect.Top) + dcRect.Bottom/2
 
 	var workArea win.RECT
 	win.SystemParametersInfo(0x0030, 0, unsafe.Pointer(&workArea), 0)
@@ -99,8 +108,8 @@ func centerDialog(dlg *walk.Dialog, owner walk.Form, hActive win.HWND) {
 		pCX := ptLT.X + pClientRect.Right/2
 		pCY := ptLT.Y + pClientRect.Bottom/2
 
-		x = pCX - dlgW/2
-		y = pCY - dlgH/2
+		x = pCX - dcOffsetCX
+		y = pCY - dcOffsetCY
 	} else {
 		x = workArea.Left + (workArea.Right-workArea.Left-dlgW)/2
 		y = workArea.Top + (workArea.Bottom-workArea.Top-dlgH)/2
