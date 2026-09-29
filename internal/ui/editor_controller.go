@@ -24,12 +24,12 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 	res := RunEditor(getValidOwner(), EditorConfig{
 		AssignTo:      &currentControllerEditor,
 		Title:         "Web 面板设置",
-		Width:         415,
-		MinHeight:     195,
+		Width:         415, 
+		MinHeight:     195, 
 		AcceptBtnText: "确定",
 		Widgets: []Widget{
 			Composite{
-				Layout: VBox{MarginsZero: true, Spacing: 8}, 
+				Layout: VBox{MarginsZero: true, Spacing: 8},
 				Children: []Widget{
 					GroupBox{
 						Title:  "控制器连接",
@@ -44,7 +44,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 										Text:    "复制",
 										MinSize: Size{Width: 44}, MaxSize: Size{Width: 44},
 										OnClicked: func() {
-											walk.Clipboard().SetText(addrEdit.Text())
+											_ = walk.Clipboard().SetText(addrEdit.Text())
 										},
 									},
 									PushButton{
@@ -66,7 +66,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 										Text:    "复制",
 										MinSize: Size{Width: 44}, MaxSize: Size{Width: 44},
 										OnClicked: func() {
-											walk.Clipboard().SetText(secretEdit.Text())
+											_ = walk.Clipboard().SetText(secretEdit.Text())
 										},
 									},
 									PushButton{
@@ -92,10 +92,10 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 							},
 							CheckBox{
 								AssignTo: &sysBrowserCheck,
-								Text:     "使用系统默认浏览器", 
+								Text:     "使用系统默认浏览器",
 								Checked:  defaultSysBrowser,
 							},
-							HSpacer{}, 
+							HSpacer{},
 						},
 					},
 				},
@@ -118,7 +118,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 			}
 
 			if !isFormatValid {
-				RunErrorDialog(currentControllerEditor, "保存失败", "输入格式错误，端口须在 1-65535 之间。")
+				RunErrorDialog(currentControllerEditor, "保存失败", "输入格式错误。")
 				return false, nil
 			}
 
