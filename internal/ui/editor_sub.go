@@ -1,126 +1,69 @@
 package ui
 
 import (
-	"net"
-	"strconv"
+	"net/url"
 	"strings"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
 
 	"mihomo-tray/internal/domain"
-	"mihomo-tray/internal/netutil"
-	"mihomo-tray/internal/random"
 )
 
-var currentControllerEditor *walk.Dialog
+var currentSubEditor *walk.Dialog
 
-func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, defaultOnline, defaultSysBrowser bool) (string, string, bool, bool, bool) {
-	var addrEdit, secretEdit *walk.LineEdit
-	var onlineCheck, sysBrowserCheck *walk.CheckBox
-	var finalAddr, finalSecret string
-	var finalOnline, finalSysBrowser bool
+func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultUrl string, defaultInterval int) (string, string, int, bool) {
+	var nameEdit, urlEdit *walk.LineEdit
+	var intervalEdit *walk.NumberEdit
+	var finalName, finalUrl string
+	var finalInterval int
 
 	res := RunEditor(getValidOwner(), EditorConfig{
-		AssignTo:      &currentControllerEditor,
-		Title:         "Web 面板设置",
-		Width:         480,
+		AssignTo:      &currentSubEditor,
+		Title:         title,
+		Width:         450,
 		MinHeight:     200,
 		AcceptBtnText: "确定",
 		Widgets: []Widget{
 			Composite{
 				Layout: Grid{Columns: 2, Spacing: 10, MarginsZero: true},
 				Children: []Widget{
-					Label{Text: "外部监听地址:"},
+					Label{Text: "配置名称:"},
+					LineEdit{AssignTo: &nameEdit, Text: defaultName},
+					Label{Text: "订阅链接:"},
+					LineEdit{AssignTo: &urlEdit, Text: defaultUrl},
+					Label{Text: "更新频率:"},
 					Composite{
-						Layout: HBox{MarginsZero: true, Spacing: 5},
+						Layout: HBox{MarginsZero: true},
 						Children: []Widget{
-							LineEdit{AssignTo: &addrEdit, Text: defaultAddr},
-							PushButton{
-								Text:    "复制",
-								MinSize: Size{Width: 50}, MaxSize: Size{Width: 50},
-								OnClicked: func() {
-									if err := walk.Clipboard().SetText(addrEdit.Text()); err == nil {
-										ShowTrayNotification("提示", "监听地址已复制到剪贴板")
-									}
-								},
-							},
-							PushButton{
-								Text:    "默认",
-								MinSize: Size{Width: 50}, MaxSize: Size{Width: 50},
-								OnClicked: func() {
-									addrEdit.SetText(domain.DefaultExternalController)
-								},
-							},
+							NumberEdit{AssignTo: &intervalEdit, Value: float64(defaultInterval), MinValue: 0, MaxValue: float64(domain.MaxUpdateInterval)},
+							Label{Text: "天 (填 0 为禁用自动更新)"},
+							HSpacer{},
 						},
 					},
-
-					Label{Text: "访问密钥:"},
-					Composite{
-						Layout: HBox{MarginsZero: true, Spacing: 5},
-						Children: []Widget{
-							LineEdit{AssignTo: &secretEdit, Text: defaultSecret},
-							PushButton{
-								Text:    "复制",
-								MinSize: Size{Width: 50}, MaxSize: Size{Width: 50},
-								OnClicked: func() {
-									if err := walk.Clipboard().SetText(secretEdit.Text()); err == nil {
-										ShowTrayNotification("提示", "访问密钥已复制到剪贴板")
-									}
-								},
-							},
-							PushButton{
-								Text:    "生成",
-								MinSize: Size{Width: 50}, MaxSize: Size{Width: 50},
-								OnClicked: func() {
-									secretEdit.SetText(random.String(domain.DefaultSecretLength))
-								},
-							},
-						},
-					},
-
-					Label{Text: "使用在线 Web 面板:"},
-					CheckBox{AssignTo: &onlineCheck, Checked: defaultOnline},
-
-					Label{Text: "使用默认浏览器打开:"},
-					CheckBox{AssignTo: &sysBrowserCheck, Checked: defaultSysBrowser},
 				},
 			},
 		},
 		OnAccept: func() (bool, error) {
-			addr := strings.TrimSpace(addrEdit.Text())
-			secret := strings.TrimSpace(secretEdit.Text())
-
-			if addr == "" {
-				RunErrorDialog(currentControllerEditor, "保存失败", "监听地址不能为空。")
+			inputName := strings.TrimSpace(nameEdit.Text())
+			inputUrl := strings.TrimSpace(urlEdit.Text())
+			
+			if inputUrl == "" {
+				RunErrorDialog(currentSubEditor, "输入错误", "订阅链接不能为空！")
+				return false, nil
+			}
+			u, parseErr := url.ParseRequestURI(inputUrl)
+			if parseErr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				RunErrorDialog(currentSubEditor, "输入错误", "请输入有效的 HTTP/HTTPS 订阅链接")
 				return false, nil
 			}
 
-			_, portStr, err := net.SplitHostPort(addr)
-			isFormatValid := err == nil && !strings.ContainsAny(addr, " \t\r\n")
-			if isFormatValid {
-				port, pErr := strconv.Atoi(portStr)
-				isFormatValid = pErr == nil && port > 0 && port <= 65535
-			}
-
-			if !isFormatValid {
-				RunErrorDialog(currentControllerEditor, "保存失败", "输入格式错误。")
-				return false, nil
-			}
-
-			if netutil.IsPublicAddress(addr) && secret == "" {
-				RunErrorDialog(currentControllerEditor, "保存失败", "当前地址支持外网访问，密钥不能为空。")
-				return false, nil
-			}
-
-			finalAddr = addr
-			finalSecret = secret
-			finalOnline = onlineCheck.Checked()
-			finalSysBrowser = sysBrowserCheck.Checked()
-
+			finalName = inputName
+			finalUrl = inputUrl
+			finalInterval = int(intervalEdit.Value())
 			return true, nil
 		},
 	})
 
-	return finalAddr, finalSecret, finalOnline, finalSysBrowser, res.Accepted
+	return finalName, finalUrl, finalInterval, res.Accepted
 }
