@@ -6,26 +6,11 @@ import (
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
-	"github.com/tailscale/win"
 )
 
 var currentPortEditor *walk.Dialog
 
 func (e *Engine) ShowPortEditor(defaultMixed, defaultSocks, defaultHttp int) (int, int, int, bool) {
-	if currentPortEditor != nil {
-		e.app.Synchronize(func() {
-			if currentPortEditor.Visible() {
-				hwnd := currentPortEditor.Handle()
-				if win.IsIconic(hwnd) {
-					win.ShowWindow(hwnd, win.SW_RESTORE)
-				}
-				win.SetForegroundWindow(hwnd)
-				currentPortEditor.SetFocus()
-			}
-		})
-		return 0, 0, 0, false
-	}
-
 	var mixedEdit, socksEdit, httpEdit *walk.LineEdit
 	var finalMixed, finalSocks, finalHttp int
 
@@ -82,6 +67,5 @@ func (e *Engine) ShowPortEditor(defaultMixed, defaultSocks, defaultHttp int) (in
 		},
 	})
 
-	currentPortEditor = nil
 	return finalMixed, finalSocks, finalHttp, res.Accepted
 }
