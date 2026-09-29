@@ -58,10 +58,10 @@ func (d *Dashboard) createWindow() {
 
     // Apply upstream layout patch.
 	disableGhostToolbar(d.window)
-
+	
 	var oldWndProc uintptr
 	newWndProc := syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
-		if msg == win.WM_CLOSE {
+		if msg == win.WM_SYSCOMMAND && (wParam&0xFFF0) == win.SC_CLOSE {
 			win.ShowWindow(hwnd, win.SW_HIDE)
 			return 0
 		}
