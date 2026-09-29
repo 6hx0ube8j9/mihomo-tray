@@ -25,19 +25,19 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 		AssignTo:      &currentControllerEditor,
 		Title:         "Web 面板设置",
 		Width:         460,
-		MinHeight:     265, 
+		MinHeight:     265,
 		AcceptBtnText: "确定",
 		Widgets: []Widget{
 			Composite{
 				Layout: VBox{MarginsZero: true, Spacing: 10},
 				Children: []Widget{
 					GroupBox{
-						Title:  "外部控制",
+						Title:  "控制器连接",
 						Layout: Grid{Columns: 2, Spacing: 8, Margins: Margins{Left: 10, Top: 15, Right: 10, Bottom: 10}},
 						Children: []Widget{
-							Label{Text: "监听地址:", Alignment: AlignFarVCenter},
+							Label{Text: "监听地址:", Alignment: AlignHFarVCenter},
 							Composite{
-								Layout: HBox{MarginsZero: true, Spacing: 4}, 
+								Layout: HBox{MarginsZero: true, Spacing: 4},
 								Children: []Widget{
 									LineEdit{AssignTo: &addrEdit, Text: defaultAddr},
 									PushButton{
@@ -59,7 +59,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 								},
 							},
 
-							Label{Text: "访问密钥:", Alignment: AlignFarVCenter},
+							Label{Text: "访问密钥:", Alignment: AlignHFarVCenter},
 							Composite{
 								Layout: HBox{MarginsZero: true, Spacing: 4},
 								Children: []Widget{
@@ -96,7 +96,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 							},
 							CheckBox{
 								AssignTo: &sysBrowserCheck,
-								Text:     "使用默认浏览器打开",
+								Text:     "使用系统默认浏览器打开",
 								Checked:  defaultSysBrowser,
 							},
 						},
