@@ -100,7 +100,6 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 		err := Dialog{
 			AssignTo:      cfg.AssignTo,
 			Title:         cfg.Title,
-			MinSize:       Size{Width: cfg.Width, Height: cfg.MinHeight},
 			Layout:        VBox{Margins: Margins{Left: 18, Top: 15, Right: 18, Bottom: 15}, Spacing: 12},
 			DefaultButton: &acceptPB,
 			CancelButton:  &cancelPB,
