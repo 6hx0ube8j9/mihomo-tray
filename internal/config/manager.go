@@ -193,6 +193,13 @@ func (m *Manager) GetEffectivePort(p *int, defaultPort int) int {
 	return *p
 }
 
+func (m *Manager) GetEffectiveSecret(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 func (m *Manager) FlushInitialState() {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
