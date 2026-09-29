@@ -24,66 +24,83 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 	res := RunEditor(getValidOwner(), EditorConfig{
 		AssignTo:      &currentControllerEditor,
 		Title:         "Web 面板设置",
-		Width:         480,
-		MinHeight:     200,
+		Width:         460,
+		Height:        230,
 		AcceptBtnText: "确定",
 		Widgets: []Widget{
 			Composite{
-				Layout: Grid{Columns: 2, Spacing: 10, MarginsZero: true},
+				Layout: VBox{MarginsZero: true, Spacing: 10},
 				Children: []Widget{
-					Label{Text: "外部监听地址:"},
 					Composite{
-						Layout: HBox{MarginsZero: true, Spacing: 5},
+						Layout: Grid{Columns: 2, Spacing: 8, MarginsZero: true},
 						Children: []Widget{
-							LineEdit{AssignTo: &addrEdit, Text: defaultAddr},
-							PushButton{
-								Text:    "复制",
-								MinSize: Size{Width: 50}, MaxSize: Size{Width: 50},
-								OnClicked: func() {
-									if err := walk.Clipboard().SetText(addrEdit.Text()); err == nil {
-										ShowTrayNotification("提示", "监听地址已复制到剪贴板")
-									}
+							Label{Text: "监听地址:"},
+							Composite{
+								Layout: HBox{MarginsZero: true, Spacing: 6},
+								Children: []Widget{
+									LineEdit{AssignTo: &addrEdit, Text: defaultAddr},
+									PushButton{
+										Text:    "复制",
+										MinSize: Size{Width: 54},
+										OnClicked: func() {
+											if err := walk.Clipboard().SetText(addrEdit.Text()); err == nil {
+												ShowTrayNotification("提示", "监听地址已复制到剪贴板")
+											}
+										},
+									},
+									PushButton{
+										Text:    "默认",
+										MinSize: Size{Width: 54},
+										OnClicked: func() {
+											addrEdit.SetText(domain.DefaultExternalController)
+										},
+									},
 								},
 							},
-							PushButton{
-								Text:    "默认",
-								MinSize: Size{Width: 50}, MaxSize: Size{Width: 50},
-								OnClicked: func() {
-									addrEdit.SetText(domain.DefaultExternalController)
+
+							Label{Text: "访问密钥:"},
+							Composite{
+								Layout: HBox{MarginsZero: true, Spacing: 6},
+								Children: []Widget{
+									LineEdit{AssignTo: &secretEdit, Text: defaultSecret},
+									PushButton{
+										Text:    "复制",
+										MinSize: Size{Width: 54},
+										OnClicked: func() {
+											if err := walk.Clipboard().SetText(secretEdit.Text()); err == nil {
+												ShowTrayNotification("提示", "访问密钥已复制到剪贴板")
+											}
+										},
+									},
+									PushButton{
+										Text:    "生成",
+										MinSize: Size{Width: 54},
+										OnClicked: func() {
+											secretEdit.SetText(random.String(domain.DefaultSecretLength))
+										},
+									},
 								},
 							},
 						},
 					},
 
-					Label{Text: "访问密钥:"},
 					Composite{
-						Layout: HBox{MarginsZero: true, Spacing: 5},
+						Layout: VBox{MarginsZero: true, Spacing: 6},
 						Children: []Widget{
-							LineEdit{AssignTo: &secretEdit, Text: defaultSecret},
-							PushButton{
-								Text:    "复制",
-								MinSize: Size{Width: 50}, MaxSize: Size{Width: 50},
-								OnClicked: func() {
-									if err := walk.Clipboard().SetText(secretEdit.Text()); err == nil {
-										ShowTrayNotification("提示", "访问密钥已复制到剪贴板")
-									}
-								},
+							CheckBox{
+								AssignTo: &onlineCheck,
+								Text:     "使用在线 Web 面板",
+								Checked:  defaultOnline,
 							},
-							PushButton{
-								Text:    "生成",
-								MinSize: Size{Width: 50}, MaxSize: Size{Width: 50},
-								OnClicked: func() {
-									secretEdit.SetText(random.String(domain.DefaultSecretLength))
-								},
+							CheckBox{
+								AssignTo: &sysBrowserCheck,
+								Text:     "使用系统默认浏览器打开",
+								Checked:  defaultSysBrowser,
 							},
 						},
 					},
 
-					Label{Text: "使用在线 Web 面板:"},
-					CheckBox{AssignTo: &onlineCheck, Checked: defaultOnline},
-
-					Label{Text: "使用默认浏览器打开:"},
-					CheckBox{AssignTo: &sysBrowserCheck, Checked: defaultSysBrowser},
+					VSpacer{},
 				},
 			},
 		},
