@@ -24,6 +24,12 @@ func getValidOwner() walk.Form {
 	return nil
 }
 
+func safeSync(fn func()) {
+	if GlobalEngine != nil && GlobalEngine.app != nil {
+		GlobalEngine.app.Synchronize(fn)
+	}
+}
+
 func OpenYAMLFileDialog() (string, bool) {
 	if GlobalEngine == nil || GlobalEngine.app == nil {
 		return "", false
@@ -34,7 +40,7 @@ func OpenYAMLFileDialog() (string, bool) {
 	}
 	resultCh := make(chan fileResult)
 
-	GlobalEngine.app.Synchronize(func() {
+	safeSync(func() {
 		dlg := new(walk.FileDialog)
 		dlg.Title = "选择本地 YAML 配置文件"
 		dlg.Filter = "YAML 配置文件 (*.yaml;*.yml)|*.yaml;*.yml|所有文件 (*.*)|*.*"
@@ -76,6 +82,13 @@ func autoWrapText(text string, maxVisualWidth int) string {
 		}
 	}
 	return strings.Join(result, "\r\n")
+}
+
+func lockWindowSize(hwnd win.HWND) {
+	style := win.GetWindowLong(hwnd, win.GWL_STYLE)
+	style &^= win.WS_THICKFRAME | win.WS_MAXIMIZEBOX
+	win.SetWindowLong(hwnd, win.GWL_STYLE, style)
+	win.SetWindowPos(hwnd, 0, 0, 0, 0, 0, win.SWP_NOMOVE|win.SWP_NOSIZE|win.SWP_NOZORDER|win.SWP_FRAMECHANGED)
 }
 
 func centerDialog(dlg *walk.Dialog, owner walk.Form, hActive win.HWND) {
@@ -129,20 +142,31 @@ func restoreFocus(parent walk.Form, hActive win.HWND) {
 	}
 }
 
-func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, beep uint32) {
+func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep uint32, isConfirm bool) bool {
 	parent := owner
 	if parent == nil {
 		parent = getValidOwner()
 	}
 	hActive := win.GetForegroundWindow()
 	safeMsg := autoWrapText(message, 55)
+	
 	var dlg *walk.Dialog
-	var acceptPB *walk.PushButton
+	var acceptPB, cancelPB *walk.PushButton
+	accepted := false
 
-	err := Dialog{
+	buttons := []Widget{
+		HSpacer{},
+		PushButton{AssignTo: &acceptPB, Text: "确定", MinSize: Size{Width: 90, Height: 26}, OnClicked: func() { accepted = true; dlg.Accept() }},
+	}
+	if isConfirm {
+		buttons = append(buttons, PushButton{AssignTo: &cancelPB, Text: "取消", MinSize: Size{Width: 90, Height: 26}, OnClicked: func() { dlg.Cancel() }})
+	}
+
+	dlgConfig := Dialog{
 		AssignTo:      &dlg,
 		Title:         title,
 		MinSize:       Size{Width: 320, Height: 125},
+		MaxSize:       Size{Width: 320, Height: 125},
 		Layout:        VBox{Margins: Margins{Left: 15, Top: 20, Right: 15, Bottom: 12}, Spacing: 12},
 		DefaultButton: &acceptPB,
 		Children: []Widget{
@@ -162,82 +186,26 @@ func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, bee
 			},
 			VSpacer{},
 			Composite{
-				Layout: HBox{MarginsZero: true},
-				Children: []Widget{
-					HSpacer{},
-					PushButton{AssignTo: &acceptPB, Text: "确定", MinSize: Size{Width: 90, Height: 26}, OnClicked: func() { dlg.Accept() }},
-				},
-			},
-		},
-	}.Create(parent)
-
-	if err != nil {
-		return
-	}
-
-	defer dlg.Dispose()
-	
-	dlg.Starting().Attach(func() { centerDialog(dlg, parent, hActive); win.MessageBeep(beep) })
-
-	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-		restoreFocus(parent, hActive)
-	})
-
-	dlg.Run()
-}
-
-func RunConfirmDialog(owner walk.Form, title, message string) bool {
-	parent := owner
-	if parent == nil {
-		parent = getValidOwner()
-	}
-	hActive := win.GetForegroundWindow()
-	safeMsg := autoWrapText(message, 55)
-	var dlg *walk.Dialog
-	var acceptPB, cancelPB *walk.PushButton
-	accepted := false
-
-	err := Dialog{
-		AssignTo:      &dlg,
-		Title:         title,
-		MinSize:       Size{Width: 320, Height: 125},
-		Layout:        VBox{Margins: Margins{Left: 15, Top: 20, Right: 15, Bottom: 12}, Spacing: 12},
-		DefaultButton: &acceptPB,
-		CancelButton:  &cancelPB,
-		Children: []Widget{
-			Composite{
-				Layout: HBox{MarginsZero: true, Spacing: 15},
-				Children: []Widget{
-					Composite{
-						Layout:    VBox{MarginsZero: true},
-						Alignment: AlignHNearVNear,
-						Children: []Widget{
-							ImageView{Image: walk.IconQuestion(), MinSize: Size{Width: 32, Height: 32}},
-							VSpacer{},
-						},
-					},
-					TextLabel{Text: safeMsg},
-				},
-			},
-			VSpacer{},
-			Composite{
 				Layout: HBox{MarginsZero: true, Spacing: 10},
-				Children: []Widget{
-					HSpacer{},
-					PushButton{AssignTo: &acceptPB, Text: "确定", MinSize: Size{Width: 90, Height: 26}, OnClicked: func() { accepted = true; dlg.Accept() }},
-					PushButton{AssignTo: &cancelPB, Text: "取消", MinSize: Size{Width: 90, Height: 26}, OnClicked: func() { dlg.Cancel() }},
-				},
+				Children: buttons,
 			},
 		},
-	}.Create(parent)
+	}
 
-	if err != nil {
+	if isConfirm {
+		dlgConfig.CancelButton = &cancelPB
+	}
+
+	if err := dlgConfig.Create(parent); err != nil {
 		return false
 	}
-
 	defer dlg.Dispose()
 	
-	dlg.Starting().Attach(func() { centerDialog(dlg, parent, hActive); win.MessageBeep(win.MB_ICONQUESTION) })
+	dlg.Starting().Attach(func() { 
+		lockWindowSize(dlg.Handle())
+		centerDialog(dlg, parent, hActive)
+		win.MessageBeep(beep) 
+	})
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 		restoreFocus(parent, hActive)
@@ -247,24 +215,28 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 	return accepted
 }
 
+func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, beep uint32) {
+	runBaseDialog(owner, title, message, icon, beep, false)
+}
+
+func RunConfirmDialog(owner walk.Form, title, message string) bool {
+	return runBaseDialog(owner, title, message, walk.IconQuestion(), win.MB_ICONQUESTION, true)
+}
+
 func RunErrorDialog(owner walk.Form, title, message string) {
 	RunAlertDialog(owner, title, message, walk.IconWarning(), win.MB_ICONWARNING)
 }
 
 func ShowErrorMessage(owner walk.Form, title, message string) {
-	if GlobalEngine != nil && GlobalEngine.app != nil {
-		GlobalEngine.app.Synchronize(func() {
-			RunAlertDialog(owner, title, message, walk.IconWarning(), win.MB_ICONWARNING)
-		})
-	}
+	safeSync(func() {
+		RunAlertDialog(owner, title, message, walk.IconWarning(), win.MB_ICONWARNING)
+	})
 }
 
 func ShowInfoMessage(owner walk.Form, title, message string) {
-	if GlobalEngine != nil && GlobalEngine.app != nil {
-		GlobalEngine.app.Synchronize(func() {
-			RunAlertDialog(owner, title, message, walk.IconInformation(), win.MB_ICONINFORMATION)
-		})
-	}
+	safeSync(func() {
+		RunAlertDialog(owner, title, message, walk.IconInformation(), win.MB_ICONINFORMATION)
+	})
 }
 
 func ShowConfirmMessage(owner walk.Form, title, message string) bool {
@@ -272,7 +244,7 @@ func ShowConfirmMessage(owner walk.Form, title, message string) bool {
 		return false
 	}
 	resultCh := make(chan bool)
-	GlobalEngine.app.Synchronize(func() {
+	safeSync(func() {
 		resultCh <- RunConfirmDialog(owner, title, message)
 	})
 	return <-resultCh
