@@ -99,7 +99,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 								Text:     "使用系统默认浏览器打开",
 								Checked:  defaultSysBrowser,
 							},
-							HSpacer{}, 
+							HSpacer{},
 						},
 					},
 
