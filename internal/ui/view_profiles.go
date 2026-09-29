@@ -135,7 +135,7 @@ func (v *ProfileView) Declarative() []Widget {
 
 func (v *ProfileView) RefreshData(state domain.UIState) {
 	if v.portsLabel != nil {
-		v.portsLabel.SetText(fmt.Sprintf("Mixed: %d\nSocks: %d\nHTTP(S): %d", 
+		v.portsLabel.SetText(fmt.Sprintf("Mixed: %d\nSOCKS: %d\nHTTP(S): %d", 
 			state.MixedPort, state.SocksPort, state.HttpPort))
 	}
 
