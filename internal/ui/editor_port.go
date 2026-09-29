@@ -7,6 +7,7 @@ import (
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
+	"github.com/tailscale/win"
 )
 
 var currentPortEditor *walk.Dialog
@@ -15,12 +16,12 @@ func (e *Engine) ShowPortEditor(defaultMixed, defaultSocks, defaultHttp int) (in
 	if currentPortEditor != nil {
 		e.app.Synchronize(func() {
 			if currentPortEditor.Visible() {
-				walk.App().ActiveForm().SetFocus()
+				win.SetForegroundWindow(currentPortEditor.Handle())
+				currentPortEditor.SetFocus()
 			}
 		})
 		return 0, 0, 0, false
 	}
-	
 
 	var mixedEdit, socksEdit, httpEdit *walk.LineEdit
 	
@@ -40,31 +41,21 @@ func (e *Engine) ShowPortEditor(defaultMixed, defaultSocks, defaultHttp int) (in
 
 	res := RunEditor(getValidOwner(), EditorConfig{
 		AssignTo: &currentPortEditor,
-		Title: "更改代理端口",
-		Width: 320,
+		Title:    "更改代理端口",
+		Width:    320,
 		Widgets: []Widget{
 			Composite{
 				Layout: VBox{MarginsZero: true, Spacing: 8},
 				Children: []Widget{
 					Label{Text: "Mixed 端口 (默认: 7890):"},
-					LineEdit{
-						AssignTo: &mixedEdit,
-						Text:     fmt.Sprintf("%d", defaultMixed),
-					},
+					LineEdit{AssignTo: &mixedEdit, Text: fmt.Sprintf("%d", defaultMixed)},
 					Label{Text: "Socks 端口 (默认: 7891):"},
-					LineEdit{
-						AssignTo: &socksEdit,
-						Text:     fmt.Sprintf("%d", defaultSocks),
-					},
+					LineEdit{AssignTo: &socksEdit, Text: fmt.Sprintf("%d", defaultSocks)},
 					Label{Text: "HTTP 端口 (默认: 7892):"},
-					LineEdit{
-						AssignTo: &httpEdit,
-						Text:     fmt.Sprintf("%d", defaultHttp),
-					},
+					LineEdit{AssignTo: &httpEdit, Text: fmt.Sprintf("%d", defaultHttp)},
 				},
 			},
 		},
-    
 		OnAccept: func() (bool, error) {
 			m, err := parsePort(mixedEdit.Text(), defaultMixed)
 			if err != nil {
@@ -84,11 +75,11 @@ func (e *Engine) ShowPortEditor(defaultMixed, defaultSocks, defaultHttp int) (in
 
 			finalMixed = m
 			finalSocks = s
-			finalHttp  = h
+			finalHttp = h
 			return true, nil
 		},
 	})
-	currentPortEditor = nil
 
+	currentPortEditor = nil
 	return finalMixed, finalSocks, finalHttp, res.Accepted
 }
