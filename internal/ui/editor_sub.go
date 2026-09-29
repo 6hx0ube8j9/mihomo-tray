@@ -1,25 +1,27 @@
 package ui
 
 import (
+	"net/url"
 	"strings"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
 	"github.com/tailscale/win"
-)
 
-type intervalOption struct {
-	Name  string
-	Value int
-}
+	"mihomo-tray/internal/domain"
+)
 
 var currentSubEditor *walk.Dialog
 
-func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultURL string, defaultInterval int) (string, string, int, bool) {
+func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultUrl string, defaultInterval int) (string, string, int, bool) {
 	if currentSubEditor != nil {
 		e.app.Synchronize(func() {
 			if currentSubEditor.Visible() {
-				win.SetForegroundWindow(currentSubEditor.Handle())
+				hwnd := currentSubEditor.Handle()
+				if win.IsIconic(hwnd) {
+					win.ShowWindow(hwnd, win.SW_RESTORE)
+				}
+				win.SetForegroundWindow(hwnd)
 				currentSubEditor.SetFocus()
 			}
 		})
@@ -27,81 +29,57 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultURL string, d
 	}
 
 	var nameEdit, urlEdit *walk.LineEdit
-	var intervalCombo *walk.ComboBox
-
-	options := []*intervalOption{
-		{"不自动更新", 0},
-		{"每 1 小时", 60},
-		{"每 6 小时", 360},
-		{"每 12 小时", 720},
-		{"每 24 小时", 1440},
-		{"每 48 小时", 2880},
-		{"每 72 小时", 4320},
-	}
-
-	defaultIndex := 0
-	for i, opt := range options {
-		if opt.Value == defaultInterval {
-			defaultIndex = i
-			break
-		}
-	}
-
-	var finalName, finalURL string
+	var intervalEdit *walk.NumberEdit
+	var finalName, finalUrl string
 	var finalInterval int
 
 	res := RunEditor(getValidOwner(), EditorConfig{
-		AssignTo: &currentSubEditor,
-		Title:    title,
-		Width:    380,
+		AssignTo:      &currentSubEditor,
+		Title:         title,
+		Width:         450,
+		MinHeight:     200,
+		AcceptBtnText: "确定",
 		Widgets: []Widget{
 			Composite{
-				Layout: VBox{MarginsZero: true, Spacing: 8},
+				Layout: Grid{Columns: 2, Spacing: 10, MarginsZero: true},
 				Children: []Widget{
-					Label{Text: "配置名称 (可选，留空则自动生成):"},
+					Label{Text: "配置名称:"},
 					LineEdit{AssignTo: &nameEdit, Text: defaultName},
-					VSpacer{Size: 4},
-					Label{Text: "订阅链接 (必填):"},
-					LineEdit{AssignTo: &urlEdit, Text: defaultURL},
-					VSpacer{Size: 4},
-					Label{Text: "自动更新频率:"},
-					ComboBox{
-						AssignTo:      &intervalCombo,
-						Value:         defaultIndex,
-						BindingMember: "Value",
-						DisplayMember: "Name",
-						Model:         options,
+					Label{Text: "订阅链接:"},
+					LineEdit{AssignTo: &urlEdit, Text: defaultUrl},
+					Label{Text: "更新频率:"},
+					Composite{
+						Layout: HBox{MarginsZero: true},
+						Children: []Widget{
+							NumberEdit{AssignTo: &intervalEdit, Value: float64(defaultInterval), MinValue: 0, MaxValue: float64(domain.MaxUpdateInterval)},
+							Label{Text: "天 (填 0 为禁用自动更新)"},
+							HSpacer{},
+						},
 					},
 				},
 			},
 		},
 		OnAccept: func() (bool, error) {
 			inputName := strings.TrimSpace(nameEdit.Text())
-			inputURL := strings.TrimSpace(urlEdit.Text())
-
-			if inputURL == "" {
-				RunErrorDialog(nil, "输入错误", "订阅链接不能为空。")
+			inputUrl := strings.TrimSpace(urlEdit.Text())
+			
+			if inputUrl == "" {
+				RunErrorDialog(currentSubEditor, "输入错误", "订阅链接不能为空！")
 				return false, nil
 			}
-			if !strings.HasPrefix(inputURL, "http://") && !strings.HasPrefix(inputURL, "https://") {
-				RunErrorDialog(nil, "输入错误", "订阅链接格式不正确，必须以 http:// 或 https:// 开头。")
+			u, parseErr := url.ParseRequestURI(inputUrl)
+			if parseErr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				RunErrorDialog(currentSubEditor, "输入错误", "请输入有效的 HTTP/HTTPS 订阅链接")
 				return false, nil
-			}
-
-			idx := intervalCombo.CurrentIndex()
-			selectedInterval := 0
-			if idx >= 0 && idx < len(options) {
-				selectedInterval = options[idx].Value
 			}
 
 			finalName = inputName
-			finalURL = inputURL
-			finalInterval = selectedInterval
-
+			finalUrl = inputUrl
+			finalInterval = int(intervalEdit.Value())
 			return true, nil
 		},
 	})
 
 	currentSubEditor = nil
-	return finalName, finalURL, finalInterval, res.Accepted
+	return finalName, finalUrl, finalInterval, res.Accepted
 }
