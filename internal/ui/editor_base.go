@@ -9,10 +9,11 @@ import (
 type EditorConfig struct {
 	Title         string
 	Width         int
+	MinHeight     int
 	Widgets       []Widget
 	OnAccept      func() (bool, error)
-	AcceptBtnText string 
-	CancelBtnText string              
+	AcceptBtnText string
+	CancelBtnText string
 	AssignTo      **walk.Dialog
 }
 
@@ -33,7 +34,7 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 		cfg.CancelBtnText = "取消"
 	}
 
-	resultCh := make(chan EditorResult)
+	resultCh := make(chan EditorResult, 1)
 
 	GlobalEngine.app.Synchronize(func() {
 		parent := owner
@@ -44,6 +45,8 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 
 		var dlg *walk.Dialog
 		var acceptPB, cancelPB *walk.PushButton
+		var isAccepted bool
+		var processErr error
 
 		layoutChildren := append(cfg.Widgets,
 			VSpacer{},
@@ -54,26 +57,24 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 					PushButton{
 						AssignTo: &acceptPB,
 						Text:     cfg.AcceptBtnText,
-						MinSize:  Size{Width: 90, Height: 26},
+						MinSize:  Size{Width: 80, Height: 26},
 						OnClicked: func() {
 							if cfg.OnAccept != nil {
 								ok, err := cfg.OnAccept()
 								if !ok {
 									return
 								}
-								resultCh <- EditorResult{Accepted: true, Error: err}
-							} else {
-								resultCh <- EditorResult{Accepted: true}
+								processErr = err
 							}
+							isAccepted = true
 							dlg.Accept()
 						},
 					},
 					PushButton{
 						AssignTo: &cancelPB,
 						Text:     cfg.CancelBtnText,
-						MinSize:  Size{Width: 90, Height: 26},
+						MinSize:  Size{Width: 80, Height: 26},
 						OnClicked: func() {
-							resultCh <- EditorResult{Accepted: false}
 							dlg.Cancel()
 						},
 					},
@@ -82,10 +83,10 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 		)
 
 		err := Dialog{
-			AssignTo:      &dlg,
+			AssignTo:      cfg.AssignTo,
 			Title:         cfg.Title,
-			MinSize:       Size{Width: cfg.Width, Height: 0},
-			Layout:        VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 12},
+			MinSize:       Size{Width: cfg.Width, Height: cfg.MinHeight},
+			Layout:        VBox{Margins: Margins{Left: 20, Top: 20, Right: 20, Bottom: 15}, Spacing: 15},
 			DefaultButton: &acceptPB,
 			CancelButton:  &cancelPB,
 			Children:      layoutChildren,
@@ -94,6 +95,10 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 		if err != nil {
 			resultCh <- EditorResult{Accepted: false, Error: err}
 			return
+		}
+
+		if cfg.AssignTo != nil {
+			dlg = *cfg.AssignTo
 		}
 
 		defer dlg.Dispose()
@@ -112,12 +117,8 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 			}
 		})
 
-		if dlg.Run() != win.IDOK {
-			select {
-			case resultCh <- EditorResult{Accepted: false}:
-			default:
-			}
-		}
+		dlg.Run()
+		resultCh <- EditorResult{Accepted: isAccepted, Error: processErr}
 	})
 
 	return <-resultCh
