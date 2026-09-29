@@ -6,10 +6,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/netutil"
 	"mihomo-tray/internal/random"
 )
 
@@ -114,20 +116,33 @@ func (m *Manager) applyDefaults(cfg *domain.TrayConfig) bool {
 	if cfg.Config.AllowLan == nil { t := domain.DefaultAllowLan; cfg.Config.AllowLan = &t; isTainted = true }
 	if cfg.Config.UnifiedDelay == nil { t := domain.DefaultUnifiedDelay; cfg.Config.UnifiedDelay = &t; isTainted = true }
 
-	if cfg.Config.Secret == nil { 
-		s := random.Secret(domain.DefaultSecretLength)
-		cfg.Config.Secret = &s
+	
+    if cfg.Config.ExternalController == "" { 
+		cfg.Config.ExternalController = domain.DefaultExternalController
 		isTainted = true 
 	}
 	
+    if cfg.Config.Secret == nil { 
+		s := random.String(domain.DefaultSecretLength)
+		cfg.Config.Secret = &s
+		isTainted = true 
+	} else if netutil.IsPublicAddress(cfg.Config.ExternalController) && strings.TrimSpace(*cfg.Config.Secret) == "" {
+		s := random.String(domain.DefaultSecretLength)
+		cfg.Config.Secret = &s
+		isTainted = true 
+		slog.Warn("检测到高危配置：外网监听但未设置密码，已强制生成随机密码防护")
+	}
+
 	if cfg.Config.ExternalUIURL == nil { 
 		s := domain.DefaultExternalUIURL
 		cfg.Config.ExternalUIURL = &s
 		isTainted = true 
 	}
-
-	if cfg.Config.ExternalController == "" { cfg.Config.ExternalController = domain.DefaultExternalController; isTainted = true }
-	if cfg.Config.ExternalUI == "" { cfg.Config.ExternalUI = domain.DefaultExternalUI; isTainted = true }
+	
+    if cfg.Config.ExternalUI == "" { 
+		cfg.Config.ExternalUI = domain.DefaultExternalUI
+		isTainted = true 
+	}	
 
 	cfg.Config.ExternalControllerPipe = domain.IPCNamedPipe
 
