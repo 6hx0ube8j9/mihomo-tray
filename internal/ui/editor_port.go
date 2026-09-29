@@ -32,16 +32,16 @@ func (e *Engine) ShowPortEditor(defaultMixed, defaultSocks, defaultHttp int) (in
 		AssignTo:  &currentPortEditor,
 		Title:     "更改代理端口",
 		Width:     320,
-		MinHeight: 200,
+		MinHeight: 140,
 		Widgets: []Widget{
 			Composite{
 				Layout: Grid{Columns: 2, Spacing: 10, MarginsZero: true},
 				Children: []Widget{
-					Label{Text: "Mixed 端口:"},
+					Label{Text: "Mixed 端口:", Alignment: AlignHFarVCenter},
 					LineEdit{AssignTo: &mixedEdit, Text: strconv.Itoa(defaultMixed)},
-					Label{Text: "Socks 端口:"},
+					Label{Text: "Socks 端口:", Alignment: AlignHFarVCenter},
 					LineEdit{AssignTo: &socksEdit, Text: strconv.Itoa(defaultSocks)},
-					Label{Text: "HTTP(S) 端口:"},
+					Label{Text: "HTTP(S) 端口:", Alignment: AlignHFarVCenter},
 					LineEdit{AssignTo: &httpEdit, Text: strconv.Itoa(defaultHttp)},
 				},
 			},
