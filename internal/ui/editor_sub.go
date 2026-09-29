@@ -1,11 +1,11 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
+	"github.com/tailscale/win"
 )
 
 type intervalOption struct {
@@ -19,7 +19,8 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultURL string, d
 	if currentSubEditor != nil {
 		e.app.Synchronize(func() {
 			if currentSubEditor.Visible() {
-				walk.App().ActiveForm().SetFocus()
+				win.SetForegroundWindow(currentSubEditor.Handle())
+				currentSubEditor.SetFocus()
 			}
 		})
 		return "", "", 0, false
@@ -38,7 +39,6 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultURL string, d
 		{"每 72 小时", 4320},
 	}
 
-	// 找出默认选中项的索引
 	defaultIndex := 0
 	for i, opt := range options {
 		if opt.Value == defaultInterval {
@@ -52,23 +52,17 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultURL string, d
 
 	res := RunEditor(getValidOwner(), EditorConfig{
 		AssignTo: &currentSubEditor,
-		Title: title,
-		Width: 380,
+		Title:    title,
+		Width:    380,
 		Widgets: []Widget{
 			Composite{
 				Layout: VBox{MarginsZero: true, Spacing: 8},
 				Children: []Widget{
 					Label{Text: "配置名称 (可选，留空则自动生成):"},
-					LineEdit{
-						AssignTo: &nameEdit,
-						Text:     defaultName,
-					},
+					LineEdit{AssignTo: &nameEdit, Text: defaultName},
 					VSpacer{Size: 4},
 					Label{Text: "订阅链接 (必填):"},
-					LineEdit{
-						AssignTo: &urlEdit,
-						Text:     defaultURL,
-					},
+					LineEdit{AssignTo: &urlEdit, Text: defaultURL},
 					VSpacer{Size: 4},
 					Label{Text: "自动更新频率:"},
 					ComboBox{
@@ -89,7 +83,6 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultURL string, d
 				RunErrorDialog(nil, "输入错误", "订阅链接不能为空。")
 				return false, nil
 			}
-
 			if !strings.HasPrefix(inputURL, "http://") && !strings.HasPrefix(inputURL, "https://") {
 				RunErrorDialog(nil, "输入错误", "订阅链接格式不正确，必须以 http:// 或 https:// 开头。")
 				return false, nil
@@ -108,7 +101,7 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultURL string, d
 			return true, nil
 		},
 	})
-	currentSubEditor = nil
 
+	currentSubEditor = nil
 	return finalName, finalURL, finalInterval, res.Accepted
 }
