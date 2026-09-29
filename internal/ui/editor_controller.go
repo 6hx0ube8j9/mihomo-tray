@@ -22,12 +22,14 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 	var finalOnline, finalSysBrowser bool
 
 	res := RunEditor(getValidOwner(), EditorConfig{
-		AssignTo: &currentControllerEditor,
-		Title:    "Web 面板设置",
-		Width:    520,
+		AssignTo:      &currentControllerEditor,
+		Title:         "Web 面板设置",
+		Width:         480,
+		MinHeight:     200,
+		AcceptBtnText: "确定",
 		Widgets: []Widget{
 			Composite{
-				Layout: Grid{Columns: 2, MarginsZero: true, Spacing: 10},
+				Layout: Grid{Columns: 2, Spacing: 10, MarginsZero: true},
 				Children: []Widget{
 					Label{Text: "外部监听地址:"},
 					Composite{
@@ -36,8 +38,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 							LineEdit{AssignTo: &addrEdit, Text: defaultAddr},
 							PushButton{
 								Text:    "复制",
-								MinSize: Size{Width: 50},
-								MaxSize: Size{Width: 50},
+								MinSize: Size{Width: 50}, MaxSize: Size{Width: 50},
 								OnClicked: func() {
 									if err := walk.Clipboard().SetText(addrEdit.Text()); err == nil {
 										ShowTrayNotification("提示", "监听地址已复制到剪贴板")
@@ -46,8 +47,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 							},
 							PushButton{
 								Text:    "默认",
-								MinSize: Size{Width: 50},
-								MaxSize: Size{Width: 50},
+								MinSize: Size{Width: 50}, MaxSize: Size{Width: 50},
 								OnClicked: func() {
 									addrEdit.SetText(domain.DefaultExternalController)
 								},
@@ -62,8 +62,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 							LineEdit{AssignTo: &secretEdit, Text: defaultSecret},
 							PushButton{
 								Text:    "复制",
-								MinSize: Size{Width: 50},
-								MaxSize: Size{Width: 50},
+								MinSize: Size{Width: 50}, MaxSize: Size{Width: 50},
 								OnClicked: func() {
 									if err := walk.Clipboard().SetText(secretEdit.Text()); err == nil {
 										ShowTrayNotification("提示", "访问密钥已复制到剪贴板")
@@ -72,17 +71,13 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 							},
 							PushButton{
 								Text:    "生成",
-								MinSize: Size{Width: 50},
-								MaxSize: Size{Width: 50},
+								MinSize: Size{Width: 50}, MaxSize: Size{Width: 50},
 								OnClicked: func() {
 									secretEdit.SetText(random.String(domain.DefaultSecretLength))
 								},
 							},
 						},
 					},
-
-					VSpacer{Size: 5},
-					Label{},
 
 					Label{Text: "使用在线 Web 面板:"},
 					CheckBox{AssignTo: &onlineCheck, Checked: defaultOnline},
