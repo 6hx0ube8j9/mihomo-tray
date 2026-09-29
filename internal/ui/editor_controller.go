@@ -24,16 +24,16 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 	res := RunEditor(getValidOwner(), EditorConfig{
 		AssignTo:      &currentControllerEditor,
 		Title:         "Web 面板设置",
-		Width:         460,
-		MinHeight:     235,
+		Width:         415,
+		MinHeight:     195,
 		AcceptBtnText: "确定",
 		Widgets: []Widget{
 			Composite{
-				Layout: VBox{MarginsZero: true, Spacing: 10},
+				Layout: VBox{MarginsZero: true, Spacing: 8}, 
 				Children: []Widget{
 					GroupBox{
 						Title:  "控制器连接",
-						Layout: Grid{Columns: 2, Spacing: 8, Margins: Margins{Left: 10, Top: 15, Right: 10, Bottom: 10}},
+						Layout: Grid{Columns: 2, Spacing: 6, Margins: Margins{Left: 8, Top: 12, Right: 8, Bottom: 8}},
 						Children: []Widget{
 							Label{Text: "监听地址:", Alignment: AlignHFarVCenter},
 							Composite{
@@ -87,7 +87,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 
 					GroupBox{
 						Title:  "启动偏好",
-						Layout: HBox{Margins: Margins{Left: 10, Top: 15, Right: 10, Bottom: 10}, Spacing: 15},
+						Layout: HBox{Margins: Margins{Left: 8, Top: 10, Right: 8, Bottom: 8}, Spacing: 12},
 						Children: []Widget{
 							CheckBox{
 								AssignTo: &onlineCheck,
@@ -96,14 +96,12 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 							},
 							CheckBox{
 								AssignTo: &sysBrowserCheck,
-								Text:     "使用系统默认浏览器打开",
+								Text:     "使用系统默认浏览器", 
 								Checked:  defaultSysBrowser,
 							},
-							HSpacer{},
+							HSpacer{}, 
 						},
 					},
-
-					VSpacer{},
 				},
 			},
 		},
