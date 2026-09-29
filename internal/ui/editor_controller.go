@@ -9,6 +9,7 @@ import (
 	. "github.com/tailscale/walk/declarative"
 
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/netutil"
 	"mihomo-tray/internal/random"
 )
 
@@ -71,14 +72,14 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 								Text:    "生成",
 								MinSize: Size{Width: 50},
 								OnClicked: func() {
-									secretEdit.SetText(random.Secret(domain.DefaultSecretLength))
+									secretEdit.SetText(random.String(domain.DefaultSecretLength))
 								},
 							},
 						},
 					},
 
 					VSpacer{Size: 5},
-					Label{}, 
+					Label{},
 
 					Label{Text: "使用在线 Web 面板:"},
 					CheckBox{AssignTo: &onlineCheck, Checked: defaultOnline},
@@ -96,9 +97,8 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 				RunErrorDialog(currentControllerEditor, "保存失败", "监听地址不能为空。")
 				return false, nil
 			}
-	
-			host, portStr, err := net.SplitHostPort(addr)
-			
+
+			_, portStr, err := net.SplitHostPort(addr)
 			isFormatValid := err == nil && !strings.ContainsAny(addr, " \t\r\n")
 			if isFormatValid {
 				port, pErr := strconv.Atoi(portStr)
@@ -110,8 +110,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 				return false, nil
 			}
 
-			isPublic := host == "0.0.0.0" || host == "::" || host == ""
-			if isPublic && secret == "" {
+			if netutil.IsPublicAddress(addr) && secret == "" {
 				RunErrorDialog(currentControllerEditor, "保存失败", "当前地址支持外网访问，密钥不能为空。")
 				return false, nil
 			}
