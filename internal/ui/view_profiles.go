@@ -60,11 +60,7 @@ func (v *ProfileView) Declarative() []Widget {
 				PushButton{Text: "添加远程订阅", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestAddRemote, "") }},
 				PushButton{Text: "导入本地配置", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestAddLocal, "") }},
 				PushButton{Text: "更改代理端口", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestEditPort, "") }},
-                PushButton{Text: "Web 面板设置", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestEditController, "") }},
-				
-				Label{
-					AssignTo: &v.portsLabel,
-				},
+				PushButton{Text: "Web 面板设置", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestEditController, "") }},
 				HSpacer{},
 			},
 		},
@@ -113,9 +109,15 @@ func (v *ProfileView) Declarative() []Widget {
 						}},
 					},
 				},
+				// 3. 右侧控制列 (VBox 垂直布局)
 				Composite{
 					Layout: VBox{MarginsZero: true, Spacing: 8},
 					Children: []Widget{
+						Label{
+							AssignTo: &v.portsLabel,
+						},
+						VSpacer{Size: 15},
+						
 						PushButton{AssignTo: &btnMoveUp, Text: "上移", Enabled: false, MinSize: Size{Width: 90}, OnClicked: func() {
 							if idx := v.tableView.CurrentIndex(); idx >= 0 { v.engine.SendCommand(domain.ActionMoveProfileUp, v.model.Items[idx].Path) }
 						}},
@@ -132,7 +134,7 @@ func (v *ProfileView) Declarative() []Widget {
 
 func (v *ProfileView) RefreshData(state domain.UIState) {
 	if v.portsLabel != nil {
-		v.portsLabel.SetText(fmt.Sprintf("Mixed: %d   Socks: %d   HTTP(S): %d", 
+		v.portsLabel.SetText(fmt.Sprintf("Mixed: %d\nSocks: %d\nHTTP(S): %d", 
 			state.MixedPort, state.SocksPort, state.HttpPort))
 	}
 
