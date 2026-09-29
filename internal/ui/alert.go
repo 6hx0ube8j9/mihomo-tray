@@ -71,10 +71,13 @@ func lockWindowSize(hwnd win.HWND) {
 }
 
 func centerDialog(dlg *walk.Dialog, owner walk.Form, hActive win.HWND) {
-	var rect win.RECT
-	win.GetWindowRect(dlg.Handle(), &rect)
-	dlgW := rect.Right - rect.Left
-	dlgH := rect.Bottom - rect.Top
+	if dlg == nil {
+		return
+	}
+
+	dlgBounds := dlg.Bounds()
+	dlgW := int32(dlgBounds.Width)
+	dlgH := int32(dlgBounds.Height)
 
 	var workArea win.RECT
 	win.SystemParametersInfo(0x0030, 0, unsafe.Pointer(&workArea), 0)
@@ -90,13 +93,11 @@ func centerDialog(dlg *walk.Dialog, owner walk.Form, hActive win.HWND) {
 		var pClientRect win.RECT
 		win.GetClientRect(owner.Handle(), &pClientRect)
 
-		ptLT := win.POINT{X: pClientRect.Left, Y: pClientRect.Top}
-		ptRB := win.POINT{X: pClientRect.Right, Y: pClientRect.Bottom}
+		ptLT := win.POINT{X: 0, Y: 0}
 		win.ClientToScreen(owner.Handle(), &ptLT)
-		win.ClientToScreen(owner.Handle(), &ptRB)
 
-		pCX := ptLT.X + (ptRB.X - ptLT.X)/2
-		pCY := ptLT.Y + (ptRB.Y - ptLT.Y)/2
+		pCX := ptLT.X + pClientRect.Right/2
+		pCY := ptLT.Y + pClientRect.Bottom/2
 
 		x = pCX - dlgW/2
 		y = pCY - dlgH/2
@@ -193,6 +194,10 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 		lockWindowSize(dlg.Handle())
 		centerDialog(dlg, parent, hActive)
 		win.MessageBeep(beep) 
+	})
+
+	dlg.SizeChanged().Attach(func() {
+		centerDialog(dlg, parent, hActive)
 	})
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
