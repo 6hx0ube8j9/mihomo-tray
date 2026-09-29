@@ -61,9 +61,15 @@ func (v *ProfileView) Declarative() []Widget {
 				PushButton{Text: "导入本地配置", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestAddLocal, "") }},
 				PushButton{Text: "更改代理端口", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestEditPort, "") }},
 				PushButton{Text: "Web 面板设置", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestEditController, "") }},
-				HSpacer{},
+				
+				HSpacer{}, 
+				
+				Label{
+					AssignTo: &v.portsLabel,
+				},
 			},
 		},
+
 		Composite{
 			Layout: HBox{MarginsZero: true, Spacing: 10},
 			Children: []Widget{
@@ -109,15 +115,10 @@ func (v *ProfileView) Declarative() []Widget {
 						}},
 					},
 				},
-				// 3. 右侧控制列 (VBox 垂直布局)
+
 				Composite{
 					Layout: VBox{MarginsZero: true, Spacing: 8},
 					Children: []Widget{
-						Label{
-							AssignTo: &v.portsLabel,
-						},
-						VSpacer{Size: 15},
-						
 						PushButton{AssignTo: &btnMoveUp, Text: "上移", Enabled: false, MinSize: Size{Width: 90}, OnClicked: func() {
 							if idx := v.tableView.CurrentIndex(); idx >= 0 { v.engine.SendCommand(domain.ActionMoveProfileUp, v.model.Items[idx].Path) }
 						}},
