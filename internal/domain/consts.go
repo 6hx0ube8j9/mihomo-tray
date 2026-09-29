@@ -48,6 +48,7 @@ const (
 	
 	// 控制平面默认值
 	DefaultExternalController = "127.0.0.1:9090"
+	DefaultSecretLength       = 32
 	DefaultExternalUI         = "ui"
 	DefaultExternalUIURL      = "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip"
 	DefaultExternalUIName     = ""
