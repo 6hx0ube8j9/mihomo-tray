@@ -6,7 +6,6 @@ import (
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
-	"github.com/tailscale/win"
 
 	"mihomo-tray/internal/domain"
 )
@@ -14,20 +13,6 @@ import (
 var currentSubEditor *walk.Dialog
 
 func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultUrl string, defaultInterval int) (string, string, int, bool) {
-	if currentSubEditor != nil {
-		e.app.Synchronize(func() {
-			if currentSubEditor.Visible() {
-				hwnd := currentSubEditor.Handle()
-				if win.IsIconic(hwnd) {
-					win.ShowWindow(hwnd, win.SW_RESTORE)
-				}
-				win.SetForegroundWindow(hwnd)
-				currentSubEditor.SetFocus()
-			}
-		})
-		return "", "", 0, false
-	}
-
 	var nameEdit, urlEdit *walk.LineEdit
 	var intervalEdit *walk.NumberEdit
 	var finalName, finalUrl string
@@ -80,6 +65,5 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultUrl string, d
 		},
 	})
 
-	currentSubEditor = nil
 	return finalName, finalUrl, finalInterval, res.Accepted
 }
