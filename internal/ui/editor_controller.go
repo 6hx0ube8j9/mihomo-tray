@@ -1,11 +1,12 @@
 package ui
 
 import (
+	"net"
+	"strconv"
 	"strings"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
-	"github.com/tailscale/win"
 
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/random"
@@ -22,36 +23,41 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 	res := RunEditor(getValidOwner(), EditorConfig{
 		AssignTo:  &currentControllerEditor,
 		Title:     "Web 面板设置",
-		Width:     460,
-		MinHeight: 280,
+		Width:     420,
+		MinHeight: 180,
 		Widgets: []Widget{
 			Composite{
-				Layout: Grid{Columns: 3, MarginsZero: true, Spacing: 10},
+				Layout: Grid{Columns: 2, MarginsZero: true, Spacing: 10},
 				Children: []Widget{
 					Label{Text: "外部监听地址:"},
-					LineEdit{AssignTo: &addrEdit, Text: defaultAddr},
-					PushButton{
-						Text:    "复制",
-						MinSize: Size{Width: 60},
-						OnClicked: func() {
-							if err := walk.Clipboard().SetText(addrEdit.Text()); err == nil {
-								ShowTrayNotification("提示", "监听地址已复制到剪贴板")
-							}
+					Composite{
+						Layout: HBox{MarginsZero: true, Spacing: 5},
+						Children: []Widget{
+							LineEdit{AssignTo: &addrEdit, Text: defaultAddr},
+							PushButton{
+								Text:    "复制",
+								MinSize: Size{Width: 50},
+								OnClicked: func() {
+									if err := walk.Clipboard().SetText(addrEdit.Text()); err == nil {
+										ShowTrayNotification("提示", "监听地址已复制到剪贴板")
+									}
+								},
+							},
+							PushButton{
+								Text:    "默认",
+								MinSize: Size{Width: 50},
+								OnClicked: func() {
+									addrEdit.SetText(domain.DefaultExternalController)
+								},
+							},
 						},
 					},
 
 					Label{Text: "访问密钥:"},
-					LineEdit{AssignTo: &secretEdit, Text: defaultSecret, PasswordMode: true},
 					Composite{
 						Layout: HBox{MarginsZero: true, Spacing: 5},
 						Children: []Widget{
-							PushButton{
-								Text:    "生成",
-								MinSize: Size{Width: 50},
-								OnClicked: func() {
-									secretEdit.SetText(random.Secret(domain.DefaultSecretLength))
-								},
-							},
+							LineEdit{AssignTo: &secretEdit, Text: defaultSecret},
 							PushButton{
 								Text:    "复制",
 								MinSize: Size{Width: 50},
@@ -61,21 +67,23 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 									}
 								},
 							},
+							PushButton{
+								Text:    "生成",
+								MinSize: Size{Width: 50},
+								OnClicked: func() {
+									secretEdit.SetText(random.Secret(domain.DefaultSecretLength))
+								},
+							},
 						},
 					},
-				},
-			},
-			VSpacer{Size: 15},
-			Composite{
-				Layout: Grid{Columns: 2, MarginsZero: true, Spacing: 8},
-				Children: []Widget{
+
+					VSpacer{Size: 5},
+					Label{}, 
+
 					Label{Text: "使用在线 Web 面板:"},
 					CheckBox{AssignTo: &onlineCheck, Checked: defaultOnline},
 
-					Label{},
-					Label{Text: "⚠️ 提示：通过第三方托管页面连接，可能存在配置泄漏风险", TextColor: walk.RGB(200, 80, 0)},
-
-					Label{Text: "使用默认浏览器打开面板:"},
+					Label{Text: "使用默认浏览器打开:"},
 					CheckBox{AssignTo: &sysBrowserCheck, Checked: defaultSysBrowser},
 				},
 			},
@@ -85,19 +93,27 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 			secret := strings.TrimSpace(secretEdit.Text())
 
 			if addr == "" {
-				RunErrorDialog(currentControllerEditor, "输入错误", "外部监听地址不能为空")
+				RunErrorDialog(currentControllerEditor, "保存失败", "监听地址不能为空。")
+				return false, nil
+			}
+	
+			host, portStr, err := net.SplitHostPort(addr)
+			
+			isFormatValid := err == nil && !strings.ContainsAny(addr, " \t\r\n")
+			if isFormatValid {
+				port, pErr := strconv.Atoi(portStr)
+				isFormatValid = pErr == nil && port > 0 && port <= 65535
+			}
+
+			if !isFormatValid {
+				RunErrorDialog(currentControllerEditor, "保存失败", "输入格式错误。")
 				return false, nil
 			}
 
-			isPublic := strings.HasPrefix(addr, "0.0.0.0") || strings.HasPrefix(addr, ":") || strings.HasPrefix(addr, "[::]")
-			if isPublic {
-				RunAlertDialog(currentControllerEditor, "安全警告", "监听地址已设为公开访问，建议设置较强访问密钥。", walk.IconWarning(), win.MB_ICONWARNING)
-			}
-
-			if secret == "" {
-				if !RunConfirmDialog(currentControllerEditor, "安全提示", "当前未设置访问密钥，接口处于公开状态。确定保持空密码吗？") {
-					return false, nil
-				}
+			isPublic := host == "0.0.0.0" || host == "::" || host == ""
+			if isPublic && secret == "" {
+				RunErrorDialog(currentControllerEditor, "保存失败", "当前地址支持外网访问，密钥不能为空。")
+				return false, nil
 			}
 
 			finalAddr = addr
