@@ -119,6 +119,16 @@ func centerDialog(dlg *walk.Dialog, owner walk.Form, hActive win.HWND) {
 	win.SetWindowPos(dlg.Handle(), win.HWND_TOP, x, y, 0, 0, win.SWP_NOSIZE)
 }
 
+func restoreFocus(parent walk.Form, hActive win.HWND) {
+	if parent != nil && parent.Visible() && !win.IsIconic(parent.Handle()) {
+		win.SetForegroundWindow(parent.Handle())
+		win.SetFocus(parent.Handle())
+	} else if hActive != 0 && win.IsWindowVisible(hActive) && !win.IsIconic(hActive) {
+		win.SetForegroundWindow(hActive)
+		win.SetFocus(hActive)
+	}
+}
+
 func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, beep uint32) {
 	parent := owner
 	if parent == nil {
@@ -170,13 +180,7 @@ func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, bee
 	dlg.Starting().Attach(func() { centerDialog(dlg, parent, hActive); win.MessageBeep(beep) })
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-		if parent != nil && parent.Visible() && !win.IsIconic(parent.Handle()) {
-			win.SetForegroundWindow(parent.Handle())
-			win.SetFocus(parent.Handle())
-		} else if hActive != 0 && win.IsWindowVisible(hActive) && !win.IsIconic(hActive) {
-			win.SetForegroundWindow(hActive)
-			win.SetFocus(hActive)
-		}
+		restoreFocus(parent, hActive)
 	})
 
 	dlg.Run()
@@ -236,13 +240,7 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 	dlg.Starting().Attach(func() { centerDialog(dlg, parent, hActive); win.MessageBeep(win.MB_ICONQUESTION) })
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-		if parent != nil && parent.Visible() && !win.IsIconic(parent.Handle()) {
-			win.SetForegroundWindow(parent.Handle())
-			win.SetFocus(parent.Handle())
-		} else if hActive != 0 && win.IsWindowVisible(hActive) && !win.IsIconic(hActive) {
-			win.SetForegroundWindow(hActive)
-			win.SetFocus(hActive)
-		}
+		restoreFocus(parent, hActive)
 	})
 
 	dlg.Run()
