@@ -25,11 +25,11 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 		AssignTo:      &currentControllerEditor,
 		Title:         "Web 面板设置",
 		Width:         460,
-		Height:        230,
+		MinHeight:     255,
 		AcceptBtnText: "确定",
 		Widgets: []Widget{
 			Composite{
-				Layout: VBox{MarginsZero: true, Spacing: 10},
+				Layout: VBox{MarginsZero: true, Spacing: 12},
 				Children: []Widget{
 					Composite{
 						Layout: Grid{Columns: 2, Spacing: 8, MarginsZero: true},
@@ -41,7 +41,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 									LineEdit{AssignTo: &addrEdit, Text: defaultAddr},
 									PushButton{
 										Text:    "复制",
-										MinSize: Size{Width: 54},
+										MinSize: Size{Width: 52},
 										OnClicked: func() {
 											if err := walk.Clipboard().SetText(addrEdit.Text()); err == nil {
 												ShowTrayNotification("提示", "监听地址已复制到剪贴板")
@@ -50,7 +50,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 									},
 									PushButton{
 										Text:    "默认",
-										MinSize: Size{Width: 54},
+										MinSize: Size{Width: 52},
 										OnClicked: func() {
 											addrEdit.SetText(domain.DefaultExternalController)
 										},
@@ -65,7 +65,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 									LineEdit{AssignTo: &secretEdit, Text: defaultSecret},
 									PushButton{
 										Text:    "复制",
-										MinSize: Size{Width: 54},
+										MinSize: Size{Width: 52},
 										OnClicked: func() {
 											if err := walk.Clipboard().SetText(secretEdit.Text()); err == nil {
 												ShowTrayNotification("提示", "访问密钥已复制到剪贴板")
@@ -74,7 +74,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 									},
 									PushButton{
 										Text:    "生成",
-										MinSize: Size{Width: 54},
+										MinSize: Size{Width: 52},
 										OnClicked: func() {
 											secretEdit.SetText(random.String(domain.DefaultSecretLength))
 										},
@@ -85,7 +85,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 					},
 
 					Composite{
-						Layout: VBox{MarginsZero: true, Spacing: 6},
+						Layout: VBox{MarginsZero: true, Spacing: 8},
 						Children: []Widget{
 							CheckBox{
 								AssignTo: &onlineCheck,
@@ -99,8 +99,6 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 							},
 						},
 					},
-
-					VSpacer{},
 				},
 			},
 		},
@@ -121,7 +119,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 			}
 
 			if !isFormatValid {
-				RunErrorDialog(currentControllerEditor, "保存失败", "输入格式错误。")
+				RunErrorDialog(currentControllerEditor, "保存失败", "输入格式错误，端口须在 1-65535 之间。")
 				return false, nil
 			}
 
