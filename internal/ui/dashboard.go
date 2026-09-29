@@ -67,10 +67,21 @@ func (d *Dashboard) createWindow() {
 			win.ShowWindow(hwnd, win.SW_HIDE)
 			return 0
 		}
+
+		if msg == win.WM_DESTROY || msg == win.WM_NCDESTROY {
+			if d.oldWndProc != 0 {
+				win.SetWindowLongPtr(hwnd, win.GWLP_WNDPROC, d.oldWndProc)
+				d.oldWndProc = 0
+			}
+		}
+		
+		if d.oldWndProc == 0 {
+			return win.DefWindowProc(hwnd, msg, wParam, lParam)
+		}
 		return win.CallWindowProc(d.oldWndProc, hwnd, msg, wParam, lParam)
 	})
 	d.oldWndProc = win.SetWindowLongPtr(d.window.Handle(), win.GWLP_WNDPROC, d.wndProcCb)
-
+		
 	centerWindow(d.window)
 
 	if len(d.lastState.ProfileItems) > 0 || d.lastState.MixedPort != 0 {
