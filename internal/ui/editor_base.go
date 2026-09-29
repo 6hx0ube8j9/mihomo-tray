@@ -101,7 +101,6 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 			AssignTo:      cfg.AssignTo,
 			Title:         cfg.Title,
 			MinSize:       Size{Width: cfg.Width, Height: cfg.MinHeight},
-			MaxSize:       Size{Width: cfg.Width, Height: cfg.MinHeight},
 			Layout:        VBox{Margins: Margins{Left: 18, Top: 15, Right: 18, Bottom: 15}, Spacing: 12},
 			DefaultButton: &acceptPB,
 			CancelButton:  &cancelPB,
@@ -120,6 +119,14 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 		defer dlg.Dispose()
 
 		dlg.Starting().Attach(func() {
+			hwnd := dlg.Handle()
+			
+			style := win.GetWindowLong(hwnd, win.GWL_STYLE)
+			style &^= win.WS_THICKFRAME | win.WS_MAXIMIZEBOX
+			win.SetWindowLong(hwnd, win.GWL_STYLE, style)
+			
+			win.SetWindowPos(hwnd, 0, 0, 0, 0, 0, win.SWP_NOMOVE|win.SWP_NOSIZE|win.SWP_NOZORDER|win.SWP_FRAMECHANGED)
+
 			centerDialog(dlg, parent, hActive)
 		})
 
