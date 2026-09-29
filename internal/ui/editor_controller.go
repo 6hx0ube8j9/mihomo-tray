@@ -22,10 +22,9 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 	var finalOnline, finalSysBrowser bool
 
 	res := RunEditor(getValidOwner(), EditorConfig{
-		AssignTo:  &currentControllerEditor,
-		Title:     "Web 面板设置",
-		Width:     420,
-		MinHeight: 180,
+		AssignTo: &currentControllerEditor,
+		Title:    "Web 面板设置",
+		Width:    520,
 		Widgets: []Widget{
 			Composite{
 				Layout: Grid{Columns: 2, MarginsZero: true, Spacing: 10},
@@ -38,6 +37,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 							PushButton{
 								Text:    "复制",
 								MinSize: Size{Width: 50},
+								MaxSize: Size{Width: 50},
 								OnClicked: func() {
 									if err := walk.Clipboard().SetText(addrEdit.Text()); err == nil {
 										ShowTrayNotification("提示", "监听地址已复制到剪贴板")
@@ -47,6 +47,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 							PushButton{
 								Text:    "默认",
 								MinSize: Size{Width: 50},
+								MaxSize: Size{Width: 50},
 								OnClicked: func() {
 									addrEdit.SetText(domain.DefaultExternalController)
 								},
@@ -62,6 +63,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 							PushButton{
 								Text:    "复制",
 								MinSize: Size{Width: 50},
+								MaxSize: Size{Width: 50},
 								OnClicked: func() {
 									if err := walk.Clipboard().SetText(secretEdit.Text()); err == nil {
 										ShowTrayNotification("提示", "访问密钥已复制到剪贴板")
@@ -71,6 +73,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 							PushButton{
 								Text:    "生成",
 								MinSize: Size{Width: 50},
+								MaxSize: Size{Width: 50},
 								OnClicked: func() {
 									secretEdit.SetText(random.String(domain.DefaultSecretLength))
 								},
