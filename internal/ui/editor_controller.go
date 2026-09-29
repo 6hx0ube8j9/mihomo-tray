@@ -1,13 +1,14 @@
 package ui
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"strings"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
 	"github.com/tailscale/win"
+
+	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/random"
 )
 
 var currentControllerEditor *walk.Dialog
@@ -48,9 +49,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 								Text:    "生成",
 								MinSize: Size{Width: 50},
 								OnClicked: func() {
-									b := make([]byte, 16)
-									_, _ = rand.Read(b)
-									secretEdit.SetText(hex.EncodeToString(b))
+									secretEdit.SetText(random.Secret(domain.DefaultSecretLength))
 								},
 							},
 							PushButton{
