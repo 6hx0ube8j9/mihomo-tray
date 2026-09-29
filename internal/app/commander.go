@@ -196,7 +196,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 						a.RestartKernel() 
 					} else if appChanged {
 						slog.Info("Web 面板应用偏好已保存")
-						ui.ShowTrayNotification("提示", "Web 面板偏好设置已保存生效")
 					}
 				}
 			}
