@@ -148,6 +148,66 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		}()
 		return
 		
+    case domain.ActionRequestEditController:
+		go func() {
+			cfg := a.Cfg.GetConfig()
+
+			currAddr := cfg.Config.ExternalController
+			if currAddr == "" {
+				currAddr = domain.DefaultExternalController
+			}
+			currSecret := ""
+			if cfg.Config.Secret != nil {
+				currSecret = *cfg.Config.Secret
+			}
+			currOnline := false
+			if cfg.General.RemoteWebUI != nil {
+				currOnline = *cfg.General.RemoteWebUI
+			}
+			currSysBrowser := false
+			if cfg.General.SystemBrowser != nil {
+				currSysBrowser = *cfg.General.SystemBrowser
+			}
+
+			if ui.GlobalEngine != nil {
+				newAddr, newSecret, newOnline, newSysBrowser, ok := ui.GlobalEngine.ShowControllerEditor(
+					currAddr, currSecret, currOnline, currSysBrowser,
+				)
+				
+				if ok {
+					changed := false
+					
+					a.Cfg.Update(func(c *domain.TrayConfig) {
+						if c.Config.ExternalController != newAddr {
+							c.Config.ExternalController = newAddr
+							changed = true
+						}
+						if c.Config.Secret == nil || *c.Config.Secret != newSecret {
+							c.Config.Secret = &newSecret
+							changed = true
+						}
+						if c.General.RemoteWebUI == nil || *c.General.RemoteWebUI != newOnline {
+							bOnline := newOnline
+							c.General.RemoteWebUI = &bOnline
+							changed = true
+						}
+						if c.General.SystemBrowser == nil || *c.General.SystemBrowser != newSysBrowser {
+							bSys := newSysBrowser
+							c.General.SystemBrowser = &bSys
+							changed = true
+						}
+					})
+
+					if changed {
+						a.pushUIState()
+						
+						a.RestartKernel()
+					}
+				}
+			}
+		}()
+		return
+		
 	case domain.ActionAddLocalProfile:
 		if a.State.IsProfileSwitching() {
 			break
