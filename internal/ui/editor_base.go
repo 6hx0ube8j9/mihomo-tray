@@ -129,6 +129,10 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 			centerDialog(dlg, parent, hActive)
 		})
 
+		dlg.SizeChanged().Attach(func() {
+			centerDialog(dlg, parent, hActive)
+		})
+
 		dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 			if cfg.AssignTo != nil {
 				*cfg.AssignTo = nil
