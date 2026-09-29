@@ -22,17 +22,19 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultUrl string, d
 		AssignTo:      &currentSubEditor,
 		Title:         title,
 		Width:         450,
-		MinHeight:     200,
+		MinHeight:     145,
 		AcceptBtnText: "确定",
 		Widgets: []Widget{
 			Composite{
 				Layout: Grid{Columns: 2, Spacing: 10, MarginsZero: true},
 				Children: []Widget{
-					Label{Text: "配置名称:"},
+					Label{Text: "配置名称:", Alignment: AlignHFarVCenter},
 					LineEdit{AssignTo: &nameEdit, Text: defaultName},
-					Label{Text: "订阅链接:"},
+					
+					Label{Text: "订阅链接:", Alignment: AlignHFarVCenter},
 					LineEdit{AssignTo: &urlEdit, Text: defaultUrl},
-					Label{Text: "更新频率:"},
+					
+					Label{Text: "更新频率:", Alignment: AlignHFarVCenter},
 					Composite{
 						Layout: HBox{MarginsZero: true},
 						Children: []Widget{
