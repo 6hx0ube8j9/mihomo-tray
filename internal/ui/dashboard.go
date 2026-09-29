@@ -58,16 +58,13 @@ func (d *Dashboard) createWindow() {
 
     // Apply upstream layout patch.
 	disableGhostToolbar(d.window)
-	
-	var oldWndProc uintptr
-	newWndProc := syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
-		if msg == win.WM_SYSCOMMAND && (wParam&0xFFF0) == win.SC_CLOSE {
-			win.ShowWindow(hwnd, win.SW_HIDE)
-			return 0
+
+	d.window.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
+		if reason == walk.CloseReasonUser {
+			*canceled = true   // 阻止窗口被物理销毁
+			d.window.Hide()    // 仅仅将其隐藏
 		}
-		return win.CallWindowProc(oldWndProc, hwnd, msg, wParam, lParam)
 	})
-	oldWndProc = win.SetWindowLongPtr(d.window.Handle(), win.GWLP_WNDPROC, newWndProc)
 
 	centerWindow(d.window)
 
