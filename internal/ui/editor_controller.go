@@ -44,9 +44,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 										Text:    "复制",
 										MinSize: Size{Width: 44}, MaxSize: Size{Width: 44},
 										OnClicked: func() {
-											if err := walk.Clipboard().SetText(addrEdit.Text()); err == nil {
-												ShowTrayNotification("提示", "监听地址已复制到剪贴板")
-											}
+											walk.Clipboard().SetText(addrEdit.Text())
 										},
 									},
 									PushButton{
@@ -68,9 +66,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 										Text:    "复制",
 										MinSize: Size{Width: 44}, MaxSize: Size{Width: 44},
 										OnClicked: func() {
-											if err := walk.Clipboard().SetText(secretEdit.Text()); err == nil {
-												ShowTrayNotification("提示", "访问密钥已复制到剪贴板")
-											}
+											walk.Clipboard().SetText(secretEdit.Text())
 										},
 									},
 									PushButton{
