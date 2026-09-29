@@ -87,10 +87,19 @@ func centerDialog(dlg *walk.Dialog, owner walk.Form, hActive win.HWND) {
 	}
 
 	if shouldFollowOwner {
-		var pRect win.RECT
-		win.GetWindowRect(owner.Handle(), &pRect)
-		x = pRect.Left + (pRect.Right-pRect.Left-dlgW)/2
-		y = pRect.Top + (pRect.Bottom-pRect.Top-dlgH)/2
+		var pClientRect win.RECT
+		win.GetClientRect(owner.Handle(), &pClientRect)
+
+		ptLT := win.POINT{X: pClientRect.Left, Y: pClientRect.Top}
+		ptRB := win.POINT{X: pClientRect.Right, Y: pClientRect.Bottom}
+		win.ClientToScreen(owner.Handle(), &ptLT)
+		win.ClientToScreen(owner.Handle(), &ptRB)
+
+		pCX := ptLT.X + (ptRB.X - ptLT.X)/2
+		pCY := ptLT.Y + (ptRB.Y - ptLT.Y)/2
+
+		x = pCX - dlgW/2
+		y = pCY - dlgH/2
 	} else {
 		x = workArea.Left + (workArea.Right-workArea.Left-dlgW)/2
 		y = workArea.Top + (workArea.Bottom-workArea.Top-dlgH)/2
