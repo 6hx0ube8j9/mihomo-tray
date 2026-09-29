@@ -8,13 +8,12 @@ import (
 	. "github.com/tailscale/walk/declarative"
 )
 
-// 订阅更新频率的选项模型
 type intervalOption struct {
 	Name  string
 	Value int
 }
 
-var currentSubEditor *walk.Dialog // 防多开标记
+var currentSubEditor *walk.Dialog
 
 func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultURL string, defaultInterval int) (string, string, int, bool) {
 	if currentSubEditor != nil {
@@ -29,7 +28,6 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultURL string, d
 	var nameEdit, urlEdit *walk.LineEdit
 	var intervalCombo *walk.ComboBox
 
-	// 定义更新频率选项
 	options := []*intervalOption{
 		{"不自动更新", 0},
 		{"每 1 小时", 60},
@@ -52,10 +50,10 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultURL string, d
 	var finalName, finalURL string
 	var finalInterval int
 
-	// 调用中央枢纽 RunEditor 渲染界面！
 	res := RunEditor(getValidOwner(), EditorConfig{
+		AssignTo: &currentSubEditor,
 		Title: title,
-		Width: 380, // 订阅链接通常比较长，稍微加宽一点
+		Width: 380,
 		Widgets: []Widget{
 			Composite{
 				Layout: VBox{MarginsZero: true, Spacing: 8},
@@ -65,7 +63,7 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultURL string, d
 						AssignTo: &nameEdit,
 						Text:     defaultName,
 					},
-					VSpacer{Size: 4}, // 微调间距
+					VSpacer{Size: 4},
 					Label{Text: "订阅链接 (必填):"},
 					LineEdit{
 						AssignTo: &urlEdit,
@@ -75,8 +73,8 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultURL string, d
 					Label{Text: "自动更新频率:"},
 					ComboBox{
 						AssignTo:      &intervalCombo,
-						Value:         defaultIndex, // 默认选中项
-						BindingMember: "Value",      // 虽然这里绑定了，但为了安全我们直接通过 CurrentIndex 读取
+						Value:         defaultIndex,
+						BindingMember: "Value",
 						DisplayMember: "Name",
 						Model:         options,
 					},
@@ -87,10 +85,9 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultURL string, d
 			inputName := strings.TrimSpace(nameEdit.Text())
 			inputURL := strings.TrimSpace(urlEdit.Text())
 
-			// 必填项校验
 			if inputURL == "" {
 				RunErrorDialog(nil, "输入错误", "订阅链接不能为空。")
-				return false, nil // 阻止窗口关闭
+				return false, nil
 			}
 
 			if !strings.HasPrefix(inputURL, "http://") && !strings.HasPrefix(inputURL, "https://") {
@@ -98,7 +95,6 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultURL string, d
 				return false, nil
 			}
 
-			// 获取选中的更新频率
 			idx := intervalCombo.CurrentIndex()
 			selectedInterval := 0
 			if idx >= 0 && idx < len(options) {
@@ -109,9 +105,10 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultURL string, d
 			finalURL = inputURL
 			finalInterval = selectedInterval
 
-			return true, nil // 验证全部通过，允许关闭
+			return true, nil
 		},
 	})
+	currentSubEditor = nil
 
 	return finalName, finalURL, finalInterval, res.Accepted
 }
