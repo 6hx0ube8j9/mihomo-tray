@@ -61,7 +61,7 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 
 	if !isKernelRunning {
 		a.Kernel.WakeDaemon()
-		a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, *cfg.Config.Secret, cfg.Config.ExternalUIName)
+		a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
 	} else {
 		time.Sleep(500 * time.Millisecond)
 		a.syncAllConfig(ctx)
@@ -175,7 +175,7 @@ func (a *Application) RestartKernel() {
 
 	a.Kernel.WakeDaemon()
 
-	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, *cfg.Config.Secret, cfg.Config.ExternalUIName)
+	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
 	
 	a.pushUIState()
 
