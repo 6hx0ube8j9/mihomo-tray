@@ -1,8 +1,6 @@
 package config
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -12,6 +10,7 @@ import (
 	"time"
 
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/random"
 )
 
 const (
@@ -116,10 +115,11 @@ func (m *Manager) applyDefaults(cfg *domain.TrayConfig) bool {
 	if cfg.Config.UnifiedDelay == nil { t := domain.DefaultUnifiedDelay; cfg.Config.UnifiedDelay = &t; isTainted = true }
 
 	if cfg.Config.Secret == nil { 
-		s := generateSecureRandomSecret(16)
+		s := random.Secret(domain.DefaultSecretLength)
 		cfg.Config.Secret = &s
 		isTainted = true 
 	}
+	
 	if cfg.Config.ExternalUIURL == nil { 
 		s := domain.DefaultExternalUIURL
 		cfg.Config.ExternalUIURL = &s
@@ -258,19 +258,6 @@ func (m *Manager) ValidatePhysicalFile(relPath string) error {
 	}
 	if fi.Size() == 0 { return fmt.Errorf("配置文件已损坏 (0字节)") }
 	return nil
-}
-
-func generateSecureRandomSecret(length int) string {
-	byteLen := (length / 2) + 1 
-	b := make([]byte, byteLen)
-	if _, err := rand.Read(b); err != nil {
-		return "SecureSecret"
-	}
-	encoded := hex.EncodeToString(b)
-	if len(encoded) > length {
-		encoded = encoded[:length]
-	}
-	return encoded
 }
 
 func (m *Manager) lockedSave() {
