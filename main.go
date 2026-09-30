@@ -240,8 +240,6 @@ func main() {
 				slog.Info("捕获唤醒信号")
 				
 				application.UICommandCh <- domain.UICommand{Action: domain.ActionOpenWebUI}
-
-				time.Sleep(200 * time.Millisecond)
 			}
 		}()
 	}
