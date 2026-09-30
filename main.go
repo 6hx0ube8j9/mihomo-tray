@@ -95,13 +95,16 @@ func main() {
 			_ = windows.CloseHandle(hM)
 		}
 		
-		sys.GrantForegroundPrivilege()
-		
 		eName, _ := windows.UTF16PtrFromString(ShowUIEvent)
 		hEvent, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName)
 		if err == nil && hEvent != 0 {
+			
+			sys.GrantForegroundPrivilege()
+		
 			_ = windows.SetEvent(hEvent)
 			_ = windows.CloseHandle(hEvent)
+			
+			time.Sleep(50 * time.Millisecond)
 		}
 		return
 	}
