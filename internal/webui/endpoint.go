@@ -57,15 +57,51 @@ func buildLocalWebUIURL(host, port, secret, uiName string) string {
 	return fmt.Sprintf("http://%s:%s%s?%s#/setup?%s", host, port, uiPath, query, query)
 }
 
-func buildRemoteWebUIURL(host, port, secret string) string {
-	query := buildQueryArgs(host, port, secret)
-
-	baseURL := strings.TrimSpace(domain.DefaultRemoteWebUIURL)
-
-	if strings.Contains(baseURL, "?") {
-		return baseURL + "&" + query
+func buildRemoteWebUIURL(customURL, host, port, secret string) string {
+	rawURL := strings.TrimSpace(customURL)
+	if rawURL == "" {
+		rawURL = strings.TrimSpace(domain.DefaultRemoteWebUIURL)
 	}
-	return baseURL + "?" + query
+
+	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
+		rawURL = "https://" + rawURL
+	}
+	rawURL = strings.TrimRight(rawURL, "/?")
+
+	query := buildQueryArgs(host, port, secret)
+	
+	cleanBase := rawURL
+	if idx := strings.IndexAny(cleanBase, "?#"); idx != -1 {
+		cleanBase = cleanBase[:idx]
+	}
+	baseLower := strings.ToLower(cleanBase)
+
+	if strings.Contains(baseLower, "board.zash.run.place") {
+		return cleanBase + "/#/setup?http=true&" + query
+	}
+
+	if strings.Contains(baseLower, "metacubexd") || strings.Contains(baseLower, "metacubex.github.io") {
+		if strings.HasSuffix(baseLower, "metacubex.github.io") {
+			return cleanBase + "/metacubexd/#/setup?http=true&" + query
+		}
+		return cleanBase + "/#/setup?http=true&" + query
+	}
+
+	if strings.Contains(baseLower, "yacd") {
+		return cleanBase + "/?" + query
+	}
+
+	hasHash := strings.Contains(rawURL, "#")
+	hasQuery := strings.Contains(rawURL, "?")
+
+	switch {
+	case hasHash && hasQuery:
+		return rawURL + "&" + query
+	case hasHash || hasQuery:
+		return rawURL + "?" + query
+	default:
+		return rawURL + "/#/setup?" + query
+	}
 }
 
 func buildFinalURL(cfg Config) (string, string) {
@@ -73,7 +109,7 @@ func buildFinalURL(cfg Config) (string, string) {
 
 	var finalURL string
 	if cfg.RemoteWebUI {
-		finalURL = buildRemoteWebUIURL(host, port, cfg.Secret)
+		finalURL = buildRemoteWebUIURL(cfg.RemoteWebUIURL, host, port, cfg.Secret)
 	} else {
 		finalURL = buildLocalWebUIURL(host, port, cfg.Secret, cfg.UIName)
 	}
