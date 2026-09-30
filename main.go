@@ -95,10 +95,11 @@ func main() {
 			_ = windows.CloseHandle(hM)
 		}
 		
+		sys.GrantForegroundPrivilege()
+		
 		eName, _ := windows.UTF16PtrFromString(ShowUIEvent)
-		if hEvent, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName); err == nil && hEvent != 0 {
-			windows.NewLazySystemDLL("user32.dll").NewProc("AllowSetForegroundWindow").Call(0xFFFFFFFF)
-			
+		hEvent, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName)
+		if err == nil && hEvent != 0 {
 			_ = windows.SetEvent(hEvent)
 			_ = windows.CloseHandle(hEvent)
 		}
