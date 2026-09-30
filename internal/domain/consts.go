@@ -51,7 +51,7 @@ const (
 	DefaultSecretLength       = 20
 	DefaultExternalUI         = "ui"
 	DefaultExternalUIURL      = "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip"
-	DefaultExternalUIName     = ""
+	DefaultExternalUIName     = "default"
 
 	// 托盘常规设置
 	DefaultAutostart           = false
