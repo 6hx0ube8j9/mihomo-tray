@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"mihomo-tray/internal/netutil"
@@ -46,20 +47,6 @@ func safeGet(url string) (*http.Response, error) {
 		return nil, err
 	}
 	return cdpClient.Do(req)
-}
-
-func GetFreePort() string {
-	addr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(cdpHost, "0"))
-	if err != nil {
-		return fallbackDebugPort1
-	}
-	l, err := net.ListenTCP("tcp", addr)
-	if err != nil {
-		return fallbackDebugPort2
-	}
-	port := strconv.Itoa(l.Addr().(*net.TCPAddr).Port)
-	_ = l.Close()
-	return port
 }
 
 func IsDebugPortAlive(port string) bool {
