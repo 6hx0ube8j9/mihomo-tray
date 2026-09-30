@@ -59,34 +59,25 @@ func (d *Dashboard) createWindow() {
 		return
 	}
 
-    // Apply upstream layout patch.
+	// Apply upstream layout patch.
 	disableGhostToolbar(d.window)
 
-	d.wndProcCb = syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
-		if msg == win.WM_SYSCOMMAND && (wParam&0xFFF0) == win.SC_CLOSE {
-			win.ShowWindow(hwnd, win.SW_HIDE)
-			return 0
-		}
+    if d.oldWndProc == 0 {
+        d.wndProcCb = syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
+            if msg == win.WM_SYSCOMMAND && (wParam&0xFFF0) == win.SC_CLOSE {
+                win.ShowWindow(hwnd, win.SW_HIDE)
+                return 0
+            }
+            return win.CallWindowProc(d.oldWndProc, hwnd, msg, wParam, lParam)
+        })
+        d.oldWndProc = win.SetWindowLongPtr(d.window.Handle(), win.GWLP_WNDPROC, d.wndProcCb)
+    }
 
-		if msg == win.WM_DESTROY || msg == win.WM_NCDESTROY {
-			if d.oldWndProc != 0 {
-				win.SetWindowLongPtr(hwnd, win.GWLP_WNDPROC, d.oldWndProc)
-				d.oldWndProc = 0
-			}
-		}
-		
-		if d.oldWndProc == 0 {
-			return win.DefWindowProc(hwnd, msg, wParam, lParam)
-		}
-		return win.CallWindowProc(d.oldWndProc, hwnd, msg, wParam, lParam)
-	})
-	d.oldWndProc = win.SetWindowLongPtr(d.window.Handle(), win.GWLP_WNDPROC, d.wndProcCb)
-		
-	centerWindow(d.window)
+    centerWindow(d.window)
 
-	if len(d.lastState.ProfileItems) > 0 || d.lastState.MixedPort != 0 {
-		d.ProfileView.RefreshData(d.lastState)
-	}
+    if len(d.lastState.ProfileItems) > 0 || d.lastState.MixedPort != 0 {
+        d.ProfileView.RefreshData(d.lastState)
+    }
 }
 
 func (d *Dashboard) Refresh(state domain.UIState) {
@@ -105,7 +96,6 @@ func (d *Dashboard) RefreshData(state domain.UIState) {
 func (d *Dashboard) Dispose() {
 	if d.window != nil {
 		hwnd := d.window.Handle()
-
 		if d.oldWndProc != 0 && hwnd != 0 {
 			win.SetWindowLongPtr(hwnd, win.GWLP_WNDPROC, d.oldWndProc)
 			d.oldWndProc = 0
