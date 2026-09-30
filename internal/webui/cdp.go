@@ -49,25 +49,28 @@ func safeGet(url string) (*http.Response, error) {
 	return cdpClient.Do(req)
 }
 
-func IsDebugPortAlive(port string) bool {
-	resp, err := safeGet(buildCDPBaseURL(port))
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	var targets []map[string]interface{}
-	return json.NewDecoder(resp.Body).Decode(&targets) == nil
-}
-
-func GetWebUITarget(debugPort string) (id string, title string, found bool) {
+func getCDPTargets(debugPort string) ([]map[string]interface{}, error) {
 	resp, err := safeGet(buildCDPBaseURL(debugPort))
 	if err != nil {
-		return "", "", false
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	var targets []map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&targets); err != nil {
+		return nil, err
+	}
+	return targets, nil
+}
+
+func IsDebugPortAlive(port string) bool {
+	targets, err := getCDPTargets(port)
+	return err == nil && targets != nil
+}
+
+func GetWebUITarget(debugPort string) (id string, title string, found bool) {
+	targets, err := getCDPTargets(debugPort)
+	if err != nil {
 		return "", "", false
 	}
 
@@ -92,19 +95,14 @@ func ActivateTarget(debugPort, targetID string) error {
 }
 
 func CloseAllWebUITargets(debugPort string) {
-	resp, err := safeGet(buildCDPBaseURL(debugPort))
+	targets, err := getCDPTargets(debugPort)
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
-
-	var targets []map[string]interface{}
-	if json.NewDecoder(resp.Body).Decode(&targets) == nil {
-		for _, t := range targets {
-			if id, ok := t["id"].(string); ok {
-				if closeResp, closeErr := safeGet(buildCDPActionURL(debugPort, "close", id)); closeErr == nil {
-					_ = closeResp.Body.Close()
-				}
+	for _, t := range targets {
+		if id, ok := t["id"].(string); ok {
+			if closeResp, closeErr := safeGet(buildCDPActionURL(debugPort, "close", id)); closeErr == nil {
+				_ = closeResp.Body.Close()
 			}
 		}
 	}
