@@ -14,7 +14,6 @@ import (
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/sys"
 	"mihomo-tray/internal/ui"
-	"mihomo-tray/internal/webui"
 )
 
 func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath string) error {
