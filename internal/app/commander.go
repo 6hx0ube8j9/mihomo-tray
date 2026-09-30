@@ -588,7 +588,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionClearWebUICache:
 		go func() {
-			if !ui.ShowConfirmMessage(nil, "确认清理？", "清理 Web 面板缓存将同时清除所有面板设置（如主题、布局等），且无法恢复。\n\n是否继续？") {
+			if !ui.ShowConfirmMessage(nil, "确认清理？", "清理缓存将同时清除所有面板个性设置（如主题、布局等），且无法恢复。\n\n是否继续？") {
 				return
 			}
 			
