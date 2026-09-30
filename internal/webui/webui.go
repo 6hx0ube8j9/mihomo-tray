@@ -77,24 +77,12 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 
 	if cfg.ForceSystemBrowser {
 		slog.Info("根据全局配置，强制使用系统默认浏览器进入面板")
-		err := sys.ExecuteSystemCommand(`"` + finalURL + `"`)
-		if err == nil {
-			emitEvent(eventCh, EventReady)
-		} else {
-			slog.Error("调用系统默认浏览器失败", "err", err)
-			emitEvent(eventCh, EventError)
-		}
+		m.openSystemBrowser(finalURL, eventCh)
 		return
 	}
 
-	if hwnd := sys.GetCachedWebUIHwnd(); hwnd != 0 {
-		if sys.IsWindowVisible(hwnd) {
-			slog.Debug("唤醒已隐藏的 WebUI 窗口")
-			sys.FocusWindowSilky(hwnd)
-			emitEvent(eventCh, EventReady)
-			return
-		}
-		sys.SetCachedWebUIHwnd(0)
+	if m.tryWakeCachedWindow(eventCh) {
+		return
 	}
 
 	if !m.mu.TryLock() {
@@ -102,137 +90,152 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 	}
 	defer m.mu.Unlock()
 
+	safeDebugPort := m.prepareDebugPort()
+
+	if m.tryAttachExistingTarget(safeDebugPort, appHostPort, eventCh) {
+		return
+	}
+
+	if m.launchIsolatedBrowser(cfg, finalURL, safeDebugPort, appHostPort, eventCh) {
+		return
+	}
+
+	slog.Warn("未探测到受支持的独立浏览器或启动失败，降级为默认浏览器打开")
+	m.openSystemBrowser(finalURL, eventCh)
+}
+
+
+func (m *Manager) openSystemBrowser(finalURL string, eventCh chan<- Event) {
+	if err := sys.ExecuteSystemCommand(`"` + finalURL + `"`); err == nil {
+		emitEvent(eventCh, EventReady)
+	} else {
+		slog.Error("调用系统默认浏览器失败", "err", err)
+		emitEvent(eventCh, EventError)
+	}
+}
+
+func (m *Manager) tryWakeCachedWindow(eventCh chan<- Event) bool {
+	if hwnd := sys.GetCachedWebUIHwnd(); hwnd != 0 {
+		if sys.IsWindowVisible(hwnd) {
+			slog.Debug("唤醒已隐藏的 WebUI 窗口")
+			sys.FocusWindowSilky(hwnd)
+			emitEvent(eventCh, EventReady)
+			return true
+		}
+		sys.SetCachedWebUIHwnd(0)
+	}
+	return false
+}
+
+func (m *Manager) prepareDebugPort() string {
 	if m.debugPort != "" && !IsDebugPortAlive(m.debugPort) {
 		m.debugPort = ""
 	}
 	if m.debugPort == "" {
 		m.debugPort = GetFreePort()
 	}
-	safeDebugPort := m.debugPort
+	return m.debugPort
+}
 
-	targetID, targetTitle, found := GetWebUITarget(safeDebugPort)
-	if found {
-		slog.Debug("发现存活的调试端口，尝试直接激活标签页", "Port", safeDebugPort, "ID", targetID)
-		_ = ActivateTarget(safeDebugPort, targetID)
-
-		realBrowserPid := m.isolatedPid.Load()
-		windowFound := false
-
-		for i := 0; i < 30; i++ {
-			time.Sleep(100 * time.Millisecond)
-			if i%5 == 0 {
-				if truePid := sys.GetProcessIdByPort(safeDebugPort); truePid != 0 {
-					realBrowserPid = truePid
-					m.isolatedPid.Store(realBrowserPid)
-				}
-			}
-
-			if sys.FindAndFocusAppWindow(targetTitle, appHostPort, realBrowserPid, isStandardBrowserWindow) {
-				windowFound = true
-				break
-			}
-		}
-
-		if windowFound {
-			emitEvent(eventCh, EventReady)
-			return
-		}
+func (m *Manager) tryAttachExistingTarget(debugPort, appHostPort string, eventCh chan<- Event) bool {
+	targetID, targetTitle, found := GetWebUITarget(debugPort)
+	if !found {
+		return false
 	}
 
+	slog.Debug("发现存活的调试端口，尝试直接激活标签页", "Port", debugPort, "ID", targetID)
+	_ = ActivateTarget(debugPort, targetID)
+
+	realBrowserPid := m.isolatedPid.Load()
+	for i := 0; i < 30; i++ {
+		time.Sleep(100 * time.Millisecond)
+		if i%5 == 0 {
+			if truePid := sys.GetProcessIdByPort(debugPort); truePid != 0 {
+				realBrowserPid = truePid
+				m.isolatedPid.Store(realBrowserPid)
+			}
+		}
+
+		if sys.FindAndFocusAppWindow(targetTitle, appHostPort, realBrowserPid, isStandardBrowserWindow) {
+			emitEvent(eventCh, EventReady)
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Manager) launchIsolatedBrowser(cfg Config, finalURL, debugPort, appHostPort string, eventCh chan<- Event) bool {
 	browserPath, browserTag := DetectAvailableBrowser()
-	if browserPath != "" {
-		slog.Info("启动独立浏览器进程运行 WebUI", "Browser", browserTag, "DebugPort", safeDebugPort)
-
-		userDataDir := filepath.Join(cfg.BaseDir, "webcache", browserTag)
-		_ = os.MkdirAll(userDataDir, 0755)
-
-		winW, winH, winX, winY := sys.GetIdealWindowBounds()
-
-		args := []string{
-			"--app=" + finalURL,
-			"--remote-debugging-port=" + safeDebugPort,
-			"--user-data-dir=" + userDataDir,
-			"--window-size=" + strconv.Itoa(winW) + "," + strconv.Itoa(winH),
-			"--window-position=" + strconv.Itoa(winX) + "," + strconv.Itoa(winY),
-			"--no-first-run",
-			"--no-default-browser-check",
-			"--disable-extensions",
-			"--disable-sync",
-			"--disable-background-networking",
-			"--disable-component-update",
-			"--disk-cache-size=33554432",
-			"--disable-translate",
-			"--hide-crash-restore-bubble",
-			"--disable-background-timer-throttling",
-			"--disable-client-side-phishing-detection",
-			"--disable-default-apps",
-		}
-
-		if p := strings.TrimSpace(cfg.ProxyPort); p != "" {
-			args = append(args,
-				"--proxy-server=127.0.0.1:"+p,
-				"--proxy-bypass-list=127.0.0.1;localhost;<local>",
-			)
-		}
-
-		cmd := exec.Command(browserPath, args...)
-		if err := cmd.Start(); err == nil {
-			mainPid := uint32(cmd.Process.Pid)
-			m.isolatedPid.Store(mainPid)
-			slog.Debug("独立浏览器进程已启动", "PID", mainPid)
-
-			go func() {
-				_ = cmd.Wait()
-			}()
-
-			realBrowserPid := mainPid
-			for i := 0; i < 30; i++ {
-				time.Sleep(100 * time.Millisecond)
-				if realBrowserPid == mainPid && i%5 == 0 {
-					if truePid := sys.GetProcessIdByPort(safeDebugPort); truePid != 0 {
-						realBrowserPid = truePid
-						m.isolatedPid.Store(realBrowserPid)
-						slog.Debug("通过端口反查锁定真实的独立浏览器进程", "TruePID", realBrowserPid)
-					}
-				}
-
-				liveTargetID, liveTitle, isLive := GetWebUITarget(safeDebugPort)
-				if isLive {
-					_ = ActivateTarget(safeDebugPort, liveTargetID)
-
-					if sys.FindAndFocusAppWindow(liveTitle, appHostPort, realBrowserPid, isStandardBrowserWindow) {
-						slog.Info("WebUI 窗口捕获成功")
-						emitEvent(eventCh, EventReady)
-						return
-					}
-				}
-			}
-			slog.Error("超时未能捕获浏览器窗口句柄")
-
-			if realBrowserPid != 0 && sys.IsPidRunning(realBrowserPid, "") {
-				slog.Warn("强制清理启动超时的失控浏览器进程", "PID", realBrowserPid)
-				sys.HardKill(realBrowserPid)
-			}
-			m.isolatedPid.Store(0)
-
-			emitEvent(eventCh, EventError)
-			return
-
-		} else {
-			slog.Error("创建浏览器进程失败", "err", err)
-			emitEvent(eventCh, EventError)
-			return
-		}
-	} else {
-		slog.Warn("未探测到受支持的浏览器，降级为默认浏览器打开")
-		err := sys.ExecuteSystemCommand(`"` + finalURL + `"`)
-		if err == nil {
-			emitEvent(eventCh, EventReady)
-		} else {
-			emitEvent(eventCh, EventError)
-		}
-		return
+	if browserPath == "" {
+		return false
 	}
+
+	slog.Info("启动独立浏览器进程运行 WebUI", "Browser", browserTag, "DebugPort", debugPort)
+	userDataDir := filepath.Join(cfg.BaseDir, "webcache", browserTag)
+	_ = os.MkdirAll(userDataDir, 0755)
+
+	winW, winH, winX, winY := sys.GetIdealWindowBounds()
+	args := []string{
+		"--app=" + finalURL,
+		"--remote-debugging-port=" + debugPort,
+		"--user-data-dir=" + userDataDir,
+		"--window-size=" + strconv.Itoa(winW) + "," + strconv.Itoa(winH),
+		"--window-position=" + strconv.Itoa(winX) + "," + strconv.Itoa(winY),
+		"--no-first-run", "--no-default-browser-check", "--disable-extensions",
+		"--disable-sync", "--disable-background-networking", "--disable-component-update",
+		"--disk-cache-size=33554432", "--disable-translate", "--hide-crash-restore-bubble",
+		"--disable-background-timer-throttling", "--disable-client-side-phishing-detection",
+		"--disable-default-apps",
+	}
+
+	if p := strings.TrimSpace(cfg.ProxyPort); p != "" {
+		args = append(args,
+			"--proxy-server=127.0.0.1:"+p,
+			"--proxy-bypass-list=127.0.0.1;localhost;<local>",
+		)
+	}
+
+	cmd := exec.Command(browserPath, args...)
+	if err := cmd.Start(); err != nil {
+		slog.Error("创建浏览器进程失败", "err", err)
+		return false
+	}
+
+	mainPid := uint32(cmd.Process.Pid)
+	m.isolatedPid.Store(mainPid)
+	slog.Debug("独立浏览器进程已启动", "PID", mainPid)
+
+	go func() { _ = cmd.Wait() }()
+
+	realBrowserPid := mainPid
+	for i := 0; i < 30; i++ {
+		time.Sleep(100 * time.Millisecond)
+		if realBrowserPid == mainPid && i%5 == 0 {
+			if truePid := sys.GetProcessIdByPort(debugPort); truePid != 0 {
+				realBrowserPid = truePid
+				m.isolatedPid.Store(realBrowserPid)
+				slog.Debug("通过端口反查锁定真实的独立浏览器进程", "TruePID", realBrowserPid)
+			}
+		}
+
+		liveTargetID, liveTitle, isLive := GetWebUITarget(debugPort)
+		if isLive {
+			_ = ActivateTarget(debugPort, liveTargetID)
+			if sys.FindAndFocusAppWindow(liveTitle, appHostPort, realBrowserPid, isStandardBrowserWindow) {
+				slog.Info("WebUI 窗口捕获成功")
+				emitEvent(eventCh, EventReady)
+				return true
+			}
+		}
+	}
+
+	slog.Error("超时未能捕获浏览器窗口句柄")
+	if realBrowserPid != 0 && sys.IsPidRunning(realBrowserPid, "") {
+		slog.Warn("强制清理启动超时的失控浏览器进程", "PID", realBrowserPid)
+		sys.HardKill(realBrowserPid)
+	}
+	m.isolatedPid.Store(0)
+	return false
 }
 
 func (m *Manager) Cleanup() {
