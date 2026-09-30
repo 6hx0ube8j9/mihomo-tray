@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -29,6 +28,14 @@ func buildCDPBaseURL(port string) string {
 
 func buildCDPActionURL(port, action, targetID string) string {
 	return fmt.Sprintf("http://%s:%s/json/%s/%s", cdpHost, port, action, targetID)
+}
+
+func getCDPDebugPort() string {
+	port, err := netutil.GetFreePort(cdpHost)
+	if err != nil {
+		return fallbackDebugPort1
+	}
+	return port
 }
 
 func safeGet(url string) (*http.Response, error) {
