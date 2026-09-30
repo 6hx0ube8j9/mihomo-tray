@@ -130,7 +130,7 @@ func (m *Manager) applyDefaults(cfg *domain.TrayConfig) bool {
 		s := random.String(domain.DefaultSecretLength)
 		cfg.Config.Secret = &s
 		isTainted = true 
-		slog.Warn("检测到高危配置：外网监听但未设置密码，已强制生成随机密码防护")
+		slog.Warn("检测到高危配置：外网监听但未设置密码，已强制生成随机密码")
 	}
 
 	if cfg.Config.ExternalUIURL == nil { 
@@ -143,6 +143,11 @@ func (m *Manager) applyDefaults(cfg *domain.TrayConfig) bool {
 		cfg.Config.ExternalUI = domain.DefaultExternalUI
 		isTainted = true 
 	}	
+
+	if cfg.Config.ExternalUIName == "" {
+		cfg.Config.ExternalUIName = domain.DefaultExternalUIName 
+		isTainted = true
+	}
 
 	cfg.Config.ExternalControllerPipe = domain.IPCNamedPipe
 
