@@ -11,16 +11,25 @@ import (
 	"time"
 )
 
+const (
+	fallbackDebugPort1 = "52819"
+	fallbackDebugPort2 = "52820"
+	cdpHost            = "127.0.0.1"
+)
+
 var cdpClient = &http.Client{
 	Transport: &http.Transport{
 		DisableKeepAlives: true,
 	},
 }
 
-const (
-	fallbackDebugPort1 = "52819"
-	fallbackDebugPort2 = "52820"
-)
+func buildCDPBaseURL(port string) string {
+	return fmt.Sprintf("http://%s:%s/json", cdpHost, port)
+}
+
+func buildCDPActionURL(port, action, targetID string) string {
+	return fmt.Sprintf("http://%s:%s/json/%s/%s", cdpHost, port, action, targetID)
+}
 
 func safeGet(url string) (*http.Response, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -33,7 +42,7 @@ func safeGet(url string) (*http.Response, error) {
 }
 
 func GetFreePort() string {
-	addr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
+	addr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(cdpHost, "0"))
 	if err != nil {
 		return fallbackDebugPort1
 	}
@@ -47,7 +56,7 @@ func GetFreePort() string {
 }
 
 func IsDebugPortAlive(port string) bool {
-	resp, err := safeGet(fmt.Sprintf("http://127.0.0.1:%s/json", port))
+	resp, err := safeGet(buildCDPBaseURL(port))
 	if err != nil {
 		return false
 	}
@@ -57,7 +66,7 @@ func IsDebugPortAlive(port string) bool {
 }
 
 func GetWebUITarget(debugPort string) (id string, title string, found bool) {
-	resp, err := safeGet(fmt.Sprintf("http://127.0.0.1:%s/json", debugPort))
+	resp, err := safeGet(buildCDPBaseURL(debugPort))
 	if err != nil {
 		return "", "", false
 	}
@@ -79,9 +88,8 @@ func GetWebUITarget(debugPort string) (id string, title string, found bool) {
 	return "", "", false
 }
 
-
 func ActivateTarget(debugPort, targetID string) error {
-	resp, err := safeGet(fmt.Sprintf("http://127.0.0.1:%s/json/activate/%s", debugPort, targetID))
+	resp, err := safeGet(buildCDPActionURL(debugPort, "activate", targetID))
 	if err != nil {
 		return err
 	}
@@ -90,18 +98,17 @@ func ActivateTarget(debugPort, targetID string) error {
 }
 
 func CloseAllWebUITargets(debugPort string) {
-	apiURL := fmt.Sprintf("http://127.0.0.1:%s/json", debugPort)
-	resp, err := safeGet(apiURL)
+	resp, err := safeGet(buildCDPBaseURL(debugPort))
 	if err != nil {
 		return
 	}
 	defer resp.Body.Close()
-	
+
 	var targets []map[string]interface{}
 	if json.NewDecoder(resp.Body).Decode(&targets) == nil {
 		for _, t := range targets {
 			if id, ok := t["id"].(string); ok {
-				if closeResp, closeErr := safeGet(fmt.Sprintf("http://127.0.0.1:%s/json/close/%s", debugPort, id)); closeErr == nil {
+				if closeResp, closeErr := safeGet(buildCDPActionURL(debugPort, "close", id)); closeErr == nil {
 					_ = closeResp.Body.Close()
 				}
 			}
