@@ -127,11 +127,13 @@ func (d *Dashboard) Dispose() {
 // Upstream forces WS_VISIBLE on the default toolbar, currently known to only affect MainWindow.
 // This empty toolbar overlaps top UI elements. Manually hiding it restores the correct layout.
 func disableGhostToolbar(win *walk.MainWindow) {
-	if win != nil {
-		if tb := win.ToolBar(); tb != nil {
-			tb.SetVisible(false)
-		}
-	}
+    if win == nil {
+        return
+    }
+    if tb := win.ToolBar(); tb != nil {
+        tb.SetVisible(false)
+        tb.Dispose()
+    }
 }
 
 func centerWindow(w *walk.MainWindow) {
