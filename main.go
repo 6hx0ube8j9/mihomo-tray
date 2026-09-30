@@ -97,6 +97,11 @@ func main() {
 		eName, _ := windows.UTF16PtrFromString(ShowUIEvent)
 		hEvent, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName)
 		if err == nil && hEvent != 0 {
+
+			modUser32 := windows.NewLazySystemDLL("user32.dll")
+			procAllowSetForegroundWindow := modUser32.NewProc("AllowSetForegroundWindow")
+			procAllowSetForegroundWindow.Call(uintptr(^uint32(0))) 
+
 			_ = windows.SetEvent(hEvent)
 			_ = windows.CloseHandle(hEvent)
 		}
