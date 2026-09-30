@@ -1,13 +1,7 @@
 package webui
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
 	"log/slog"
-	"net"
-	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,14 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/sys"
-)
-
-const (
-	defaultWebUIHost   = "127.0.0.1"
-	fallbackDebugPort1 = "52819"
-	fallbackDebugPort2 = "52820"
 )
 
 type Event int
@@ -44,36 +31,15 @@ type Config struct {
 	RemoteWebUI        bool
 }
 
-type browserInfo struct {
-	path string
-	tag  string
+type Manager struct {
+	debugPort   string
+	isolatedPid atomic.Uint32
+	mu          sync.Mutex
 }
 
-var potentialBrowsers = []browserInfo{
-	{filepath.Join(os.Getenv("ProgramFiles(x86)"), `Microsoft\Edge\Application\msedge.exe`), "edge"},
-	{filepath.Join(os.Getenv("ProgramFiles"), `Microsoft\Edge\Application\msedge.exe`), "edge"},
-	{filepath.Join(os.Getenv("ProgramFiles"), `Google\Chrome\Application\chrome.exe`), "chrome"},
-	{filepath.Join(os.Getenv("ProgramFiles(x86)"), `Google\Chrome\Application\chrome.exe`), "chrome"},
-	{filepath.Join(os.Getenv("LocalAppData"), `Google\Chrome\Application\chrome.exe`), "chrome"},
-	{filepath.Join(os.Getenv("ProgramFiles"), `BraveSoftware\Brave-Browser\Application\brave.exe`), "brave"},
-	{filepath.Join(os.Getenv("LocalAppData"), `BraveSoftware\Brave-Browser\Application\brave.exe`), "brave"},
-	{filepath.Join(os.Getenv("LocalAppData"), `Vivaldi\Application\vivaldi.exe`), "vivaldi"},
-	{filepath.Join(os.Getenv("ProgramFiles"), `Vivaldi\Application\vivaldi.exe`), "vivaldi"},
-	{filepath.Join(os.Getenv("ProgramFiles(x86)"), `Vivaldi\Application\vivaldi.exe`), "vivaldi"},
+func NewManager() *Manager {
+	return &Manager{}
 }
-
-var (
-	chromeDebugPort  string
-	isolatedWebUIPid uint32
-	debugPortMu      sync.Mutex
-	launchMu         sync.Mutex
-
-	webuiClient = &http.Client{
-		Transport: &http.Transport{
-			DisableKeepAlives: true,
-		},
-	}
-)
 
 var ghostCharReplacer = strings.NewReplacer(
 	"\u200b", "", "\u200c", "", "\u200d", "",
@@ -85,8 +51,8 @@ var browserTitleSuffixes = []string{
 	"brave", "vivaldi", "firefox", "opera", "chromium",
 }
 
-func isStandardBrowserWindow(titleLower string) bool {
-	clean := ghostCharReplacer.Replace(titleLower)
+func isStandardBrowserWindow(title string) bool {
+	clean := ghostCharReplacer.Replace(strings.ToLower(title))
 	clean = strings.TrimSpace(clean)
 	for _, b := range browserTitleSuffixes {
 		if strings.HasSuffix(clean, b) {
@@ -94,30 +60,6 @@ func isStandardBrowserWindow(titleLower string) bool {
 		}
 	}
 	return false
-}
-
-func isDebugPortAlive(port string) bool {
-	resp, err := safeGet(fmt.Sprintf("http://127.0.0.1:%s/json", port))
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	var targets []map[string]interface{}
-	return json.NewDecoder(resp.Body).Decode(&targets) == nil
-}
-
-func getFreePort() string {
-	addr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
-	if err != nil {
-		return fallbackDebugPort1
-	}
-	l, err := net.ListenTCP("tcp", addr)
-	if err != nil {
-		return fallbackDebugPort2
-	}
-	port := strconv.Itoa(l.Addr().(*net.TCPAddr).Port)
-	_ = l.Close()
-	return port
 }
 
 func emitEvent(ch chan<- Event, event Event) {
@@ -130,173 +72,62 @@ func emitEvent(ch chan<- Event, event Event) {
 	}
 }
 
-func safeGet(url string) (*http.Response, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	return webuiClient.Do(req)
-}
-
-func getWebUITarget(debugPort string) (id string, title string, found bool) {
-	resp, err := safeGet(fmt.Sprintf("http://127.0.0.1:%s/json", debugPort))
-	if err != nil {
-		return "", "", false
-	}
-	defer resp.Body.Close()
-
-	var targets []map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&targets); err != nil {
-		return "", "", false
-	}
-
-	for _, t := range targets {
-		pURL, _ := t["url"].(string)
-		if strings.Contains(pURL, "/ui/") || strings.Contains(pURL, "setup") || strings.Contains(pURL, "#/proxies") || strings.Contains(pURL, "board.zash") {
-			id, _ = t["id"].(string)
-			title, _ = t["title"].(string)
-			return id, title, true
-		}
-	}
-	return "", "", false
-}
-
-func parseAPIAddress(apiAddr string) (host string, port string, appHostPort string) {
-	cleanAddr := strings.TrimRight(apiAddr, "/")
-	cleanAddr = strings.TrimPrefix(strings.TrimPrefix(cleanAddr, "http://"), "https://")
-
-	var err error
-	host, port, err = net.SplitHostPort(cleanAddr)
-	if err != nil {
-		host = cleanAddr
-	}
-
-	if port == "" {
-		_, defaultPort, _ := net.SplitHostPort(domain.DefaultExternalController)
-		port = defaultPort
-		if port == "" {
-			port = "9090"
-		}
-	}
-
-	if host == "" {
-		host = defaultWebUIHost
-	} else if ip := net.ParseIP(host); ip != nil && ip.IsUnspecified() {
-		host = defaultWebUIHost
-	}
-
-	return host, port, net.JoinHostPort(host, port)
-}
-
-func buildQueryArgs(host, port, secret string) string {
-	q := url.Values{}
-	q.Set("hostname", host)
-	q.Set("port", port)
-	if secret != "" {
-		q.Set("secret", secret)
-	}
-	return q.Encode()
-}
-
-func buildLocalWebUIURL(host, port, secret, uiName string) string {
-	uiPath := "/ui/"
-	if uiName != "" {
-		uiPath = fmt.Sprintf("/ui/%s/", strings.Trim(uiName, "/"))
-	}
-	query := buildQueryArgs(host, port, secret)
-	return fmt.Sprintf("http://%s:%s%s?%s#/setup?%s", host, port, uiPath, query, query)
-}
-
-func buildRemoteWebUIURL(host, port, secret string) string {
-	query := buildQueryArgs(host, port, secret)
-	
-	baseURL := strings.TrimSpace(domain.DefaultRemoteWebUIURL)
-
-	if strings.Contains(baseURL, "?") {
-		return baseURL + "&" + query
-	}
-	return baseURL + "?" + query
-}
-
-func buildFinalURL(cfg Config) (string, string) {
-	host, port, appHostPort := parseAPIAddress(cfg.APIAddr)
-
-	var finalURL string
-	if cfg.RemoteWebUI {
-		finalURL = buildRemoteWebUIURL(host, port, cfg.Secret)
-	} else {
-		finalURL = buildLocalWebUIURL(host, port, cfg.Secret, cfg.UIName)
-	}
-
-	return finalURL, appHostPort
-}
-
-func openSystemBrowser(finalURL string, eventCh chan<- Event) {
-	err := sys.ExecuteSystemCommand(`"` + finalURL + `"`)
-	if err == nil {
-		emitEvent(eventCh, EventReady)
-	} else {
-		slog.Error("调用系统默认浏览器失败", "err", err)
-		emitEvent(eventCh, EventError)
-	}
-}
-
-func Launch(cfg Config, eventCh chan<- Event) {
+func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 	finalURL, appHostPort := buildFinalURL(cfg)
 
 	if cfg.ForceSystemBrowser {
 		slog.Info("根据全局配置，强制使用系统默认浏览器进入面板")
-		openSystemBrowser(finalURL, eventCh)
+		err := sys.ExecuteSystemCommand(`"` + finalURL + `"`)
+		if err == nil {
+			emitEvent(eventCh, EventReady)
+		} else {
+			slog.Error("调用系统默认浏览器失败", "err", err)
+			emitEvent(eventCh, EventError)
+		}
 		return
 	}
 
-	if hwnd := GetCachedWebUIHwnd(); hwnd != 0 {
-		if IsWindowVisible(hwnd) {
+	if hwnd := sys.GetCachedWebUIHwnd(); hwnd != 0 {
+		if sys.IsWindowVisible(hwnd) {
 			slog.Debug("唤醒已隐藏的 WebUI 窗口")
-			FocusWindowSilky(hwnd)
+			sys.FocusWindowSilky(hwnd)
 			emitEvent(eventCh, EventReady)
 			return
 		}
-		SetCachedWebUIHwnd(0)
+		sys.SetCachedWebUIHwnd(0)
 	}
 
-	if !launchMu.TryLock() {
+	if !m.mu.TryLock() {
 		return
 	}
-	defer launchMu.Unlock()
+	defer m.mu.Unlock()
 
-	debugPortMu.Lock()
-	if chromeDebugPort != "" && !isDebugPortAlive(chromeDebugPort) {
-		chromeDebugPort = ""
+	if m.debugPort != "" && !IsDebugPortAlive(m.debugPort) {
+		m.debugPort = ""
 	}
-	if chromeDebugPort == "" {
-		chromeDebugPort = getFreePort()
+	if m.debugPort == "" {
+		m.debugPort = GetFreePort()
 	}
-	safeDebugPort := chromeDebugPort
-	debugPortMu.Unlock()
+	safeDebugPort := m.debugPort
 
-	targetID, targetTitle, found := getWebUITarget(safeDebugPort)
+	targetID, targetTitle, found := GetWebUITarget(safeDebugPort)
 	if found {
 		slog.Debug("发现存活的调试端口，尝试直接激活标签页", "Port", safeDebugPort, "ID", targetID)
-		if actResp, actErr := safeGet(fmt.Sprintf("http://127.0.0.1:%s/json/activate/%s", safeDebugPort, targetID)); actErr == nil {
-			_ = actResp.Body.Close()
-		}
+		_ = ActivateTarget(safeDebugPort, targetID)
 
-		realBrowserPid := atomic.LoadUint32(&isolatedWebUIPid)
+		realBrowserPid := m.isolatedPid.Load()
 		windowFound := false
 
 		for i := 0; i < 30; i++ {
 			time.Sleep(100 * time.Millisecond)
 			if i%5 == 0 {
-				if truePid := GetProcessIdByPort(safeDebugPort); truePid != 0 {
+				if truePid := sys.GetProcessIdByPort(safeDebugPort); truePid != 0 {
 					realBrowserPid = truePid
-					atomic.StoreUint32(&isolatedWebUIPid, realBrowserPid)
+					m.isolatedPid.Store(realBrowserPid)
 				}
 			}
 
-			if FindAndFocusAppWindow(targetTitle, appHostPort, realBrowserPid) {
+			if sys.FindAndFocusAppWindow(targetTitle, appHostPort, realBrowserPid, isStandardBrowserWindow) {
 				windowFound = true
 				break
 			}
@@ -308,22 +139,14 @@ func Launch(cfg Config, eventCh chan<- Event) {
 		}
 	}
 
-	var browserPath, browserTag string
-	for _, b := range potentialBrowsers {
-		if _, err := os.Stat(b.path); err == nil {
-			browserPath = b.path
-			browserTag = b.tag
-			break
-		}
-	}
-
+	browserPath, browserTag := DetectAvailableBrowser()
 	if browserPath != "" {
 		slog.Info("启动独立浏览器进程运行 WebUI", "Browser", browserTag, "DebugPort", safeDebugPort)
 
 		userDataDir := filepath.Join(cfg.BaseDir, "webcache", browserTag)
 		_ = os.MkdirAll(userDataDir, 0755)
 
-		winW, winH, winX, winY := GetIdealWindowBounds()
+		winW, winH, winX, winY := sys.GetIdealWindowBounds()
 
 		args := []string{
 			"--app=" + finalURL,
@@ -355,7 +178,7 @@ func Launch(cfg Config, eventCh chan<- Event) {
 		cmd := exec.Command(browserPath, args...)
 		if err := cmd.Start(); err == nil {
 			mainPid := uint32(cmd.Process.Pid)
-			atomic.StoreUint32(&isolatedWebUIPid, mainPid)
+			m.isolatedPid.Store(mainPid)
 			slog.Debug("独立浏览器进程已启动", "PID", mainPid)
 
 			go func() {
@@ -366,21 +189,18 @@ func Launch(cfg Config, eventCh chan<- Event) {
 			for i := 0; i < 30; i++ {
 				time.Sleep(100 * time.Millisecond)
 				if realBrowserPid == mainPid && i%5 == 0 {
-					if truePid := GetProcessIdByPort(safeDebugPort); truePid != 0 {
+					if truePid := sys.GetProcessIdByPort(safeDebugPort); truePid != 0 {
 						realBrowserPid = truePid
-						atomic.StoreUint32(&isolatedWebUIPid, realBrowserPid)
+						m.isolatedPid.Store(realBrowserPid)
 						slog.Debug("通过端口反查锁定真实的独立浏览器进程", "TruePID", realBrowserPid)
 					}
 				}
 
-				liveTargetID, liveTitle, isLive := getWebUITarget(safeDebugPort)
+				liveTargetID, liveTitle, isLive := GetWebUITarget(safeDebugPort)
 				if isLive {
-					actURL := fmt.Sprintf("http://127.0.0.1:%s/json/activate/%s", safeDebugPort, liveTargetID)
-					if actResp, actErr := safeGet(actURL); actErr == nil {
-						_ = actResp.Body.Close()
-					}
+					_ = ActivateTarget(safeDebugPort, liveTargetID)
 
-					if FindAndFocusAppWindow(liveTitle, appHostPort, realBrowserPid) {
+					if sys.FindAndFocusAppWindow(liveTitle, appHostPort, realBrowserPid, isStandardBrowserWindow) {
 						slog.Info("WebUI 窗口捕获成功")
 						emitEvent(eventCh, EventReady)
 						return
@@ -393,7 +213,7 @@ func Launch(cfg Config, eventCh chan<- Event) {
 				slog.Warn("强制清理启动超时的失控浏览器进程", "PID", realBrowserPid)
 				sys.HardKill(realBrowserPid)
 			}
-			atomic.StoreUint32(&isolatedWebUIPid, 0)
+			m.isolatedPid.Store(0)
 
 			emitEvent(eventCh, EventError)
 			return
@@ -405,48 +225,40 @@ func Launch(cfg Config, eventCh chan<- Event) {
 		}
 	} else {
 		slog.Warn("未探测到受支持的浏览器，降级为默认浏览器打开")
-
-		openSystemBrowser(finalURL, eventCh)
+		err := sys.ExecuteSystemCommand(`"` + finalURL + `"`)
+		if err == nil {
+			emitEvent(eventCh, EventReady)
+		} else {
+			emitEvent(eventCh, EventError)
+		}
 		return
 	}
 }
 
-func Cleanup() {
-	SetCachedWebUIHwnd(0)
+func (m *Manager) Cleanup() {
+	sys.SetCachedWebUIHwnd(0)
 
-	debugPortMu.Lock()
-	safeDebugPort := chromeDebugPort
-	debugPortMu.Unlock()
+	m.mu.Lock()
+	safeDebugPort := m.debugPort
+	m.mu.Unlock()
+
 	if safeDebugPort == "" {
 		return
 	}
 
 	slog.Debug("通过 DevTools 协议发送关闭请求")
-	apiURL := fmt.Sprintf("http://127.0.0.1:%s/json", safeDebugPort)
-	if resp, err := safeGet(apiURL); err == nil {
-		defer resp.Body.Close()
-		var targets []map[string]interface{}
-		if json.NewDecoder(resp.Body).Decode(&targets) == nil {
-			for _, t := range targets {
-				if id, ok := t["id"].(string); ok {
-					if closeResp, closeErr := safeGet(fmt.Sprintf("http://127.0.0.1:%s/json/close/%s", safeDebugPort, id)); closeErr == nil {
-						_ = closeResp.Body.Close()
-					}
-				}
-			}
-		}
-	}
+	CloseAllWebUITargets(safeDebugPort)
 
 	time.Sleep(500 * time.Millisecond)
-	pid := atomic.LoadUint32(&isolatedWebUIPid)
+	pid := m.isolatedPid.Load()
 	if pid != 0 && sys.IsPidRunning(pid, "") {
 		slog.Warn("正常关闭超时，强制结束浏览器进程", "PID", pid)
 		sys.HardKill(pid)
 	}
-	atomic.StoreUint32(&isolatedWebUIPid, 0)
+	m.isolatedPid.Store(0)
 }
 
-func IsActive() bool {
-	hwnd := GetCachedWebUIHwnd()
-	return hwnd != 0 && IsWindowVisible(hwnd)
+func (m *Manager) IsActive() bool {
+	hwnd := sys.GetCachedWebUIHwnd()
+	return hwnd != 0 && sys.IsWindowVisible(hwnd)
 }
