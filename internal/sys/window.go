@@ -1,4 +1,4 @@
-package webui
+package sys
 
 import (
 	"log/slog"
