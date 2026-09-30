@@ -132,7 +132,7 @@ func (m *Manager) prepareDebugPort() string {
 		m.debugPort = ""
 	}
 	if m.debugPort == "" {
-		m.debugPort = GetFreePort()
+		m.debugPort = getCDPDebugPort()
 	}
 	return m.debugPort
 }
