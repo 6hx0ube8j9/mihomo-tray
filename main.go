@@ -74,7 +74,7 @@ func main() {
 	}
 
 	for i := 0; i < maxRetries; i++ {
-		hM, err = windows.CreateMutex(sa, false, mName)
+		hM, err = windows.CreateMutex(nil, false, mName)
 		isAlreadyExist = errors.Is(err, windows.ERROR_ALREADY_EXISTS) ||
 			errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
 			err == windows.ERROR_ALREADY_EXISTS ||
