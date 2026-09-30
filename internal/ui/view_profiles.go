@@ -66,7 +66,6 @@ func (v *ProfileView) Declarative() []Widget {
 				
 				Label{
 					AssignTo: &v.portsLabel,
-					Font:     Font{Family: "Consolas"},
 				},
 			},
 		},
