@@ -62,14 +62,26 @@ func (d *Dashboard) createWindow() {
 	// Apply upstream layout patch.
 	disableGhostToolbar(d.window)
 
-    if d.oldWndProc == 0 {
+    if d.wndProcCb == 0 {
         d.wndProcCb = syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
-            if msg == win.WM_SYSCOMMAND && (wParam&0xFFF0) == win.SC_CLOSE {
+            if msg == win.WM_CLOSE {
                 win.ShowWindow(hwnd, win.SW_HIDE)
                 return 0
             }
-            return win.CallWindowProc(d.oldWndProc, hwnd, msg, wParam, lParam)
+
+            oldProc := d.oldWndProc
+            if msg == win.WM_NCDESTROY {
+                if d.oldWndProc != 0 {
+                    win.SetWindowLongPtr(hwnd, win.GWLP_WNDPROC, d.oldWndProc)
+                    d.oldWndProc = 0
+                }
+            }
+
+            return win.CallWindowProc(oldProc, hwnd, msg, wParam, lParam)
         })
+    }
+
+    if d.oldWndProc == 0 {
         d.oldWndProc = win.SetWindowLongPtr(d.window.Handle(), win.GWLP_WNDPROC, d.wndProcCb)
     }
 
@@ -94,15 +106,21 @@ func (d *Dashboard) RefreshData(state domain.UIState) {
 }
 
 func (d *Dashboard) Dispose() {
-	if d.window != nil {
-		hwnd := d.window.Handle()
-		if d.oldWndProc != 0 && hwnd != 0 {
-			win.SetWindowLongPtr(hwnd, win.GWLP_WNDPROC, d.oldWndProc)
-			d.oldWndProc = 0
-		}
-		d.window.Dispose()
-		d.window = nil
-	}
+    if d.window == nil {
+        return
+    }
+
+    d.engine.app.Synchronize(func() {
+        if d.window != nil {
+            hwnd := d.window.Handle()
+            if hwnd != 0 && d.oldWndProc != 0 {
+                win.SetWindowLongPtr(hwnd, win.GWLP_WNDPROC, d.oldWndProc)
+                d.oldWndProc = 0
+            }
+            d.window.Dispose()
+            d.window = nil
+        }
+    })
 }
 
 // Workaround for tailscale/walk bug (Commit 3490772, 2024-12-03). 
