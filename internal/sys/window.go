@@ -36,6 +36,7 @@ var (
 	procGetSystemMetrics     = modUser32Window.NewProc("GetSystemMetrics")
 	procSetForeground        = modUser32Window.NewProc("SetForegroundWindow")
 	procGetWindow            = modUser32Window.NewProc("GetWindow")
+	procAllowSetForegroundWnd = modUser32Window.NewProc("AllowSetForegroundWindow")
 )
 
 const (
@@ -263,4 +264,12 @@ func FocusWindowSilky(targetHwnd uintptr) {
 func IsWindowVisible(hwnd uintptr) bool {
 	vis, _, _ := procIsWindowVisible.Call(hwnd)
 	return vis != 0
+}
+
+// GrantForegroundPrivilege grants foreground activation rights to the background instance.
+// Called by the secondary instance in main.go before sending the wake-up event.
+// DO NOT DELETE: Removing this will trigger Windows focus stealing prevention, 
+// causing the WebUI window to lag for 0.5s and appear behind other windows.
+func GrantForegroundPrivilege() {
+	procAllowSetForegroundWnd.Call(0xFFFFFFFF) 
 }
