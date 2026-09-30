@@ -518,7 +518,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			RemoteWebUI:        *cfg.General.RemoteWebUI,
 		}
 		
-		go webui.Launch(wcfg, a.webuiEventCh)
+		go a.WebUI.Launch(wcfg, a.webuiEventCh)
 
 	case domain.ActionOpenBaseDir:
 		_ = sys.ExecuteSystemCommand(a.Cfg.BaseDir())
@@ -545,7 +545,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		_ = sys.ExecuteSystemCommand(absPath)
 
 	case domain.ActionExitApp:
-		webui.Cleanup()
+		a.WebUI.Cleanup()
 		
 	case domain.ActionToggleSystemBrowser:
 		enable := cmd.Payload == "true"
