@@ -60,9 +60,9 @@ const (
 	DefaultRemoteWebUI         = false
 
 	// 远程面板基址
-	DefaultRemoteWebUIURL = "https://board.zash.run.place/#/setup?http=true"
-	// DefaultRemoteWebUIURL = "https://metacubex.github.io/metacubexd/#/setup?http=true"
-	// DefaultRemoteWebUIURL = "https://yacd.metacubex.one/"
+	DefaultRemoteWebUIURL = "https://board.zash.run.place"
+	// DefaultRemoteWebUIURL = "https://metacubex.github.io/metacubexd"
+	// DefaultRemoteWebUIURL = "https://yacd.metacubex.one"
 
 	// 业务环境限制
 	DefaultUserAgent      = "clash-verge (clash.meta)"
