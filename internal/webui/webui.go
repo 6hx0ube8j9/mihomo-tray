@@ -29,6 +29,7 @@ type Config struct {
 	UIName             string
 	ForceSystemBrowser bool
 	RemoteWebUI        bool
+	RemoteWebUIURL     string
 }
 
 type Manager struct {
