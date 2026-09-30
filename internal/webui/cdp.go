@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
+
+	"mihomo-tray/internal/netutil"
 )
 
 const (
