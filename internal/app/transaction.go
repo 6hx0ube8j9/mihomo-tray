@@ -206,9 +206,9 @@ func (a *Application) SyncRuntimeConfig() {
 }
 
 func (a *Application) restartWebUIIfOpen() {
-	wasOpen := webui.IsActive()
-	webui.Cleanup()
-
+	wasOpen := a.WebUI.IsActive()
+	a.WebUI.Cleanup()
+	
 	if wasOpen {
 		slog.Debug("等待内核就绪，尝试恢复 Web 面板")
 
