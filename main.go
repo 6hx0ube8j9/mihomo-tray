@@ -74,7 +74,7 @@ func main() {
 	}
 
 	for i := 0; i < maxRetries; i++ {
-		hM, err = windows.CreateMutex(nil, false, mName)
+		hM, err = windows.CreateMutex(sa, false, mName)
 		isAlreadyExist = errors.Is(err, windows.ERROR_ALREADY_EXISTS) ||
 			errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
 			err == windows.ERROR_ALREADY_EXISTS ||
@@ -94,14 +94,11 @@ func main() {
 		if hM != 0 {
 			_ = windows.CloseHandle(hM)
 		}
+		
 		eName, _ := windows.UTF16PtrFromString(ShowUIEvent)
-		hEvent, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName)
-		if err == nil && hEvent != 0 {
-
-			modUser32 := windows.NewLazySystemDLL("user32.dll")
-			procAllowSetForegroundWindow := modUser32.NewProc("AllowSetForegroundWindow")
-			procAllowSetForegroundWindow.Call(uintptr(^uint32(0))) 
-
+		if hEvent, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName); err == nil && hEvent != 0 {
+			windows.NewLazySystemDLL("user32.dll").NewProc("AllowSetForegroundWindow").Call(0xFFFFFFFF)
+			
 			_ = windows.SetEvent(hEvent)
 			_ = windows.CloseHandle(hEvent)
 		}
