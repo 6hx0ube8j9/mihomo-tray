@@ -379,7 +379,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			} else if err == nil {
 				slog.Info("新提权实例已唤起，当前实例准备优雅退出...")
 				if ui.GlobalEngine != nil {
-					ui.GlobalEngine.Quit()
+					ui.GlobalEngine.Exit()
 				}
 				return
 			}
@@ -404,7 +404,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			if err == nil {
 				slog.Info("新提权实例已唤起，当前实例准备优雅退出...")
 				if ui.GlobalEngine != nil {
-					ui.GlobalEngine.Quit()
+					ui.GlobalEngine.Exit()
 				}
 				return
 			}
@@ -424,7 +424,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			if err == nil {
 				slog.Info("新提权实例已唤起，当前实例准备优雅退出...")
 				if ui.GlobalEngine != nil {
-					ui.GlobalEngine.Quit()
+					ui.GlobalEngine.Exit()
 				}
 				return
 			}
@@ -554,7 +554,11 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		_ = sys.ExecuteSystemCommand(absPath)
 
 	case domain.ActionExitApp:
-		a.WebUI.Cleanup()
+		slog.Info("收到退出指令，准备安全销毁应用...")
+		if ui.GlobalEngine != nil {
+			ui.GlobalEngine.Exit()
+		}
+		return
 		
 	case domain.ActionToggleSystemBrowser:
 		enable := cmd.Payload == "true"
