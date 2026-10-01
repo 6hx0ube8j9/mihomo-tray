@@ -62,7 +62,7 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 		time.Sleep(500 * time.Millisecond)
 		a.syncAllConfig(ctx)
 		select {
-		case a.apiPollCh <- struct{}{}:
+		case a.ForceSyncAPI():
 		default:
 		}
 	}
@@ -166,7 +166,7 @@ func (a *Application) restartKernelViaAPI() bool {
 	a.syncAllConfig(syncCtx)
 	
 	select {
-	case a.apiPollCh <- struct{}{}:
+	case a.ForceSyncAPI():
 	default:
 	}
 	
