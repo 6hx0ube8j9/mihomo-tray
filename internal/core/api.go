@@ -111,6 +111,15 @@ func (c *APIClient) ForceReloadKernel(ctx context.Context, payload map[string]in
 	return err
 }
 
+
+func (c *APIClient) RestartKernel(ctx context.Context) error {
+	if c.st.IsExiting() {
+		return context.Canceled
+	}
+	_, err := c.DoRequest(ctx, http.MethodPost, "/restart", nil)
+	return err
+}
+
 func (c *APIClient) SyncConfigToKernel(ctx context.Context, payload map[string]interface{}) error {
 	if c.st.IsExiting() {
 		return context.Canceled
