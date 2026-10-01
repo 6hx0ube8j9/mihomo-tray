@@ -2,17 +2,13 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
-	"path/filepath"
-	"strconv"
 
 	"mihomo-tray/internal/domain"
-	"mihomo-tray/internal/sys"
 	"mihomo-tray/internal/ui"
-	"mihomo-tray/internal/webui"
 )
 
+// asyncRun “语法糖”方法。
 func (a *Application) asyncRun(title string, task func() error) {
 	go func() {
 		if err := task(); err != nil {
@@ -21,22 +17,16 @@ func (a *Application) asyncRun(title string, task func() error) {
 	}()
 }
 
-func (a *Application) safePreflightCheck(targetRelPath string, actionTitle string) error {
-	if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
-		ui.ShowErrorMessage(nil, actionTitle+"失败", fmt.Sprintf("目标配置异常，请求已取消。\n\n错误: %v", err))
-		return err
-	}
-	return nil
-}
-
 func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand) {
 	switch cmd.Action {
-		
+
+	// =====================================================================
+	// 1. 配置文件操作 (对接 profile_ops.go)
+	// =====================================================================
 	case domain.ActionOpenProfileManager:
 		if ui.GlobalEngine != nil {
-			ui.GlobalEngine.ShowProfileManager(a.GetUIStateSnapshot()) 
+			ui.GlobalEngine.ShowProfileManager(a.GetUIStateSnapshot())
 		}
-		return
 
 	case domain.ActionRequestAddLocal:
 		go func() {
@@ -46,7 +36,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				}
 			}
 		}()
-		return
 
 	case domain.ActionRequestAddRemote:
 		go func() {
@@ -59,15 +48,12 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				}
 			}
 		}()
-		return
 
 	case domain.ActionRequestEditRemote:
 		if profile, ok := a.GetProfileInfo(cmd.Payload); ok {
 			go func(p domain.ProfileItem) {
 				if ui.GlobalEngine != nil {
-					name, url, interval, ok := ui.GlobalEngine.ShowSubscriptionEditor(
-						"编辑订阅信息", p.Name, p.URL, p.Interval,
-					)
+					name, url, interval, ok := ui.GlobalEngine.ShowSubscriptionEditor("编辑订阅信息", p.Name, p.URL, p.Interval)
 					if ok {
 						if err := a.EditRemoteProfile(ctx, p.Path, name, url, interval); err != nil {
 							ui.ShowErrorMessage(nil, "保存失败", err.Error())
@@ -76,40 +62,17 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				}
 			}(profile)
 		}
-		return
-			
-	case domain.ActionAddLocalProfile:
-		go func(path string) {
-			if err := a.ImportLocalProfile(ctx, path); err != nil {
-				ui.ShowErrorMessage(nil, "导入失败", err.Error())
-			}
-		}(cmd.Payload)
-
-	case domain.ActionAddRemoteProfile:
-		go func(payload string) {
-			if err := a.AddRemoteProfile(ctx, payload); err != nil {
-				ui.ShowErrorMessage(nil, "添加订阅失败", err.Error())
-			}
-		}(cmd.Payload)
 
 	case domain.ActionUpdateRemoteProfile:
-		if p, ok := a.Cfg.GetProfileByPath(cmd.Payload); ok {
-			go func(path string) {
-				if err := a.UpdateRemoteProfile(ctx, path, true, false); err != nil {
-					ui.ShowErrorMessage(nil, "更新失败", err.Error())
-				}
-			}(p.Path)
+		if p, ok := a.GetProfileInfo(cmd.Payload); ok {
+			a.asyncRun("更新失败", func() error { return a.UpdateRemoteProfile(ctx, p.Path, true, false) })
 		}
 
 	case domain.ActionSetProfileInterval:
 		a.SetProfileInterval(cmd.Payload)
 
 	case domain.ActionSwitchProfile:
-		go func(path string) {
-			if err := a.SwitchProfile(ctx, path); err != nil {
-				ui.ShowErrorMessage(nil, "切换失败", err.Error())
-			}
-		}(cmd.Payload)
+		a.asyncRun("切换失败", func() error { return a.SwitchProfile(ctx, cmd.Payload) })
 
 	case domain.ActionRemoveProfile:
 		targetPath := cmd.Payload
@@ -130,6 +93,9 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	case domain.ActionMoveProfileDown:
 		a.MoveProfileDown(cmd.Payload)
 
+	// =====================================================================
+	// 2. 内核动态参数配置 (对接 config_ops.go)
+	// =====================================================================
 	case domain.ActionRequestEditPort:
 		go func() {
 			if ui.GlobalEngine != nil {
@@ -152,16 +118,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			}
 		}()
 
-	case domain.ActionToggleAutoStart:
-		if restarted := a.ToggleAutoStart(cmd.Payload == "true"); restarted && ui.GlobalEngine != nil {
-			ui.GlobalEngine.Exit()
-		}
-
-	case domain.ActionToggleRunAsAdmin:
-		if restarted := a.ToggleRunAsAdmin(cmd.Payload == "true"); restarted && ui.GlobalEngine != nil {
-			ui.GlobalEngine.Exit()
-		}
-
 	case domain.ActionToggleTun:
 		go func(enableStr string) {
 			if restarted := a.ToggleTun(ctx, enableStr == "true"); restarted && ui.GlobalEngine != nil {
@@ -180,8 +136,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		
 	case domain.ActionForceSyncAPI:
 		a.ForceSyncAPI()
-		return
 
+	// =====================================================================
+	// 3. 操作系统与生命周期控制 (对接 sys_ops.go & transaction.go)
+	// =====================================================================
 	case domain.ActionOpenBaseDir:
 		a.OpenBaseDir()
 
@@ -189,43 +147,43 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		a.OpenAppConfig()
 
 	case domain.ActionOpenConfigFile:
-		if err := a.OpenConfigFile(cmd.Payload); err != nil {
-			ui.ShowErrorMessage(nil, "打开文件失败", err.Error())
-		}
+		a.asyncRun("打开文件失败", func() error { return a.OpenConfigFile(cmd.Payload) })
 
 	case domain.ActionEditCurrentConfig:
-		if err := a.EditCurrentConfig(); err != nil {
-			ui.ShowErrorMessage(nil, "无法编辑", err.Error())
+		a.asyncRun("无法编辑", func() error { return a.EditCurrentConfig() })
+
+	case domain.ActionToggleAutoStart:
+		if restarted := a.ToggleAutoStart(cmd.Payload == "true"); restarted && ui.GlobalEngine != nil {
+			ui.GlobalEngine.Exit()
+		}
+
+	case domain.ActionToggleRunAsAdmin:
+		if restarted := a.ToggleRunAsAdmin(cmd.Payload == "true"); restarted && ui.GlobalEngine != nil {
+			ui.GlobalEngine.Exit()
 		}
 		
 	case domain.ActionReloadConfig:
-		go func() {
-			if err := a.ReloadConfig(ctx); err != nil {
-				ui.ShowErrorMessage(nil, "重载失败", err.Error())
-			}
-		}()
+		a.asyncRun("重载失败", func() error { return a.ReloadConfig(ctx) })
 
 	case domain.ActionRestartKernel:
-		go func() {
-			if err := a.RestartKernel(); err != nil {
-				ui.ShowErrorMessage(nil, "重启失败", err.Error())
-			}
-		}()
+		a.asyncRun("重启失败", func() error { return a.RestartKernel() })
 
 	case domain.ActionExitApp:
 		slog.Info("收到退出指令，准备安全销毁应用...")
 		if ui.GlobalEngine != nil {
 			ui.GlobalEngine.Exit()
 		}
-		return
-		
+
+	// =====================================================================
+	// 4. Web 面板与偏好设置 (对接 webui_ops.go & config_ops.go)
+	// =====================================================================
 	case domain.ActionToggleSystemBrowser:
 		a.ToggleSystemBrowser(cmd.Payload == "true")
 
 	case domain.ActionToggleRemoteWebUI:
 		a.ToggleRemoteWebUI(cmd.Payload == "true")
 		
-    case domain.ActionOpenWebUI:
+	case domain.ActionOpenWebUI:
 		if err := a.OpenWebUI(); err != nil {
 			ui.ShowErrorMessage(nil, "提示", err.Error())
 		}
@@ -242,13 +200,13 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			if !ui.ShowConfirmMessage(nil, "确认清理？", "清理缓存将同时清除面板个性化设置（如主题、布局等），且无法恢复。\n\n是否继续？") {
 				return
 			}
-			
 			if err := a.ClearWebUICache(); err == nil {
 				ui.ShowTrayNotification("清理完成", "Web 面板缓存已清除。")
 			} else {
 				ui.ShowErrorMessage(nil, "清理失败", err.Error())
 			}
 		}()
+	}
 
 	a.pushUIState()
 }
