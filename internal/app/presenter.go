@@ -141,3 +141,14 @@ func (a *Application) ForcePushUIState() {
 		a.UIStateCh <- newState
 	}
 }
+
+func (a *Application) GetUIStateSnapshot() domain.UIState {
+	a.uiStateMutex.Lock()
+	defer a.uiStateMutex.Unlock()
+	
+	stateSnapshot := a.lastUIState
+	items := make([]domain.UIProfileItem, len(a.lastUIState.ProfileItems))
+	copy(items, a.lastUIState.ProfileItems)
+	stateSnapshot.ProfileItems = items 
+	return stateSnapshot
+}
