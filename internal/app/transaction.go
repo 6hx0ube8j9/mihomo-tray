@@ -61,10 +61,7 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 	} else {
 		time.Sleep(500 * time.Millisecond)
 		a.syncAllConfig(ctx)
-		select {
-		case a.ForceSyncAPI():
-		default:
-		}
+		a.ForceSyncAPI()
 	}
 
 	return nil
@@ -164,11 +161,7 @@ func (a *Application) restartKernelViaAPI() bool {
 	defer syncCancel()
 	
 	a.syncAllConfig(syncCtx)
-	
-	select {
-	case a.ForceSyncAPI():
-	default:
-	}
+	a.ForceSyncAPI()
 	
 	return true
 }
