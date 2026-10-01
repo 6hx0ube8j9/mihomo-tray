@@ -147,252 +147,65 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	case domain.ActionRequestEditPort:
 		go func() {
 			cfg := a.Cfg.GetConfig()
-
-			currentMixed := a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort)
-			currentSocks := a.Cfg.GetEffectivePort(cfg.Config.SocksPort, domain.DefaultSocksPort)
-			currentHttp := a.Cfg.GetEffectivePort(cfg.Config.Port, domain.DefaultPort)
+			cMixed := a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort)
+			cSocks := a.Cfg.GetEffectivePort(cfg.Config.SocksPort, domain.DefaultSocksPort)
+			cHttp := a.Cfg.GetEffectivePort(cfg.Config.Port, domain.DefaultPort)
 
 			if ui.GlobalEngine != nil {
-				newMixed, newSocks, newHttp, ok := ui.GlobalEngine.ShowPortEditor(currentMixed, currentSocks, currentHttp)
-				
-				if ok && (newMixed != currentMixed || newSocks != currentSocks || newHttp != currentHttp) {
-					
-					a.Cfg.Update(func(c *domain.TrayConfig) {
-						m, s, h := newMixed, newSocks, newHttp
-						c.Config.MixedPort = &m
-						c.Config.SocksPort = &s
-						c.Config.Port = &h
-					})
-
-					a.pushUIState()
-
-					if *a.Cfg.GetConfig().General.SystemProxy {
-						a.syncSystemProxy()
-					}
-
-					a.State.SetConfigSyncing(true)
-					
-					go func() {
-						defer a.State.SetConfigSyncing(false)
-						
-						if a.State.GetPhase() == domain.PhaseRunning {
-							reqCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-							defer cancel()
-							
-							payload := map[string]interface{}{
-								"mixed-port": newMixed,
-								"socks-port": newSocks,
-								"port":       newHttp,
-							}
-							
-							if err := a.API.SyncConfigToKernel(reqCtx, payload); err != nil {
-								slog.Warn("热刷端口到内核失败，等待下次内核重载生效", "err", err)
-							}
-						}
-						
-						select {
-						case a.apiPollCh <- struct{}{}:
-						default:
-						}
-					}()
+				nMixed, nSocks, nHttp, ok := ui.GlobalEngine.ShowPortEditor(cMixed, cSocks, cHttp)
+				if ok && (nMixed != cMixed || nSocks != cSocks || nHttp != cHttp) {
+					a.ApplyPortConfig(ctx, nMixed, nSocks, nHttp)
 				}
 			}
 		}()
-		return
 		
 	case domain.ActionRequestEditController:
 		go func() {
 			cfg := a.Cfg.GetConfig()
-
-			currAddr := cfg.Config.ExternalController
-			if currAddr == "" { currAddr = domain.DefaultExternalController }
-			
-			currSecret := ""
-			if cfg.Config.Secret != nil { currSecret = *cfg.Config.Secret }
-			
-			currOnline := false
-			if cfg.General.RemoteWebUI != nil { currOnline = *cfg.General.RemoteWebUI }
-			
-			currSysBrowser := false
-			if cfg.General.SystemBrowser != nil { currSysBrowser = *cfg.General.SystemBrowser }
+			cAddr := cfg.Config.ExternalController
+			if cAddr == "" { cAddr = domain.DefaultExternalController }
+			cSec := ""
+			if cfg.Config.Secret != nil { cSec = *cfg.Config.Secret }
+			cOnline := cfg.General.RemoteWebUI != nil && *cfg.General.RemoteWebUI
+			cSys := cfg.General.SystemBrowser != nil && *cfg.General.SystemBrowser
 
 			if ui.GlobalEngine != nil {
-				newAddr, newSecret, newOnline, newSysBrowser, ok := ui.GlobalEngine.ShowControllerEditor(
-					currAddr, currSecret, currOnline, currSysBrowser,
-				)
-				
+				nAddr, nSec, nOnline, nSys, ok := ui.GlobalEngine.ShowControllerEditor(cAddr, cSec, cOnline, cSys)
 				if ok {
-					coreChanged := (currAddr != newAddr) || (currSecret != newSecret)
-					appChanged := (currOnline != newOnline) || (currSysBrowser != newSysBrowser)
-
-					if !coreChanged && !appChanged {
-						return
-					}
-					
-					a.Cfg.Update(func(c *domain.TrayConfig) {
-						if coreChanged {
-							c.Config.ExternalController = newAddr
-							c.Config.Secret = &newSecret
-						}
-						if appChanged {
-							bOnline, bSys := newOnline, newSysBrowser
-							c.General.RemoteWebUI = &bOnline
-							c.General.SystemBrowser = &bSys
-						}
-					})
-
-					a.pushUIState()
-
-					if coreChanged {
-						slog.Info("Web 面板核心网络参数已变更，重启内核生效")
-						a.RestartKernel() 
-					} else if appChanged {
-						slog.Info("Web 面板应用偏好已保存")
+					coreChanged := (cAddr != nAddr) || (cSec != nSec)
+					appChanged := (cOnline != nOnline) || (cSys != nSys)
+					if coreChanged || appChanged {
+						a.ApplyControllerConfig(nAddr, nSec, nOnline, nSys, coreChanged)
 					}
 				}
 			}
 		}()
-		return
 
 	case domain.ActionToggleAutoStart:
-		enable := cmd.Payload == "true"
-		
-		a.Cfg.Update(func(c *domain.TrayConfig) {
-			b := enable
-			c.General.Autostart = &b
-		})
-
-		if !sys.IsAdmin() {
-			slog.Info("修改自启状态需要管理员权限，正在申请")
-			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--restarting")
-			if sys.IsUserCancelled(err) {
-				slog.Info("用户取消授权，操作已取消")
-				a.Cfg.Update(func(c *domain.TrayConfig) {
-					b := !enable
-					c.General.Autostart = &b
-				})
-			} else if err == nil {
-				slog.Info("新提权实例已唤起，当前实例准备优雅退出...")
-				if ui.GlobalEngine != nil {
-					ui.GlobalEngine.Exit()
-				}
-				return
-			}
-			a.ForcePushUIState()
-			return
-		}
-
-		if enable {
-			sys.ToggleAutoStart(domain.AppTaskName, a.Cfg.ExePath(), a.Cfg.BaseDir(), true)
-		} else {
-			sys.ToggleAutoStart(domain.AppTaskName, a.Cfg.ExePath(), a.Cfg.BaseDir(), false)
+		if restarted := a.ToggleAutoStart(cmd.Payload == "true"); restarted && ui.GlobalEngine != nil {
+			ui.GlobalEngine.Exit()
 		}
 
 	case domain.ActionToggleRunAsAdmin:
-		enable := cmd.Payload == "true"
-		
-		a.Cfg.Update(func(c *domain.TrayConfig) { c.General.RunAsAdmin = enable })
-		
-		if enable && !sys.IsAdmin() {
-			slog.Info("设置始终以管理员运行，正在申请权限")
-			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--restarting")
-			if err == nil {
-				slog.Info("新提权实例已唤起，当前实例准备优雅退出...")
-				if ui.GlobalEngine != nil {
-					ui.GlobalEngine.Exit()
-				}
-				return
-			}
-			a.Cfg.Update(func(c *domain.TrayConfig) { c.General.RunAsAdmin = false })
-			a.ForcePushUIState()
-			return
+		if restarted := a.ToggleRunAsAdmin(cmd.Payload == "true"); restarted && ui.GlobalEngine != nil {
+			ui.GlobalEngine.Exit()
 		}
 
 	case domain.ActionToggleTun:
-		enable := cmd.Payload == "true"
-		
-		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = enable })
-
-		if enable && !sys.IsAdmin() {
-			slog.Info("开启 TUN 模式需要管理员权限，正在申请")
-			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--restarting")
-			if err == nil {
-				slog.Info("新提权实例已唤起，当前实例准备优雅退出...")
-				if ui.GlobalEngine != nil {
-					ui.GlobalEngine.Exit()
-				}
-				return
+		go func(enableStr string) {
+			if restarted := a.ToggleTun(ctx, enableStr == "true"); restarted && ui.GlobalEngine != nil {
+				ui.GlobalEngine.Exit()
 			}
-			a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = false })
-			a.ForcePushUIState()
-			return
-		}
-
-		if enable {
-			a.State.SetTunRequestedTime(time.Now())
-		}
-
-		a.State.SetConfigSyncing(true)
-		go func() {
-			defer a.State.SetConfigSyncing(false)
-			tunPayload := map[string]interface{}{"enable": enable}
-			
-			if dev := a.State.GetActualTunDevice(); dev != "" {
-				tunPayload["device"] = dev
-			}
-			
-			reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			defer cancel()
-
-			if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"tun": tunPayload}); err != nil {
-				a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = !enable })
-			}
-			select {
-			case a.apiPollCh <- struct{}{}:
-			default:
-			}
-		}()
+		}(cmd.Payload)
 
 	case domain.ActionToggleProxy:
-		enable := cmd.Payload == "true"
-		a.Cfg.Update(func(c *domain.TrayConfig) {
-			b := enable
-			c.General.SystemProxy = &b
-		})
-		a.syncSystemProxy()
+		a.ToggleProxy(cmd.Payload == "true")
 
 	case domain.ActionSwitchMode:
-		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Mode = cmd.Payload })
-		a.State.SetConfigSyncing(true)
-		go func() {
-			defer a.State.SetConfigSyncing(false)
-			reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			defer cancel()
-
-			_ = a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"mode": cmd.Payload})
-			select {
-			case a.apiPollCh <- struct{}{}:
-			default:
-			}
-		}()
+		go a.SwitchMode(ctx, cmd.Payload)
 		
 	case domain.ActionToggleAllowLan:
-		enable := cmd.Payload == "true"
-		a.Cfg.Update(func(c *domain.TrayConfig) {
-			b := enable
-			c.Config.AllowLan = &b
-		})
-		a.State.SetConfigSyncing(true)
-		go func() {
-			defer a.State.SetConfigSyncing(false)
-			reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			defer cancel()
-			_ = a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"allow-lan": enable})
-			select {
-			case a.apiPollCh <- struct{}{}:
-			default:
-			}
-		}()
+		go a.ToggleAllowLan(ctx, cmd.Payload == "true")
 		
 	case domain.ActionForceSyncAPI:
 		select {
