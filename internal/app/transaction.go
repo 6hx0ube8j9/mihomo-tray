@@ -70,43 +70,40 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 	return nil
 }
 
-func (a *Application) ReloadConfig(ctx context.Context) {
+func (a *Application) ReloadConfig(ctx context.Context) error {
 	if a.State.IsReloading() {
-		return
+		return nil
 	}
 	slog.Info("开始重载配置")
 	a.State.SetReloading(true)
 
-	go func() {
-		defer func() {
-			a.State.MarkMaintenanceEnd()
-			a.State.SetReloading(false)
-		}()
-		defer a.pushUIState()
-
-		if err := a.Cfg.ReloadFromDisk(); err != nil {
-			slog.Warn("读取基础配置失败", "err", err)
-			ui.ShowErrorMessage(nil, "读取配置失败", "应用基础配置文件存在格式错误，已取消重载。\n\n详情：\n"+err.Error())
-			return
-		}
-
-		a.CheckAndReconcilePrivileges(false)
-		
-		target := a.Cfg.GetActivePath()
-
-		if err := a.safePreflightCheck(target, "重载配置"); err != nil {
-			return
-		}
-
-		if err := a.applyConfigTransaction(ctx, target); err != nil {
-			ui.ShowErrorMessage(nil, "应用配置失败", "内核拒绝加载当前配置文件，请检查语法或依赖：\n\n"+err.Error())
-		} else {
-			a.restartWebUIIfOpen()
-		}
+	defer func() {
+		a.State.MarkMaintenanceEnd()
+		a.State.SetReloading(false)
+		a.pushUIState()
 	}()
+
+	if err := a.Cfg.ReloadFromDisk(); err != nil {
+		slog.Warn("读取基础配置失败", "err", err)
+		return fmt.Errorf("应用基础配置文件存在格式错误，已取消重载。\n\n详情：\n%w", err)
+	}
+
+	a.CheckAndReconcilePrivileges(false)
+	target := a.Cfg.GetActivePath()
+
+	if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
+		return fmt.Errorf("目标配置异常，请求已取消。\n\n错误: %w", err)
+	}
+
+	if err := a.applyConfigTransaction(ctx, target); err != nil {
+		return fmt.Errorf("内核拒绝加载当前配置文件，请检查语法或依赖：\n\n%w", err)
+	} 
+	
+	a.restartWebUIIfOpen()
+	return nil
 }
 
-func (a *Application) RestartKernel() {
+func (a *Application) RestartKernel() error {
 	slog.Info("开始重启内核")
 	a.State.SetRestarting(true)
 	a.State.SetReloading(false)
@@ -118,12 +115,10 @@ func (a *Application) RestartKernel() {
 
 	if err := a.Cfg.ReloadFromDisk(); err != nil {
 		slog.Warn("重启前读取配置失败", "err", err)
-		ui.ShowErrorMessage(nil, "读取配置失败", "应用基础配置文件存在格式错误，已取消重启。\n\n详情：\n"+err.Error())
-		return
-	} else {
-		a.CheckAndReconcilePrivileges(false)
+		return fmt.Errorf("应用基础配置文件存在格式错误，已取消重启。\n\n详情：\n%w", err)
 	}
-
+	
+	a.CheckAndReconcilePrivileges(false)
 	a.SyncRuntimeConfig()
 
 	cfg := a.Cfg.GetConfig()
@@ -142,6 +137,8 @@ func (a *Application) RestartKernel() {
 	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
 	a.pushUIState()
 	a.restartWebUIIfOpen()
+	
+	return nil
 }
 
 func (a *Application) restartKernelViaAPI() bool {
