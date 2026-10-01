@@ -28,15 +28,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	switch cmd.Action {
 		
 	case domain.ActionOpenProfileManager:
-		a.uiStateMutex.Lock()
-		stateSnapshot := a.lastUIState
-		items := make([]domain.UIProfileItem, len(a.lastUIState.ProfileItems))
-		copy(items, a.lastUIState.ProfileItems)
-		stateSnapshot.ProfileItems = items 
-		a.uiStateMutex.Unlock()
-
 		if ui.GlobalEngine != nil {
-			ui.GlobalEngine.ShowProfileManager(stateSnapshot) 
+			ui.GlobalEngine.ShowProfileManager(a.GetUIStateSnapshot()) 
 		}
 		return
 
