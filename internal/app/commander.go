@@ -33,7 +33,9 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	case domain.ActionRequestAddLocal:
 		go func() {
 			if selectedPath, ok := ui.OpenYAMLFileDialog(); ok {
-				a.UICommandCh <- domain.UICommand{Action: domain.ActionAddLocalProfile, Payload: selectedPath}
+				if err := a.ImportLocalProfile(ctx, selectedPath); err != nil {
+					ui.ShowErrorMessage(nil, "导入失败", err.Error())
+				}
 			}
 		}()
 		return
@@ -43,42 +45,28 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			if ui.GlobalEngine != nil {
 				name, url, interval, ok := ui.GlobalEngine.ShowSubscriptionEditor("添加远程订阅", "", "", domain.DefaultUpdateInterval)
 				if ok {
-					autoUpdate := interval > 0
-					payload := fmt.Sprintf("%s|%s|%d|%t", name, url, interval, autoUpdate)
-					a.UICommandCh <- domain.UICommand{Action: domain.ActionAddRemoteProfile, Payload: payload}
+					if err := a.AddRemoteProfile(ctx, name, url, interval); err != nil {
+						ui.ShowErrorMessage(nil, "添加订阅失败", err.Error())
+					}
 				}
 			}
 		}()
 		return
 
 	case domain.ActionRequestEditRemote:
-		targetRelPath := cmd.Payload
-		if p, ok := a.Cfg.GetProfileByPath(targetRelPath); ok {
-			go func(profile domain.ProfileItem) {
+		if profile, ok := a.GetProfileInfo(cmd.Payload); ok {
+			go func(p domain.ProfileItem) {
 				if ui.GlobalEngine != nil {
-					name, url, interval, ok := ui.GlobalEngine.ShowSubscriptionEditor("编辑订阅信息", profile.Name, profile.URL, profile.Interval)
+					name, url, interval, ok := ui.GlobalEngine.ShowSubscriptionEditor(
+						"编辑订阅信息", p.Name, p.URL, p.Interval,
+					)
 					if ok {
-						if name != profile.Name || url != profile.URL || interval != profile.Interval {
-							oldURL := profile.URL
-							profile.Name = name
-							profile.URL = url
-							profile.Interval = interval
-							profile.AutoUpdate = interval > 0
-
-							a.Cfg.UpsertProfile(profile)
-
-							if url != oldURL {
-								go func() {
-									if err := a.UpdateRemoteProfile(context.Background(), profile.Path, true, false); err != nil {
-										ui.ShowErrorMessage(nil, "更新失败", err.Error())
-									}
-								}()
-							}
-							a.pushUIState()
+						if err := a.EditRemoteProfile(ctx, p.Path, name, url, interval); err != nil {
+							ui.ShowErrorMessage(nil, "保存失败", err.Error())
 						}
 					}
 				}
-			}(p)
+			}(profile)
 		}
 		return
 			
@@ -129,21 +117,17 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		}(targetPath)
 
 	case domain.ActionMoveProfileUp:
-		a.Cfg.MoveProfile(cmd.Payload, -1)
+		a.MoveProfileUp(cmd.Payload)
 
 	case domain.ActionMoveProfileDown:
-		a.Cfg.MoveProfile(cmd.Payload, 1)
+		a.MoveProfileDown(cmd.Payload)
 
 	case domain.ActionRequestEditPort:
 		go func() {
-			cfg := a.Cfg.GetConfig()
-			cMixed := a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort)
-			cSocks := a.Cfg.GetEffectivePort(cfg.Config.SocksPort, domain.DefaultSocksPort)
-			cHttp := a.Cfg.GetEffectivePort(cfg.Config.Port, domain.DefaultPort)
-
 			if ui.GlobalEngine != nil {
+				cMixed, cSocks, cHttp := a.GetPortConfigSnapshot()
 				nMixed, nSocks, nHttp, ok := ui.GlobalEngine.ShowPortEditor(cMixed, cSocks, cHttp)
-				if ok && (nMixed != cMixed || nSocks != cSocks || nHttp != cHttp) {
+				if ok {
 					a.ApplyPortConfig(ctx, nMixed, nSocks, nHttp)
 				}
 			}
@@ -151,22 +135,11 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		
 	case domain.ActionRequestEditController:
 		go func() {
-			cfg := a.Cfg.GetConfig()
-			cAddr := cfg.Config.ExternalController
-			if cAddr == "" { cAddr = domain.DefaultExternalController }
-			cSec := ""
-			if cfg.Config.Secret != nil { cSec = *cfg.Config.Secret }
-			cOnline := cfg.General.RemoteWebUI != nil && *cfg.General.RemoteWebUI
-			cSys := cfg.General.SystemBrowser != nil && *cfg.General.SystemBrowser
-
 			if ui.GlobalEngine != nil {
+				cAddr, cSec, cOnline, cSys := a.GetControllerConfigSnapshot()
 				nAddr, nSec, nOnline, nSys, ok := ui.GlobalEngine.ShowControllerEditor(cAddr, cSec, cOnline, cSys)
 				if ok {
-					coreChanged := (cAddr != nAddr) || (cSec != nSec)
-					appChanged := (cOnline != nOnline) || (cSys != nSys)
-					if coreChanged || appChanged {
-						a.ApplyControllerConfig(nAddr, nSec, nOnline, nSys, coreChanged)
-					}
+					a.ApplyControllerConfig(nAddr, nSec, nOnline, nSys)
 				}
 			}
 		}()
@@ -198,10 +171,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		go a.ToggleAllowLan(ctx, cmd.Payload == "true")
 		
 	case domain.ActionForceSyncAPI:
-		select {
-		case a.apiPollCh <- struct{}{}:
-		default:
-		}
+		a.ForceSyncAPI()
 		return
 
 	case domain.ActionOpenBaseDir:
