@@ -236,28 +236,30 @@ func (m *Manager) GetProfiles() []domain.ProfileItem {
 }
 
 func (m *Manager) SetActiveProfile(relPath string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	
-	if m.data.Profiles.Active == relPath { return }
-	
-	m.data.Profiles.Active = relPath
-	m.lockedSave()
+	if m.GetActivePath() == relPath { 
+		return 
+	}
+
+	m.Update(func(cfg *domain.TrayConfig) {
+		cfg.Profiles.Active = relPath
+	})
 }
 
 func (m *Manager) RemoveProfile(relPath string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if relPath == m.data.Profiles.Active {
-		slog.Info("活跃配置已移除，系统进入空转")
-		m.data.Profiles.Active = ""
-	}
-	var newItems []domain.ProfileItem
-	for _, item := range m.data.Profiles.Items {
-		if item.Path != relPath { newItems = append(newItems, item) }
-	}
-	m.data.Profiles.Items = newItems
-	m.lockedSave()
+	m.Update(func(cfg *domain.TrayConfig) {
+		if relPath == cfg.Profiles.Active {
+			slog.Info("活跃配置已移除，系统进入空转")
+			cfg.Profiles.Active = ""
+		}
+		
+		var newItems []domain.ProfileItem
+		for _, item := range cfg.Profiles.Items {
+			if item.Path != relPath { 
+				newItems = append(newItems, item) 
+			}
+		}
+		cfg.Profiles.Items = newItems
+	})
 }
 
 func (m *Manager) MoveProfile(relPath string, offset int) bool {
