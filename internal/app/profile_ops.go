@@ -16,7 +16,7 @@ import (
 )
 
 func (a *Application) onProfileImported(ctx context.Context, newProfilePath string) {
-	if len(a.Cfg.GetConfig().Profiles) == 1 {
+	if len(a.Cfg.GetProfiles()) == 1 {
 		slog.Info("首个配置导入成功，触发全局自动激活并加载", "path", newProfilePath)
 		_ = a.applyConfigTransaction(ctx, newProfilePath)
 	}
@@ -27,16 +27,16 @@ func (a *Application) ImportLocalProfile(ctx context.Context, sourceFilePath str
 	if sourceFilePath == "" {
 		return nil
 	}
-
 	slog.Info("开始导入本地配置", "source", sourceFilePath)
 
-	newRelPath, err := a.Cfg.AddLocalProfile(sourceFilePath)
+	targetName, _, err := a.Cfg.SafeCopyUntrustedConfig(sourceFilePath)
 	if err != nil {
-		slog.Error("本地配置导入失败", "err", err)
-		return fmt.Errorf("无法读取或校验本地配置文件：\n\n%w", err)
+		slog.Error("本地配置复制失败", "err", err)
+		return fmt.Errorf("文件复制失败，请检查系统权限：\n\n%w", err)
 	}
-
-	a.onProfileImported(ctx, newRelPath)
+	
+	a.Cfg.RegisterNewProfile(targetName)
+	a.onProfileImported(ctx, targetName)
 	return nil
 }
 
@@ -204,4 +204,34 @@ func (a *Application) AddRemoteProfile(ctx context.Context, rawName, url string,
 	a.Cfg.UpsertProfile(newItem)
 	
 	return a.UpdateRemoteProfile(ctx, targetRelPath, true, !exists)
+}
+
+func (a *Application) EditRemoteProfile(ctx context.Context, oldPath, newName, newURL string, newInterval int) error {
+	p, ok := a.Cfg.GetProfileByPath(oldPath)
+	if !ok {
+		return fmt.Errorf("找不到指定的配置文件，可能已被删除")
+	}
+
+	if newName == p.Name && newURL == p.URL && newInterval == p.Interval {
+		return nil 
+	}
+
+	oldURL := p.URL
+	p.Name = newName
+	p.URL = newURL
+	p.Interval = newInterval
+	p.AutoUpdate = newInterval > 0
+
+	a.Cfg.UpsertProfile(p)
+
+	if newURL != oldURL {
+		go func() {
+			if err := a.UpdateRemoteProfile(context.Background(), p.Path, true, false); err != nil {
+				slog.Error("编辑后更新订阅失败", "err", err)
+			}
+		}()
+	}
+	
+	a.pushUIState()
+	return nil
 }
