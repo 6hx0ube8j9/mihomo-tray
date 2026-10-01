@@ -292,7 +292,7 @@ func (a *Application) checkAndReconcilePrivileges(isStartup bool) {
 		if err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--restarting"); err == nil {
 			slog.Info("新提权实例已唤起，当前实例准备优雅退出...")
 			if ui.GlobalEngine != nil {
-				ui.GlobalEngine.Quit()
+				ui.GlobalEngine.Exit() 
 			}
 			return
 		}
