@@ -155,10 +155,8 @@ func (a *Application) handleTunChange(ctx context.Context) {
 					return
 				case <-time.After(300 * time.Millisecond):
 				}
-				select {
-				case a.ForceSyncAPI():
-				default:
-				}
+				
+				a.ForceSyncAPI()
 			}
 		}()
 		a.pushUIState()
