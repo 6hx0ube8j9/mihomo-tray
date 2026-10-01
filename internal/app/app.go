@@ -170,43 +170,23 @@ func (a *Application) eventLoop(ctx context.Context) {
 
 				go func(gen uint64) {
 					defer a.State.SetRestarting(false)
+					waitCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+					defer cancel()
+					err := a.API.WaitForReady(waitCtx)
 
-					for i := 0; i < 600; i++ {
-						if a.State.IsExiting() || ctx.Err() != nil {
-							return
-						}
-
-						if a.State.GetProbeGen() != gen {
-							return
-						}
-
-						if a.State.GetPhase() == domain.PhaseRunning {
-							return
-						}
-
-						pollCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-						_, err := a.API.DoRequest(pollCtx, "GET", "/version", nil)
-						cancel()
-
-						if err == nil {
-							slog.Info("内核 API 已就绪")
-							a.State.SetPhase(domain.PhaseRunning)
-							select {
-							case a.apiPollCh <- struct{}{}:
-							default:
-							}
-							return
-						}
-
-						select {
-						case <-ctx.Done():
-							return
-						case <-time.After(1 * time.Second):
-						}
+					if a.State.IsExiting() || ctx.Err() != nil || a.State.GetProbeGen() != gen {
+						return
 					}
 
-					if a.State.GetProbeGen() == gen && !a.State.IsExiting() {
-						slog.Error("内核无响应，守护进程挂起")
+					if err == nil {
+						slog.Info("内核 API 已就绪")
+						a.State.SetPhase(domain.PhaseRunning)
+						select {
+						case a.apiPollCh <- struct{}{}:
+						default:
+						}
+					} else {
+						slog.Error("内核无响应，守护进程挂起", "err", err)
 						a.Kernel.HaltDaemon()
 						a.State.SetPhase(domain.PhaseInitializing)
 						a.pushUIState()
