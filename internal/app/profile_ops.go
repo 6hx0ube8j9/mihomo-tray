@@ -209,3 +209,29 @@ func (a *Application) MoveProfileUp(targetPath string) {
 func (a *Application) MoveProfileDown(targetPath string) {
 	a.Cfg.MoveProfile(targetPath, 1)
 }
+
+func (a *Application) GetProfileInfo(targetPath string) (domain.ProfileItem, bool) {
+	return a.Cfg.GetProfileByPath(targetPath)
+}
+
+func (a *Application) AddRemoteProfile(ctx context.Context, rawName, url string, interval int) error {
+	if rawName == "" {
+		rawName = fmt.Sprintf("%d", time.Now().Unix())
+	}
+	safeName := strings.ReplaceAll(rawName, "/", "_")
+	fileName := fmt.Sprintf("%s.yaml", safeName)
+	targetRelPath := filepath.ToSlash(filepath.Join(config.ProfilesDir, fileName))
+
+	newItem := domain.ProfileItem{
+		Name:       safeName,
+		Path:       targetRelPath,
+		URL:        strings.TrimSpace(url),
+		AutoUpdate: interval > 0,
+		Interval:   interval,
+	}
+
+	_, exists := a.Cfg.GetProfileByPath(targetRelPath)
+	a.Cfg.UpsertProfile(newItem)
+	
+	return a.UpdateRemoteProfile(ctx, targetRelPath, true, !exists)
+}
