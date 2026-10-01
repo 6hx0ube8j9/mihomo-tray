@@ -91,7 +91,8 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 			return
 		}
 
-		a.checkAndReconcilePrivileges(false)
+		a.CheckAndReconcilePrivileges(false)
+		
 		target := a.Cfg.GetActivePath()
 
 		if err := a.safePreflightCheck(target, "重载配置"); err != nil {
@@ -121,7 +122,7 @@ func (a *Application) RestartKernel() {
 		ui.ShowErrorMessage(nil, "读取配置失败", "应用基础配置文件存在格式错误，已取消重启。\n\n详情：\n"+err.Error())
 		return
 	} else {
-		a.checkAndReconcilePrivileges(false)
+		a.CheckAndReconcilePrivileges(false)
 	}
 
 	a.SyncRuntimeConfig()
@@ -222,43 +223,4 @@ func (a *Application) restartWebUIIfOpen() {
 			slog.Warn("等待内核就绪超时，恢复 Web 面板失败")
 		}()
 	}
-}
-
-func (a *Application) checkAndReconcilePrivileges(isStartup bool) {
-	cfg := a.Cfg.GetConfig()
-	
-	needsAdmin := false
-	if cfg.General.RunAsAdmin { needsAdmin = true }
-	if cfg.Config.Tun.Enable { needsAdmin = true }
-	if cfg.General.Autostart != nil && *cfg.General.Autostart { needsAdmin = true }
-
-	if needsAdmin && !sys.IsAdmin() {
-		if isStartup {
-			slog.Warn("以普通权限启动，暂时停用提权功能 (TUN/始终管理员/开机自启)")
-			a.revertPrivilegedConfig()
-			return
-		}
-
-		slog.Info("配置需要管理员权限，正在尝试提权")
-		
-		if err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--restarting"); err == nil {
-			slog.Info("提权成功，旧实例准备退出")
-			if ui.GlobalEngine != nil {
-				ui.GlobalEngine.Exit() 
-			}
-			return
-		}
-
-		slog.Warn("提权被取消或失败，已恢复普通权限配置")
-		a.revertPrivilegedConfig()
-	}
-}
-
-func (a *Application) revertPrivilegedConfig() {
-	a.Cfg.Update(func(c *domain.TrayConfig) {
-		c.General.RunAsAdmin = false
-		c.Config.Tun.Enable = false
-		b := false
-		c.General.Autostart = &b
-	})
 }
