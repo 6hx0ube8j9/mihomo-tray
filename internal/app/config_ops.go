@@ -50,7 +50,7 @@ func (a *Application) ApplyControllerConfig(addr, secret string, online, sysBrow
 
 	if coreChanged {
 		slog.Info("Web 面板核心网络参数已变更，重启内核生效")
-		a.RestartKernel()
+		_ = a.RestartKernel()
 	}
 }
 
