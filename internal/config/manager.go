@@ -71,6 +71,8 @@ func (m *Manager) ReloadFromDisk() error {
 	content, err := os.ReadFile(jsonPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			slog.Warn("检测到配置文件丢失，正从内存数据重新生成文件")
+			m.FlushInitialState()
 			return nil
 		}
 		return err
@@ -78,9 +80,7 @@ func (m *Manager) ReloadFromDisk() error {
 
 	var newCfg domain.TrayConfig
 	if err := json.Unmarshal(content, &newCfg); err != nil {
-		m.mu.Lock()
-		m.lockedSave()
-		m.mu.Unlock()
+		m.FlushInitialState()
 		return fmt.Errorf("JSON 格式错误，已恢复为上一次配置: %w", err)
 	}
 
