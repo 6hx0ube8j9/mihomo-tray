@@ -13,6 +13,14 @@ import (
 	"mihomo-tray/internal/webui"
 )
 
+func (a *Application) asyncRun(title string, task func() error) {
+	go func() {
+		if err := task(); err != nil {
+			ui.ShowErrorMessage(nil, title, err.Error())
+		}
+	}()
+}
+
 func (a *Application) safePreflightCheck(targetRelPath string, actionTitle string) error {
 	if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
 		ui.ShowErrorMessage(nil, actionTitle+"失败", fmt.Sprintf("目标配置异常，请求已取消。\n\n错误: %v", err))
