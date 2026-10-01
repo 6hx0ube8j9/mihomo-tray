@@ -4,11 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
-	"time"
 
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/sys"
