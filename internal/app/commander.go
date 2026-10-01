@@ -205,11 +205,20 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		return
 
 	case domain.ActionOpenBaseDir:
-		_ = sys.ExecuteSystemCommand(a.Cfg.BaseDir())
-		
+		a.OpenBaseDir()
+
 	case domain.ActionOpenAppConfig:
-		jsonPath := filepath.Join(a.Cfg.BaseDir(), domain.TrayConfigName)
-		_ = sys.ExecuteSystemCommand(jsonPath)
+		a.OpenAppConfig()
+
+	case domain.ActionOpenConfigFile:
+		if err := a.OpenConfigFile(cmd.Payload); err != nil {
+			ui.ShowErrorMessage(nil, "打开文件失败", err.Error())
+		}
+
+	case domain.ActionEditCurrentConfig:
+		if err := a.EditCurrentConfig(); err != nil {
+			ui.ShowErrorMessage(nil, "无法编辑", err.Error())
+		}
 		
 	case domain.ActionReloadConfig:
 		go func() {
@@ -225,17 +234,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			}
 		}()
 
-	case domain.ActionOpenConfigFile:
-		targetRelPath := cmd.Payload
-		if targetRelPath == "" {
-			targetRelPath = a.Cfg.GetActivePath()
-		}
-		if err := a.safePreflightCheck(targetRelPath, "打开文件"); err != nil {
-			break
-		}
-		absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
-		_ = sys.ExecuteSystemCommand(absPath)
-
 	case domain.ActionExitApp:
 		slog.Info("收到退出指令，准备安全销毁应用...")
 		if ui.GlobalEngine != nil {
@@ -248,18 +246,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionToggleRemoteWebUI:
 		a.ToggleRemoteWebUI(cmd.Payload == "true")
-
-	case domain.ActionEditCurrentConfig:
-		targetRelPath := a.Cfg.GetActivePath()
-		if targetRelPath == "" {
-			ui.ShowErrorMessage(nil, "无法编辑", "当前没有正在运行的配置文件。")
-			break
-		}
-		if err := a.safePreflightCheck(targetRelPath, "编辑配置"); err != nil {
-			break
-		}
-		absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
-		_ = sys.ExecuteSystemCommand(absPath)		
 		
     case domain.ActionOpenWebUI:
 		if err := a.OpenWebUI(); err != nil {
