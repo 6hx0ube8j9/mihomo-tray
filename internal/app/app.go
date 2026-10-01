@@ -184,10 +184,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 					if err == nil {
 						slog.Info("内核 API 已就绪")
 						a.State.SetPhase(domain.PhaseRunning)
-						select {
-						case a.ForceSyncAPI():
-						default:
-						}
+						a.ForceSyncAPI()
 					} else {
 						slog.Error("内核无响应，守护进程挂起", "err", err)
 						a.Kernel.HaltDaemon()
