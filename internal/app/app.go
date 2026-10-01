@@ -107,6 +107,9 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	slog.Info("执行安全退出序列")
 	a.State.ForceExitPhase()
 
+	slog.Debug("清理 Web 面板资源")
+	a.WebUI.Cleanup()
+
 	if cancel != nil {
 		cancel()
 	}
