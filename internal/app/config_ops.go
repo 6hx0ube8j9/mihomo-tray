@@ -115,3 +115,17 @@ func (a *Application) ToggleAllowLan(ctx context.Context, enable bool) {
 	_ = a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"allow-lan": enable})
 	select { case a.apiPollCh <- struct{}{}: default: }
 }
+	
+func (a *Application) ToggleSystemBrowser(enable bool) {
+	a.Cfg.Update(func(c *domain.TrayConfig) {
+		b := enable
+		c.General.SystemBrowser = &b
+	})
+}
+
+func (a *Application) ToggleRemoteWebUI(enable bool) {
+	a.Cfg.Update(func(c *domain.TrayConfig) {
+		b := enable
+		c.General.RemoteWebUI = &b
+	})
+}
