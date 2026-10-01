@@ -76,7 +76,7 @@ func BuildRuntimeYAML(cfg domain.TrayConfig, relPath string, baseDir string) (bo
 		extracted["port"] = strconv.Itoa(*cfg.Config.MixedPort)
 	} else {
 		deleteKeys(rootMap, "mixed-port")
-		extracted["port"] = strconv.Itoa(domain.DefaultMixedPort)
+		extracted["port"] = "0"
 	}
 	if cfg.Config.Port != nil && *cfg.Config.Port > 0 {
 		putTop("port", *cfg.Config.Port)
