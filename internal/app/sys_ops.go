@@ -77,8 +77,3 @@ func (a *Application) ToggleRunAsAdmin(enable bool) (restarted bool) {
 		a.Cfg.Update(func(c *domain.TrayConfig) { c.General.RunAsAdmin = false })
 	})
 }
-
-func (a *Application) ClearWebUICache() error {
-	cacheDir := filepath.Join(a.Cfg.BaseDir(), "webcache")
-	return os.RemoveAll(cacheDir)
-}
