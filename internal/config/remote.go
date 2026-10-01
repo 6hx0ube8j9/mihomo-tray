@@ -161,32 +161,13 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 }
 
 func (m *Manager) CommitRemoteProfile(tempPath string, targetRelPath string, item domain.ProfileItem) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	targetAbs := filepath.Join(m.baseDir, filepath.FromSlash(targetRelPath))
-
 	if err := os.Rename(tempPath, targetAbs); err != nil {
 		return err
 	}
 
-	found := false
-	for i, p := range m.data.Profiles.Items {
-		if p.Path == targetRelPath {
-			m.data.Profiles.Items[i] = item
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		m.data.Profiles.Items = append(m.data.Profiles.Items, item)
-		if len(m.data.Profiles.Items) > domain.MaxProfileCount {
-			m.data.Profiles.Items = append(m.data.Profiles.Items[:1], m.data.Profiles.Items[2:]...)
-		}
-	}
-
-	m.lockedSave()
+	m.UpsertProfile(item)
+	
 	return nil
 }
 
