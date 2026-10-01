@@ -82,7 +82,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 		}
 	}
 	
-    a.checkAndReconcilePrivileges(true)
+	a.CheckAndReconcilePrivileges(true)
 	a.SyncRuntimeConfig()
 
 	initialCfg := a.Cfg.GetConfig()
@@ -226,7 +226,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 			for _, p := range a.Cfg.GetProfiles() {
 				if p.IsUpdateDue() {
 					slog.Debug("触发自动更新任务", "name", p.Name)
-					go a.executeRemoteUpdate(ctx, p.Path, false, false)
+					go a.UpdateRemoteProfile(ctx, p.Path, false, false)
 				}
 			}
 		}
