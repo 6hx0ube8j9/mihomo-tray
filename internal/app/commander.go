@@ -204,29 +204,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		}
 		return
 
-	case domain.ActionOpenWebUI:
-		if a.State.GetPhase() != domain.PhaseRunning {
-			slog.Warn("内核未启动完成，暂无法打开 WebUI")
-			break
-		}
-
-		cfg := a.Cfg.GetConfig()
-		apiAddr, secret, uiName := a.State.GetWebUISnapshot()
-		
-		slog.Info("正在打开面板", "强制系统浏览器", *cfg.General.SystemBrowser, "使用远程面板", *cfg.General.RemoteWebUI)
-		
-		wcfg := webui.Config{
-			APIAddr:            apiAddr,
-			Secret:             secret,
-			ProxyPort:          strconv.Itoa(a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort)),
-			BaseDir:            a.Cfg.BaseDir(),
-			UIName:             uiName,
-			ForceSystemBrowser: *cfg.General.SystemBrowser, 
-			RemoteWebUI:        *cfg.General.RemoteWebUI,
-		}
-		
-		go a.WebUI.Launch(wcfg, a.webuiEventCh)
-
 	case domain.ActionOpenBaseDir:
 		_ = sys.ExecuteSystemCommand(a.Cfg.BaseDir())
 		
@@ -282,19 +259,18 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			break
 		}
 		absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
-		_ = sys.ExecuteSystemCommand(absPath)
+		_ = sys.ExecuteSystemCommand(absPath)		
+		
+    case domain.ActionOpenWebUI:
+		if err := a.OpenWebUI(); err != nil {
+			ui.ShowErrorMessage(nil, "提示", err.Error())
+		}
 
 	case domain.ActionCopyWebUIPassword:
-		_, secret, _ := a.State.GetWebUISnapshot()
-
-		if secret == "" {
-			ui.ShowInfoMessage(nil, "复制密码", "当前 Web 面板无需密码即可访问。")
-			break
-		}
-		if err := sys.WriteToClipboard(secret); err == nil {
-			ui.ShowTrayNotification("复制成功", "Web 密码已复制到剪贴板。")
+		if err := a.CopyWebUIPassword(); err != nil {
+			ui.ShowInfoMessage(nil, "复制密码", err.Error())
 		} else {
-			ui.ShowErrorMessage(nil, "复制失败", fmt.Sprintf("无法写入系统剪贴板。\n\n错误: %v", err))
+			ui.ShowTrayNotification("复制成功", "Web 密码已复制到剪贴板。")
 		}
 
 	case domain.ActionClearWebUICache:
@@ -306,10 +282,9 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			if err := a.ClearWebUICache(); err == nil {
 				ui.ShowTrayNotification("清理完成", "Web 面板缓存已清除。")
 			} else {
-				ui.ShowErrorMessage(nil, "清理失败", fmt.Sprintf("无法彻底清除缓存目录，文件可能正在被使用。\n\n错误: %v", err))
+				ui.ShowErrorMessage(nil, "清理失败", err.Error())
 			}
 		}()
-	}
 
 	a.pushUIState()
 }
