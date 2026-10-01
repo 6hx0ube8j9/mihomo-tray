@@ -151,20 +151,19 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 }
 
 func (a *Application) RestartKernel() {
-	slog.Info("正在重启内核进程")
+	slog.Info("正在准备重启内核")
 	a.State.SetRestarting(true)
 	a.State.SetReloading(false)
-	a.State.SetPhase(domain.PhaseInitializing)
-	
-	a.Kernel.HaltDaemon()
-	
+	defer a.State.SetRestarting(false)
+
 	if err := a.Cfg.ReloadFromDisk(); err != nil {
 		slog.Warn("重启前重载本地 JSON 失败", "err", err)
 		ui.ShowErrorMessage(nil, "JSON 错误", "mihomo-tray.json 存在语法错误，已阻止修改。\n\n详情：\n"+err.Error())
+		return
 	} else {
 		a.checkAndReconcilePrivileges()
 	}
-	
+
 	a.SyncRuntimeConfig()
 
 	cfg := a.Cfg.GetConfig()
@@ -172,12 +171,51 @@ func (a *Application) RestartKernel() {
 		a.State.SetTunRequestedTime(time.Now())
 	}
 
-	a.Kernel.WakeDaemon()
+	isSoftRestartSuccess := false
+
+	if a.State.GetPhase() == domain.PhaseRunning {
+		cmdCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		err := a.API.RestartKernel(cmdCtx)
+		cancel()
+
+		if err == nil {
+			slog.Info("内核已接受软重启指令，正在等待底层网络栈重建...")
+			
+			waitCtx, waitCancel := context.WithTimeout(context.Background(), 3*time.Second)
+			readyErr := a.API.WaitForReady(waitCtx)
+			waitCancel()
+
+			if readyErr == nil {
+				slog.Info("内核网络栈与 IPC 管道已瞬间恢复")
+				
+				syncCtx, syncCancel := context.WithTimeout(context.Background(), 3*time.Second)
+				a.syncAllConfig(syncCtx)
+				syncCancel()
+
+				select {
+				case a.apiPollCh <- struct{}{}:
+				default:
+				}
+
+				isSoftRestartSuccess = true
+			} else {
+				slog.Warn("软重启后管道重建超时，准备降级为物理重启", "err", readyErr)
+			}
+		} else {
+			slog.Warn("发送原生重启命令失败，准备降级为物理重启", "err", err)
+		}
+	}
+
+	if !isSoftRestartSuccess {
+		a.State.SetPhase(domain.PhaseInitializing)
+		a.Kernel.HaltDaemon()
+		a.Kernel.WakeDaemon()
+	} else {
+		a.State.SetPhase(domain.PhaseRunning)
+	}
 
 	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
-	
 	a.pushUIState()
-
 	a.restartWebUIIfOpen()
 }
 
