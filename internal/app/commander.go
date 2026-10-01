@@ -377,8 +377,11 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 					c.General.Autostart = &b
 				})
 			} else if err == nil {
-				a.SafeShutdown(nil)
-				os.Exit(0)
+				slog.Info("新提权实例已唤起，当前实例准备优雅退出...")
+				if ui.GlobalEngine != nil {
+					ui.GlobalEngine.Quit()
+				}
+				return
 			}
 			a.ForcePushUIState()
 			return
@@ -399,8 +402,11 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			slog.Info("设置始终以管理员运行，正在申请权限")
 			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--restarting")
 			if err == nil {
-				a.SafeShutdown(nil)
-				os.Exit(0)
+				slog.Info("新提权实例已唤起，当前实例准备优雅退出...")
+				if ui.GlobalEngine != nil {
+					ui.GlobalEngine.Quit()
+				}
+				return
 			}
 			a.Cfg.Update(func(c *domain.TrayConfig) { c.General.RunAsAdmin = false })
 			a.ForcePushUIState()
@@ -416,8 +422,11 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			slog.Info("开启 TUN 模式需要管理员权限，正在申请")
 			err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--restarting")
 			if err == nil {
-				a.SafeShutdown(nil)
-				os.Exit(0)
+				slog.Info("新提权实例已唤起，当前实例准备优雅退出...")
+				if ui.GlobalEngine != nil {
+					ui.GlobalEngine.Quit()
+				}
+				return
 			}
 			a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = false })
 			a.ForcePushUIState()
