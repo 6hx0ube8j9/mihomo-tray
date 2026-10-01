@@ -124,7 +124,7 @@ func (c *APIClient) RestartKernel(ctx context.Context) error {
 }
 
 func (c *APIClient) WaitForReady(ctx context.Context) error {
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
@@ -136,8 +136,9 @@ func (c *APIClient) WaitForReady(ctx context.Context) error {
 				return context.Canceled
 			}
 			reqCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
-			_, err := c.DoRequest(reqCtx, http.MethodGet, "/version", nil)
+			_, err := c.DoRequest(reqCtx, "GET", "/version", nil)
 			cancel()
+			
 			if err == nil {
 				return nil
 			}
