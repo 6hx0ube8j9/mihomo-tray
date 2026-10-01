@@ -52,7 +52,7 @@ func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted boo
 	if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"tun": tunPayload}); err != nil {
 		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = !enable })
 	}
-	select { case a.apiPollCh <- struct{}{}: default: }
+	select { case a.ForceSyncAPI(): default: }
 	return false
 }
 
@@ -72,7 +72,7 @@ func (a *Application) SwitchMode(ctx context.Context, mode string) {
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	_ = a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"mode": mode})
-	select { case a.apiPollCh <- struct{}{}: default: }
+	select { case a.ForceSyncAPI(): default: }
 }
 
 func (a *Application) ToggleAllowLan(ctx context.Context, enable bool) {
@@ -86,7 +86,7 @@ func (a *Application) ToggleAllowLan(ctx context.Context, enable bool) {
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	_ = a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"allow-lan": enable})
-	select { case a.apiPollCh <- struct{}{}: default: }
+	select { case a.ForceSyncAPI(): default: }
 }
 	
 func (a *Application) ToggleSystemBrowser(enable bool) {
@@ -184,7 +184,7 @@ func (a *Application) ApplyControllerConfig(addr, secret string, online, sysBrow
 	
 func (a *Application) ForceSyncAPI() {
 	select {
-	case a.apiPollCh <- struct{}{}:
+	case a.ForceSyncAPI():
 	default:
 	}
 }	
