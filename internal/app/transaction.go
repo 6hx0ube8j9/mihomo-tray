@@ -135,7 +135,7 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 			return
 		}
 
-		a.checkAndReconcilePrivileges()
+		a.checkAndReconcilePrivileges(false)
 		target := a.Cfg.GetActivePath()
 
 		if err := a.safePreflightCheck(target, "重载配置"); err != nil {
@@ -161,7 +161,7 @@ func (a *Application) RestartKernel() {
 		ui.ShowErrorMessage(nil, "JSON 错误", "mihomo-tray.json 存在语法错误，已阻止修改。\n\n详情：\n"+err.Error())
 		return
 	} else {
-		a.checkAndReconcilePrivileges()
+		a.checkAndReconcilePrivileges(false)
 	}
 
 	a.SyncRuntimeConfig()
@@ -267,8 +267,7 @@ func (a *Application) restartWebUIIfOpen() {
 	}
 }
 
-
-func (a *Application) checkAndReconcilePrivileges() {
+func (a *Application) checkAndReconcilePrivileges(isStartup bool) {
 	cfg := a.Cfg.GetConfig()
 	
 	needsAdmin := false
@@ -277,11 +276,25 @@ func (a *Application) checkAndReconcilePrivileges() {
 	if cfg.General.Autostart != nil && *cfg.General.Autostart { needsAdmin = true }
 
 	if needsAdmin && !sys.IsAdmin() {
-		slog.Info("检测到 JSON 手动修改了越权配置，发起 UAC 提权")
+		if isStartup {
+			slog.Warn("以普通权限启动，暂时降级越权配置 (TUN/RunAsAdmin/Autostart)")
+			a.Cfg.Update(func(c *domain.TrayConfig) {
+				c.General.RunAsAdmin = false
+				c.Config.Tun.Enable = false
+				b := false
+				c.General.Autostart = &b
+			})
+			return
+		}
+
+		slog.Info("检测到 JSON 配置修改越权，发起 UAC 提权")
 		
 		if err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--restarting"); err == nil {
-			a.SafeShutdown(nil)
-			os.Exit(0)
+			slog.Info("新提权实例已唤起，当前实例准备优雅退出...")
+			if ui.GlobalEngine != nil {
+				ui.GlobalEngine.Quit()
+			}
+			return
 		}
 
 		slog.Warn("UAC 提权未获授权，静默回滚越权状态")
