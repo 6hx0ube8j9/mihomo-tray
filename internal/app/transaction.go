@@ -72,6 +72,15 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 	return nil
 }
 
+func (a *Application) onProfileImported(ctx context.Context, newProfilePath string) {
+	if len(a.Cfg.GetConfig().Profiles) == 1 {
+		slog.Info("首个配置导入成功，触发全局自动激活并加载", "path", newProfilePath)
+		_ = a.applyConfigTransaction(ctx, newProfilePath)
+	}
+	
+	a.pushUIState()
+}
+
 func (a *Application) executeRemoteUpdate(ctx context.Context, targetRelPath string, isManual bool, isNew bool) {
 	if !a.State.TryAcquireProfileLock(targetRelPath) {
 		if isManual {
@@ -112,8 +121,10 @@ func (a *Application) executeRemoteUpdate(ctx context.Context, targetRelPath str
 		if a.Cfg.GetActivePath() == targetRelPath {
 			slog.Info("当前活跃配置已更新，执行重载")
 			_ = a.applyConfigTransaction(context.Background(), targetRelPath)
+			a.pushUIState()
+		} else if isNew {
+			a.onProfileImported(ctx, targetRelPath)
 		}
-		a.pushUIState()
 	}
 }
 
