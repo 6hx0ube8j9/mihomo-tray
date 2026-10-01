@@ -8,25 +8,6 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-func (a *Application) ApplyControllerConfig(addr, secret string, online, sysBrowser bool, coreChanged bool) {
-	a.Cfg.Update(func(c *domain.TrayConfig) {
-		if coreChanged {
-			c.Config.ExternalController = addr
-			c.Config.Secret = &secret
-		}
-		bOnline, bSys := online, sysBrowser
-		c.General.RemoteWebUI = &bOnline
-		c.General.SystemBrowser = &bSys
-	})
-
-	a.pushUIState()
-
-	if coreChanged {
-		slog.Info("Web 面板核心网络参数已变更，重启内核生效")
-		_ = a.RestartKernel()
-	}
-}
-
 func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted bool) {
 	a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = enable })
 	
@@ -52,7 +33,7 @@ func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted boo
 	if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"tun": tunPayload}); err != nil {
 		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = !enable })
 	}
-	select { case a.ForceSyncAPI(): default: }
+	a.ForceSyncAPI()
 	return false
 }
 
@@ -72,7 +53,7 @@ func (a *Application) SwitchMode(ctx context.Context, mode string) {
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	_ = a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"mode": mode})
-	select { case a.ForceSyncAPI(): default: }
+	a.ForceSyncAPI()
 }
 
 func (a *Application) ToggleAllowLan(ctx context.Context, enable bool) {
@@ -86,7 +67,7 @@ func (a *Application) ToggleAllowLan(ctx context.Context, enable bool) {
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	_ = a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"allow-lan": enable})
-	select { case a.ForceSyncAPI(): default: }
+	a.ForceSyncAPI()
 }
 	
 func (a *Application) ToggleSystemBrowser(enable bool) {
@@ -180,11 +161,10 @@ func (a *Application) ApplyControllerConfig(addr, secret string, online, sysBrow
 		_ = a.RestartKernel()
 	}
 }
-
 	
 func (a *Application) ForceSyncAPI() {
 	select {
-	case a.ForceSyncAPI():
+	case a.apiPollCh <- struct{}{}:
 	default:
 	}
-}	
+}
