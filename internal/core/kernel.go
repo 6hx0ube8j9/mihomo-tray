@@ -331,10 +331,14 @@ func (km *KernelManager) KillCurrent() {
 	atomic.StoreUint32(&km.currentPid, 0)
 	km.mu.Unlock()
 
-	if err := sys.SendCtrlBreak(pid); err != nil {
+	forceKill := func() {
 		_ = proc.Kill()
 		sys.HardKill(pid)
 		sys.KillOtherProcessesByName(domain.KernelExeName, 0)
+	}
+	
+	if err := sys.SendCtrlBreak(pid); err != nil {
+		forceKill()
 	} else {
 		exited := false
 		for i := 0; i < 100; i++ {
@@ -346,9 +350,7 @@ func (km *KernelManager) KillCurrent() {
 		}
 
 		if !exited {
-			_ = proc.Kill()
-			sys.HardKill(pid)
-			sys.KillOtherProcessesByName(domain.KernelExeName, 0)
+			forceKill()
 		}
 	}
 	time.Sleep(250 * time.Millisecond)
