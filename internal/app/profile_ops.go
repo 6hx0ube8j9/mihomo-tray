@@ -40,36 +40,6 @@ func (a *Application) ImportLocalProfile(ctx context.Context, sourceFilePath str
 	return nil
 }
 
-func (a *Application) AddRemoteProfile(ctx context.Context, payload string) error {
-	parts := strings.SplitN(payload, "|", 4)
-	if len(parts) != 4 {
-		return fmt.Errorf("无效的订阅参数格式")
-	}
-
-	interval, _ := strconv.Atoi(parts[2])
-	rawName := strings.TrimSpace(parts[0])
-	if rawName == "" {
-		rawName = fmt.Sprintf("%d", time.Now().Unix())
-	}
-
-	safeName := strings.ReplaceAll(rawName, "/", "_")
-	fileName := fmt.Sprintf("%s.yaml", safeName)
-	targetRelPath := filepath.ToSlash(filepath.Join(config.ProfilesDir, fileName))
-
-	newItem := domain.ProfileItem{
-		Name:       safeName,
-		Path:       targetRelPath,
-		URL:        strings.TrimSpace(parts[1]),
-		AutoUpdate: parts[3] == "true",
-		Interval:   interval,
-	}
-
-	_, exists := a.Cfg.GetProfileByPath(targetRelPath)
-	a.Cfg.UpsertProfile(newItem)
-	
-	return a.UpdateRemoteProfile(ctx, targetRelPath, true, !exists)
-}
-
 func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath string, isManual bool, isNew bool) error {
 	if !a.State.TryAcquireProfileLock(targetRelPath) {
 		if isManual {
