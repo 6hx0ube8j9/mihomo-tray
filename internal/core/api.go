@@ -117,7 +117,32 @@ func (c *APIClient) RestartKernel(ctx context.Context) error {
 		return context.Canceled
 	}
 	_, err := c.DoRequest(ctx, http.MethodPost, "/restart", nil)
+	if err == nil {
+		c.httpClient.CloseIdleConnections()
+	}
 	return err
+}
+
+func (c *APIClient) WaitForReady(ctx context.Context) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if c.st.IsExiting() {
+				return context.Canceled
+			}
+			reqCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+			_, err := c.DoRequest(reqCtx, http.MethodGet, "/version", nil)
+			cancel()
+			if err == nil {
+				return nil
+			}
+		}
+	}
 }
 
 func (c *APIClient) SyncConfigToKernel(ctx context.Context, payload map[string]interface{}) error {
