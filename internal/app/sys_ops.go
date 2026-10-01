@@ -77,3 +77,33 @@ func (a *Application) ToggleRunAsAdmin(enable bool) (restarted bool) {
 		a.Cfg.Update(func(c *domain.TrayConfig) { c.General.RunAsAdmin = false })
 	})
 }
+
+
+func (a *Application) OpenBaseDir() {
+	_ = sys.ExecuteSystemCommand(a.Cfg.BaseDir())
+}
+
+func (a *Application) OpenAppConfig() {
+	jsonPath := filepath.Join(a.Cfg.BaseDir(), domain.TrayConfigName)
+	_ = sys.ExecuteSystemCommand(jsonPath)
+}
+
+func (a *Application) OpenConfigFile(targetRelPath string) error {
+	if targetRelPath == "" {
+		targetRelPath = a.Cfg.GetActivePath()
+	}
+	if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
+		return fmt.Errorf("目标配置异常，请求已取消。\n\n错误: %w", err)
+	}
+	absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
+	_ = sys.ExecuteSystemCommand(absPath)
+	return nil
+}
+
+func (a *Application) EditCurrentConfig() error {
+	targetRelPath := a.Cfg.GetActivePath()
+	if targetRelPath == "" {
+		return fmt.Errorf("当前没有正在运行的配置文件。")
+	}
+	return a.OpenConfigFile(targetRelPath)
+}
