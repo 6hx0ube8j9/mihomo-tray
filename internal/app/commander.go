@@ -10,8 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"mihomo-tray/internal/config"
-	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/sys"
 	"mihomo-tray/internal/ui"
@@ -34,7 +32,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		stateSnapshot := a.lastUIState
 		items := make([]domain.UIProfileItem, len(a.lastUIState.ProfileItems))
 		copy(items, a.lastUIState.ProfileItems)
-		
 		stateSnapshot.ProfileItems = items 
 		a.uiStateMutex.Unlock()
 
@@ -73,7 +70,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 					if ok {
 						if name != profile.Name || url != profile.URL || interval != profile.Interval {
 							oldURL := profile.URL
-
 							profile.Name = name
 							profile.URL = url
 							profile.Interval = interval
@@ -82,7 +78,11 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 							a.Cfg.UpsertProfile(profile)
 
 							if url != oldURL {
-								go a.executeRemoteUpdate(context.Background(), profile.Path, true, false)
+								go func() {
+									if err := a.UpdateRemoteProfile(context.Background(), profile.Path, true, false); err != nil {
+										ui.ShowErrorMessage(nil, "更新失败", err.Error())
+									}
+								}()
 							}
 							a.pushUIState()
 						}
@@ -91,8 +91,60 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			}(p)
 		}
 		return
-		
-    case domain.ActionRequestEditPort:
+			
+	case domain.ActionAddLocalProfile:
+		go func(path string) {
+			if err := a.ImportLocalProfile(ctx, path); err != nil {
+				ui.ShowErrorMessage(nil, "导入失败", err.Error())
+			}
+		}(cmd.Payload)
+
+	case domain.ActionAddRemoteProfile:
+		go func(payload string) {
+			if err := a.AddRemoteProfile(ctx, payload); err != nil {
+				ui.ShowErrorMessage(nil, "添加订阅失败", err.Error())
+			}
+		}(cmd.Payload)
+
+	case domain.ActionUpdateRemoteProfile:
+		if p, ok := a.Cfg.GetProfileByPath(cmd.Payload); ok {
+			go func(path string) {
+				if err := a.UpdateRemoteProfile(ctx, path, true, false); err != nil {
+					ui.ShowErrorMessage(nil, "更新失败", err.Error())
+				}
+			}(p.Path)
+		}
+
+	case domain.ActionSetProfileInterval:
+		a.SetProfileInterval(cmd.Payload)
+
+	case domain.ActionSwitchProfile:
+		go func(path string) {
+			if err := a.SwitchProfile(ctx, path); err != nil {
+				ui.ShowErrorMessage(nil, "切换失败", err.Error())
+			}
+		}(cmd.Payload)
+
+	case domain.ActionRemoveProfile:
+		targetPath := cmd.Payload
+		if targetPath == a.Cfg.GetActivePath() {
+			slog.Warn("拒绝删除当前正在使用的配置")
+			break
+		}
+		go func(path string) {
+			if !ui.ShowConfirmMessage(nil, "确认删除", "确定要删除此配置文件吗？\n\n此操作不可恢复，本地文件将被同时删除。") {
+				return
+			}
+			a.DeleteProfile(path)
+		}(targetPath)
+
+	case domain.ActionMoveProfileUp:
+		a.Cfg.MoveProfile(cmd.Payload, -1)
+
+	case domain.ActionMoveProfileDown:
+		a.Cfg.MoveProfile(cmd.Payload, 1)
+
+	case domain.ActionRequestEditPort:
 		go func() {
 			cfg := a.Cfg.GetConfig()
 
@@ -148,7 +200,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		}()
 		return
 		
-    case domain.ActionRequestEditController:
+	case domain.ActionRequestEditController:
 		go func() {
 			cfg := a.Cfg.GetConfig()
 
@@ -201,163 +253,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			}
 		}()
 		return
-		
-	case domain.ActionAddLocalProfile:
-		if a.State.IsProfileSwitching() {
-			break
-		}
-		a.State.SetProfileSwitching(true)
-
-		go func(sourcePath string) {
-			defer a.pushUIState()
-			defer a.State.SetProfileSwitching(false)
-
-			exePath := core.GetKernelPath(a.Cfg.BaseDir())
-			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), sourcePath); err != nil {
-				ui.ShowErrorMessage(nil, "导入失败", fmt.Sprintf("配置文件存在语法或规则错误。\n\n错误: %v", err))
-				return
-			}
-
-			targetName, _, err := a.Cfg.SafeCopyUntrustedConfig(sourcePath)
-			if err != nil {
-				ui.ShowErrorMessage(nil, "导入失败", fmt.Sprintf("文件复制失败，请检查系统权限。\n\n错误: %v", err))
-				return
-			}
-			a.Cfg.RegisterNewProfile(targetName)
-		}(cmd.Payload)
-
-	case domain.ActionAddRemoteProfile:
-		parts := strings.SplitN(cmd.Payload, "|", 4)
-		if len(parts) != 4 {
-			return
-		}
-
-		interval, _ := strconv.Atoi(parts[2])
-		rawName := strings.TrimSpace(parts[0])
-		if rawName == "" {
-			rawName = fmt.Sprintf("%d", time.Now().Unix())
-		}
-
-		safeName := strings.ReplaceAll(rawName, "/", "_")
-		fileName := fmt.Sprintf("%s.yaml", safeName)
-		targetRelPath := filepath.ToSlash(filepath.Join(config.ProfilesDir, fileName))
-
-		newItem := domain.ProfileItem{
-			Name:       safeName,
-			Path:       targetRelPath,
-			URL:        strings.TrimSpace(parts[1]),
-			AutoUpdate: parts[3] == "true",
-			Interval:   interval,
-		}
-
-		_, exists := a.Cfg.GetProfileByPath(targetRelPath)
-
-		a.Cfg.UpsertProfile(newItem)
-		go a.executeRemoteUpdate(ctx, targetRelPath, true, !exists)
-
-	case domain.ActionSetProfileInterval:
-		parts := strings.Split(cmd.Payload, "|")
-		if len(parts) == 2 {
-			targetPath := parts[0]
-			interval, err := strconv.Atoi(parts[1])
-			if err == nil {
-				if p, ok := a.Cfg.GetProfileByPath(targetPath); ok {
-					p.Interval = interval
-					p.AutoUpdate = interval > 0
-					a.Cfg.UpsertProfile(p)
-					slog.Info("修改订阅更新频率", "path", targetPath, "interval", interval)
-				}
-			}
-		}
-
-	case domain.ActionUpdateRemoteProfile:
-		if p, ok := a.Cfg.GetProfileByPath(cmd.Payload); ok {
-			go a.executeRemoteUpdate(ctx, p.Path, true, false)
-		}
-
-	case domain.ActionSwitchProfile:
-		if cmd.Payload != "" && cmd.Payload == a.Cfg.GetActivePath() {
-			slog.Debug("配置已在使用中，忽略重复切换", "path", cmd.Payload)
-			a.ForcePushUIState()
-			break
-		}
-
-		if a.State.IsProfileSwitching() {
-			a.ForcePushUIState()
-			break
-		}
-		a.State.SetProfileSwitching(true)
-
-		go func(relPath string) {
-			isTransactionFailed := false
-
-			defer func() {
-				a.State.SetProfileSwitching(false)
-				if isTransactionFailed {
-					slog.Debug("配置切换失败，恢复原状态并刷新界面")
-					a.ForcePushUIState()
-				} else {
-					a.pushUIState()
-				}
-			}()
-
-			target := relPath
-			if target == "" {
-				target = a.Cfg.GetActivePath()
-			}
-
-			if err := a.safePreflightCheck(target, "切换配置"); err != nil {
-				isTransactionFailed = true
-				return
-			}
-
-			exePath := core.GetKernelPath(a.Cfg.BaseDir())
-			absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(target))
-			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), absPath); err != nil {
-				ui.ShowErrorMessage(nil, "加载失败", fmt.Sprintf("该配置存在错误，拒绝加载。\n\n错误: %v", err))
-				isTransactionFailed = true
-				return
-			}
-
-			oldActive := a.Cfg.GetActivePath()
-			a.Cfg.SetActiveProfile(target)
-			a.pushUIState()
-
-			if err := a.applyConfigTransaction(context.Background(), target); err != nil {
-				ui.ShowErrorMessage(nil, "内核异常", fmt.Sprintf("配置加载失败，已自动恢复原配置。\n\n错误: %v", err))
-				a.Cfg.SetActiveProfile(oldActive)
-				isTransactionFailed = true
-			} else {
-				a.restartWebUIIfOpen()
-			}
-		}(cmd.Payload)
-
-	case domain.ActionRemoveProfile:
-		targetPath := cmd.Payload
-		if targetPath == a.Cfg.GetActivePath() {
-			slog.Warn("拒绝删除当前正在使用的配置")
-			break
-		}
-
-		go func(path string) {
-			if !ui.ShowConfirmMessage(nil, "确认删除", "确定要删除此配置文件吗？\n\n此操作不可恢复，本地文件将被同时删除。") {
-				return
-			}
-
-			absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(path))
-			if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
-				slog.Warn("清理本地文件失败", "path", absPath, "err", err)
-			}
-
-			a.Cfg.RemoveProfile(path)
-			a.pushUIState()
-		}(targetPath)
-
-	case domain.ActionMoveProfileUp:
-		a.Cfg.MoveProfile(cmd.Payload, -1)
-
-	case domain.ActionMoveProfileDown:
-		a.Cfg.MoveProfile(cmd.Payload, 1)
 
 	case domain.ActionToggleAutoStart:
 		enable := cmd.Payload == "true"
