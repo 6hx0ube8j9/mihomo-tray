@@ -11,7 +11,6 @@ import (
 
 	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/domain"
-	"mihomo-tray/internal/sys"
 	"mihomo-tray/internal/ui"
 )
 
