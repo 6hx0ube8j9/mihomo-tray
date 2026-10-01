@@ -17,7 +17,7 @@ func OpenYAMLFileDialog() (string, bool) {
 
 	safeSync(func() {
 		dlg := new(walk.FileDialog)
-		dlg.Title = "选择本地配置文件"
+		dlg.Title = "导入本地配置"
 		dlg.Filter = "YAML 配置文件 (*.yaml;*.yml)|*.yaml;*.yml|所有文件 (*.*)|*.*"
 		
 		ok, _ := dlg.ShowOpen(getValidOwner())
