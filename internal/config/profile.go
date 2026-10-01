@@ -27,12 +27,12 @@ func TruncateMiddle(name string) string {
 }
 
 func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) {
-	m.mu.Lock()
+    m.mu.RLock()
 	if len(m.data.Profiles.Items) >= domain.MaxProfileCount {
-		m.mu.Unlock()
+		m.mu.RUnlock()
 		return "", false, fmt.Errorf("配置数量达到上限 (%d)", domain.MaxProfileCount)
 	}
-	m.mu.Unlock()
+	m.mu.RUnlock()
 
 	absSrc, err := filepath.EvalSymlinks(srcPath)
 	if err != nil {
@@ -121,46 +121,39 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 }
 
 func (m *Manager) RegisterNewProfile(relPath string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	for _, item := range m.data.Profiles.Items {
-		if item.Path == relPath {
-			return
+	m.Update(func(cfg *domain.TrayConfig) {
+		for _, item := range cfg.Profiles.Items {
+			if item.Path == relPath {
+				return
+			}
 		}
-	}
 
-	baseName := filepath.Base(relPath)
-	displayName := strings.TrimSuffix(baseName, filepath.Ext(baseName))
+		baseName := filepath.Base(relPath)
+		displayName := strings.TrimSuffix(baseName, filepath.Ext(baseName))
 
-	m.data.Profiles.Items = append(m.data.Profiles.Items, domain.ProfileItem{
-		Name: displayName,
-		Path: relPath,
+		cfg.Profiles.Items = append(cfg.Profiles.Items, domain.ProfileItem{
+			Name: displayName,
+			Path: relPath,
+		})
+
+		if len(cfg.Profiles.Items) > domain.MaxProfileCount {
+			cfg.Profiles.Items = append(cfg.Profiles.Items[:1], cfg.Profiles.Items[2:]...)
+		}
 	})
-
-	if len(m.data.Profiles.Items) > domain.MaxProfileCount {
-		m.data.Profiles.Items = append(m.data.Profiles.Items[:1], m.data.Profiles.Items[2:]...)
-	}
-
-	m.lockedSave()
 }
 
 func (m *Manager) UpsertProfile(item domain.ProfileItem) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	
-	for i, p := range m.data.Profiles.Items {
-		if p.Path == item.Path {
-			m.data.Profiles.Items[i] = item
-			m.lockedSave()
-			return
+	m.Update(func(cfg *domain.TrayConfig) {
+		for i, p := range cfg.Profiles.Items {
+			if p.Path == item.Path {
+				cfg.Profiles.Items[i] = item
+				return
+			}
 		}
-	}
-	
-	m.data.Profiles.Items = append(m.data.Profiles.Items, item)
-	if len(m.data.Profiles.Items) > domain.MaxProfileCount {
-		m.data.Profiles.Items = append(m.data.Profiles.Items[:1], m.data.Profiles.Items[2:]...)
-	}
-
-	m.lockedSave()
+		
+		cfg.Profiles.Items = append(cfg.Profiles.Items, item)
+		if len(cfg.Profiles.Items) > domain.MaxProfileCount {
+			cfg.Profiles.Items = append(cfg.Profiles.Items[:1], cfg.Profiles.Items[2:]...)
+		}
+	})
 }
