@@ -156,7 +156,7 @@ func (a *Application) handleTunChange(ctx context.Context) {
 				case <-time.After(300 * time.Millisecond):
 				}
 				select {
-				case a.apiPollCh <- struct{}{}:
+				case a.ForceSyncAPI():
 				default:
 				}
 			}
