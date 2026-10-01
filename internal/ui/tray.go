@@ -206,7 +206,6 @@ func (t *Tray) buildMenuSkeleton() {
 	t.addAction("退出程序", func() {
 		// NOTE: If app crashes on exit, switch to forceSafeExit(t.engine) in tray_fallback.go
 		t.engine.SendCommand(domain.ActionExitApp, "")
-		t.engine.app.Synchronize(func() { t.engine.mw.Close() })
 	})
 }
 
