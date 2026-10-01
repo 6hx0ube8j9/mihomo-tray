@@ -262,18 +262,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		return
 		
 	case domain.ActionToggleSystemBrowser:
-		enable := cmd.Payload == "true"
-		a.Cfg.Update(func(c *domain.TrayConfig) {
-			b := enable
-			c.General.SystemBrowser = &b
-		})
+		a.ToggleSystemBrowser(cmd.Payload == "true")
 
 	case domain.ActionToggleRemoteWebUI:
-		enable := cmd.Payload == "true"
-		a.Cfg.Update(func(c *domain.TrayConfig) {
-			b := enable
-			c.General.RemoteWebUI = &b
-		})
+		a.ToggleRemoteWebUI(cmd.Payload == "true")
 
 	case domain.ActionEditCurrentConfig:
 		targetRelPath := a.Cfg.GetActivePath()
@@ -306,9 +298,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				return
 			}
 			
-			cacheDir := filepath.Join(a.Cfg.BaseDir(), "webcache")
-			err := os.RemoveAll(cacheDir)
-			if err == nil {
+			if err := a.ClearWebUICache(); err == nil {
 				ui.ShowTrayNotification("清理完成", "Web 面板缓存已清除。")
 			} else {
 				ui.ShowErrorMessage(nil, "清理失败", fmt.Sprintf("无法彻底清除缓存目录，文件可能正在被使用。\n\n错误: %v", err))
