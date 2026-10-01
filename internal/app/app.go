@@ -82,7 +82,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 		}
 	}
 	
-    a.checkAndReconcilePrivileges()
+    a.checkAndReconcilePrivileges(true)
 	a.SyncRuntimeConfig()
 
 	initialCfg := a.Cfg.GetConfig()
