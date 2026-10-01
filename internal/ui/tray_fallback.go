@@ -8,15 +8,14 @@ Keep this as a backup. If the app ever crashes on exit (due to Walk framework up
 or Windows environment quirks), call `forceSafeExit(t.engine)` in tray.go instead.
 */
 
-// forceSafeExit forcefully disposes of the Dashboard to unhook Win32 callbacks safely.
+// forceSafeExit forcefully disposes of heavy UI components (like Dashboard) to unhook Win32 callbacks safely,
+// before triggering the standard Context-driven exit pipeline.
 func forceSafeExit(e *Engine) {
-	e.SendCommand(domain.ActionExitApp, "")
 	e.app.Synchronize(func() {
 		if e.Dashboard != nil && e.Dashboard.window != nil {
 			e.Dashboard.window.Dispose()
 		}
-		if e.mw != nil {
-			e.mw.Close()
-		}
 	})
+	
+	e.SendCommand(domain.ActionExitApp, "")
 }
