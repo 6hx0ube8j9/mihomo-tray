@@ -8,33 +8,6 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-func (a *Application) ApplyPortConfig(ctx context.Context, mixed, socks, httpPort int) {
-	a.Cfg.Update(func(c *domain.TrayConfig) {
-		m, s, h := mixed, socks, httpPort
-		c.Config.MixedPort = &m
-		c.Config.SocksPort = &s
-		c.Config.Port = &h
-	})
-	a.pushUIState()
-
-	if *a.Cfg.GetConfig().General.SystemProxy {
-		a.syncSystemProxy()
-	}
-
-	a.State.SetConfigSyncing(true)
-	defer a.State.SetConfigSyncing(false)
-
-	if a.State.GetPhase() == domain.PhaseRunning {
-		reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		payload := map[string]interface{}{"mixed-port": mixed, "socks-port": socks, "port": httpPort}
-		if err := a.API.SyncConfigToKernel(reqCtx, payload); err != nil {
-			slog.Warn("热刷端口到内核失败，等待下次内核重载生效", "err", err)
-		}
-	}
-	select { case a.apiPollCh <- struct{}{}: default: }
-}
-
 func (a *Application) ApplyControllerConfig(addr, secret string, online, sysBrowser bool, coreChanged bool) {
 	a.Cfg.Update(func(c *domain.TrayConfig) {
 		if coreChanged {
