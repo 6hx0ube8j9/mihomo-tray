@@ -85,3 +85,73 @@ func (a *Application) onProfileImported(ctx context.Context, newProfilePath stri
 
 	a.pushUIState()
 }
+
+
+func (a *Application) AddRemoteProfile(ctx context.Context, payload string) {
+	parts := strings.SplitN(payload, "|", 4)
+	if len(parts) != 4 {
+		return
+	}
+
+	interval, _ := strconv.Atoi(parts[2])
+	rawName := strings.TrimSpace(parts[0])
+	if rawName == "" {
+		rawName = fmt.Sprintf("%d", time.Now().Unix())
+	}
+
+	safeName := strings.ReplaceAll(rawName, "/", "_")
+	fileName := fmt.Sprintf("%s.yaml", safeName)
+	targetRelPath := filepath.ToSlash(filepath.Join(config.ProfilesDir, fileName))
+
+	newItem := domain.ProfileItem{
+		Name:       safeName,
+		Path:       targetRelPath,
+		URL:        strings.TrimSpace(parts[1]),
+		AutoUpdate: parts[3] == "true",
+		Interval:   interval,
+	}
+
+	_, exists := a.Cfg.GetProfileByPath(targetRelPath)
+	a.Cfg.UpsertProfile(newItem)
+	
+	a.UpdateRemoteProfile(ctx, targetRelPath, true, !exists)
+}
+
+func (a *Application) SetProfileInterval(payload string) {
+	parts := strings.Split(payload, "|")
+	if len(parts) != 2 {
+		return
+	}
+	targetPath := parts[0]
+	interval, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return
+	}
+
+	if p, ok := a.Cfg.GetProfileByPath(targetPath); ok {
+		p.Interval = interval
+		p.AutoUpdate = interval > 0
+		a.Cfg.UpsertProfile(p)
+		slog.Info("修改订阅更新频率", "path", targetPath, "interval", interval)
+		a.pushUIState() 
+	}
+}
+
+func (a *Application) DeleteProfile(targetPath string) {
+	if targetPath == a.Cfg.GetActivePath() {
+		slog.Warn("拒绝删除当前正在使用的配置")
+		return
+	}
+
+	if !ui.ShowConfirmMessage(nil, "确认删除", "确定要删除此配置文件吗？\n\n此操作不可恢复，本地文件将被同时删除。") {
+		return
+	}
+
+	absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetPath))
+	if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
+		slog.Warn("清理本地文件失败", "path", absPath, "err", err)
+	}
+
+	a.Cfg.RemoveProfile(targetPath)
+	a.pushUIState()
+}
