@@ -185,7 +185,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 						slog.Info("内核 API 已就绪")
 						a.State.SetPhase(domain.PhaseRunning)
 						select {
-						case a.apiPollCh <- struct{}{}:
+						case a.ForceSyncAPI():
 						default:
 						}
 					} else {
