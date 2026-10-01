@@ -128,7 +128,13 @@ func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.Pr
 }
 
 func (a *Application) handleTunChange(ctx context.Context) {
-	if a.State.IsExiting() || a.State.IsConfigSyncing() {
+	if a.State.IsExiting() || a.State.IsConfigSyncing() || a.State.IsRestarting() || a.State.IsReloading() {
+		slog.Debug("状态机拦截：忽略网卡维护震荡")
+		return
+	}
+
+	if a.State.IsInCooldown() {
+		slog.Debug("冷却期拦截：过滤 Windows 滞后网卡广播")
 		return
 	}
 
