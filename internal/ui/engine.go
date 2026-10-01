@@ -113,3 +113,9 @@ func ShowTrayNotification(title, message string) {
 		GlobalEngine.Tray.ShowNotification(title, message)
 	}
 }
+
+func (e *Engine) Exit() {
+	if e.cancel != nil {
+		e.cancel()
+	}
+}
