@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"mihomo-tray/internal/core"
@@ -70,62 +69,6 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 	}
 
 	return nil
-}
-
-func (a *Application) onProfileImported(ctx context.Context, newProfilePath string) {
-	if len(a.Cfg.GetConfig().Profiles) == 1 {
-		slog.Info("首个配置导入成功，触发全局自动激活并加载", "path", newProfilePath)
-		_ = a.applyConfigTransaction(ctx, newProfilePath)
-	}
-	
-	a.pushUIState()
-}
-
-func (a *Application) executeRemoteUpdate(ctx context.Context, targetRelPath string, isManual bool, isNew bool) {
-	if !a.State.TryAcquireProfileLock(targetRelPath) {
-		if isManual {
-			slog.Warn("拦截重复更新请求", "path", targetRelPath)
-		}
-		return
-	}
-	defer a.State.ReleaseProfileLock(targetRelPath)
-
-	validator := func(tmpPath string) error {
-		exePath := core.GetKernelPath(a.Cfg.BaseDir())
-		return core.ValidateConfig(exePath, a.Cfg.BaseDir(), tmpPath)
-	}
-
-	cfg := a.Cfg.GetConfig()
-	port := strconv.Itoa(a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort))
-	
-	success, err := a.Cfg.UpgradeSubscription(ctx, targetRelPath, port, validator)
-
-	if err != nil {
-		if isManual {
-			ui.ShowErrorMessage(nil, "更新配置失败", "无法完成订阅更新，请检查网络或链接状态：\n\n"+err.Error())
-		}
-		slog.Error("更新配置失败", "path", targetRelPath, "err", err)
-
-		if isNew {
-			slog.Info("清理无效订阅文件", "path", targetRelPath)
-			absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
-			_ = os.Remove(absPath)
-			a.Cfg.RemoveProfile(targetRelPath)
-			a.ForcePushUIState()
-		}
-		return
-	}
-
-	if success {
-		slog.Info("更新配置成功", "path", targetRelPath)
-		if a.Cfg.GetActivePath() == targetRelPath {
-			slog.Info("当前活跃配置已更新，执行重载")
-			_ = a.applyConfigTransaction(context.Background(), targetRelPath)
-			a.pushUIState()
-		} else if isNew {
-			a.onProfileImported(ctx, targetRelPath)
-		}
-	}
 }
 
 func (a *Application) ReloadConfig(ctx context.Context) {
