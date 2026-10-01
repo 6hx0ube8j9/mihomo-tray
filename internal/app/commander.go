@@ -235,10 +235,18 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		_ = sys.ExecuteSystemCommand(jsonPath)
 		
 	case domain.ActionReloadConfig:
-		a.ReloadConfig(ctx)
+		go func() {
+			if err := a.ReloadConfig(ctx); err != nil {
+				ui.ShowErrorMessage(nil, "重载失败", err.Error())
+			}
+		}()
 
 	case domain.ActionRestartKernel:
-		a.RestartKernel()
+		go func() {
+			if err := a.RestartKernel(); err != nil {
+				ui.ShowErrorMessage(nil, "重启失败", err.Error())
+			}
+		}()
 
 	case domain.ActionOpenConfigFile:
 		targetRelPath := cmd.Payload
