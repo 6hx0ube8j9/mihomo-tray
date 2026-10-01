@@ -23,20 +23,36 @@ func (a *Application) onProfileImported(ctx context.Context, newProfilePath stri
 	a.pushUIState()
 }
 
-func (a *Application) ImportLocalProfile(ctx context.Context, sourceFilePath string) error {
-	if sourceFilePath == "" {
+func (a *Application) ImportLocalProfile(ctx context.Context, sourcePath string) error {
+	if sourcePath == "" {
 		return nil
 	}
-	slog.Info("开始导入本地配置", "source", sourceFilePath)
 
-	targetName, _, err := a.Cfg.SafeCopyUntrustedConfig(sourceFilePath)
+	if a.State.IsProfileSwitching() {
+		return fmt.Errorf("系统正在处理其他配置操作，请稍后重试")
+	}
+	a.State.SetProfileSwitching(true)
+	defer func() {
+		a.State.SetProfileSwitching(false)
+		a.pushUIState()
+	}()
+
+	slog.Info("开始导入本地配置", "source", sourcePath)
+
+	exePath := core.GetKernelPath(a.Cfg.BaseDir())
+	if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), sourcePath); err != nil {
+		return fmt.Errorf("配置文件存在语法或规则错误：\n\n%w", err)
+	}
+
+	targetName, _, err := a.Cfg.SafeCopyUntrustedConfig(sourcePath)
 	if err != nil {
 		slog.Error("本地配置复制失败", "err", err)
 		return fmt.Errorf("文件复制失败，请检查系统权限：\n\n%w", err)
 	}
-	
+
 	a.Cfg.RegisterNewProfile(targetName)
 	a.onProfileImported(ctx, targetName)
+	
 	return nil
 }
 
