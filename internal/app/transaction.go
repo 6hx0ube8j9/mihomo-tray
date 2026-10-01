@@ -21,7 +21,7 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 	
 	_, extracted, err := core.BuildRuntimeYAML(cfg, targetRelPath, a.Cfg.BaseDir())
 	if err != nil {
-		return fmt.Errorf("生成运行时配置失败: %w", err)
+		return fmt.Errorf("生成运行配置失败: %w", err)
 	}
 
 	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), domain.RuntimeConfigName)
@@ -36,19 +36,18 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
-				slog.Error("配置加载超时，内核可能仍在下载网络规则", "target", targetRelPath)
-				a.Kernel.WriteCoreLog("ERROR", fmt.Sprintf("配置加载超时，内核下载外部资源可能超时 | 配置: %s", targetRelPath))
+				slog.Error("加载配置超时", "target", targetRelPath)
+				a.Kernel.WriteCoreLog("ERROR", fmt.Sprintf("加载配置超时 | 配置: %s", targetRelPath))
 			} else {
-				logMsg := fmt.Errorf("配置加载失败 | 配置: %s | 原因: %v", targetRelPath, err)
-				a.Kernel.WriteCoreLog("ERROR", logMsg.Error())
-				slog.Error("配置加载失败，回滚状态", "target", targetRelPath)
+				slog.Error("加载配置失败", "target", targetRelPath, "err", err)
+				a.Kernel.WriteCoreLog("ERROR", fmt.Sprintf("加载配置失败 | 配置: %s | 原因: %v", targetRelPath, err))
 				return err
 			}
 		} else {
-			slog.Info("配置加载成功")
+			slog.Info("新配置已生效")
 		}
 	} else {
-		slog.Info("使用新配置唤醒内核")
+		slog.Info("准备唤醒内核并应用新配置")
 	}
 
 	a.Cfg.SetActiveProfile(targetRelPath)
@@ -76,7 +75,7 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 func (a *Application) executeRemoteUpdate(ctx context.Context, targetRelPath string, isManual bool, isNew bool) {
 	if !a.State.TryAcquireProfileLock(targetRelPath) {
 		if isManual {
-			slog.Warn("订阅更新中，拦截重复请求", "path", targetRelPath)
+			slog.Warn("拦截重复更新请求", "path", targetRelPath)
 		}
 		return
 	}
@@ -94,12 +93,12 @@ func (a *Application) executeRemoteUpdate(ctx context.Context, targetRelPath str
 
 	if err != nil {
 		if isManual {
-			ui.ShowErrorMessage(nil, "订阅更新拦截", err.Error())
+			ui.ShowErrorMessage(nil, "更新配置失败", "无法完成订阅更新，请检查网络或链接状态：\n\n"+err.Error())
 		}
-		slog.Error("订阅更新失败", "path", targetRelPath, "err", err)
+		slog.Error("更新配置失败", "path", targetRelPath, "err", err)
 
 		if isNew {
-			slog.Info("新订阅拉取失败，清理回滚", "path", targetRelPath)
+			slog.Info("清理无效订阅文件", "path", targetRelPath)
 			absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
 			_ = os.Remove(absPath)
 			a.Cfg.RemoveProfile(targetRelPath)
@@ -109,9 +108,9 @@ func (a *Application) executeRemoteUpdate(ctx context.Context, targetRelPath str
 	}
 
 	if success {
-		slog.Info("订阅更新已完成", "path", targetRelPath)
+		slog.Info("更新配置成功", "path", targetRelPath)
 		if a.Cfg.GetActivePath() == targetRelPath {
-			slog.Info("活跃配置变更，触发热重载")
+			slog.Info("当前活跃配置已更新，执行重载")
 			_ = a.applyConfigTransaction(context.Background(), targetRelPath)
 		}
 		a.pushUIState()
@@ -122,16 +121,19 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 	if a.State.IsReloading() {
 		return
 	}
-	slog.Info("执行配置重载")
+	slog.Info("开始重载配置")
 	a.State.SetReloading(true)
 
 	go func() {
-		defer a.State.SetReloading(false)
+		defer func() {
+			a.State.MarkMaintenanceEnd()
+			a.State.SetReloading(false)
+		}()
 		defer a.pushUIState()
 
 		if err := a.Cfg.ReloadFromDisk(); err != nil {
-			slog.Warn("重载本地 JSON 配置失败", "err", err)
-			ui.ShowErrorMessage(nil, "JSON 错误", "mihomo-tray.json 存在语法错误，已阻止热重载。\n\n详情：\n"+err.Error())
+			slog.Warn("读取基础配置失败", "err", err)
+			ui.ShowErrorMessage(nil, "读取配置失败", "应用基础配置文件存在格式错误，已取消重载。\n\n详情：\n"+err.Error())
 			return
 		}
 
@@ -143,7 +145,7 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 		}
 
 		if err := a.applyConfigTransaction(ctx, target); err != nil {
-			ui.ShowErrorMessage(nil, "配置重载失败", "内核拒绝加载当前配置文件，请检查：\n\n"+err.Error())
+			ui.ShowErrorMessage(nil, "应用配置失败", "内核拒绝加载当前配置文件，请检查语法或依赖：\n\n"+err.Error())
 		} else {
 			a.restartWebUIIfOpen()
 		}
@@ -151,14 +153,18 @@ func (a *Application) ReloadConfig(ctx context.Context) {
 }
 
 func (a *Application) RestartKernel() {
-	slog.Info("正在准备重启内核")
+	slog.Info("开始重启内核")
 	a.State.SetRestarting(true)
 	a.State.SetReloading(false)
-	defer a.State.SetRestarting(false)
+
+	defer func() {
+		a.State.MarkMaintenanceEnd()
+		a.State.SetRestarting(false)
+	}()
 
 	if err := a.Cfg.ReloadFromDisk(); err != nil {
-		slog.Warn("重启前重载本地 JSON 失败", "err", err)
-		ui.ShowErrorMessage(nil, "JSON 错误", "mihomo-tray.json 存在语法错误，已阻止修改。\n\n详情：\n"+err.Error())
+		slog.Warn("重启前读取配置失败", "err", err)
+		ui.ShowErrorMessage(nil, "读取配置失败", "应用基础配置文件存在格式错误，已取消重启。\n\n详情：\n"+err.Error())
 		return
 	} else {
 		a.checkAndReconcilePrivileges(false)
@@ -171,47 +177,12 @@ func (a *Application) RestartKernel() {
 		a.State.SetTunRequestedTime(time.Now())
 	}
 
-	isSoftRestartSuccess := false
-
-	if a.State.GetPhase() == domain.PhaseRunning {
-		cmdCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		err := a.API.RestartKernel(cmdCtx)
-		cancel()
-
-		if err == nil {
-			slog.Info("内核已接受软重启指令，正在等待底层网络栈重建...")
-			
-			waitCtx, waitCancel := context.WithTimeout(context.Background(), 3*time.Second)
-			readyErr := a.API.WaitForReady(waitCtx)
-			waitCancel()
-
-			if readyErr == nil {
-				slog.Info("内核网络栈与 IPC 管道已瞬间恢复")
-				
-				syncCtx, syncCancel := context.WithTimeout(context.Background(), 3*time.Second)
-				a.syncAllConfig(syncCtx)
-				syncCancel()
-
-				select {
-				case a.apiPollCh <- struct{}{}:
-				default:
-				}
-
-				isSoftRestartSuccess = true
-			} else {
-				slog.Warn("软重启后管道重建超时，准备降级为物理重启", "err", readyErr)
-			}
-		} else {
-			slog.Warn("发送原生重启命令失败，准备降级为物理重启", "err", err)
-		}
-	}
-
-	if !isSoftRestartSuccess {
+	if a.State.GetPhase() == domain.PhaseRunning && a.restartKernelViaAPI() {
+		a.State.SetPhase(domain.PhaseRunning)
+	} else {
 		a.State.SetPhase(domain.PhaseInitializing)
 		a.Kernel.HaltDaemon()
 		a.Kernel.WakeDaemon()
-	} else {
-		a.State.SetPhase(domain.PhaseRunning)
 	}
 
 	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
@@ -219,12 +190,44 @@ func (a *Application) RestartKernel() {
 	a.restartWebUIIfOpen()
 }
 
+func (a *Application) restartKernelViaAPI() bool {
+	cmdCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	
+	if err := a.API.RestartKernel(cmdCtx); err != nil {
+		slog.Warn("API 重启请求失败", "err", err)
+		return false
+	}
+
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer waitCancel()
+	
+	if err := a.API.WaitForReady(waitCtx); err != nil {
+		slog.Warn("等待内核就绪超时", "err", err)
+		return false
+	}
+
+	slog.Info("内核已通过 API 重启就绪")
+	
+	syncCtx, syncCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer syncCancel()
+	
+	a.syncAllConfig(syncCtx)
+	
+	select {
+	case a.apiPollCh <- struct{}{}:
+	default:
+	}
+	
+	return true
+}
+
 func (a *Application) SyncRuntimeConfig() {
 	activePath := a.Cfg.GetActivePath()
 
 	if activePath != "" {
 		if err := a.Cfg.ValidatePhysicalFile(activePath); err != nil {
-			slog.Warn("底稿校验失败，剥离失效配置", "path", activePath, "err", err)
+			slog.Warn("本地配置文件失效，已取消选中状态", "path", activePath, "err", err)
 			a.Cfg.SetActiveProfile("")
 			activePath = ""
 		}
@@ -233,7 +236,7 @@ func (a *Application) SyncRuntimeConfig() {
 	cfg := a.Cfg.GetConfig()
 
 	if _, extracted, err := core.BuildRuntimeYAML(cfg, activePath, a.Cfg.BaseDir()); err != nil {
-		slog.Error("同步运行配置失败，系统将进入空转", "err", err)        
+		slog.Error("生成运行配置失败，应用将暂停代理", "err", err)        
 		a.Cfg.SetActiveProfile("")
 	} else {
 		if tunDev, ok := extracted["tun_device"]; ok {            
@@ -256,13 +259,13 @@ func (a *Application) restartWebUIIfOpen() {
 				}
 
 				if a.State.GetPhase() == domain.PhaseRunning {
-					slog.Debug("内核已就绪，正在自动重启 Web 面板")
+					slog.Debug("内核已就绪，正在自动恢复 Web 面板")
 					a.UICommandCh <- domain.UICommand{Action: domain.ActionOpenWebUI}
 					return
 				}
 				time.Sleep(200 * time.Millisecond)
 			}
-			slog.Warn("等待内核就绪超时，自动重启 Web 面板失败")
+			slog.Warn("等待内核就绪超时，恢复 Web 面板失败")
 		}()
 	}
 }
@@ -277,32 +280,31 @@ func (a *Application) checkAndReconcilePrivileges(isStartup bool) {
 
 	if needsAdmin && !sys.IsAdmin() {
 		if isStartup {
-			slog.Warn("以普通权限启动，暂时降级越权配置 (TUN/RunAsAdmin/Autostart)")
-			a.Cfg.Update(func(c *domain.TrayConfig) {
-				c.General.RunAsAdmin = false
-				c.Config.Tun.Enable = false
-				b := false
-				c.General.Autostart = &b
-			})
+			slog.Warn("以普通权限启动，暂时停用提权功能 (TUN/始终管理员/开机自启)")
+			a.revertPrivilegedConfig()
 			return
 		}
 
-		slog.Info("检测到 JSON 配置修改越权，发起 UAC 提权")
+		slog.Info("配置需要管理员权限，正在尝试提权")
 		
 		if err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--restarting"); err == nil {
-			slog.Info("新提权实例已唤起，当前实例准备优雅退出...")
+			slog.Info("提权成功，旧实例准备退出")
 			if ui.GlobalEngine != nil {
 				ui.GlobalEngine.Exit() 
 			}
 			return
 		}
 
-		slog.Warn("UAC 提权未获授权，静默回滚越权状态")
-		a.Cfg.Update(func(c *domain.TrayConfig) {
-			c.General.RunAsAdmin = false
-			c.Config.Tun.Enable = false
-			b := false
-			c.General.Autostart = &b
-		})
+		slog.Warn("提权被取消或失败，已恢复普通权限配置")
+		a.revertPrivilegedConfig()
 	}
+}
+
+func (a *Application) revertPrivilegedConfig() {
+	a.Cfg.Update(func(c *domain.TrayConfig) {
+		c.General.RunAsAdmin = false
+		c.Config.Tun.Enable = false
+		b := false
+		c.General.Autostart = &b
+	})
 }
