@@ -201,3 +201,11 @@ func (a *Application) DeleteProfile(targetPath string) {
 	a.Cfg.RemoveProfile(targetPath)
 	a.pushUIState()
 }
+
+func (a *Application) MoveProfileUp(targetPath string) {
+	a.Cfg.MoveProfile(targetPath, -1)
+}
+
+func (a *Application) MoveProfileDown(targetPath string) {
+	a.Cfg.MoveProfile(targetPath, 1)
+}
