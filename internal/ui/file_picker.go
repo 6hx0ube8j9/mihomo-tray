@@ -4,11 +4,7 @@ import (
 	"github.com/tailscale/walk"
 )
 
-func OpenYAMLFileDialog() (string, bool) {
-	if GlobalEngine == nil || GlobalEngine.app == nil {
-		return "", false
-	}
-	
+func OpenYAMLFileDialog() (string, bool) {	
 	type fileResult struct {
 		Path string
 		OK   bool
