@@ -241,11 +241,13 @@ func (a *Application) EditRemoteProfile(ctx context.Context, oldPath, newName, n
 	a.Cfg.UpsertProfile(p)
 
 	if newURL != oldURL {
-		go func() {
-			if err := a.UpdateRemoteProfile(context.Background(), p.Path, true, false); err != nil {
-				slog.Error("编辑后更新订阅失败", "err", err)
+		a.asyncRun("更新订阅失败", func() error {
+			err := a.UpdateRemoteProfile(context.Background(), p.Path, true, false)
+			if err != nil {
+				return fmt.Errorf("订阅链接已保存，但尝试拉取最新配置时发生错误：\n\n%w", err)
 			}
-		}()
+			return nil
+		})
 	}
 	
 	a.pushUIState()
