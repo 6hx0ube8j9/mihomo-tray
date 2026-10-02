@@ -178,7 +178,11 @@ func (a *Application) eventLoop(ctx context.Context) {
 				currentGen := a.State.AdvanceProbeGen()
 
 				go func(gen uint64) {
-					defer a.State.SetRestarting(false)
+					defer func() {
+						a.State.SetRestarting(false)
+						a.pushUIState()
+					}()
+
 					waitCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 					defer cancel()
 					err := a.API.WaitForReady(waitCtx)
@@ -191,6 +195,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 						slog.Info("内核 API 已就绪")
 						a.State.SetPhase(domain.PhaseRunning)
 						a.ForceSyncAPI()
+						a.pushUIState()
 					} else {
 						slog.Error("内核无响应，守护进程挂起", "err", err)
 						a.Kernel.HaltDaemon()
