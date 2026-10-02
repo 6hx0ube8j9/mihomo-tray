@@ -134,7 +134,7 @@ func (e *Engine) ShowError(title, message string) {
 		return
 	}
 	e.app.Synchronize(func() {
-		RunErrorDialog(e.mw, title, message)
+		RunErrorDialog(e.activeOwner(), title, message)
 	})
 }
 
@@ -162,7 +162,7 @@ func (e *Engine) ShowConfirm(title, message string) bool {
 	
 	resultCh := make(chan bool, 1)
 	e.app.Synchronize(func() {
-		resultCh <- RunConfirmDialog(e.mw, title, message)
+		resultCh <- RunConfirmDialog(e.activeOwner(), title, message)
 	})
 
 	select {
@@ -185,7 +185,7 @@ func (e *Engine) OpenYAMLFileDialog() (string, bool) {
 	resultCh := make(chan fileResult, 1)
 
 	e.app.Synchronize(func() {
-		path, ok := RunOpenYAMLFileDialog(e.mw)
+		path, ok := RunOpenYAMLFileDialog(e.activeOwner())
 		resultCh <- fileResult{Path: path, OK: ok}
 	})
 
