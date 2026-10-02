@@ -216,9 +216,10 @@ func main() {
 
 	runtimeState := state.NewRuntimeState()
 	application := app.NewApplication(cfgMgr, runtimeState)
-
 	slog.Debug("挂载 UI 引擎")
+	
 	uiEngine := ui.NewEngine(ctx, cancel, application.UICommandCh, application.UIStateCh)
+	application.SetUIPort(uiEngine)
 
 	go func() {
 		sigCh := make(chan os.Signal, 1)
