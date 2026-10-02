@@ -46,7 +46,7 @@ func (v *ProfileView) Declarative() []Widget {
 		item := v.model.Items[idx]
 		canMoveUp, canMoveDown := idx > 0, idx < len(v.model.Items)-1
 
-		actionSwitch.SetEnabled(!item.IsActive); actionDelete.SetEnabled(!item.IsActive)
+		actionSwitch.SetEnabled(!item.IsActive); actionDelete.SetEnabled(true)
 		actionEditText.SetEnabled(true); actionEditSub.SetEnabled(item.IsRemote); actionUpdate.SetEnabled(item.IsRemote)
 		actionMoveUp.SetEnabled(canMoveUp); actionMoveDown.SetEnabled(canMoveDown)
 		if btnMoveUp != nil { btnMoveUp.SetEnabled(canMoveUp) }
