@@ -103,6 +103,14 @@ func (a *Application) RestartKernel() error {
 	a.State.SetRestarting(true)
 	a.State.SetReloading(false)
 
+	needsManualClear := true
+	defer func() {
+		if needsManualClear {
+			a.State.SetRestarting(false)
+			a.pushUIState()
+		}
+	}()
+
 	if err := a.Cfg.ReloadFromDisk(); err != nil {
 		slog.Warn("重启前读取配置失败", "err", err)
 		return fmt.Errorf("应用基础配置文件存在格式错误，已取消重启。\n\n详情：\n%w", err)
@@ -122,10 +130,12 @@ func (a *Application) RestartKernel() error {
 		a.State.SetPhase(domain.PhaseInitializing)
 		a.Kernel.HaltDaemon()
 		a.Kernel.WakeDaemon()
+
+		needsManualClear = false 
 	}
 
 	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
-	a.pushUIState()
+	
 	a.restartWebUIIfOpen()
 	
 	return nil
