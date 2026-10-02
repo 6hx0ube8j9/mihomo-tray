@@ -18,7 +18,6 @@ type RuntimeState struct {
 
 	tunReqTime  atomic.Int64
 	tunLostTime atomic.Int64
-	lastMaintenanceEnd atomic.Int64
 
 	proxyRepairing atomic.Bool
 	probeGen       atomic.Uint64
@@ -128,16 +127,4 @@ func (r *RuntimeState) GetActualTunDevice() string {
 		return v.(string)
 	}
 	return ""
-}
-
-func (r *RuntimeState) MarkMaintenanceEnd() {
-	r.storeTime(&r.lastMaintenanceEnd, time.Now())
-}
-
-func (r *RuntimeState) IsInCooldown() bool {
-	endTime := r.loadTime(&r.lastMaintenanceEnd)
-	if endTime.IsZero() {
-		return false
-	}
-	return time.Since(endTime) < 3*time.Second
 }
