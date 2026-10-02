@@ -179,12 +179,22 @@ func (a *Application) SwitchProfile(ctx context.Context, targetPath string) erro
 }
 
 func (a *Application) DeleteProfile(targetPath string) {
+	isActive := targetPath == a.Cfg.GetActivePath()
+
 	absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetPath))
 	if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
 		slog.Warn("清理本地物理文件失败", "path", absPath, "err", err)
 	}
 
 	a.Cfg.RemoveProfile(targetPath)
+
+	if isActive {
+		slog.Info("当前活跃配置已被删除，正在重置内核进入空转状态")
+		a.asyncRun("状态重置失败", func() error {
+			return a.applyConfigTransaction(context.Background(), "")
+		})
+	}
+
 	a.pushUIState()
 }
 
