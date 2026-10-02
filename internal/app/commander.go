@@ -5,14 +5,15 @@ import (
 	"log/slog"
 
 	"mihomo-tray/internal/domain"
-	"mihomo-tray/internal/ui"
 )
 
 // asyncRun “语法糖”方法。
 func (a *Application) asyncRun(title string, task func() error) {
 	go func() {
 		if err := task(); err != nil {
-			ui.ShowErrorMessage(nil, title, err.Error())
+			if a.ui != nil {
+				a.ui.ShowError(title, err.Error())
+			}
 		}
 	}()
 }
@@ -24,26 +25,28 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	// 1. 配置文件操作 (对接 profile_ops.go)
 	// =====================================================================
 	case domain.ActionOpenProfileManager:
-		if ui.GlobalEngine != nil {
-			ui.GlobalEngine.ShowProfileManager(a.GetUIStateSnapshot())
+		if a.ui != nil {
+			a.ui.ShowProfileManager(a.GetUIStateSnapshot())
 		}
 
 	case domain.ActionRequestAddLocal:
 		go func() {
-			if selectedPath, ok := ui.OpenYAMLFileDialog(); ok {
-				if err := a.ImportLocalProfile(ctx, selectedPath); err != nil {
-					ui.ShowErrorMessage(nil, "导入失败", err.Error())
+			if a.ui != nil {
+				if selectedPath, ok := a.ui.OpenYAMLFileDialog(); ok {
+					if err := a.ImportLocalProfile(ctx, selectedPath); err != nil {
+						a.ui.ShowError("导入失败", err.Error())
+					}
 				}
 			}
 		}()
 
 	case domain.ActionRequestAddRemote:
 		go func() {
-			if ui.GlobalEngine != nil {
-				name, url, interval, ok := ui.GlobalEngine.ShowSubscriptionEditor("添加远程订阅", "", "", domain.DefaultUpdateInterval)
+			if a.ui != nil {
+				name, url, interval, ok := a.ui.ShowSubscriptionEditor("添加远程订阅", "", "", domain.DefaultUpdateInterval)
 				if ok {
 					if err := a.AddRemoteProfile(ctx, name, url, interval); err != nil {
-						ui.ShowErrorMessage(nil, "添加订阅失败", err.Error())
+						a.ui.ShowError("添加订阅失败", err.Error())
 					}
 				}
 			}
@@ -52,11 +55,11 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	case domain.ActionRequestEditRemote:
 		if profile, ok := a.GetProfileInfo(cmd.Payload); ok {
 			go func(p domain.ProfileItem) {
-				if ui.GlobalEngine != nil {
-					name, url, interval, ok := ui.GlobalEngine.ShowSubscriptionEditor("编辑订阅信息", p.Name, p.URL, p.Interval)
+				if a.ui != nil {
+					name, url, interval, ok := a.ui.ShowSubscriptionEditor("编辑订阅信息", p.Name, p.URL, p.Interval)
 					if ok {
 						if err := a.EditRemoteProfile(ctx, p.Path, name, url, interval); err != nil {
-							ui.ShowErrorMessage(nil, "保存失败", err.Error())
+							a.ui.ShowError("保存失败", err.Error())
 						}
 					}
 				}
@@ -81,8 +84,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			break
 		}
 		go func(path string) {
-			if !ui.ShowConfirmMessage(nil, "确认删除", "确定要删除此配置文件吗？\n\n此操作不可恢复，本地文件将被同时删除。") {
-				return
+			if a.ui != nil {
+				if !a.ui.ShowConfirm("确认删除", "确定要删除此配置文件吗？\n\n此操作不可恢复，本地文件将被同时删除。") {
+					return
+				}
 			}
 			a.DeleteProfile(path)
 		}(targetPath)
@@ -98,20 +103,20 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	// =====================================================================
 	case domain.ActionRequestEditPort:
 		go func() {
-			if ui.GlobalEngine != nil {
+			if a.ui != nil {
 				cMixed, cSocks, cHttp := a.GetPortConfigSnapshot()
-				nMixed, nSocks, nHttp, ok := ui.GlobalEngine.ShowPortEditor(cMixed, cSocks, cHttp)
+				nMixed, nSocks, nHttp, ok := a.ui.ShowPortEditor(cMixed, cSocks, cHttp)
 				if ok {
 					a.ApplyPortConfig(ctx, nMixed, nSocks, nHttp)
 				}
 			}
 		}()
-		
+
 	case domain.ActionRequestEditController:
 		go func() {
-			if ui.GlobalEngine != nil {
+			if a.ui != nil {
 				cAddr, cSec, cOnline, cSys := a.GetControllerConfigSnapshot()
-				nAddr, nSec, nOnline, nSys, ok := ui.GlobalEngine.ShowControllerEditor(cAddr, cSec, cOnline, cSys)
+				nAddr, nSec, nOnline, nSys, ok := a.ui.ShowControllerEditor(cAddr, cSec, cOnline, cSys)
 				if ok {
 					a.ApplyControllerConfig(nAddr, nSec, nOnline, nSys)
 				}
@@ -120,8 +125,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionToggleTun:
 		go func(enableStr string) {
-			if restarted := a.ToggleTun(ctx, enableStr == "true"); restarted && ui.GlobalEngine != nil {
-				ui.GlobalEngine.Exit()
+			if restarted := a.ToggleTun(ctx, enableStr == "true"); restarted && a.ui != nil {
+				a.ui.Exit()
 			}
 		}(cmd.Payload)
 
@@ -130,10 +135,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionSwitchMode:
 		go a.SwitchMode(ctx, cmd.Payload)
-		
+
 	case domain.ActionToggleAllowLan:
 		go a.ToggleAllowLan(ctx, cmd.Payload == "true")
-		
+
 	case domain.ActionForceSyncAPI:
 		a.ForceSyncAPI()
 
@@ -153,15 +158,15 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		a.asyncRun("无法编辑", func() error { return a.EditCurrentConfig() })
 
 	case domain.ActionToggleAutoStart:
-		if restarted := a.ToggleAutoStart(cmd.Payload == "true"); restarted && ui.GlobalEngine != nil {
-			ui.GlobalEngine.Exit()
+		if restarted := a.ToggleAutoStart(cmd.Payload == "true"); restarted && a.ui != nil {
+			a.ui.Exit()
 		}
 
 	case domain.ActionToggleRunAsAdmin:
-		if restarted := a.ToggleRunAsAdmin(cmd.Payload == "true"); restarted && ui.GlobalEngine != nil {
-			ui.GlobalEngine.Exit()
+		if restarted := a.ToggleRunAsAdmin(cmd.Payload == "true"); restarted && a.ui != nil {
+			a.ui.Exit()
 		}
-		
+
 	case domain.ActionReloadConfig:
 		a.asyncRun("重载失败", func() error { return a.ReloadConfig(ctx) })
 
@@ -170,8 +175,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionExitApp:
 		slog.Info("收到退出指令，准备安全销毁应用...")
-		if ui.GlobalEngine != nil {
-			ui.GlobalEngine.Exit()
+		if a.ui != nil {
+			a.ui.Exit()
 		}
 
 	// =====================================================================
@@ -182,28 +187,40 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionToggleRemoteWebUI:
 		a.ToggleRemoteWebUI(cmd.Payload == "true")
-		
+
 	case domain.ActionOpenWebUI:
 		if err := a.OpenWebUI(); err != nil {
-			ui.ShowErrorMessage(nil, "提示", err.Error())
+			if a.ui != nil {
+				a.ui.ShowError("提示", err.Error())
+			}
 		}
 
 	case domain.ActionCopyWebUIPassword:
 		if err := a.CopyWebUIPassword(); err != nil {
-			ui.ShowInfoMessage(nil, "复制密码", err.Error())
+			if a.ui != nil {
+				a.ui.ShowInfo("复制密码", err.Error())
+			}
 		} else {
-			ui.ShowTrayNotification("复制成功", "Web 密码已复制到剪贴板。")
+			if a.ui != nil {
+				a.ui.ShowNotification("复制成功", "Web 密码已复制到剪贴板。")
+			}
 		}
 
 	case domain.ActionClearWebUICache:
 		go func() {
-			if !ui.ShowConfirmMessage(nil, "确认清理？", "清理缓存将同时清除面板个性化设置（如主题、布局等），且无法恢复。\n\n是否继续？") {
-				return
+			if a.ui != nil {
+				if !a.ui.ShowConfirm("确认清理？", "清理缓存将同时清除面板个性化设置（如主题、布局等），且无法恢复。\n\n是否继续？") {
+					return
+				}
 			}
 			if err := a.ClearWebUICache(); err == nil {
-				ui.ShowTrayNotification("清理完成", "Web 面板缓存已清除。")
+				if a.ui != nil {
+					a.ui.ShowNotification("清理完成", "Web 面板缓存已清除。")
+				}
 			} else {
-				ui.ShowErrorMessage(nil, "清理失败", err.Error())
+				if a.ui != nil {
+					a.ui.ShowError("清理失败", err.Error())
+				}
 			}
 		}()
 	}
