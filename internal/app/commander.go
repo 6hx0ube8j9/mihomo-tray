@@ -79,10 +79,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionRemoveProfile:
 		targetPath := cmd.Payload
-		if targetPath == a.Cfg.GetActivePath() {
-			slog.Warn("拒绝删除当前正在使用的配置")
-			break
-		}
 		go func(path string) {
 			if a.ui != nil {
 				if !a.ui.ShowConfirm("确认删除", "确定要删除此配置文件吗？\n\n此操作不可恢复，本地文件将被同时删除。") {
