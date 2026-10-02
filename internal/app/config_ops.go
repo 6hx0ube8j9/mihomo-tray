@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -30,8 +32,17 @@ func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted boo
 	
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
+	
 	if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"tun": tunPayload}); err != nil {
-		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = !enable })
+		if ctx.Err() == nil {
+			a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = !enable })
+			
+			if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+				if a.ui != nil {
+					a.ui.ShowError("TUN 设置失败", fmt.Sprintf("内核拒绝加载 TUN 配置，请检查驱动或系统权限。\n\n详情: %v", err))
+				}
+			}
+		}
 	}
 	a.ForceSyncAPI()
 	return false
@@ -52,7 +63,12 @@ func (a *Application) SwitchMode(ctx context.Context, mode string) {
 	
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	_ = a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"mode": mode})
+	
+	if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"mode": mode}); err != nil {
+		if ctx.Err() == nil && a.ui != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+			a.ui.ShowError("切换模式失败", fmt.Sprintf("未能实时同步到内核。\n\n详情: %v", err))
+		}
+	}
 	a.ForceSyncAPI()
 }
 
@@ -66,7 +82,12 @@ func (a *Application) ToggleAllowLan(ctx context.Context, enable bool) {
 	
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	_ = a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"allow-lan": enable})
+	
+	if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"allow-lan": enable}); err != nil {
+		if ctx.Err() == nil && a.ui != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+			a.ui.ShowError("设置失败", fmt.Sprintf("局域网开关未能实时同步到内核。\n\n详情: %v", err))
+		}
+	}
 	a.ForceSyncAPI()
 }
 	
@@ -115,6 +136,7 @@ func (a *Application) ApplyPortConfig(ctx context.Context, mixed, socks, httpPor
 		c.Config.SocksPort = &s
 		c.Config.Port = &h
 	})
+	
 	a.pushUIState()
 
 	if *a.Cfg.GetConfig().General.SystemProxy {
@@ -128,8 +150,12 @@ func (a *Application) ApplyPortConfig(ctx context.Context, mixed, socks, httpPor
 		reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		payload := map[string]interface{}{"mixed-port": mixed, "socks-port": socks, "port": httpPort}
+		
 		if err := a.API.SyncConfigToKernel(reqCtx, payload); err != nil {
 			slog.Warn("热刷端口到内核失败，等待下次内核重载生效", "err", err)
+			if ctx.Err() == nil && a.ui != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+				a.ui.ShowError("端口应用部分失败", fmt.Sprintf("配置已保存，但未能热刷入内核。将在下次配置重载时生效。\n\n详情: %v", err))
+			}
 		}
 	}
 	a.ForceSyncAPI()
@@ -158,7 +184,9 @@ func (a *Application) ApplyControllerConfig(addr, secret string, online, sysBrow
 
 	if coreChanged {
 		slog.Info("Web 面板核心网络参数已变更，重启内核生效")
-		_ = a.RestartKernel()
+		if err := a.RestartKernel(); err != nil && a.ui != nil {
+			a.ui.ShowError("内核重启失败", err.Error())
+		}
 	}
 }
 	
