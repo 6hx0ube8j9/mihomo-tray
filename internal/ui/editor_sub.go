@@ -25,7 +25,7 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultUrl string, d
 	resultCh := make(chan EditorResult, 1)
 
 	e.app.Synchronize(func() {
-		res := RunEditor(e.mw, EditorConfig{
+		res := RunEditor(e.activeOwner(), EditorConfig{
 			AssignTo:      &currentSubEditor,
 			Title:         title,
 			Width:         450,
