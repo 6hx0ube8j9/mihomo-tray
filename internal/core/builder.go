@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/fs"
 )
 
 const yamlHeader = "# Auto-generated config. DO NOT EDIT.\n\n";
@@ -168,7 +169,7 @@ func BuildRuntimeYAML(cfg domain.TrayConfig, relPath string, baseDir string) (bo
 		}
 	}
 
-	if err := writeTmpAndRename(baseDir, runtimePath, []byte(output)); err != nil {
+	if err := fs.WriteAtomic(runtimePath, []byte(output)); err != nil {
 		return false, nil, fmt.Errorf("写入运行时配置失败: %w", err)
 	}
 
@@ -210,27 +211,4 @@ func getString(node *yaml.Node, key string) string {
 		return v.Value
 	}
 	return ""
-}
-
-func writeTmpAndRename(baseDir, targetPath string, content []byte) error {
-	targetDir := filepath.Dir(targetPath)
-	_ = os.MkdirAll(targetDir, 0755)
-	tmpFile, err := os.CreateTemp(targetDir, "tmp_*.tmp")
-	if err != nil { return err }
-	
-	tmpName := tmpFile.Name()
-	cleaned := false
-	defer func() {
-		if !cleaned {
-			_ = tmpFile.Close()
-			_ = os.Remove(tmpName)
-		}
-	}()
-
-	if _, err := tmpFile.Write(content); err != nil { return err }
-	if err := tmpFile.Sync(); err != nil { return err }
-	if err := tmpFile.Close(); err != nil { return err }
-
-	cleaned = true
-	return os.Rename(tmpName, targetPath)
 }
