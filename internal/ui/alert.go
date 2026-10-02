@@ -94,27 +94,3 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 func RunErrorDialog(owner walk.Form, title, message string) {
 	RunAlertDialog(owner, title, message, walk.IconWarning(), win.MB_ICONWARNING)
 }
-
-func ShowErrorMessage(owner walk.Form, title, message string) {
-	safeSync(func() {
-		RunAlertDialog(owner, title, message, walk.IconWarning(), win.MB_ICONWARNING)
-	})
-}
-
-func ShowInfoMessage(owner walk.Form, title, message string) {
-	safeSync(func() {
-		RunAlertDialog(owner, title, message, walk.IconInformation(), win.MB_ICONINFORMATION)
-	})
-}
-
-func ShowConfirmMessage(owner walk.Form, title, message string) bool {
-	resultCh := make(chan bool)
-	safeSync(func() {
-		resultCh <- RunConfirmDialog(owner, title, message)
-	})
-	return <-resultCh
-}
-
-func ShowInfoModeless(owner walk.Form, title, message string) {
-	ShowInfoMessage(owner, title, message)
-}
