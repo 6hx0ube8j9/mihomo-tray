@@ -26,7 +26,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 	resultCh := make(chan EditorResult, 1)
 
 	e.app.Synchronize(func() {
-		res := RunEditor(e.mw, EditorConfig{
+		res := RunEditor(e.activeOwner(), EditorConfig{
 			AssignTo:      &currentControllerEditor,
 			Title:         "Web 面板设置",
 			Width:         415,
