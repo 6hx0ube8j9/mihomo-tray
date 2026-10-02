@@ -7,10 +7,9 @@ import (
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
+	"github.com/tailscale/win"
 	"mihomo-tray/internal/domain"
 )
-
-var GlobalEngine *Engine
 
 type Engine struct {
 	ctx       context.Context
@@ -26,14 +25,12 @@ type Engine struct {
 }
 
 func NewEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- domain.UICommand, stateCh <-chan domain.UIState) *Engine {
-	e := &Engine{
+	return &Engine{
 		ctx:       ctx,
 		cancel:    cancel,
 		commandCh: cmdCh,
 		stateCh:   stateCh,
 	}
-	GlobalEngine = e
-	return e
 }
 
 func (e *Engine) Run() error {
@@ -72,15 +69,23 @@ func (e *Engine) listenState() {
 	for {
 		select {
 		case <-e.ctx.Done():
-			e.app.Synchronize(func() { e.mw.Close() })
+			e.app.Synchronize(func() {
+				if e.mw != nil {
+					e.mw.Close()
+				}
+			})
 			return
 		case state, ok := <-e.stateCh:
 			if !ok {
 				return
 			}
 			e.app.Synchronize(func() {
-				e.Tray.UpdateState(state)
-				e.Dashboard.BackgroundUpdate(state) 
+				if e.Tray != nil {
+					e.Tray.UpdateState(state)
+				}
+				if e.Dashboard != nil {
+					e.Dashboard.BackgroundUpdate(state)
+				}
 			})
 		}
 	}
@@ -95,40 +100,85 @@ func (e *Engine) SendCommand(action, payload string) {
 	}
 }
 
+func (e *Engine) Exit() {
+	if e.cancel != nil {
+		e.cancel()
+	}
+}
 
 func (e *Engine) ShowProfileManager(state domain.UIState) {
-	if e.Dashboard != nil {
+	if e.Dashboard != nil && e.app != nil {
 		e.app.Synchronize(func() {
-			e.Dashboard.ForceInjectData(state) 
+			e.Dashboard.ForceInjectData(state)
 			e.Dashboard.Show()
 		})
 	}
 }
 
 func (e *Engine) ShowError(title, message string) {
-	ShowErrorMessage(e.mw, title, message)
+	if e.app == nil || e.mw == nil {
+		return
+	}
+	e.app.Synchronize(func() {
+		RunErrorDialog(e.mw, title, message)
+	})
 }
 
 func (e *Engine) ShowInfo(title, message string) {
-	ShowInfoMessage(e.mw, title, message)
+	if e.app == nil || e.mw == nil {
+		return
+	}
+	e.app.Synchronize(func() {
+		RunAlertDialog(e.mw, title, message, walk.IconInformation(), win.MB_ICONINFORMATION)
+	})
 }
 
 func (e *Engine) ShowNotification(title, message string) {
-	if e.Tray != nil {
-		e.Tray.ShowNotification(title, message)
+	if e.Tray != nil && e.app != nil {
+		e.app.Synchronize(func() {
+			e.Tray.ShowNotification(title, message)
+		})
 	}
 }
 
 func (e *Engine) ShowConfirm(title, message string) bool {
-	return ShowConfirmMessage(e.mw, title, message)
+	if e.app == nil || e.mw == nil {
+		return false
+	}
+	
+	resultCh := make(chan bool, 1)
+	e.app.Synchronize(func() {
+		resultCh <- RunConfirmDialog(e.mw, title, message)
+	})
+
+	select {
+	case res := <-resultCh:
+		return res
+	case <-e.ctx.Done():
+		return false
+	}
 }
 
 func (e *Engine) OpenYAMLFileDialog() (string, bool) {
-	return OpenYAMLFileDialog() 
-}
+	if e.app == nil || e.mw == nil {
+		return "", false
+	}
 
-func (e *Engine) Exit() {
-	if e.cancel != nil {
-		e.cancel()
+	type fileResult struct {
+		Path string
+		OK   bool
+	}
+	resultCh := make(chan fileResult, 1)
+
+	e.app.Synchronize(func() {
+		path, ok := RunOpenYAMLFileDialog(e.mw)
+		resultCh <- fileResult{Path: path, OK: ok}
+	})
+
+	select {
+	case res := <-resultCh:
+		return res.Path, res.OK
+	case <-e.ctx.Done(): 
+		return "", false
 	}
 }
