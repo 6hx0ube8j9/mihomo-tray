@@ -117,13 +117,12 @@ func (m *Manager) applyDefaults(cfg *domain.TrayConfig) bool {
 	if cfg.Config.AllowLan == nil { t := domain.DefaultAllowLan; cfg.Config.AllowLan = &t; isTainted = true }
 	if cfg.Config.UnifiedDelay == nil { t := domain.DefaultUnifiedDelay; cfg.Config.UnifiedDelay = &t; isTainted = true }
 
-	
-    if cfg.Config.ExternalController == "" { 
+	if cfg.Config.ExternalController == "" { 
 		cfg.Config.ExternalController = domain.DefaultExternalController
 		isTainted = true 
 	}
 	
-    if cfg.Config.Secret == nil { 
+	if cfg.Config.Secret == nil { 
 		s := random.String(domain.DefaultSecretLength)
 		cfg.Config.Secret = &s
 		isTainted = true 
@@ -140,7 +139,7 @@ func (m *Manager) applyDefaults(cfg *domain.TrayConfig) bool {
 		isTainted = true 
 	}
 	
-    if cfg.Config.ExternalUI == "" { 
+	if cfg.Config.ExternalUI == "" { 
 		cfg.Config.ExternalUI = domain.DefaultExternalUI
 		isTainted = true 
 	}	
@@ -192,6 +191,12 @@ func (m *Manager) Update(updater func(cfg *domain.TrayConfig)) {
 	defer m.mu.Unlock()
 	updater(&m.data)
 	m.lockedSave()
+}
+
+func (m *Manager) UpdateMemory(updater func(cfg *domain.TrayConfig)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	updater(&m.data)
 }
 
 func (m *Manager) GetEffectivePort(p *int, defaultPort int) int {
