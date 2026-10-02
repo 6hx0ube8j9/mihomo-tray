@@ -16,6 +16,7 @@ type Engine struct {
 	cancel    context.CancelFunc
 	commandCh chan<- domain.UICommand
 	stateCh   <-chan domain.UIState
+	ReadyCh       chan struct{}
 
 	app *walk.Application
 	mw  *walk.MainWindow
@@ -24,12 +25,14 @@ type Engine struct {
 	Dashboard *Dashboard
 }
 
-func NewEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- domain.UICommand, stateCh <-chan domain.UIState) *Engine {
+func NewEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- domain.UICommand, notifyCh <-chan struct{}, getState func() domain.UIState) *Engine {
 	return &Engine{
-		ctx:       ctx,
-		cancel:    cancel,
-		commandCh: cmdCh,
-		stateCh:   stateCh,
+		ctx:           ctx,
+		cancel:        cancel,
+		commandCh:     cmdCh,
+		stateNotifyCh: notifyCh,
+		getState:      getState,
+		ReadyCh:       make(chan struct{}),
 	}
 }
 
@@ -55,7 +58,9 @@ func (e *Engine) Run() error {
 
 	go e.listenState()
 
-	slog.Debug("UI 引擎消息循环已启动")
+	slog.Debug("UI 引擎内存与句柄已分配完毕，释放启动屏障")
+	close(e.ReadyCh)
+
 	app.Run()
 
 	e.Tray.Dispose()
@@ -75,10 +80,13 @@ func (e *Engine) listenState() {
 				}
 			})
 			return
-		case state, ok := <-e.stateCh:
-			if !ok {
-				return
+		case <-e.stateNotifyCh:
+			if e.getState == nil || e.app == nil {
+				continue
 			}
+
+			state := e.getState()
+
 			e.app.Synchronize(func() {
 				if e.Tray != nil {
 					e.Tray.UpdateState(state)
@@ -117,6 +125,10 @@ func (e *Engine) ShowProfileManager(state domain.UIState) {
 
 func (e *Engine) ShowError(title, message string) {
 	if e.app == nil || e.mw == nil {
+		slog.Error("严重错误 (UI尚未就绪/已销毁)", "title", title, "message", message)
+		titlePtr, _ := syscall.UTF16PtrFromString(title)
+		msgPtr, _ := syscall.UTF16PtrFromString(message)
+		win.MessageBox(0, msgPtr, titlePtr, win.MB_ICONERROR|win.MB_SYSTEMMODAL)
 		return
 	}
 	e.app.Synchronize(func() {
