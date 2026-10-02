@@ -4,22 +4,16 @@ import (
 	"github.com/tailscale/walk"
 )
 
-func OpenYAMLFileDialog() (string, bool) {	
-	type fileResult struct {
-		Path string
-		OK   bool
-	}
-	resultCh := make(chan fileResult, 1)
-
-	safeSync(func() {
-		dlg := new(walk.FileDialog)
-		dlg.Title = "导入本地配置"
-		dlg.Filter = "YAML 配置文件 (*.yaml;*.yml)|*.yaml;*.yml|所有文件 (*.*)|*.*"
-		
-		ok, _ := dlg.ShowOpen(getValidOwner())
-		resultCh <- fileResult{Path: dlg.FilePath, OK: ok}
-	})
+func RunOpenYAMLFileDialog(owner walk.Form) (string, bool) {
+	dlg := new(walk.FileDialog)
+	dlg.Title = "导入本地配置"
+	dlg.Filter = "YAML 配置文件 (*.yaml;*.yml)|*.yaml;*.yml|所有文件 (*.*)|*.*"
 	
-	res := <-resultCh
-	return res.Path, res.OK
+	parent := owner
+	if parent == nil {
+		parent = getValidOwner()
+	}
+
+	ok, _ := dlg.ShowOpen(parent)
+	return dlg.FilePath, ok
 }
