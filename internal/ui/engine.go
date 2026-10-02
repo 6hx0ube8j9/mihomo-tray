@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"syscall"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
@@ -12,10 +13,11 @@ import (
 )
 
 type Engine struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	commandCh chan<- domain.UICommand
-	stateCh   <-chan domain.UIState
+	ctx           context.Context
+	cancel        context.CancelFunc
+	commandCh     chan<- domain.UICommand
+	stateNotifyCh <-chan struct{}
+	getState      func() domain.UIState
 	ReadyCh       chan struct{}
 
 	app *walk.Application
