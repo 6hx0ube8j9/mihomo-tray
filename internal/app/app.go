@@ -20,6 +20,7 @@ type Application struct {
 	Kernel *core.KernelManager
 	API    *core.APIClient
 	WebUI  *webui.Manager
+	ui     UIPort
 
 	kernelEventCh chan domain.KernelEvent
 	tunEventCh    chan struct{}
@@ -49,6 +50,10 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 		UICommandCh:   make(chan domain.UICommand, 10),
 		webuiEventCh:  make(chan webui.Event, 1),
 	}
+}
+
+func (a *Application) SetUIPort(ui UIPort) {
+	a.ui = ui
 }
 
 func (a *Application) Bootstrap(ctx context.Context) {
