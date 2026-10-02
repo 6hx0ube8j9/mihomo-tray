@@ -8,9 +8,6 @@ import (
 
 func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep uint32, isConfirm bool) bool {
 	parent := owner
-	if parent == nil {
-		parent = getValidOwner()
-	}
 	hActive := win.GetForegroundWindow()
 	safeMsg := autoWrapText(message, 55)
 	
