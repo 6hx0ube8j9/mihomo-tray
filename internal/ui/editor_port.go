@@ -35,7 +35,7 @@ func (e *Engine) ShowPortEditor(defaultMixed, defaultSocks, defaultHttp int) (in
 	resultCh := make(chan EditorResult, 1)
 
 	e.app.Synchronize(func() {
-		res := RunEditor(e.mw, EditorConfig{
+		res := RunEditor(e.activeOwner(), EditorConfig{
 			AssignTo:  &currentPortEditor,
 			Title:     "更改代理端口",
 			Width:     320,
