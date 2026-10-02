@@ -94,9 +94,11 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionMoveProfileUp:
 		a.MoveProfileUp(cmd.Payload)
+		a.pushUIState()
 
 	case domain.ActionMoveProfileDown:
 		a.MoveProfileDown(cmd.Payload)
+		a.pushUIState()
 
 	// =====================================================================
 	// 2. 内核动态参数配置 (对接 config_ops.go)
@@ -128,16 +130,27 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			if restarted := a.ToggleTun(ctx, enableStr == "true"); restarted && a.ui != nil {
 				a.ui.Exit()
 			}
+			a.pushUIState()
 		}(cmd.Payload)
 
 	case domain.ActionToggleProxy:
-		a.ToggleProxy(cmd.Payload == "true")
+		a.asyncRun("系统代理设置失败", func() error {
+			a.ToggleProxy(cmd.Payload == "true")
+			a.pushUIState()
+			return nil
+		})
 
 	case domain.ActionSwitchMode:
-		go a.SwitchMode(ctx, cmd.Payload)
+		go func() {
+			a.SwitchMode(ctx, cmd.Payload)
+			a.pushUIState()
+		}()
 
 	case domain.ActionToggleAllowLan:
-		go a.ToggleAllowLan(ctx, cmd.Payload == "true")
+		go func() {
+			a.ToggleAllowLan(ctx, cmd.Payload == "true")
+			a.pushUIState()
+		}()
 
 	case domain.ActionForceSyncAPI:
 		a.ForceSyncAPI()
@@ -161,11 +174,13 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		if restarted := a.ToggleAutoStart(cmd.Payload == "true"); restarted && a.ui != nil {
 			a.ui.Exit()
 		}
+		a.pushUIState()
 
 	case domain.ActionToggleRunAsAdmin:
 		if restarted := a.ToggleRunAsAdmin(cmd.Payload == "true"); restarted && a.ui != nil {
 			a.ui.Exit()
 		}
+		a.pushUIState()
 
 	case domain.ActionReloadConfig:
 		a.asyncRun("重载失败", func() error { return a.ReloadConfig(ctx) })
@@ -184,9 +199,11 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	// =====================================================================
 	case domain.ActionToggleSystemBrowser:
 		a.ToggleSystemBrowser(cmd.Payload == "true")
+		a.pushUIState()
 
 	case domain.ActionToggleRemoteWebUI:
 		a.ToggleRemoteWebUI(cmd.Payload == "true")
+		a.pushUIState()
 
 	case domain.ActionOpenWebUI:
 		if err := a.OpenWebUI(); err != nil {
@@ -225,5 +242,4 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		}()
 	}
 
-	a.pushUIState()
 }
