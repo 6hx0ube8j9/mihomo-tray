@@ -80,7 +80,7 @@ func (e *Engine) listenState() {
 			}
 			e.app.Synchronize(func() {
 				e.Tray.UpdateState(state)
-				e.Dashboard.Refresh(state)
+				e.Dashboard.BackgroundUpdate(state) 
 			})
 		}
 	}
@@ -99,15 +99,9 @@ func (e *Engine) SendCommand(action, payload string) {
 func (e *Engine) ShowProfileManager(state domain.UIState) {
 	if e.Dashboard != nil {
 		e.app.Synchronize(func() {
-			e.Dashboard.Refresh(state)
+			e.Dashboard.ForceInjectData(state) 
 			e.Dashboard.Show()
 		})
-	}
-}
-
-func ShowTrayNotification(title, message string) {
-	if GlobalEngine != nil && GlobalEngine.Tray != nil {
-		GlobalEngine.Tray.ShowNotification(title, message)
 	}
 }
 
