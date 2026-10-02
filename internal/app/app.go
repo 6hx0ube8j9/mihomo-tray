@@ -30,9 +30,11 @@ type Application struct {
 	UIStateCh    chan domain.UIState
 	UICommandCh  chan domain.UICommand
 	webuiEventCh chan webui.Event
-
+	
+	UIStateNotifyCh chan struct{}
+    
 	lastUIState  domain.UIState
-	uiStateMutex sync.Mutex
+	uiStateMutex sync.RWMutex
 }
 
 func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
@@ -49,6 +51,7 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 		UIStateCh:     make(chan domain.UIState, 1),
 		UICommandCh:   make(chan domain.UICommand, 10),
 		webuiEventCh:  make(chan webui.Event, 1),
+		UIStateNotifyCh: make(chan struct{}, 1),
 	}
 }
 
