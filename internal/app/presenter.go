@@ -80,8 +80,6 @@ func (a *Application) pushUIState() {
 	}
 
 	a.uiStateMutex.Lock()
-	defer a.uiStateMutex.Unlock()
-
 	newState := a.calculateUIState()
 	changed := false
 
@@ -114,11 +112,13 @@ func (a *Application) pushUIState() {
 
 	if changed {
 		a.lastUIState = newState
+	}
+	a.uiStateMutex.Unlock()
+
+	if changed {
 		select {
-		case a.UIStateCh <- newState:
+		case a.UIStateNotifyCh <- struct{}{}:
 		default:
-			<-a.UIStateCh
-			a.UIStateCh <- newState
 		}
 	}
 }
@@ -143,12 +143,12 @@ func (a *Application) ForcePushUIState() {
 }
 
 func (a *Application) GetUIStateSnapshot() domain.UIState {
-	a.uiStateMutex.Lock()
-	defer a.uiStateMutex.Unlock()
+	a.uiStateMutex.RLock()
+	defer a.uiStateMutex.RUnlock()
 	
 	stateSnapshot := a.lastUIState
 	items := make([]domain.UIProfileItem, len(a.lastUIState.ProfileItems))
 	copy(items, a.lastUIState.ProfileItems)
-	stateSnapshot.ProfileItems = items 
+	stateSnapshot.ProfileItems = items
 	return stateSnapshot
 }
