@@ -216,10 +216,9 @@ func main() {
 
 	runtimeState := state.NewRuntimeState()
 	application := app.NewApplication(cfgMgr, runtimeState)
-	
-	slog.Debug("挂载 UI 引擎")	
-	uiEngine := ui.NewEngine(ctx, cancel, application.UICommandCh, application.UIStateCh)
-	
+
+	slog.Debug("挂载 UI 引擎")
+	uiEngine := ui.NewEngine(ctx, cancel, application.UICommandCh, application.UIStateNotifyCh, application.GetUIStateSnapshot)
 	application.SetUIPort(uiEngine)
 
 	go func() {
@@ -250,8 +249,12 @@ func main() {
 		}()
 	}
 
-	slog.Debug("启动后端服务")
-	go application.Bootstrap(ctx)
+	slog.Debug("准备启动后端服务")
+	go func() {
+		<-uiEngine.ReadyCh
+		slog.Debug("UI 引擎已完全就绪，开始执行后端 Bootstrap")
+		application.Bootstrap(ctx)
+	}()
 
 	slog.Debug("进入主线程事件循环")
 	if err := uiEngine.Run(); err != nil {
