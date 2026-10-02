@@ -129,16 +129,13 @@ func (a *Application) ForcePushUIState() {
 	}
 
 	a.uiStateMutex.Lock()
-	defer a.uiStateMutex.Unlock()
-
 	newState := a.calculateUIState()
 	a.lastUIState = newState
+	a.uiStateMutex.Unlock()
 
 	select {
-	case a.UIStateCh <- newState:
+	case a.UIStateNotifyCh <- struct{}{}:
 	default:
-		<-a.UIStateCh
-		a.UIStateCh <- newState
 	}
 }
 
