@@ -8,27 +8,6 @@ import (
 	"github.com/tailscale/win"
 )
 
-func getValidOwner() walk.Form {
-	if GlobalEngine != nil {
-		if GlobalEngine.Dashboard != nil && GlobalEngine.Dashboard.window != nil {
-			hwnd := GlobalEngine.Dashboard.window.Handle()
-			if win.IsWindowVisible(hwnd) && !win.IsIconic(hwnd) {
-				return GlobalEngine.Dashboard.window
-			}
-		}
-		if GlobalEngine.mw != nil {
-			return GlobalEngine.mw
-		}
-	}
-	return nil
-}
-
-func safeSync(fn func()) {
-	if GlobalEngine != nil && GlobalEngine.app != nil {
-		GlobalEngine.app.Synchronize(fn)
-	}
-}
-
 func autoWrapText(text string, maxVisualWidth int) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	var result []string
