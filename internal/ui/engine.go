@@ -196,3 +196,13 @@ func (e *Engine) OpenYAMLFileDialog() (string, bool) {
 		return "", false
 	}
 }
+
+func (e *Engine) activeOwner() walk.Form {
+	if e.Dashboard != nil && e.Dashboard.window != nil {
+		hwnd := e.Dashboard.window.Handle()
+		if win.IsWindowVisible(hwnd) && !win.IsIconic(hwnd) {
+			return e.Dashboard.window
+		}
+	}
+	return e.mw
+}
