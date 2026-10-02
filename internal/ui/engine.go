@@ -105,6 +105,28 @@ func (e *Engine) ShowProfileManager(state domain.UIState) {
 	}
 }
 
+func (e *Engine) ShowError(title, message string) {
+	ShowErrorMessage(e.mw, title, message)
+}
+
+func (e *Engine) ShowInfo(title, message string) {
+	ShowInfoMessage(e.mw, title, message)
+}
+
+func (e *Engine) ShowNotification(title, message string) {
+	if e.Tray != nil {
+		e.Tray.ShowNotification(title, message)
+	}
+}
+
+func (e *Engine) ShowConfirm(title, message string) bool {
+	return ShowConfirmMessage(e.mw, title, message)
+}
+
+func (e *Engine) OpenYAMLFileDialog() (string, bool) {
+	return OpenYAMLFileDialog() 
+}
+
 func (e *Engine) Exit() {
 	if e.cancel != nil {
 		e.cancel()
