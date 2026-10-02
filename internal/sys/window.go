@@ -48,7 +48,6 @@ const (
 	SWP_SILKY      = SWP_NOSIZE | SWP_NOMOVE | SWP_SHOWWINDOW
 	SWP_SILKY_OFF  = SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE
 
-	// 窗口保护边界尺寸
 	minWindowWidth  = 1000
 	minWindowHeight = 680
 	maxWindowWidth  = 2400
