@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/fs"
 	"mihomo-tray/internal/netutil"
 	"mihomo-tray/internal/random"
 )
@@ -296,7 +297,8 @@ func (m *Manager) lockedSave() {
 		return
 	}
 	cfgPath := filepath.Join(m.baseDir, ConfigFileName)
-	_ = writeTmpAndRename(m.baseDir, cfgPath, b)
+	
+	_ = fs.WriteAtomic(cfgPath, b) 
 }
 
 func writeTmpAndRename(baseDir, targetPath string, content []byte) error {
