@@ -27,7 +27,6 @@ type Application struct {
 	proxyStatusCh chan sys.ProxyStatus
 	apiPollCh     chan struct{}
 
-	UIStateCh    chan domain.UIState
 	UICommandCh  chan domain.UICommand
 	webuiEventCh chan webui.Event
 	
@@ -48,7 +47,6 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 		tunEventCh:    make(chan struct{}, 1),
 		proxyStatusCh: make(chan sys.ProxyStatus, 5),
 		apiPollCh:     make(chan struct{}, 1),
-		UIStateCh:     make(chan domain.UIState, 1),
 		UICommandCh:   make(chan domain.UICommand, 10),
 		webuiEventCh:  make(chan webui.Event, 1),
 		UIStateNotifyCh: make(chan struct{}, 1),
@@ -221,11 +219,9 @@ func (a *Application) eventLoop(ctx context.Context) {
 
 		case <-ticker.C:
 			tryPollAPI()
-			a.pushUIState()
 
 		case <-a.apiPollCh:
 			tryPollAPI()
-			a.pushUIState()
 
 		case <-subTicker.C:
 			for _, p := range a.Cfg.GetProfiles() {
