@@ -160,8 +160,6 @@ func (a *Application) restartKernelViaAPI() bool {
 	
 	a.syncAllConfig(syncCtx)
 	a.ForceSyncAPI()
-
-	time.Sleep(400 * time.Millisecond)
 	
 	return true
 }
