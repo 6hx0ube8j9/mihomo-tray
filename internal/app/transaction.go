@@ -103,12 +103,9 @@ func (a *Application) RestartKernel() error {
 	a.State.SetRestarting(true)
 	a.State.SetReloading(false)
 
-	needsManualClear := true
 	defer func() {
-		if needsManualClear {
-			a.State.SetRestarting(false)
-			a.pushUIState()
-		}
+		a.State.SetRestarting(false)
+		a.pushUIState()
 	}()
 
 	if err := a.Cfg.ReloadFromDisk(); err != nil {
@@ -130,8 +127,6 @@ func (a *Application) RestartKernel() error {
 		a.State.SetPhase(domain.PhaseInitializing)
 		a.Kernel.HaltDaemon()
 		a.Kernel.WakeDaemon()
-
-		needsManualClear = false 
 	}
 
 	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
