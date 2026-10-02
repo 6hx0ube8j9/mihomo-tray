@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	
+	"mihomo-tray/internal/fs"
 )
 
 const (
@@ -62,12 +64,12 @@ func (l *CoreLogger) WriteLog(errType, rawMsg string) {
 	}
 
 	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	if l.lastError == cleanedMsg {
-		l.mu.Unlock()
 		return
 	}
 	l.lastError = cleanedMsg
-	l.mu.Unlock()
 
 	logPath := filepath.Join(l.logDir, "core.log")
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
@@ -95,7 +97,8 @@ func (l *CoreLogger) WriteLog(errType, rawMsg string) {
 
 		notice := fmt.Sprintf("[%s] --- 日志大小已超限，仅保留最新部分 ---\n...\n", timestamp)
 		combined := append(append([]byte(notice), keepData...), []byte(finalLog)...)
-		_ = os.WriteFile(logPath, combined, 0644)
+		
+		_ = fs.WriteAtomic(logPath, combined)
 		return
 	}
 
