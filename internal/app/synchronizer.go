@@ -133,11 +133,6 @@ func (a *Application) handleTunChange(ctx context.Context) {
 		return
 	}
 
-	if a.State.IsInCooldown() {
-		slog.Debug("冷却期拦截：过滤 Windows 滞后网卡广播")
-		return
-	}
-
 	tunDev := a.getActualTunDevice()
 	alive := sys.IsTunActive(tunDev)
 
