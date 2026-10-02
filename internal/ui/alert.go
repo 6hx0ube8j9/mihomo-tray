@@ -108,9 +108,6 @@ func ShowInfoMessage(owner walk.Form, title, message string) {
 }
 
 func ShowConfirmMessage(owner walk.Form, title, message string) bool {
-	if GlobalEngine == nil || GlobalEngine.app == nil {
-		return false
-	}
 	resultCh := make(chan bool)
 	safeSync(func() {
 		resultCh <- RunConfirmDialog(owner, title, message)
