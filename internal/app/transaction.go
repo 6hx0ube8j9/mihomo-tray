@@ -74,7 +74,6 @@ func (a *Application) ReloadConfig(ctx context.Context) error {
 	a.State.SetReloading(true)
 
 	defer func() {
-		a.State.MarkMaintenanceEnd()
 		a.State.SetReloading(false)
 		a.pushUIState()
 	}()
@@ -103,11 +102,6 @@ func (a *Application) RestartKernel() error {
 	slog.Info("开始重启内核")
 	a.State.SetRestarting(true)
 	a.State.SetReloading(false)
-
-	defer func() {
-		a.State.MarkMaintenanceEnd()
-		a.State.SetRestarting(false)
-	}()
 
 	if err := a.Cfg.ReloadFromDisk(); err != nil {
 		slog.Warn("重启前读取配置失败", "err", err)
