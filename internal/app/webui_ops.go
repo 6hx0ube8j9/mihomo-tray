@@ -30,6 +30,7 @@ func (a *Application) OpenWebUI() error {
 		UIName:             uiName,
 		ForceSystemBrowser: *cfg.General.SystemBrowser,
 		RemoteWebUI:        *cfg.General.RemoteWebUI,
+		RemoteURL:          *cfg.General.RemoteWebUIURL,
 	}
 
 	go a.WebUI.Launch(wcfg, a.webuiEventCh)
