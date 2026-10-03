@@ -2,7 +2,6 @@ package core
 
 import (
 	"errors"
-	"os"
 	"strings"
 
 	"mihomo-tray/internal/sys"
@@ -26,24 +25,6 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 	}
 
 	return errors.New(errMsg)
-}
-
-func ValidateConfigContent(exePath, workDir string, content []byte) error {
-	tmpFile, err := os.CreateTemp(workDir, "dryrun-*.yaml")
-	if err != nil {
-		return err
-	}
-	tmpName := tmpFile.Name()
-	
-	defer os.Remove(tmpName)
-
-	if _, err := tmpFile.Write(content); err != nil {
-		tmpFile.Close()
-		return err
-	}
-	tmpFile.Close()
-
-	return ValidateConfig(exePath, workDir, tmpName)
 }
 
 func extractLogMsg(output string) string {
