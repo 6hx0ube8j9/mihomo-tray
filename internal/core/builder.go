@@ -1,7 +1,10 @@
 package core
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -38,8 +41,17 @@ func BuildRuntimeYAML(cfg domain.TrayConfig, relPath string, baseDir string) (bo
 		if err != nil {
 			return false, nil, fmt.Errorf("底稿文件读取失败: %w", err)
 		}
-		if err := yaml.Unmarshal(content, &root); err != nil {
-			return false, nil, fmt.Errorf("底稿 YAML 格式错误: %w", err)
+
+		dec := yaml.NewDecoder(bytes.NewReader(content))
+		if err := dec.Decode(&root); err != nil {
+			if !errors.Is(err, io.EOF) {
+				return false, nil, fmt.Errorf("底稿 YAML 格式错误: %w", err)
+			}
+		} else {
+			var extra yaml.Node
+			if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+				return false, nil, fmt.Errorf("底稿存在多余文档块或缩进异常断裂 (未完整解析)")
+			}
 		}
 	}
 
@@ -49,6 +61,10 @@ func BuildRuntimeYAML(cfg domain.TrayConfig, relPath string, baseDir string) (bo
 	rootMap := root.Content[0]
 	if rootMap.Kind != yaml.MappingNode {
 		return false, nil, fmt.Errorf("YAML 根节点不是 Mapping 类型")
+	}
+
+	if len(rootMap.Content) > 0 && rootMap.Content[0].Column != 1 {
+		return false, nil, fmt.Errorf("底稿顶层配置项必须顶格书写，首项在第 %d 列存在非法前导缩进", rootMap.Content[0].Column)
 	}
 
 	deleteKeys(rootMap, "redir-port", "tproxy-port")
