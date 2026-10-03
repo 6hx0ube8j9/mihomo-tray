@@ -2,11 +2,8 @@ package core
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
-	"path/filepath"
 	"strconv"
-	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -27,17 +24,17 @@ func clearComments(node *yaml.Node) {
 	}
 }
 
-func BuildRuntimeYAML(cfg domain.TrayConfig, sourceAbsPath string, baseDir string) (string, bool, map[string]string, error) {
+func BuildRuntimeYAML(cfg domain.TrayConfig, sourceAbsPath string) ([]byte, map[string]string, error) {
 	var root yaml.Node
 	extracted := make(map[string]string)
 
 	if sourceAbsPath != "" {
 		content, err := os.ReadFile(sourceAbsPath)
 		if err != nil {
-			return "", false, nil, fmt.Errorf("底稿文件读取失败: %w", err)
+			return nil, nil, fmt.Errorf("底稿读取失败: %w", err)
 		}
 		if err := yaml.Unmarshal(content, &root); err != nil {
-			return "", false, nil, fmt.Errorf("底稿 YAML 语法或结构断裂: %w", err)
+			return nil, nil, fmt.Errorf("YAML 格式或结构损坏: %w", err)
 		}
 	}
 
@@ -46,7 +43,7 @@ func BuildRuntimeYAML(cfg domain.TrayConfig, sourceAbsPath string, baseDir strin
 	}
 	rootMap := root.Content[0]
 	if rootMap.Kind != yaml.MappingNode {
-		return "", false, nil, fmt.Errorf("YAML 根节点不是 Mapping 类型")
+		return nil, nil, fmt.Errorf("YAML 根节点不是 Mapping 类型")
 	}
 
 	deleteKeys(rootMap, "redir-port", "tproxy-port")
@@ -149,31 +146,14 @@ func BuildRuntimeYAML(cfg domain.TrayConfig, sourceAbsPath string, baseDir strin
 	}
 
 	rootMap.Content = append(topNodes, rootMap.Content...)
-
 	clearComments(&root)
 
 	outBytes, err := yaml.Marshal(&root)
 	if err != nil {
-		return "", false, nil, fmt.Errorf("运行时配置合成失败: %w", err)
+		return nil, nil, fmt.Errorf("运行时配置合成失败: %w", err)
 	}
 
-	output := yamlHeader + string(outBytes)
-	runtimePath := filepath.Join(baseDir, domain.RuntimeConfigName)
-
-	if existingContent, err := os.ReadFile(runtimePath); err == nil {
-		if strings.TrimSpace(string(existingContent)) == strings.TrimSpace(output) {
-			slog.Debug("运行时配置无实质变动，跳过磁盘覆写与校验")
-			return "", true, extracted, nil
-		}
-	}
-
-	tempPath := filepath.Join(baseDir, "config.test.yaml")
-	if err := os.WriteFile(tempPath, []byte(output), 0644); err != nil {
-		return "", false, nil, fmt.Errorf("写入沙盒测试配置失败: %w", err)
-	}
-
-	slog.Debug("已生成沙盒测试配置", "target", tempPath)
-	return tempPath, false, extracted, nil
+	return append([]byte(yamlHeader), outBytes...), extracted, nil
 }
 
 func findKey(node *yaml.Node, key string) (int, *yaml.Node) {
