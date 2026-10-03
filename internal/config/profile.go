@@ -27,23 +27,21 @@ func TruncateMiddle(name string) string {
 }
 
 func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) {
-    m.mu.RLock()
-	if len(m.data.Profiles.Items) >= domain.MaxProfileCount {
-		m.mu.RUnlock()
+	m.mu.RLock()
+	isOverLimit := len(m.data.Profiles.Items) >= domain.MaxProfileCount
+	m.mu.RUnlock()
+	if isOverLimit {
 		return "", false, fmt.Errorf("配置数量达到上限 (%d)", domain.MaxProfileCount)
 	}
-	m.mu.RUnlock()
 
 	absSrc, err := filepath.EvalSymlinks(srcPath)
 	if err != nil {
-		absSrc, err = filepath.Abs(srcPath)
-		if err != nil {
+		if absSrc, err = filepath.Abs(srcPath); err != nil {
 			return "", false, err
 		}
 	}
 
-	relPath, isTree := IsInAppTree(m.baseDir, absSrc)
-	if isTree {
+	if relPath, isTree := IsInAppTree(m.baseDir, absSrc); isTree {
 		if filepath.Dir(filepath.ToSlash(relPath)) == ProfilesDir {
 			return relPath, false, nil
 		}
@@ -55,61 +53,10 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 	}
 
 	baseName := strings.TrimSuffix(filepath.Base(absSrc), filepath.Ext(absSrc))
-	finalName := baseName
-
-	for i := 1; i <= 50; i++ {
-		conflictPath := filepath.Join(profilesDirAbs, finalName+".yaml")
-		if _, err := os.Stat(conflictPath); os.IsNotExist(err) {
-			break
-		}
-		finalName = fmt.Sprintf("%s_%d", baseName, i)
-	}
-
-	finalRelPath := filepath.ToSlash(filepath.Join(ProfilesDir, finalName+".yaml"))
+	finalRelPath := resolveUniqueProfileRelPath(profilesDirAbs, baseName)
 	dstAbs := filepath.Join(m.baseDir, filepath.FromSlash(finalRelPath))
 
-	srcFile, err := os.Open(absSrc)
-	if err != nil {
-		return "", false, err
-	}
-	defer srcFile.Close()
-
-	targetDir := filepath.Dir(dstAbs)
-	_ = os.MkdirAll(targetDir, 0755)
-	tmpFile, err := os.CreateTemp(targetDir, "profile.*.tmp")
-
-	if err != nil {
-		return "", false, err
-	}
-	tmpName := tmpFile.Name()
-
-	cleaned := false
-	defer func() {
-		if !cleaned {
-			_ = tmpFile.Close()
-			_ = os.Remove(tmpName)
-		}
-	}()
-
-	limitReader := io.LimitReader(srcFile, domain.MaxProfileBytes)
-	if _, err := io.Copy(tmpFile, limitReader); err != nil {
-		return "", false, err
-	}
-
-	var extra [1]byte
-	if n, _ := srcFile.Read(extra[:]); n > 0 {
-		return "", false, fmt.Errorf("文件体积超限")
-	}
-
-	if err := tmpFile.Sync(); err != nil {
-		return "", false, err
-	}
-	if err := tmpFile.Close(); err != nil {
-		return "", false, err
-	}
-	cleaned = true
-
-	if err := os.Rename(tmpName, dstAbs); err != nil {
+	if err := copyFileWithLimit(absSrc, dstAbs, domain.MaxProfileBytes); err != nil {
 		return "", false, err
 	}
 
@@ -131,10 +78,7 @@ func (m *Manager) RegisterNewProfile(relPath string) {
 			Name: displayName,
 			Path: relPath,
 		})
-
-		if len(cfg.Profiles.Items) > domain.MaxProfileCount {
-			cfg.Profiles.Items = append(cfg.Profiles.Items[:1], cfg.Profiles.Items[2:]...)
-		}
+		enforceProfileLimit(cfg)
 	})
 }
 
@@ -146,10 +90,70 @@ func (m *Manager) UpsertProfile(item domain.ProfileItem) {
 				return
 			}
 		}
-		
+
 		cfg.Profiles.Items = append(cfg.Profiles.Items, item)
-		if len(cfg.Profiles.Items) > domain.MaxProfileCount {
-			cfg.Profiles.Items = append(cfg.Profiles.Items[:1], cfg.Profiles.Items[2:]...)
-		}
+		enforceProfileLimit(cfg)
 	})
+}
+
+func resolveUniqueProfileRelPath(profilesDirAbs, baseName string) string {
+	candidate := baseName
+	for i := 1; ; i++ {
+		target := filepath.Join(profilesDirAbs, candidate+".yaml")
+		if _, err := os.Stat(target); os.IsNotExist(err) {
+			break
+		}
+		candidate = fmt.Sprintf("%s_%d", baseName, i)
+	}
+	return filepath.ToSlash(filepath.Join(ProfilesDir, candidate+".yaml"))
+}
+
+func copyFileWithLimit(srcPath, dstPath string, maxBytes int64) error {
+	srcFile, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	targetDir := filepath.Dir(dstPath)
+	_ = os.MkdirAll(targetDir, 0755)
+
+	tmpFile, err := os.CreateTemp(targetDir, "profile.*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmpFile.Name()
+
+	cleaned := false
+	defer func() {
+		if !cleaned {
+			_ = tmpFile.Close()
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	if _, err := io.Copy(tmpFile, io.LimitReader(srcFile, maxBytes)); err != nil {
+		return err
+	}
+
+	var extra [1]byte
+	if n, _ := srcFile.Read(extra[:]); n > 0 {
+		return fmt.Errorf("文件体积超限")
+	}
+
+	if err := tmpFile.Sync(); err != nil {
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+	cleaned = true
+
+	return os.Rename(tmpName, dstPath)
+}
+
+func enforceProfileLimit(cfg *domain.TrayConfig) {
+	if len(cfg.Profiles.Items) > domain.MaxProfileCount {
+		cfg.Profiles.Items = append(cfg.Profiles.Items[:1], cfg.Profiles.Items[2:]...)
+	}
 }
