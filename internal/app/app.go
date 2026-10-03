@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"log/slog"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -84,6 +85,15 @@ func (a *Application) Bootstrap(ctx context.Context) {
 				slog.Warn("活跃配置丢失，进入空转")
 				a.Cfg.SetActiveProfile("")
 				activePath = ""
+			}
+		}
+
+		if activePath != "" {
+			exePath := core.GetKernelPath(a.Cfg.BaseDir())
+			absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(activePath))
+			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), absPath); err != nil {
+				slog.Error("启动时检测到活跃配置存在语法错误，已自动回退到空配置", "path", activePath, "err", err)
+				a.Cfg.SetActiveProfile("")
 			}
 		}
 	}
