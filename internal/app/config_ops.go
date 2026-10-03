@@ -13,14 +13,17 @@ import (
 func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted bool) {
 	a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = enable })
 	
-	restarted = a.ElevatePrivilege(func() {
-		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = false })
-	})
-	if restarted { return true }
-
 	if enable {
 		a.State.SetTunRequestedTime(time.Now())
 	}
+
+	restarted = a.ElevatePrivilege(func() {
+		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = false })
+		if enable {
+			a.State.SetTunRequestedTime(time.Time{})
+		}
+	})
+	if restarted { return true }
 
 	a.State.SetConfigSyncing(true)
 	defer a.State.SetConfigSyncing(false)
@@ -184,7 +187,7 @@ func (a *Application) ApplyControllerConfig(addr, secret string, online, sysBrow
 
 	if coreChanged {
 		slog.Info("Web 面板核心网络参数已变更，重启内核生效")
-		if err := a.RestartKernel(); err != nil && a.ui != nil {
+		if err := a.RestartKernel(context.Background()); err != nil && a.ui != nil {
 			a.ui.ShowError("内核重启失败", err.Error())
 		}
 	}
