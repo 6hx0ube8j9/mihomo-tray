@@ -155,7 +155,7 @@ func (e *Engine) ShowError(title, message string) {
 		if e.tryAcquireAlertFocus() {
 			return
 		}
-		RunErrorDialog(e.activeOwner(), title, message, &e.activeAlert)
+		runBaseDialog(e.activeOwner(), title, message, walk.IconWarning(), win.MB_ICONWARNING, false, &e.activeAlert)
 	})
 }
 
@@ -167,16 +167,8 @@ func (e *Engine) ShowInfo(title, message string) {
 		if e.tryAcquireAlertFocus() {
 			return
 		}
-		RunAlertDialog(e.activeOwner(), title, message, walk.IconInformation(), win.MB_ICONINFORMATION, &e.activeAlert)
+		runBaseDialog(e.activeOwner(), title, message, walk.IconInformation(), win.MB_ICONINFORMATION, false, &e.activeAlert)
 	})
-}
-
-func (e *Engine) ShowNotification(title, message string) {
-	if e.Tray != nil && e.app != nil {
-		e.app.Synchronize(func() {
-			e.Tray.ShowNotification(title, message)
-		})
-	}
 }
 
 func (e *Engine) ShowConfirm(title, message string) bool {
@@ -190,7 +182,7 @@ func (e *Engine) ShowConfirm(title, message string) bool {
 			resultCh <- false
 			return
 		}
-		resultCh <- RunConfirmDialog(e.activeOwner(), title, message, &e.activeAlert)
+		resultCh <- runBaseDialog(e.activeOwner(), title, message, walk.IconQuestion(), win.MB_ICONQUESTION, true, &e.activeAlert)
 	})
 
 	select {
@@ -198,6 +190,14 @@ func (e *Engine) ShowConfirm(title, message string) bool {
 		return res
 	case <-e.ctx.Done():
 		return false
+	}
+}
+
+func (e *Engine) ShowNotification(title, message string) {
+	if e.Tray != nil && e.app != nil {
+		e.app.Synchronize(func() {
+			e.Tray.ShowNotification(title, message)
+		})
 	}
 }
 
