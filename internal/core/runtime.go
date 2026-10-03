@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"time"
 
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/fs"
 )
 
 type DeployResult struct {
@@ -37,7 +37,7 @@ func DeployRuntimeConfig(cfg domain.TrayConfig, relPath string, baseDir string) 
 
 	if existingContent, err := os.ReadFile(runtimeAbs); err == nil {
 		if bytes.Equal(bytes.TrimSpace(existingContent), bytes.TrimSpace(res.YAML)) {
-			slog.Debug("运行时配置无实质变动，跳过落盘与校验")
+			slog.Debug("运行时配置无变动，跳过落盘与预检")
 			return &DeployResult{
 				RuntimeAbs:  runtimeAbs,
 				TunDevice:   res.TunDevice,
@@ -60,10 +60,10 @@ func DeployRuntimeConfig(cfg domain.TrayConfig, relPath string, baseDir string) 
 
 	exePath := GetKernelPath(baseDir)
 	if err := ValidateConfig(exePath, baseDir, stagePath); err != nil {
-		return nil, fmt.Errorf("终态配置业务语义错误，内核拒绝加载:\n\n%w", err)
+		return nil, fmt.Errorf("配置业务语义错误，内核拒绝加载:\n\n%w", err)
 	}
 
-	if err := commitRuntimeFile(stagePath, runtimeAbs); err != nil {
+	if err := fs.ReplaceAtomic(stagePath, runtimeAbs); err != nil {
 		return nil, fmt.Errorf("提交正式配置失败: %w", err)
 	}
 	committed = true
@@ -94,30 +94,13 @@ func writeStageConfig(baseDir string, data []byte) (string, error) {
 	if _, err := stageFile.Write(data); err != nil {
 		return "", fmt.Errorf("写入沙盒测试配置失败: %w", err)
 	}
-
 	if err := stageFile.Sync(); err != nil {
 		return "", fmt.Errorf("沙盒测试配置刷盘失败: %w", err)
 	}
-
 	if err := stageFile.Close(); err != nil {
 		return "", fmt.Errorf("关闭沙盒测试配置句柄失败: %w", err)
 	}
 
 	writeSucceeded = true
 	return stagePath, nil
-}
-
-func commitRuntimeFile(stagePath, targetPath string) error {
-	var lastErr error
-	for i := 0; i < 3; i++ {
-		err := os.Rename(stagePath, targetPath)
-		if err == nil {
-			return nil
-		}
-		lastErr = err
-
-		_ = os.Remove(targetPath)
-		time.Sleep(10 * time.Millisecond)
-	}
-	return lastErr
 }
