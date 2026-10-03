@@ -90,14 +90,14 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 	return accepted
 }
 
-func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, beep uint32, assignTo **walk.Dialog) {
-	runBaseDialog(owner, title, message, icon, beep, false, assignTo)
+func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, beep uint32) {
+	runBaseDialog(owner, title, message, icon, beep, false, nil)
 }
 
-func RunConfirmDialog(owner walk.Form, title, message string, assignTo **walk.Dialog) bool {
-	return runBaseDialog(owner, title, message, walk.IconQuestion(), win.MB_ICONQUESTION, true, assignTo)
+func RunConfirmDialog(owner walk.Form, title, message string) bool {
+	return runBaseDialog(owner, title, message, walk.IconQuestion(), win.MB_ICONQUESTION, true, nil)
 }
 
-func RunErrorDialog(owner walk.Form, title, message string, assignTo **walk.Dialog) {
-	RunAlertDialog(owner, title, message, walk.IconWarning(), win.MB_ICONWARNING, assignTo)
+func RunErrorDialog(owner walk.Form, title, message string) {
+	RunAlertDialog(owner, title, message, walk.IconWarning(), win.MB_ICONWARNING)
 }
