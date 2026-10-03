@@ -99,46 +99,10 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 
 	if cfg.Config.ExternalUIName != "" { putTop("external-ui-name", cfg.Config.ExternalUIName) }
 
-	corsNode := &yaml.Node{Kind: yaml.MappingNode}
-	k1 := &yaml.Node{Kind: yaml.ScalarNode, Value: "allow-private-network"}
-	var v1 yaml.Node
-	if cfg.Config.ExternalControllerCors.AllowPrivateNetwork != nil {
-		_ = v1.Encode(*cfg.Config.ExternalControllerCors.AllowPrivateNetwork)
-	} else {
-		_ = v1.Encode(true)
-	}
-	k2 := &yaml.Node{Kind: yaml.ScalarNode, Value: "allow-origins"}
-	var v2 yaml.Node
-	_ = v2.Encode(cfg.Config.ExternalControllerCors.AllowOrigins)
-	corsNode.Content = append(corsNode.Content, k1, &v1, k2, &v2)
-	putTop("external-controller-cors", corsNode)
-
-	tunDevice := ""
-	tunIdx, tunV := findKey(rootMap, "tun")
-	if tunIdx > 0 && tunV.Kind == yaml.MappingNode {
-		tunDevice = getString(tunV, "device")
-		enableIdx, _ := findKey(tunV, "enable")
-		if enableIdx > 0 {
-			var newVal yaml.Node
-			_ = newVal.Encode(cfg.Config.Tun.Enable)
-			tunV.Content[enableIdx] = &newVal
-		} else {
-			ek := &yaml.Node{Kind: yaml.ScalarNode, Value: "enable"}
-			var ev yaml.Node
-			_ = ev.Encode(cfg.Config.Tun.Enable)
-			tunV.Content = append([]*yaml.Node{ek, &ev}, tunV.Content...)
-		}
-	} else {
-		if tunIdx > 0 {
-			deleteKeys(rootMap, "tun")
-		}
-		tunK := &yaml.Node{Kind: yaml.ScalarNode, Value: "tun"}
-		tunV := &yaml.Node{Kind: yaml.MappingNode}
-		ek := &yaml.Node{Kind: yaml.ScalarNode, Value: "enable"}
-		var ev yaml.Node
-		_ = ev.Encode(cfg.Config.Tun.Enable)
-		tunV.Content = []*yaml.Node{ek, &ev}
-		topNodes = append(topNodes, tunK, tunV)
+	putTop("external-controller-cors", buildCORSNode(cfg.Config.ExternalControllerCors))
+	tunDevice, tunTopNodes := patchTunNode(rootMap, cfg.Config.Tun.Enable)
+	if len(tunTopNodes) > 0 {
+		topNodes = append(topNodes, tunTopNodes...)
 	}
 
 	rootMap.Content = append(topNodes, rootMap.Content...)
@@ -155,6 +119,58 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 	}, nil
 }
 
+func buildCORSNode(cors domain.ExternalControllerCors) *yaml.Node {
+	corsNode := &yaml.Node{Kind: yaml.MappingNode}
+
+	k1 := &yaml.Node{Kind: yaml.ScalarNode, Value: "allow-private-network"}
+	var v1 yaml.Node
+	allowPrivate := true
+	if cors.AllowPrivateNetwork != nil {
+		allowPrivate = *cors.AllowPrivateNetwork
+	}
+	_ = v1.Encode(allowPrivate)
+
+	k2 := &yaml.Node{Kind: yaml.ScalarNode, Value: "allow-origins"}
+	var v2 yaml.Node
+	_ = v2.Encode(cors.AllowOrigins)
+
+	corsNode.Content = append(corsNode.Content, k1, &v1, k2, &v2)
+	return corsNode
+}
+
+func patchTunNode(rootMap *yaml.Node, enable bool) (tunDevice string, extraTop []*yaml.Node) {
+	tunIdx, tunV := findKey(rootMap, "tun")
+	if tunIdx > 0 && tunV.Kind == yaml.MappingNode {
+		tunDevice = getString(tunV, "device")
+		enableIdx, _ := findKey(tunV, "enable")
+		if enableIdx > 0 {
+			var newVal yaml.Node
+			_ = newVal.Encode(enable)
+			tunV.Content[enableIdx] = &newVal
+		} else {
+			ek := &yaml.Node{Kind: yaml.ScalarNode, Value: "enable"}
+			var ev yaml.Node
+			_ = ev.Encode(enable)
+			tunV.Content = append([]*yaml.Node{ek, &ev}, tunV.Content...)
+		}
+		return tunDevice, nil
+	}
+
+	if tunIdx > 0 {
+		deleteKeys(rootMap, "tun")
+	}
+
+	tunK := &yaml.Node{Kind: yaml.ScalarNode, Value: "tun"}
+	tunV := &yaml.Node{Kind: yaml.MappingNode}
+	ek := &yaml.Node{Kind: yaml.ScalarNode, Value: "enable"}
+	var ev yaml.Node
+	_ = ev.Encode(enable)
+	tunV.Content = []*yaml.Node{ek, &ev}
+
+	return "", []*yaml.Node{tunK, tunV}
+}
+
+// ---------------- AST ----------------
 
 func clearComments(node *yaml.Node) {
 	if node == nil {
