@@ -153,7 +153,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 
 		if err := cmd.Start(); err != nil {
 			errMsg := fmt.Sprintf("进程启动失败: %v", err)
-			km.logger.WriteLog("ERROR", errMsg)
+			km.logger.WriteLog("DAEMON", errMsg)
 
 			if firstCrashTime.IsZero() {
 				firstCrashTime = time.Now()
@@ -242,7 +242,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 			if shouldLog {
 				rawErr := strings.TrimSpace(errBuf.String())
 				errMsg := fmt.Sprintf("内核崩溃 | %v | %s", waitErr, rawErr)
-				km.logger.WriteLog("ERROR", errMsg)
+				km.logger.WriteLog("CRASH", errMsg)
 			}
 		}
 
