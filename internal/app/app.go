@@ -71,16 +71,11 @@ func (a *Application) Bootstrap(ctx context.Context) {
 				
 				cfg := a.Cfg.GetConfig()
 				validator := func(tmpPath string) error {
-					tempTestPath, _, _, err := core.BuildRuntimeYAML(cfg, tmpPath, a.Cfg.BaseDir())
+					mergedBytes, _, err := core.BuildRuntimeYAML(cfg, tmpPath)
 					if err != nil {
-						return fmt.Errorf("订阅配置语法或格式存在严重错误: %w", err)
+						return fmt.Errorf("订阅配置语法或合并失败: %w", err)
 					}
-					if tempTestPath != "" {
-						defer os.Remove(tempTestPath)
-						exePath := core.GetKernelPath(a.Cfg.BaseDir())
-						return core.ValidateConfig(exePath, a.Cfg.BaseDir(), tempTestPath)
-					}
-					return nil
+					return core.ValidateConfigContent(a.Cfg.ExePath(), a.Cfg.BaseDir(), mergedBytes)
 				}
 
 				success, fetchErr := a.Cfg.UpgradeSubscription(context.Background(), activePath, "", validator)
@@ -97,7 +92,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 				a.Cfg.SetActiveProfile("")
 				activePath = ""
 			}
-		}       
+		}
 	}
 	
 	a.CheckAndReconcilePrivileges(true)
@@ -120,7 +115,6 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	go sys.WatchProxyRegistry(ctx, a.proxyStatusCh)
 	go a.eventLoop(ctx)
 }
-
 func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	slog.Info("执行安全退出序列")
 	a.State.ForceExitPhase()
