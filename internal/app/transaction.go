@@ -17,6 +17,11 @@ func (a *Application) deployAndSyncState(targetRelPath string) (*core.DeployResu
 	cfg := a.Cfg.GetConfig()
 	deployRes, err := core.DeployRuntimeConfig(cfg, targetRelPath, a.Cfg.BaseDir())
 	if err != nil {
+		targetDesc := targetRelPath
+		if targetDesc == "" {
+			targetDesc = "默认基础配置"
+		}
+		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("运行配置预检未通过 [%s]:\n%v", targetDesc, err))
 		return nil, err
 	}
 
@@ -42,11 +47,11 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
 				slog.Error("加载配置超时", "target", targetRelPath)
-				a.Kernel.WriteCoreLog("ERROR", fmt.Sprintf("加载配置超时 | 配置: %s", targetRelPath))
+				a.Kernel.WriteCoreLog("RELOAD", fmt.Sprintf("内核热加载配置超时 | 配置: %s", targetRelPath))
 				return fmt.Errorf("内核加载新配置超时")
 			}
 			slog.Error("加载配置失败", "target", targetRelPath, "err", err)
-			a.Kernel.WriteCoreLog("ERROR", fmt.Sprintf("加载配置失败 | 配置: %s | 原因: %v", targetRelPath, err))
+			a.Kernel.WriteCoreLog("RELOAD", fmt.Sprintf("内核热加载配置失败 | 配置: %s | 原因: %v", targetRelPath, err))
 			return err
 		}
 		slog.Info("新配置已生效")
