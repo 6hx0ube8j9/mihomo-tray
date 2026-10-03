@@ -44,7 +44,7 @@ func (a *Application) CheckAndReconcilePrivileges(isStartup bool) {
 }
 
 func (a *Application) revertPrivilegedConfig() {
-	a.Cfg.UpdateMemory(func(c *domain.TrayConfig) {
+	a.Cfg.Update(func(c *domain.TrayConfig) {
 		c.General.RunAsAdmin = false
 		c.Config.Tun.Enable = false
 		b := false
