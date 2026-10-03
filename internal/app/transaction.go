@@ -109,6 +109,13 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 		return nil
 	}
 
+	target := a.Cfg.GetActivePath()
+	if target != "" {
+		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
+			return fmt.Errorf("目标配置读取异常，请求已取消。\n\n错误: %w", err)
+		}
+	}
+
 	slog.Info("开始重启内核")
 	a.State.SetRestarting(true)
 	a.State.SetReloading(false)
@@ -125,7 +132,7 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 
 	a.CheckAndReconcilePrivileges(false)
 
-	if err := a.SyncRuntimeConfig(); err != nil {
+	if _, err := a.deployAndSyncState(target); err != nil {
 		return fmt.Errorf("内核拒绝重启，配置文件校验未通过：\n\n%w", err)
 	}
 
@@ -148,7 +155,7 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 	return nil
 }
 
-func (a *Application) SyncRuntimeConfig() error {
+func (a *Application) SyncRuntimeConfig() {
 	activePath := a.Cfg.GetActivePath()
 
 	if activePath != "" {
@@ -162,10 +169,7 @@ func (a *Application) SyncRuntimeConfig() error {
 	if _, err := a.deployAndSyncState(activePath); err != nil {
 		slog.Error("生成运行配置失败，应用将暂停代理", "err", err)
 		a.Cfg.SetActiveProfile("")
-		return err
 	}
-
-	return nil
 }
 
 func (a *Application) restartKernelViaAPI(ctx context.Context) bool {
