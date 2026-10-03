@@ -16,6 +16,7 @@ type GeneralConfig struct {
 	RunAsAdmin     bool   `json:"run_as_admin"`
 	SystemBrowser  *bool  `json:"system_browser"`
 	RemoteWebUI    *bool  `json:"remote_webui"` 
+	RemoteWebUIURL *string `json:"remote_webui_url"`
 	TrayLogLevel   string `json:"tray_log_level"`
 	SystemProxy    *bool  `json:"system_proxy"`
 }
