@@ -125,7 +125,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 				}
 				
 				if !netutil.IsValidHTTPURL(rURL) {
-					RunErrorDialog(currentControllerEditor, "保存失败", "格式错误，请输入有效的 HTTP/HTTPS 链接。")
+					RunErrorDialog(currentControllerEditor, "保存失败", "地址格式错误，请输入有效的 HTTP/HTTPS 链接。")
 					return false, nil
 				}
 
