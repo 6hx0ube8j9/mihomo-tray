@@ -56,7 +56,7 @@ func (a *Application) ImportLocalProfile(ctx context.Context, sourcePath string)
 	return nil
 }
 
-func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath string, isManual bool, isNew bool) error {
+func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath string, isManual bool) error {
 	if !a.State.TryAcquireProfileLock(targetRelPath) {
 		if isManual {
 			slog.Warn("拦截重复更新请求", "path", targetRelPath)
@@ -77,13 +77,6 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 
 	if err != nil {
 		slog.Error("更新配置失败", "path", targetRelPath, "err", err)
-		if isNew {
-			slog.Info("清理拉取失败的新建订阅文件", "path", targetRelPath)
-			absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
-			_ = os.Remove(absPath)
-			a.Cfg.RemoveProfile(targetRelPath)
-			a.ForcePushUIState()
-		}
 		if isManual {
 			return fmt.Errorf("无法拉取最新的订阅配置，请检查网络或链接状态。\n\n详情：%w", err)
 		}
@@ -96,8 +89,6 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 			slog.Info("当前活跃配置已更新，执行底层重载")
 			_ = a.applyConfigTransaction(context.Background(), targetRelPath)
 			a.pushUIState()
-		} else if isNew {
-			a.onProfileImported(ctx, targetRelPath)
 		}
 	}
 	return nil
@@ -226,10 +217,38 @@ func (a *Application) AddRemoteProfile(ctx context.Context, rawName, url string,
 		Interval:   interval,
 	}
 
-	_, exists := a.Cfg.GetProfileByPath(targetRelPath)
-	a.Cfg.UpsertProfile(newItem)
+	if _, exists := a.Cfg.GetProfileByPath(targetRelPath); exists {
+		return fmt.Errorf("配置名称或路径已存在冲突")
+	}
+
+	cfg := a.Cfg.GetConfig()
+	port := strconv.Itoa(a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort))
+
+	fetchRes, err := a.Cfg.FetchRemoteProfile(ctx, newItem.URL, port)
+	if err != nil {
+		return fmt.Errorf("拉取订阅失败: %w", err)
+	}
+	defer os.Remove(fetchRes.TempPath)
+
+	exePath := core.GetKernelPath(a.Cfg.BaseDir())
+	if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), fetchRes.TempPath); err != nil {
+		return fmt.Errorf("订阅配置语法或规则存在错误，已拦截导入：\n\n%w", err)
+	}
+
+	newItem.Upload = fetchRes.Upload
+	newItem.Download = fetchRes.Download
+	newItem.Total = fetchRes.Total
+	newItem.Expire = fetchRes.Expire
+	newItem.LastUpdate = time.Now().Unix()
+
+	if err := a.Cfg.CommitRemoteProfile(fetchRes.TempPath, targetRelPath, newItem); err != nil {
+		return fmt.Errorf("保存订阅失败: %w", err)
+	}
 	
-	return a.UpdateRemoteProfile(ctx, targetRelPath, true, !exists)
+	slog.Info("添加并拉取订阅成功", "path", targetRelPath)
+	a.onProfileImported(ctx, targetRelPath)
+	
+	return nil
 }
 
 func (a *Application) EditRemoteProfile(ctx context.Context, oldPath, newName, newURL string, newInterval int) error {
@@ -242,7 +261,34 @@ func (a *Application) EditRemoteProfile(ctx context.Context, oldPath, newName, n
 		return nil 
 	}
 
-	oldURL := p.URL
+	urlChanged := (newURL != p.URL)
+
+	if urlChanged {
+		cfg := a.Cfg.GetConfig()
+		port := strconv.Itoa(a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort))
+
+		fetchRes, err := a.Cfg.FetchRemoteProfile(ctx, newURL, port)
+		if err != nil {
+			return fmt.Errorf("拉取新订阅链接失败: %w", err)
+		}
+		defer os.Remove(fetchRes.TempPath)
+
+		exePath := core.GetKernelPath(a.Cfg.BaseDir())
+		if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), fetchRes.TempPath); err != nil {
+			return fmt.Errorf("新订阅配置存在严重错误，拒绝保存：\n\n%w", err)
+		}
+
+		p.Upload = fetchRes.Upload
+		p.Download = fetchRes.Download
+		p.Total = fetchRes.Total
+		p.Expire = fetchRes.Expire
+		p.LastUpdate = time.Now().Unix()
+
+		if err := a.Cfg.CommitRemoteProfile(fetchRes.TempPath, p.Path, p); err != nil {
+			return fmt.Errorf("保存新订阅失败: %w", err)
+		}
+	}
+
 	p.Name = newName
 	p.URL = newURL
 	p.Interval = newInterval
@@ -250,14 +296,9 @@ func (a *Application) EditRemoteProfile(ctx context.Context, oldPath, newName, n
 
 	a.Cfg.UpsertProfile(p)
 
-	if newURL != oldURL {
-		a.asyncRun("更新订阅失败", func() error {
-			err := a.UpdateRemoteProfile(context.Background(), p.Path, true, false)
-			if err != nil {
-				return fmt.Errorf("订阅链接已保存，但尝试拉取最新配置时发生错误：\n\n%w", err)
-			}
-			return nil
-		})
+	if urlChanged && a.Cfg.GetActivePath() == p.Path {
+		slog.Info("当前活跃配置链接已修改且拉取成功，执行底层重载")
+		_ = a.applyConfigTransaction(context.Background(), p.Path)
 	}
 	
 	a.pushUIState()
