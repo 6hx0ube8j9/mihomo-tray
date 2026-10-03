@@ -98,7 +98,23 @@ func (a *Application) ReloadConfig(ctx context.Context) error {
 	return nil
 }
 
-func (a *Application) RestartKernel() error {
+func (a *Application) RestartKernel(ctx context.Context) error {
+	if a.State.IsRestarting() {
+		return nil
+	}
+	
+	target := a.Cfg.GetActivePath()
+	if target != "" {
+		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
+			return fmt.Errorf("目标配置读取异常，请求已取消。\n\n错误: %w", err)
+		}
+		exePath := core.GetKernelPath(a.Cfg.BaseDir())
+		absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(target))
+		if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), absPath); err != nil {
+			return fmt.Errorf("内核拒绝重启，当前配置文件存在语法或规则错误：\n\n%w", err)
+		}
+	}
+
 	slog.Info("开始重启内核")
 	a.State.SetRestarting(true)
 	a.State.SetReloading(false)
@@ -121,7 +137,7 @@ func (a *Application) RestartKernel() error {
 		a.State.SetTunRequestedTime(time.Now())
 	}
 
-	if a.State.GetPhase() == domain.PhaseRunning && a.restartKernelViaAPI() {
+	if a.State.GetPhase() == domain.PhaseRunning && a.restartKernelViaAPI(ctx) {
 		a.State.SetPhase(domain.PhaseRunning)
 	} else {
 		a.State.SetPhase(domain.PhaseInitializing)
@@ -136,8 +152,8 @@ func (a *Application) RestartKernel() error {
 	return nil
 }
 
-func (a *Application) restartKernelViaAPI() bool {
-	cmdCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+func (a *Application) restartKernelViaAPI(ctx context.Context) bool {
+	cmdCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	
 	if err := a.API.RestartKernel(cmdCtx); err != nil {
@@ -145,7 +161,7 @@ func (a *Application) restartKernelViaAPI() bool {
 		return false
 	}
 
-	waitCtx, waitCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	waitCtx, waitCancel := context.WithTimeout(ctx, 3*time.Second)
 	defer waitCancel()
 	
 	if err := a.API.WaitForReady(waitCtx); err != nil {
@@ -155,7 +171,7 @@ func (a *Application) restartKernelViaAPI() bool {
 
 	slog.Info("内核已通过 API 重启就绪")
 	
-	syncCtx, syncCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	syncCtx, syncCancel := context.WithTimeout(ctx, 3*time.Second)
 	defer syncCancel()
 	
 	a.syncAllConfig(syncCtx)
