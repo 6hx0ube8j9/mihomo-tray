@@ -153,11 +153,11 @@ func (a *Application) SwitchProfile(ctx context.Context, targetPath string) erro
 		return nil
 	}
 
-	if a.State.IsProfileSwitching() {
+	if !a.State.TryBeginSwitchProfile() {
+		slog.Debug("系统正处于其他操作中，忽略本次配置切换")
 		a.ForcePushUIState()
 		return nil
 	}
-	a.State.SetProfileSwitching(true)
 
 	isFailed := false
 	defer func() {
