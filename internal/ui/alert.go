@@ -1,32 +1,12 @@
 package ui
 
 import (
-	"sync"
-
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
 	"github.com/tailscale/win"
 )
 
-var (
-	activeAlertDialog *walk.Dialog
-	alertMu           sync.Mutex
-)
-
-func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep uint32, isConfirm bool) bool {
-	alertMu.Lock()
-	if activeAlertDialog != nil {
-		hwnd := activeAlertDialog.Handle()
-		if win.IsWindowVisible(hwnd) && !win.IsIconic(hwnd) {
-			win.FlashWindow(hwnd, true)
-			win.SetForegroundWindow(hwnd)
-			activeAlertDialog.SetFocus()
-			alertMu.Unlock()
-			return false
-		}
-	}
-	alertMu.Unlock()
-
+func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep uint32, isConfirm bool, assignTo **walk.Dialog) bool {
 	parent := owner
 	hActive := win.GetForegroundWindow()
 	safeMsg := autoWrapText(message, 55)
@@ -81,16 +61,14 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 		return false
 	}
 	
-	alertMu.Lock()
-	activeAlertDialog = dlg
-	alertMu.Unlock()
-
+	if assignTo != nil {
+		*assignTo = dlg
+	}
+	
 	defer func() {
-		alertMu.Lock()
-		if activeAlertDialog == dlg {
-			activeAlertDialog = nil
+		if assignTo != nil {
+			*assignTo = nil
 		}
-		alertMu.Unlock()
 		dlg.Dispose()
 	}()
 	
@@ -112,14 +90,14 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 	return accepted
 }
 
-func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, beep uint32) {
-	runBaseDialog(owner, title, message, icon, beep, false)
+func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, beep uint32, assignTo **walk.Dialog) {
+	runBaseDialog(owner, title, message, icon, beep, false, assignTo)
 }
 
-func RunConfirmDialog(owner walk.Form, title, message string) bool {
-	return runBaseDialog(owner, title, message, walk.IconQuestion(), win.MB_ICONQUESTION, true)
+func RunConfirmDialog(owner walk.Form, title, message string, assignTo **walk.Dialog) bool {
+	return runBaseDialog(owner, title, message, walk.IconQuestion(), win.MB_ICONQUESTION, true, assignTo)
 }
 
-func RunErrorDialog(owner walk.Form, title, message string) {
-	RunAlertDialog(owner, title, message, walk.IconWarning(), win.MB_ICONWARNING)
+func RunErrorDialog(owner walk.Form, title, message string, assignTo **walk.Dialog) {
+	RunAlertDialog(owner, title, message, walk.IconWarning(), win.MB_ICONWARNING, assignTo)
 }
