@@ -236,9 +236,16 @@ func buildBrowserArgs(cfg Config, browserTag, finalURL, debugPort string) []stri
 		"--window-position=" + strconv.Itoa(winX) + "," + strconv.Itoa(winY),
 		"--no-first-run", "--no-default-browser-check", "--disable-extensions",
 		"--disable-sync", "--disable-background-networking", "--disable-component-update",
-		"--disk-cache-size=33554432", "--disable-translate", "--hide-crash-restore-bubble",
+		"--disk-cache-size=33554432", "--hide-crash-restore-bubble",
 		"--disable-background-timer-throttling", "--disable-client-side-phishing-detection",
 		"--disable-default-apps",
+
+		// 禁用各类气泡与弹窗
+		"--disable-save-password-bubble",
+		"--deny-permission-prompts",
+		"--disable-notifications",
+		"--disable-search-engine-choice-screen",
+		"--disable-features=Translate,LanguageDetection,PasswordLeakDetection,AutofillAddressProfileSavePrompt,AutofillCreditCardSavePrompt",
 	}
 
 	if p := strings.TrimSpace(cfg.ProxyPort); p != "" {
