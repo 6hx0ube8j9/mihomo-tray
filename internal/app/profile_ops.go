@@ -16,6 +16,21 @@ import (
 )
 
 func (a *Application) validateProfileSource(absOrTempPath string) error {
+	fi, err := os.Stat(absOrTempPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("配置文件不存在")
+		}
+		return fmt.Errorf("无法读取待校验配置文件信息: %w", err)
+	}
+
+	if fi.Size() == 0 {
+		return fmt.Errorf("配置文件内容为空 (0 字节)")
+	}
+	if fi.Size() > domain.MaxProfileBytes {
+		return fmt.Errorf("配置文件体积超出上限 (最大允许 %d MB)", domain.MaxProfileBytes/(1024*1024))
+	}
+
 	content, err := os.ReadFile(absOrTempPath)
 	if err != nil {
 		return fmt.Errorf("读取待校验配置失败: %w", err)
