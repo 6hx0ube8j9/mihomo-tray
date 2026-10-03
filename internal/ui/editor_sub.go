@@ -1,13 +1,13 @@
 package ui
 
 import (
-	"net/url"
 	"strings"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
 
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/netutil"
 )
 
 var currentSubEditor *walk.Dialog
@@ -57,12 +57,7 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultUrl string, d
 				inputName := strings.TrimSpace(nameEdit.Text())
 				inputUrl := strings.TrimSpace(urlEdit.Text())
 
-				if inputUrl == "" {
-					RunErrorDialog(currentSubEditor, "输入错误", "订阅链接不能为空！")
-					return false, nil
-				}
-				u, parseErr := url.ParseRequestURI(inputUrl)
-				if parseErr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				if !netutil.IsValidHTTPURL(inputUrl) {
 					RunErrorDialog(currentSubEditor, "输入错误", "请输入有效的 HTTP/HTTPS 订阅链接")
 					return false, nil
 				}
