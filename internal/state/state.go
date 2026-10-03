@@ -128,3 +128,13 @@ func (r *RuntimeState) GetActualTunDevice() string {
 	}
 	return ""
 }
+
+func (r *RuntimeState) CanStartConfigTransaction() bool {
+	if r.IsExiting() {
+		return false
+	}
+	if r.isRestarting.Load() || r.isReloading.Load() || r.profileSwitching.Load() {
+		return false
+	}
+	return true
+}
