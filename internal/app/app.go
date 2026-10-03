@@ -67,9 +67,19 @@ func (a *Application) Bootstrap(ctx context.Context) {
 		if err := a.Cfg.ValidatePhysicalFile(activePath); err != nil {
 			if p, ok := a.Cfg.GetProfileByPath(activePath); ok && p.URL != "" {
 				slog.Info("订阅丢失，尝试静默拉取", "path", activePath)
+				
+				cfg := a.Cfg.GetConfig()
 				validator := func(tmpPath string) error {
-					exePath := core.GetKernelPath(a.Cfg.BaseDir())
-					return core.ValidateConfig(exePath, a.Cfg.BaseDir(), tmpPath)
+					tempTestPath, _, _, err := core.BuildRuntimeYAML(cfg, tmpPath, a.Cfg.BaseDir())
+					if err != nil {
+						return fmt.Errorf("订阅配置语法或格式存在严重错误: %w", err)
+					}
+					if tempTestPath != "" {
+						defer os.Remove(tempTestPath)
+						exePath := core.GetKernelPath(a.Cfg.BaseDir())
+						return core.ValidateConfig(exePath, a.Cfg.BaseDir(), tempTestPath)
+					}
+					return nil
 				}
 
 				success, fetchErr := a.Cfg.UpgradeSubscription(context.Background(), activePath, "", validator)
@@ -86,20 +96,11 @@ func (a *Application) Bootstrap(ctx context.Context) {
 				a.Cfg.SetActiveProfile("")
 				activePath = ""
 			}
-		}
-
-		if activePath != "" {
-			exePath := core.GetKernelPath(a.Cfg.BaseDir())
-			absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(activePath))
-			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), absPath); err != nil {
-				slog.Error("启动时检测到活跃配置存在语法错误，已自动回退到空配置", "path", activePath, "err", err)
-				a.Cfg.SetActiveProfile("")
-			}
-		}
+		}       
 	}
 	
 	a.CheckAndReconcilePrivileges(true)
-	a.SyncRuntimeConfig()
+	a.SyncRuntimeConfig() 
 
 	initialCfg := a.Cfg.GetConfig()
 	a.State.UpdateWebUISnapshot(initialCfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(initialCfg.Config.Secret), initialCfg.Config.ExternalUIName)
