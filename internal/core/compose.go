@@ -62,7 +62,7 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 		}
 		topNodes = append(topNodes, k, &newVal)
 	}
-
+	
 	if cfg.Config.Mode != "" { putTop("mode", cfg.Config.Mode) }
 	if cfg.Config.LogLevel != "" { putTop("log-level", cfg.Config.LogLevel) }
 	if cfg.Config.AllowLan != nil { putTop("allow-lan", *cfg.Config.AllowLan) }
@@ -99,7 +99,7 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 
 	if cfg.Config.ExternalUIName != "" { putTop("external-ui-name", cfg.Config.ExternalUIName) }
 
-	putTop("external-controller-cors", buildCORSNode(cfg.Config.ExternalControllerCors))
+	putTop("external-controller-cors", buildCORSNode(cfg.Config.ExternalControllerCors.AllowPrivateNetwork, cfg.Config.ExternalControllerCors.AllowOrigins))
 	tunDevice, tunTopNodes := patchTunNode(rootMap, cfg.Config.Tun.Enable)
 	if len(tunTopNodes) > 0 {
 		topNodes = append(topNodes, tunTopNodes...)
@@ -119,20 +119,20 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 	}, nil
 }
 
-func buildCORSNode(cors domain.ExternalControllerCors) *yaml.Node {
+func buildCORSNode(allowPrivateNetwork *bool, allowOrigins []string) *yaml.Node {
 	corsNode := &yaml.Node{Kind: yaml.MappingNode}
 
 	k1 := &yaml.Node{Kind: yaml.ScalarNode, Value: "allow-private-network"}
 	var v1 yaml.Node
 	allowPrivate := true
-	if cors.AllowPrivateNetwork != nil {
-		allowPrivate = *cors.AllowPrivateNetwork
+	if allowPrivateNetwork != nil {
+		allowPrivate = *allowPrivateNetwork
 	}
 	_ = v1.Encode(allowPrivate)
 
 	k2 := &yaml.Node{Kind: yaml.ScalarNode, Value: "allow-origins"}
 	var v2 yaml.Node
-	_ = v2.Encode(cors.AllowOrigins)
+	_ = v2.Encode(allowOrigins)
 
 	corsNode.Content = append(corsNode.Content, k1, &v1, k2, &v2)
 	return corsNode
@@ -161,7 +161,7 @@ func patchTunNode(rootMap *yaml.Node, enable bool) (tunDevice string, extraTop [
 	}
 
 	tunK := &yaml.Node{Kind: yaml.ScalarNode, Value: "tun"}
-	tunV := &yaml.Node{Kind: yaml.MappingNode}
+	tunV = &yaml.Node{Kind: yaml.MappingNode}
 	ek := &yaml.Node{Kind: yaml.ScalarNode, Value: "enable"}
 	var ev yaml.Node
 	_ = ev.Encode(enable)
