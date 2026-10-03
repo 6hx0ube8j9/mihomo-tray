@@ -15,6 +15,20 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
+func (a *Application) validateProfileSource(absOrTempPath string) error {
+	content, err := os.ReadFile(absOrTempPath)
+	if err != nil {
+		return fmt.Errorf("读取待校验配置失败: %w", err)
+	}
+
+	if _, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), content); err != nil {
+		return err
+	}
+
+	exePath := core.GetKernelPath(a.Cfg.BaseDir())
+	return core.ValidateConfig(exePath, a.Cfg.BaseDir(), absOrTempPath)
+}
+
 func (a *Application) onProfileImported(ctx context.Context, newProfilePath string) {
 	if len(a.Cfg.GetProfiles()) == 1 {
 		slog.Info("首个配置导入成功，触发全局自动激活并加载", "path", newProfilePath)
@@ -39,8 +53,7 @@ func (a *Application) ImportLocalProfile(ctx context.Context, sourcePath string)
 
 	slog.Info("开始导入本地配置", "source", sourcePath)
 
-	exePath := core.GetKernelPath(a.Cfg.BaseDir())
-	if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), sourcePath); err != nil {
+	if err := a.validateProfileSource(sourcePath); err != nil {
 		return fmt.Errorf("配置文件存在语法或规则错误：\n\n%w", err)
 	}
 
@@ -52,7 +65,7 @@ func (a *Application) ImportLocalProfile(ctx context.Context, sourcePath string)
 
 	a.Cfg.RegisterNewProfile(targetName)
 	a.onProfileImported(ctx, targetName)
-	
+
 	return nil
 }
 
@@ -66,15 +79,13 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 	defer a.State.ReleaseProfileLock(targetRelPath)
 
 	validator := func(tmpPath string) error {
-		exePath := core.GetKernelPath(a.Cfg.BaseDir())
-		return core.ValidateConfig(exePath, a.Cfg.BaseDir(), tmpPath)
+		return a.validateProfileSource(tmpPath)
 	}
 
 	cfg := a.Cfg.GetConfig()
 	port := strconv.Itoa(a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort))
 
 	success, err := a.Cfg.UpgradeSubscription(ctx, targetRelPath, port, validator)
-
 	if err != nil {
 		slog.Error("更新配置失败", "path", targetRelPath, "err", err)
 		if isManual {
@@ -87,7 +98,7 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 		slog.Info("更新配置成功", "path", targetRelPath)
 		if a.Cfg.GetActivePath() == targetRelPath {
 			slog.Info("当前活跃配置已更新，执行底层重载")
-			_ = a.applyConfigTransaction(context.Background(), targetRelPath)
+			_ = a.applyConfigTransaction(ctx, targetRelPath)
 			a.pushUIState()
 		}
 	}
@@ -110,7 +121,7 @@ func (a *Application) SetProfileInterval(payload string) {
 		p.AutoUpdate = interval > 0
 		a.Cfg.UpsertProfile(p)
 		slog.Info("修改订阅更新频率", "path", targetPath, "interval", interval)
-		a.pushUIState() 
+		a.pushUIState()
 	}
 }
 
@@ -127,11 +138,10 @@ func (a *Application) SwitchProfile(ctx context.Context, targetPath string) erro
 	}
 	a.State.SetProfileSwitching(true)
 
-	isTransactionFailed := false
+	isFailed := false
 	defer func() {
 		a.State.SetProfileSwitching(false)
-		if isTransactionFailed {
-			slog.Debug("配置切换失败，恢复原状态并刷新界面")
+		if isFailed {
 			a.ForcePushUIState()
 		} else {
 			a.pushUIState()
@@ -144,27 +154,15 @@ func (a *Application) SwitchProfile(ctx context.Context, targetPath string) erro
 	}
 
 	if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
-		isTransactionFailed = true
+		isFailed = true
 		return fmt.Errorf("目标配置异常，请求已取消。\n\n错误: %w", err)
 	}
 
-	exePath := core.GetKernelPath(a.Cfg.BaseDir())
-	absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(target))
-	if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), absPath); err != nil {
-		isTransactionFailed = true
-		return fmt.Errorf("该配置存在严重错误，拒绝加载。\n\n错误: %w", err)
+	if err := a.applyConfigTransaction(ctx, target); err != nil {
+		isFailed = true
+		return fmt.Errorf("配置加载失败，已保持原配置运行。\n\n错误: %w", err)
 	}
 
-	oldActive := a.Cfg.GetActivePath()
-	a.Cfg.SetActiveProfile(target)
-	a.pushUIState()
-
-	if err := a.applyConfigTransaction(context.Background(), target); err != nil {
-		a.Cfg.SetActiveProfile(oldActive)
-		isTransactionFailed = true
-		return fmt.Errorf("配置加载失败，已自动恢复原配置。\n\n错误: %w", err)
-	} 
-	
 	a.restartWebUIIfOpen()
 	return nil
 }
@@ -230,8 +228,7 @@ func (a *Application) AddRemoteProfile(ctx context.Context, rawName, url string,
 	}
 	defer os.Remove(fetchRes.TempPath)
 
-	exePath := core.GetKernelPath(a.Cfg.BaseDir())
-	if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), fetchRes.TempPath); err != nil {
+	if err := a.validateProfileSource(fetchRes.TempPath); err != nil {
 		return fmt.Errorf("订阅配置语法或规则存在错误，已拦截导入：\n\n%w", err)
 	}
 
@@ -244,10 +241,10 @@ func (a *Application) AddRemoteProfile(ctx context.Context, rawName, url string,
 	if err := a.Cfg.CommitRemoteProfile(fetchRes.TempPath, targetRelPath, newItem); err != nil {
 		return fmt.Errorf("保存订阅失败: %w", err)
 	}
-	
+
 	slog.Info("添加并拉取订阅成功", "path", targetRelPath)
 	a.onProfileImported(ctx, targetRelPath)
-	
+
 	return nil
 }
 
@@ -258,7 +255,7 @@ func (a *Application) EditRemoteProfile(ctx context.Context, oldPath, newName, n
 	}
 
 	if newName == p.Name && newURL == p.URL && newInterval == p.Interval {
-		return nil 
+		return nil
 	}
 
 	urlChanged := (newURL != p.URL)
@@ -273,8 +270,7 @@ func (a *Application) EditRemoteProfile(ctx context.Context, oldPath, newName, n
 		}
 		defer os.Remove(fetchRes.TempPath)
 
-		exePath := core.GetKernelPath(a.Cfg.BaseDir())
-		if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), fetchRes.TempPath); err != nil {
+		if err := a.validateProfileSource(fetchRes.TempPath); err != nil {
 			return fmt.Errorf("新订阅配置存在严重错误，拒绝保存：\n\n%w", err)
 		}
 
@@ -298,9 +294,9 @@ func (a *Application) EditRemoteProfile(ctx context.Context, oldPath, newName, n
 
 	if urlChanged && a.Cfg.GetActivePath() == p.Path {
 		slog.Info("当前活跃配置链接已修改且拉取成功，执行底层重载")
-		_ = a.applyConfigTransaction(context.Background(), p.Path)
+		_ = a.applyConfigTransaction(ctx, p.Path)
 	}
-	
+
 	a.pushUIState()
 	return nil
 }
