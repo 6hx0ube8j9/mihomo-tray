@@ -116,7 +116,7 @@ func (a *Application) GetPortConfigSnapshot() (mixed, socks, httpPort int) {
 	return
 }
 
-func (a *Application) GetControllerConfigSnapshot() (addr, secret string, online, sysBrowser bool) {
+func (a *Application) GetControllerConfigSnapshot() (addr, secret string, online, sysBrowser bool, remoteURL string) {
 	cfg := a.Cfg.GetConfig()
 	addr = cfg.Config.ExternalController
 	if addr == "" { addr = domain.DefaultExternalController }
@@ -124,6 +124,7 @@ func (a *Application) GetControllerConfigSnapshot() (addr, secret string, online
 	if cfg.Config.Secret != nil { secret = *cfg.Config.Secret }
 	if cfg.General.RemoteWebUI != nil { online = *cfg.General.RemoteWebUI }
 	if cfg.General.SystemBrowser != nil { sysBrowser = *cfg.General.SystemBrowser }
+	if cfg.General.RemoteWebUIURL != nil { remoteURL = *cfg.General.RemoteWebUIURL }
 	return
 }
 
@@ -164,10 +165,10 @@ func (a *Application) ApplyPortConfig(ctx context.Context, mixed, socks, httpPor
 	a.ForceSyncAPI()
 }
 
-func (a *Application) ApplyControllerConfig(addr, secret string, online, sysBrowser bool) {
-	cAddr, cSec, cOnline, cSys := a.GetControllerConfigSnapshot()
+func (a *Application) ApplyControllerConfig(addr, secret string, online, sysBrowser bool, remoteURL string) {
+	cAddr, cSec, cOnline, cSys, cRemoteURL := a.GetControllerConfigSnapshot()
 	coreChanged := (cAddr != addr) || (cSec != secret)
-	appChanged := (cOnline != online) || (cSys != sysBrowser)
+	appChanged := (cOnline != online) || (cSys != sysBrowser) || (cRemoteURL != remoteURL)
 
 	if !coreChanged && !appChanged {
 		return
@@ -178,9 +179,10 @@ func (a *Application) ApplyControllerConfig(addr, secret string, online, sysBrow
 			c.Config.ExternalController = addr
 			c.Config.Secret = &secret
 		}
-		bOnline, bSys := online, sysBrowser
+		bOnline, bSys, bRemoteURL := online, sysBrowser, remoteURL
 		c.General.RemoteWebUI = &bOnline
 		c.General.SystemBrowser = &bSys
+		c.General.RemoteWebUIURL = &bRemoteURL
 	})
 
 	a.pushUIState()
