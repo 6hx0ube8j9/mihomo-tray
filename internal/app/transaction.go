@@ -13,10 +13,19 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath string) error {
+func (a *Application) deployAndSyncState(targetRelPath string) (*core.DeployResult, error) {
 	cfg := a.Cfg.GetConfig()
-
 	deployRes, err := core.DeployRuntimeConfig(cfg, targetRelPath, a.Cfg.BaseDir())
+	if err != nil {
+		return nil, err
+	}
+
+	a.State.SetActualTunDevice(deployRes.TunDevice)
+	return deployRes, nil
+}
+
+func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath string) error {
+	deployRes, err := a.deployAndSyncState(targetRelPath)
 	if err != nil {
 		return fmt.Errorf("交付运行配置失败: %w", err)
 	}
@@ -46,12 +55,9 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 	}
 
 	a.Cfg.SetActiveProfile(targetRelPath)
-	if deployRes.TunDevice != "" {
-		a.State.SetActualTunDevice(deployRes.TunDevice)
-	}
-
 	a.syncSystemProxy()
 
+	cfg := a.Cfg.GetConfig()
 	if !isKernelRunning {
 		a.Kernel.WakeDaemon()
 		a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
@@ -103,13 +109,6 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 		return nil
 	}
 
-	target := a.Cfg.GetActivePath()
-	if target != "" {
-		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
-			return fmt.Errorf("目标配置读取异常，请求已取消。\n\n错误: %w", err)
-		}
-	}
-
 	slog.Info("开始重启内核")
 	a.State.SetRestarting(true)
 	a.State.SetReloading(false)
@@ -126,15 +125,11 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 
 	a.CheckAndReconcilePrivileges(false)
 
-	cfg := a.Cfg.GetConfig()
-	deployRes, err := core.DeployRuntimeConfig(cfg, target, a.Cfg.BaseDir())
-	if err != nil {
+	if err := a.SyncRuntimeConfig(); err != nil {
 		return fmt.Errorf("内核拒绝重启，配置文件校验未通过：\n\n%w", err)
 	}
-	if deployRes.TunDevice != "" {
-		a.State.SetActualTunDevice(deployRes.TunDevice)
-	}
 
+	cfg := a.Cfg.GetConfig()
 	if cfg.Config.Tun.Enable {
 		a.State.SetTunRequestedTime(time.Now())
 	}
@@ -149,6 +144,26 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 
 	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
 	a.restartWebUIIfOpen()
+
+	return nil
+}
+
+func (a *Application) SyncRuntimeConfig() error {
+	activePath := a.Cfg.GetActivePath()
+
+	if activePath != "" {
+		if err := a.Cfg.ValidatePhysicalFile(activePath); err != nil {
+			slog.Warn("本地配置文件失效，已取消选中状态", "path", activePath, "err", err)
+			a.Cfg.SetActiveProfile("")
+			activePath = ""
+		}
+	}
+
+	if _, err := a.deployAndSyncState(activePath); err != nil {
+		slog.Error("生成运行配置失败，应用将暂停代理", "err", err)
+		a.Cfg.SetActiveProfile("")
+		return err
+	}
 
 	return nil
 }
@@ -179,29 +194,6 @@ func (a *Application) restartKernelViaAPI(ctx context.Context) bool {
 	a.ForceSyncAPI()
 
 	return true
-}
-
-func (a *Application) SyncRuntimeConfig() {
-	activePath := a.Cfg.GetActivePath()
-
-	if activePath != "" {
-		if err := a.Cfg.ValidatePhysicalFile(activePath); err != nil {
-			slog.Warn("本地配置文件失效，已取消选中状态", "path", activePath, "err", err)
-			a.Cfg.SetActiveProfile("")
-			activePath = ""
-		}
-	}
-
-	cfg := a.Cfg.GetConfig()
-
-	if deployRes, err := core.DeployRuntimeConfig(cfg, activePath, a.Cfg.BaseDir()); err != nil {
-		slog.Error("生成运行配置失败，应用将暂停代理", "err", err)
-		a.Cfg.SetActiveProfile("")
-	} else {
-		if deployRes.TunDevice != "" {
-			a.State.SetActualTunDevice(deployRes.TunDevice)
-		}
-	}
 }
 
 func (a *Application) restartWebUIIfOpen() {
