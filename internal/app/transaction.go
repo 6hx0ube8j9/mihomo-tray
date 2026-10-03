@@ -7,38 +7,21 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/domain"
-	"mihomo-tray/internal/fs"
 )
 
 func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath string) error {
 	cfg := a.Cfg.GetConfig()
-	sourceAbs := ""
-	if targetRelPath != "" {
-		sourceAbs = filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
-	}
 	
-	mergedBytes, extracted, err := core.BuildRuntimeYAML(cfg, sourceAbs)
+	_, extracted, err := core.BuildRuntimeYAML(cfg, targetRelPath, a.Cfg.BaseDir())
 	if err != nil {
-		return fmt.Errorf("底稿异常: %w", err)
-	}
-
-	if err := core.ValidateConfigContent(a.Cfg.ExePath(), a.Cfg.BaseDir(), mergedBytes); err != nil {
-		return fmt.Errorf("最终生效配置存在语义错误，内核拒绝加载:\n\n%w", err)
+		return fmt.Errorf("生成运行配置失败: %w", err)
 	}
 
 	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), domain.RuntimeConfigName)
-	existing, err := os.ReadFile(runtimeAbs)
-	if err != nil || strings.TrimSpace(string(existing)) != strings.TrimSpace(string(mergedBytes)) {
-		if err := fs.WriteAtomic(runtimeAbs, mergedBytes); err != nil {
-			return fmt.Errorf("持久化正式配置失败: %w", err)
-		}
-	}
-
 	isKernelRunning := a.State.GetPhase() == domain.PhaseRunning
 
 	if isKernelRunning {
@@ -111,7 +94,7 @@ func (a *Application) ReloadConfig(ctx context.Context) error {
 		return fmt.Errorf("内核拒绝加载当前配置文件，请检查语法或依赖：\n\n%w", err)
 	} 
 	
-	// 移除了过度的 a.restartWebUIIfOpen()，交由 WebUI 自动重连
+	a.restartWebUIIfOpen()
 	return nil
 }
 
@@ -125,9 +108,10 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
 			return fmt.Errorf("目标配置读取异常，请求已取消。\n\n错误: %w", err)
 		}
-		sourceAbs := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(target))
-		if err := a.verifyProfileSemantics(sourceAbs); err != nil {
-			return fmt.Errorf("目标配置不合法，内核拒绝重启：\n\n%w", err)
+		exePath := core.GetKernelPath(a.Cfg.BaseDir())
+		absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(target))
+		if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), absPath); err != nil {
+			return fmt.Errorf("内核拒绝重启，当前配置文件存在语法或规则错误：\n\n%w", err)
 		}
 	}
 
@@ -162,6 +146,8 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 	}
 
 	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
+	
+	a.restartWebUIIfOpen()
 	
 	return nil
 }
@@ -206,38 +192,38 @@ func (a *Application) SyncRuntimeConfig() {
 	}
 
 	cfg := a.Cfg.GetConfig()
-	sourceAbs := ""
-	if activePath != "" {
-		sourceAbs = filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(activePath))
-	}
 
-	mergedBytes, extracted, err := core.BuildRuntimeYAML(cfg, sourceAbs)
-	if err != nil {
-		slog.Error("配置生成失败 (底稿语法异常)，应用将暂停代理", "err", err)        
-		a.fallbackToEmptyConfig(cfg)
-		return
-	}
-
-	if err := core.ValidateConfigContent(a.Cfg.ExePath(), a.Cfg.BaseDir(), mergedBytes); err != nil {
-		slog.Error("终态配置语义错误，应用将暂停代理", "err", err)
-		a.fallbackToEmptyConfig(cfg)
-		return
-	}
-
-	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), domain.RuntimeConfigName)
-	existing, err := os.ReadFile(runtimeAbs)
-	if err != nil || strings.TrimSpace(string(existing)) != strings.TrimSpace(string(mergedBytes)) {
-		_ = fs.WriteAtomic(runtimeAbs, mergedBytes)
-	}
-
-	if tunDev, ok := extracted["tun_device"]; ok {            
-		a.State.SetActualTunDevice(tunDev)
+	if _, extracted, err := core.BuildRuntimeYAML(cfg, activePath, a.Cfg.BaseDir()); err != nil {
+		slog.Error("生成运行配置失败，应用将暂停代理", "err", err)        
+		a.Cfg.SetActiveProfile("")
+	} else {
+		if tunDev, ok := extracted["tun_device"]; ok {            
+			a.State.SetActualTunDevice(tunDev)
+		}
 	}    
 }
 
-func (a *Application) fallbackToEmptyConfig(cfg domain.TrayConfig) {
-	a.Cfg.SetActiveProfile("")
-	emptyBytes, _, _ := core.BuildRuntimeYAML(cfg, "")
-	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), domain.RuntimeConfigName)
-	_ = fs.WriteAtomic(runtimeAbs, emptyBytes)
+func (a *Application) restartWebUIIfOpen() {
+	wasOpen := a.WebUI.IsActive()
+	a.WebUI.Cleanup()
+	
+	if wasOpen {
+		slog.Debug("等待内核就绪，尝试恢复 Web 面板")
+
+		go func() {
+			for i := 0; i < 50; i++ {
+				if a.State.IsExiting() {
+					return
+				}
+
+				if a.State.GetPhase() == domain.PhaseRunning {
+					slog.Debug("内核已就绪，正在自动恢复 Web 面板")
+					a.UICommandCh <- domain.UICommand{Action: domain.ActionOpenWebUI}
+					return
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
+			slog.Warn("等待内核就绪超时，恢复 Web 面板失败")
+		}()
+	}
 }
