@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"syscall"
 
 	"github.com/tailscale/walk"
@@ -25,6 +26,9 @@ type Engine struct {
 
 	Tray      *Tray
 	Dashboard *Dashboard
+
+	activeAlertMu sync.Mutex
+	activeAlert   *walk.Dialog
 }
 
 func NewEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- domain.UICommand, notifyCh <-chan struct{}, getState func() domain.UIState) *Engine {
@@ -125,6 +129,20 @@ func (e *Engine) ShowProfileManager(state domain.UIState) {
 	}
 }
 
+func (e *Engine) tryAcquireAlertFocus() bool {
+	e.activeAlertMu.Lock()
+	defer e.activeAlertMu.Unlock()
+	if e.activeAlert != nil {
+		hwnd := e.activeAlert.Handle()
+		if hwnd != 0 && win.IsWindowVisible(hwnd) && !win.IsIconic(hwnd) {
+			win.SetForegroundWindow(hwnd)
+			e.activeAlert.SetFocus()
+			return true
+		}
+	}
+	return false
+}
+
 func (e *Engine) ShowError(title, message string) {
 	if e.app == nil || e.mw == nil {
 		slog.Error("严重错误 (UI尚未就绪/已销毁)", "title", title, "message", message)
@@ -134,7 +152,10 @@ func (e *Engine) ShowError(title, message string) {
 		return
 	}
 	e.app.Synchronize(func() {
-		RunErrorDialog(e.activeOwner(), title, message)
+		if e.tryAcquireAlertFocus() {
+			return
+		}
+		RunErrorDialog(e.activeOwner(), title, message, &e.activeAlert)
 	})
 }
 
@@ -143,7 +164,10 @@ func (e *Engine) ShowInfo(title, message string) {
 		return
 	}
 	e.app.Synchronize(func() {
-		RunAlertDialog(e.mw, title, message, walk.IconInformation(), win.MB_ICONINFORMATION)
+		if e.tryAcquireAlertFocus() {
+			return
+		}
+		RunAlertDialog(e.activeOwner(), title, message, walk.IconInformation(), win.MB_ICONINFORMATION, &e.activeAlert)
 	})
 }
 
@@ -162,7 +186,11 @@ func (e *Engine) ShowConfirm(title, message string) bool {
 	
 	resultCh := make(chan bool, 1)
 	e.app.Synchronize(func() {
-		resultCh <- RunConfirmDialog(e.activeOwner(), title, message)
+		if e.tryAcquireAlertFocus() {
+			resultCh <- false
+			return
+		}
+		resultCh <- RunConfirmDialog(e.activeOwner(), title, message, &e.activeAlert)
 	})
 
 	select {
