@@ -3,6 +3,7 @@ package netutil
 import (
 	"errors"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -63,4 +64,22 @@ func GetFreePort(host string) (string, error) {
 	port := strconv.Itoa(l.Addr().(*net.TCPAddr).Port)
 	_ = l.Close()
 	return port, nil
+}
+
+func IsValidHTTPURL(rawURL string) bool {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return false
+	}
+	u, err := url.ParseRequestURI(rawURL)
+	if err != nil {
+		return false
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return false
+	}
+	if u.Host == "" {
+		return false
+	}
+	return true
 }
