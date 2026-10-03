@@ -76,7 +76,6 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 								},
 							},
 						},
-
 						GroupBox{
 							Title:  "启动偏好",
 							Layout: VBox{Margins: Margins{Left: 8, Top: 10, Right: 8, Bottom: 8}, Spacing: 12},
@@ -94,6 +93,11 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 									Children: []Widget{
 										Label{Text: "在线面板地址:"},
 										LineEdit{AssignTo: &remoteURLEdit, Text: defaultRemoteURL},
+										PushButton{
+											Text:    "复制",
+											MinSize: Size{Width: 44}, MaxSize: Size{Width: 44},
+											OnClicked: func() { _ = walk.Clipboard().SetText(remoteURLEdit.Text()) },
+										},
 										PushButton{
 											Text:    "默认",
 											MinSize: Size{Width: 44}, MaxSize: Size{Width: 44},
@@ -120,8 +124,9 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 					return false, nil
 				}
 				
-				if rURL == "" {
-					rURL = domain.DefaultRemoteWebUIURL
+				if !netutil.IsValidHTTPURL(rURL) {
+					RunErrorDialog(currentControllerEditor, "保存失败", "在线面板地址格式错误，请输入有效的 HTTP/HTTPS 链接。")
+					return false, nil
 				}
 
 				finalAddr = addr
