@@ -40,8 +40,17 @@ func (a *Application) ImportLocalProfile(ctx context.Context, sourcePath string)
 	slog.Info("开始导入本地配置", "source", sourcePath)
 
 	exePath := core.GetKernelPath(a.Cfg.BaseDir())
-	if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), sourcePath); err != nil {
-		return fmt.Errorf("配置文件存在语法或规则错误：\n\n%w", err)
+	cfg := a.Cfg.GetConfig()
+	
+	tempTestPath, _, _, err := core.BuildRuntimeYAML(cfg, sourcePath, a.Cfg.BaseDir())
+	if err != nil {
+		return fmt.Errorf("本地配置文件存在基础语法或格式错误：\n\n%w", err)
+	}
+	if tempTestPath != "" {
+		defer os.Remove(tempTestPath)
+		if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), tempTestPath); err != nil {
+			return fmt.Errorf("配置文件存在语义或规则错误，拒绝导入：\n\n%w", err)
+		}
 	}
 
 	targetName, _, err := a.Cfg.SafeCopyUntrustedConfig(sourcePath)
@@ -65,20 +74,28 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 	}
 	defer a.State.ReleaseProfileLock(targetRelPath)
 
-	validator := func(tmpPath string) error {
-		exePath := core.GetKernelPath(a.Cfg.BaseDir())
-		return core.ValidateConfig(exePath, a.Cfg.BaseDir(), tmpPath)
-	}
-
 	cfg := a.Cfg.GetConfig()
 	port := strconv.Itoa(a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort))
+
+	validator := func(tmpPath string) error {
+		tempTestPath, _, _, err := core.BuildRuntimeYAML(cfg, tmpPath, a.Cfg.BaseDir())
+		if err != nil {
+			return fmt.Errorf("订阅配置语法或格式存在严重错误: %w", err)
+		}
+		if tempTestPath != "" {
+			defer os.Remove(tempTestPath)
+			exePath := core.GetKernelPath(a.Cfg.BaseDir())
+			return core.ValidateConfig(exePath, a.Cfg.BaseDir(), tempTestPath)
+		}
+		return nil
+	}
 
 	success, err := a.Cfg.UpgradeSubscription(ctx, targetRelPath, port, validator)
 
 	if err != nil {
 		slog.Error("更新配置失败", "path", targetRelPath, "err", err)
 		if isManual {
-			return fmt.Errorf("无法拉取最新的订阅配置，请检查网络或链接状态。\n\n详情：%w", err)
+			return fmt.Errorf("拉取与验证订阅失败。\n\n详情：%w", err)
 		}
 		return nil
 	}
@@ -87,7 +104,7 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 		slog.Info("更新配置成功", "path", targetRelPath)
 		if a.Cfg.GetActivePath() == targetRelPath {
 			slog.Info("当前活跃配置已更新，执行底层重载")
-			_ = a.applyConfigTransaction(context.Background(), targetRelPath)
+			_ = a.applyConfigTransaction(ctx, targetRelPath)
 			a.pushUIState()
 		}
 	}
@@ -230,9 +247,16 @@ func (a *Application) AddRemoteProfile(ctx context.Context, rawName, url string,
 	}
 	defer os.Remove(fetchRes.TempPath)
 
-	exePath := core.GetKernelPath(a.Cfg.BaseDir())
-	if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), fetchRes.TempPath); err != nil {
-		return fmt.Errorf("订阅配置语法或规则存在错误，已拦截导入：\n\n%w", err)
+	tempTestPath, _, _, err := core.BuildRuntimeYAML(cfg, fetchRes.TempPath, a.Cfg.BaseDir())
+	if err != nil {
+		return fmt.Errorf("订阅配置语法存在严重错误，拦截导入：\n\n%w", err)
+	}
+	if tempTestPath != "" {
+		defer os.Remove(tempTestPath)
+		exePath := core.GetKernelPath(a.Cfg.BaseDir())
+		if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), tempTestPath); err != nil {
+			return fmt.Errorf("订阅配置语义或规则存在错误，拦截导入：\n\n%w", err)
+		}
 	}
 
 	newItem.Upload = fetchRes.Upload
@@ -273,9 +297,16 @@ func (a *Application) EditRemoteProfile(ctx context.Context, oldPath, newName, n
 		}
 		defer os.Remove(fetchRes.TempPath)
 
-		exePath := core.GetKernelPath(a.Cfg.BaseDir())
-		if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), fetchRes.TempPath); err != nil {
-			return fmt.Errorf("新订阅配置存在严重错误，拒绝保存：\n\n%w", err)
+		tempTestPath, _, _, err := core.BuildRuntimeYAML(cfg, fetchRes.TempPath, a.Cfg.BaseDir())
+		if err != nil {
+			return fmt.Errorf("新订阅配置存在语法错误，拒绝保存：\n\n%w", err)
+		}
+		if tempTestPath != "" {
+			defer os.Remove(tempTestPath)
+			exePath := core.GetKernelPath(a.Cfg.BaseDir())
+			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), tempTestPath); err != nil {
+				return fmt.Errorf("新订阅配置规则存在错误，拒绝保存：\n\n%w", err)
+			}
 		}
 
 		p.Upload = fetchRes.Upload
@@ -298,7 +329,7 @@ func (a *Application) EditRemoteProfile(ctx context.Context, oldPath, newName, n
 
 	if urlChanged && a.Cfg.GetActivePath() == p.Path {
 		slog.Info("当前活跃配置链接已修改且拉取成功，执行底层重载")
-		_ = a.applyConfigTransaction(context.Background(), p.Path)
+		_ = a.applyConfigTransaction(ctx, p.Path)
 	}
 	
 	a.pushUIState()
