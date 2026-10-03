@@ -15,22 +15,36 @@ import (
 
 func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath string) error {
 	cfg := a.Cfg.GetConfig()
+	sourceAbs := ""
+	if targetRelPath != "" {
+		sourceAbs = filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
+	}
 	
-	_, extracted, err := core.BuildRuntimeYAML(cfg, targetRelPath, a.Cfg.BaseDir())
+	tempPath, isUnchanged, extracted, err := core.BuildRuntimeYAML(cfg, sourceAbs, a.Cfg.BaseDir())
 	if err != nil {
-		return fmt.Errorf("生成运行配置失败: %w", err)
+		return fmt.Errorf("生成运行配置失败 (底稿损坏或合成异常): %w", err)
 	}
 
 	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), domain.RuntimeConfigName)
 	isKernelRunning := a.State.GetPhase() == domain.PhaseRunning
 
+	if !isUnchanged {
+		exePath := core.GetKernelPath(a.Cfg.BaseDir())
+		if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), tempPath); err != nil {
+			_ = os.Remove(tempPath)
+			return fmt.Errorf("终态配置业务语义存在错误，内核拒绝加载:\n\n%w", err)
+		}
+		if err := os.Rename(tempPath, runtimeAbs); err != nil {
+			_ = os.Remove(tempPath)
+			return fmt.Errorf("原子提交正式配置失败: %w", err)
+		}
+	}
+
 	if isKernelRunning {
 		reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
-
 		payload := map[string]interface{}{"path": filepath.ToSlash(runtimeAbs)}
 		err := a.API.ForceReloadKernel(reqCtx, payload)
-
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
 				slog.Error("加载配置超时", "target", targetRelPath)
@@ -108,13 +122,20 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
 			return fmt.Errorf("目标配置读取异常，请求已取消。\n\n错误: %w", err)
 		}
-		exePath := core.GetKernelPath(a.Cfg.BaseDir())
-		absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(target))
-		if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), absPath); err != nil {
-			return fmt.Errorf("内核拒绝重启，当前配置文件存在语法或规则错误：\n\n%w", err)
+		sourceAbs := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(target))
+		tempTestPath, _, _, err := core.BuildRuntimeYAML(a.Cfg.GetConfig(), sourceAbs, a.Cfg.BaseDir())
+		if err != nil {
+			return fmt.Errorf("目标配置存在语法错位，内核拒绝重启：\n\n%w", err)
+		}
+		if tempTestPath != "" {
+			defer os.Remove(tempTestPath)
+			exePath := core.GetKernelPath(a.Cfg.BaseDir())
+			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), tempTestPath); err != nil {
+				return fmt.Errorf("目标配置语义错误，内核拒绝重启：\n\n%w", err)
+			}
 		}
 	}
-
+	
 	slog.Info("开始重启内核")
 	a.State.SetRestarting(true)
 	a.State.SetReloading(false)
@@ -145,8 +166,24 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 		a.Kernel.WakeDaemon()
 	}
 
-	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
+	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	
+	if err := a.API.WaitForReady(waitCtx); err != nil {
+		slog.Warn("等待内核就绪超时", "err", err)
+		return fmt.Errorf("内核进程已启动，但 API 响应超时: %w", err)
+	}
+
+	slog.Info("内核已通过守护进程干净重启")
+	a.State.SetPhase(domain.PhaseRunning)
+	
+	syncCtx, syncCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer syncCancel()
+	
+	a.syncAllConfig(syncCtx)
+	a.ForceSyncAPI()
+
+	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
 	a.restartWebUIIfOpen()
 	
 	return nil
@@ -192,14 +229,32 @@ func (a *Application) SyncRuntimeConfig() {
 	}
 
 	cfg := a.Cfg.GetConfig()
+	sourceAbs := ""
+	if activePath != "" {
+		sourceAbs = filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(activePath))
+	}
 
-	if _, extracted, err := core.BuildRuntimeYAML(cfg, activePath, a.Cfg.BaseDir()); err != nil {
-		slog.Error("生成运行配置失败，应用将暂停代理", "err", err)        
+	tempPath, isUnchanged, extracted, err := core.BuildRuntimeYAML(cfg, sourceAbs, a.Cfg.BaseDir())
+	if err != nil {
+		slog.Error("生成运行配置失败 (底稿损坏)，应用将暂停代理", "err", err)        
 		a.Cfg.SetActiveProfile("")
-	} else {
-		if tunDev, ok := extracted["tun_device"]; ok {            
-			a.State.SetActualTunDevice(tunDev)
+		return
+	}
+
+	if !isUnchanged {
+		exePath := core.GetKernelPath(a.Cfg.BaseDir())
+		if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), tempPath); err != nil {
+			slog.Error("生成运行配置终态强校验失败，应用将暂停代理", "err", err)
+			_ = os.Remove(tempPath)
+			a.Cfg.SetActiveProfile("")
+			return
 		}
+		runtimeAbs := filepath.Join(a.Cfg.BaseDir(), domain.RuntimeConfigName)
+		_ = os.Rename(tempPath, runtimeAbs)
+	}
+
+	if tunDev, ok := extracted["tun_device"]; ok {            
+		a.State.SetActualTunDevice(tunDev)
 	}    
 }
 
