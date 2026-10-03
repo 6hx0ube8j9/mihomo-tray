@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
-	
+
 	"mihomo-tray/internal/fs"
 )
 
@@ -77,28 +77,7 @@ func (l *CoreLogger) WriteLog(errType, rawMsg string) {
 
 	fi, err := os.Stat(logPath)
 	if err == nil && fi.Size()+int64(len(finalLog)) > MaxLogFileSize {
-		var keepData []byte
-		f, err := os.Open(logPath)
-		if err == nil {
-			offset := fi.Size() - LogRetainSize
-			if offset < 0 {
-				offset = 0
-			}
-			keepData = make([]byte, fi.Size()-offset)
-			_, _ = f.ReadAt(keepData, offset)
-			f.Close()
-
-			if offset > 0 {
-				if idx := bytes.IndexByte(keepData, '\n'); idx != -1 {
-					keepData = keepData[idx+1:]
-				}
-			}
-		}
-
-		notice := fmt.Sprintf("[%s] --- 日志大小已超限，仅保留最新部分 ---\n...\n", timestamp)
-		combined := append(append([]byte(notice), keepData...), []byte(finalLog)...)
-		
-		_ = fs.WriteAtomic(logPath, combined)
+		l.rotateLocked(logPath, finalLog, timestamp, fi.Size())
 		return
 	}
 
@@ -108,4 +87,29 @@ func (l *CoreLogger) WriteLog(errType, rawMsg string) {
 	}
 	defer f.Close()
 	_, _ = f.WriteString(finalLog)
+}
+
+func (l *CoreLogger) rotateLocked(logPath, finalLog, timestamp string, currSize int64) {
+	var keepData []byte
+	f, err := os.Open(logPath)
+	if err == nil {
+		func() {
+			defer f.Close()
+			offset := currSize - LogRetainSize
+			if offset < 0 {
+				offset = 0
+			}
+			keepData = make([]byte, currSize-offset)
+			_, _ = f.ReadAt(keepData, offset)
+		}()
+
+		if idx := bytes.IndexByte(keepData, '\n'); idx != -1 {
+			keepData = keepData[idx+1:]
+		}
+	}
+
+	notice := fmt.Sprintf("[%s] --- 日志大小已超限，仅保留最新部分 ---\n...\n", timestamp)
+	combined := append(append([]byte(notice), keepData...), []byte(finalLog)...)
+
+	_ = fs.WriteAtomic(logPath, combined)
 }
