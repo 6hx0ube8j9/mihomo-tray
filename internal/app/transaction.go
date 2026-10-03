@@ -99,22 +99,6 @@ func (a *Application) ReloadConfig(ctx context.Context) error {
 }
 
 func (a *Application) RestartKernel() error {
-	if a.State.IsRestarting() {
-		return nil
-	}
-
-	target := a.Cfg.GetActivePath()
-	if target != "" {
-		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
-			return fmt.Errorf("目标配置读取异常，已取消内核重启。\n\n错误: %w", err)
-		}
-		exePath := core.GetKernelPath(a.Cfg.BaseDir())
-		absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(target))
-		if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), absPath); err != nil {
-			return fmt.Errorf("语法检测不通过，内核拒绝重启。\n\n错误: %w", err)
-		}
-	}
-
 	slog.Info("开始重启内核")
 	a.State.SetRestarting(true)
 	a.State.SetReloading(false)
@@ -137,32 +121,47 @@ func (a *Application) RestartKernel() error {
 		a.State.SetTunRequestedTime(time.Now())
 	}
 
-	a.State.SetPhase(domain.PhaseInitializing)
-	a.Kernel.HaltDaemon()
-	a.Kernel.WakeDaemon()
-
-	waitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	
-	if err := a.API.WaitForReady(waitCtx); err != nil {
-		slog.Warn("等待内核就绪超时", "err", err)
-		return fmt.Errorf("内核进程已启动，但 API 响应超时: %w", err)
+	if a.State.GetPhase() == domain.PhaseRunning && a.restartKernelViaAPI() {
+		a.State.SetPhase(domain.PhaseRunning)
+	} else {
+		a.State.SetPhase(domain.PhaseInitializing)
+		a.Kernel.HaltDaemon()
+		a.Kernel.WakeDaemon()
 	}
-
-	slog.Info("内核已通过守护进程干净重启")
-	a.State.SetPhase(domain.PhaseRunning)
-	
-	syncCtx, syncCancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer syncCancel()
-	
-	a.syncAllConfig(syncCtx)
-	a.ForceSyncAPI()
 
 	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
 	
 	a.restartWebUIIfOpen()
 	
 	return nil
+}
+
+func (a *Application) restartKernelViaAPI() bool {
+	cmdCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	
+	if err := a.API.RestartKernel(cmdCtx); err != nil {
+		slog.Warn("API 重启请求失败", "err", err)
+		return false
+	}
+
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer waitCancel()
+	
+	if err := a.API.WaitForReady(waitCtx); err != nil {
+		slog.Warn("等待内核就绪超时", "err", err)
+		return false
+	}
+
+	slog.Info("内核已通过 API 重启就绪")
+	
+	syncCtx, syncCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer syncCancel()
+	
+	a.syncAllConfig(syncCtx)
+	a.ForceSyncAPI()
+	
+	return true
 }
 
 func (a *Application) SyncRuntimeConfig() {
@@ -173,14 +172,6 @@ func (a *Application) SyncRuntimeConfig() {
 			slog.Warn("本地配置文件失效，已取消选中状态", "path", activePath, "err", err)
 			a.Cfg.SetActiveProfile("")
 			activePath = ""
-		} else {
-			exePath := core.GetKernelPath(a.Cfg.BaseDir())
-			absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(activePath))
-			if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), absPath); err != nil {
-				slog.Error("活跃配置文件未能通过语法检测，已重置为空转状态", "err", err)
-				a.Cfg.SetActiveProfile("")
-				activePath = ""
-			}
 		}
 	}
 
