@@ -15,17 +15,6 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-func (a *Application) verifyProfileSemantics(sourceAbs string) error {
-	mergedBytes, _, err := core.BuildRuntimeYAML(a.Cfg.GetConfig(), sourceAbs)
-	if err != nil {
-		return fmt.Errorf("语法解析或合并失败: %w", err)
-	}
-	if err := core.ValidateConfigContent(a.Cfg.ExePath(), a.Cfg.BaseDir(), mergedBytes); err != nil {
-		return err
-	}
-	return nil
-}
-
 func (a *Application) onProfileImported(ctx context.Context, newProfilePath string) {
 	if len(a.Cfg.GetProfiles()) == 1 {
 		slog.Info("首个配置导入成功，触发全局自动激活并加载", "path", newProfilePath)
@@ -50,8 +39,9 @@ func (a *Application) ImportLocalProfile(ctx context.Context, sourcePath string)
 
 	slog.Info("开始导入本地配置", "source", sourcePath)
 
-	if err := a.verifyProfileSemantics(sourcePath); err != nil {
-		return fmt.Errorf("底稿不合法，拒绝导入：\n\n%w", err)
+	exePath := core.GetKernelPath(a.Cfg.BaseDir())
+	if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), sourcePath); err != nil {
+		return fmt.Errorf("配置文件存在语法或规则错误：\n\n%w", err)
 	}
 
 	targetName, _, err := a.Cfg.SafeCopyUntrustedConfig(sourcePath)
@@ -75,19 +65,20 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 	}
 	defer a.State.ReleaseProfileLock(targetRelPath)
 
+	validator := func(tmpPath string) error {
+		exePath := core.GetKernelPath(a.Cfg.BaseDir())
+		return core.ValidateConfig(exePath, a.Cfg.BaseDir(), tmpPath)
+	}
+
 	cfg := a.Cfg.GetConfig()
 	port := strconv.Itoa(a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort))
-	
-	validator := func(tmpPath string) error {
-		return a.verifyProfileSemantics(tmpPath)
-	}
 
 	success, err := a.Cfg.UpgradeSubscription(ctx, targetRelPath, port, validator)
 
 	if err != nil {
 		slog.Error("更新配置失败", "path", targetRelPath, "err", err)
 		if isManual {
-			return fmt.Errorf("无法拉取或验证订阅配置。\n\n详情：%w", err)
+			return fmt.Errorf("无法拉取最新的订阅配置，请检查网络或链接状态。\n\n详情：%w", err)
 		}
 		return nil
 	}
@@ -96,7 +87,7 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 		slog.Info("更新配置成功", "path", targetRelPath)
 		if a.Cfg.GetActivePath() == targetRelPath {
 			slog.Info("当前活跃配置已更新，执行底层重载")
-			_ = a.applyConfigTransaction(ctx, targetRelPath)
+			_ = a.applyConfigTransaction(context.Background(), targetRelPath)
 			a.pushUIState()
 		}
 	}
@@ -229,7 +220,7 @@ func (a *Application) AddRemoteProfile(ctx context.Context, rawName, url string,
 	if _, exists := a.Cfg.GetProfileByPath(targetRelPath); exists {
 		return fmt.Errorf("配置名称或路径已存在冲突")
 	}
-	
+
 	cfg := a.Cfg.GetConfig()
 	port := strconv.Itoa(a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort))
 
@@ -239,8 +230,9 @@ func (a *Application) AddRemoteProfile(ctx context.Context, rawName, url string,
 	}
 	defer os.Remove(fetchRes.TempPath)
 
-	if err := a.verifyProfileSemantics(fetchRes.TempPath); err != nil {
-		return fmt.Errorf("订阅配置不合法，拦截导入：\n\n%w", err)
+	exePath := core.GetKernelPath(a.Cfg.BaseDir())
+	if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), fetchRes.TempPath); err != nil {
+		return fmt.Errorf("订阅配置语法或规则存在错误，已拦截导入：\n\n%w", err)
 	}
 
 	newItem.Upload = fetchRes.Upload
@@ -255,6 +247,7 @@ func (a *Application) AddRemoteProfile(ctx context.Context, rawName, url string,
 	
 	slog.Info("添加并拉取订阅成功", "path", targetRelPath)
 	a.onProfileImported(ctx, targetRelPath)
+	
 	return nil
 }
 
@@ -280,8 +273,9 @@ func (a *Application) EditRemoteProfile(ctx context.Context, oldPath, newName, n
 		}
 		defer os.Remove(fetchRes.TempPath)
 
-		if err := a.verifyProfileSemantics(fetchRes.TempPath); err != nil {
-			return fmt.Errorf("新订阅配置不合法，拒绝保存：\n\n%w", err)
+		exePath := core.GetKernelPath(a.Cfg.BaseDir())
+		if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), fetchRes.TempPath); err != nil {
+			return fmt.Errorf("新订阅配置存在严重错误，拒绝保存：\n\n%w", err)
 		}
 
 		p.Upload = fetchRes.Upload
@@ -304,7 +298,7 @@ func (a *Application) EditRemoteProfile(ctx context.Context, oldPath, newName, n
 
 	if urlChanged && a.Cfg.GetActivePath() == p.Path {
 		slog.Info("当前活跃配置链接已修改且拉取成功，执行底层重载")
-		_ = a.applyConfigTransaction(ctx, p.Path)
+		_ = a.applyConfigTransaction(context.Background(), p.Path)
 	}
 	
 	a.pushUIState()
