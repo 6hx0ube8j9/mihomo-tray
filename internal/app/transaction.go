@@ -76,11 +76,12 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 }
 
 func (a *Application) ReloadConfig(ctx context.Context) error {
-	if a.State.IsReloading() {
+	if !a.State.TryBeginReload() {
+		slog.Debug("系统正处于其他操作或重载中，忽略本次重载请求")
 		return nil
 	}
+
 	slog.Info("开始重载配置")
-	a.State.SetReloading(true)
 
 	defer func() {
 		a.State.SetReloading(false)
@@ -110,21 +111,22 @@ func (a *Application) ReloadConfig(ctx context.Context) error {
 }
 
 func (a *Application) RestartKernel(ctx context.Context) error {
-	if a.State.IsRestarting() {
+	if !a.State.TryBeginRestart() {
+		slog.Debug("系统正处于其他事务或正在重启中，忽略本次重启请求")
 		return nil
 	}
 
 	target := a.Cfg.GetActivePath()
 	if target != "" {
 		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
+			a.State.SetRestarting(false)
+			a.pushUIState()
 			return fmt.Errorf("目标配置读取异常，请求已取消。\n\n错误: %w", err)
 		}
 	}
 
 	slog.Info("开始重启内核")
-	a.State.SetRestarting(true)
-	a.State.SetReloading(false)
-
+	
 	defer func() {
 		a.State.SetRestarting(false)
 		a.pushUIState()
