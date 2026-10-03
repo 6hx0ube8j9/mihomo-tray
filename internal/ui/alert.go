@@ -1,12 +1,32 @@
 package ui
 
 import (
+	"sync"
+
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
 	"github.com/tailscale/win"
 )
 
+var (
+	activeAlertDialog *walk.Dialog
+	alertMu           sync.Mutex
+)
+
 func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep uint32, isConfirm bool) bool {
+	alertMu.Lock()
+	if activeAlertDialog != nil {
+		hwnd := activeAlertDialog.Handle()
+		if win.IsWindowVisible(hwnd) && !win.IsIconic(hwnd) {
+			win.FlashWindow(hwnd, true)
+			win.SetForegroundWindow(hwnd)
+			activeAlertDialog.SetFocus()
+			alertMu.Unlock()
+			return false
+		}
+	}
+	alertMu.Unlock()
+
 	parent := owner
 	hActive := win.GetForegroundWindow()
 	safeMsg := autoWrapText(message, 55)
@@ -60,7 +80,19 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 	if err := dlgConfig.Create(parent); err != nil {
 		return false
 	}
-	defer dlg.Dispose()
+	
+	alertMu.Lock()
+	activeAlertDialog = dlg
+	alertMu.Unlock()
+
+	defer func() {
+		alertMu.Lock()
+		if activeAlertDialog == dlg {
+			activeAlertDialog = nil
+		}
+		alertMu.Unlock()
+		dlg.Dispose()
+	}()
 	
 	dlg.Starting().Attach(func() { 
 		lockWindowSize(dlg.Handle())
