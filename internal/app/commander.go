@@ -68,7 +68,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionUpdateRemoteProfile:
 		if p, ok := a.GetProfileInfo(cmd.Payload); ok {
-			a.asyncRun("更新失败", func() error { return a.UpdateRemoteProfile(ctx, p.Path, true, false) })
+			a.asyncRun("更新失败", func() error { return a.UpdateRemoteProfile(ctx, p.Path, true) })
 		}
 
 	case domain.ActionSetProfileInterval:
@@ -182,7 +182,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		a.asyncRun("重载失败", func() error { return a.ReloadConfig(ctx) })
 
 	case domain.ActionRestartKernel:
-		a.asyncRun("重启失败", func() error { return a.RestartKernel() })
+		a.asyncRun("重启失败", func() error { return a.RestartKernel(ctx) })
 
 	case domain.ActionExitApp:
 		slog.Info("收到退出指令，准备安全销毁应用...")
@@ -215,7 +215,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			}
 		} else {
 			if a.ui != nil {
-				a.ui.ShowNotification("复制成功", "Web 密码已复制到剪贴板。")
+				a.ui.ShowNotification("复制成功", "Web 密码文本已复制到剪贴板。")
 			}
 		}
 
