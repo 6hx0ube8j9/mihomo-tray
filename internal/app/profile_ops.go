@@ -37,11 +37,17 @@ func (a *Application) validateProfileSource(absOrTempPath string) error {
 	}
 
 	if _, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), content); err != nil {
+		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("配置语法断言失败 [%s]:\n%v", filepath.Base(absOrTempPath), err))
 		return err
 	}
 
 	exePath := core.GetKernelPath(a.Cfg.BaseDir())
-	return core.ValidateConfig(exePath, a.Cfg.BaseDir(), absOrTempPath)
+	if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), absOrTempPath); err != nil {
+		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("底稿语义校验未通过 [%s]:\n%v", filepath.Base(absOrTempPath), err))
+		return err
+	}
+
+	return nil
 }
 
 func (a *Application) onProfileImported(ctx context.Context, newProfilePath string) {
