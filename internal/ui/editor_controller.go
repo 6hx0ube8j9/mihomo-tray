@@ -13,14 +13,14 @@ import (
 
 var currentControllerEditor *walk.Dialog
 
-func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, defaultOnline, defaultSysBrowser bool) (string, string, bool, bool, bool) {
+func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, defaultOnline, defaultSysBrowser bool, defaultRemoteURL string) (string, string, bool, bool, string, bool) {
 	if e.app == nil || e.mw == nil {
-		return "", "", false, false, false
+		return "", "", false, false, "", false
 	}
 
-	var addrEdit, secretEdit *walk.LineEdit
+	var addrEdit, secretEdit, remoteURLEdit *walk.LineEdit
 	var onlineCheck, sysBrowserCheck *walk.CheckBox
-	var finalAddr, finalSecret string
+	var finalAddr, finalSecret, finalRemoteURL string
 	var finalOnline, finalSysBrowser bool
 
 	resultCh := make(chan EditorResult, 1)
@@ -29,8 +29,8 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 		res := RunEditor(e.activeOwner(), EditorConfig{
 			AssignTo:      &currentControllerEditor,
 			Title:         "Web 面板设置",
-			Width:         415,
-			MinHeight:     195,
+			Width:         430,
+			MinHeight:     240,
 			AcceptBtnText: "确定",
 			Widgets: []Widget{
 				Composite{
@@ -76,13 +76,31 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 								},
 							},
 						},
+
 						GroupBox{
 							Title:  "启动偏好",
-							Layout: HBox{Margins: Margins{Left: 8, Top: 10, Right: 8, Bottom: 8}, Spacing: 12},
+							Layout: VBox{Margins: Margins{Left: 8, Top: 10, Right: 8, Bottom: 8}, Spacing: 12},
 							Children: []Widget{
-								CheckBox{AssignTo: &onlineCheck, Text: "使用在线 Web 面板", Checked: defaultOnline},
-								CheckBox{AssignTo: &sysBrowserCheck, Text: "使用系统默认浏览器", Checked: defaultSysBrowser},
-								HSpacer{},
+								Composite{
+									Layout: HBox{MarginsZero: true, Spacing: 12},
+									Children: []Widget{
+										CheckBox{AssignTo: &onlineCheck, Text: "使用在线 Web 面板", Checked: defaultOnline},
+										CheckBox{AssignTo: &sysBrowserCheck, Text: "使用系统默认浏览器", Checked: defaultSysBrowser},
+										HSpacer{},
+									},
+								},
+								Composite{
+									Layout: HBox{MarginsZero: true, Spacing: 6},
+									Children: []Widget{
+										Label{Text: "在线面板地址:"},
+										LineEdit{AssignTo: &remoteURLEdit, Text: defaultRemoteURL},
+										PushButton{
+											Text:    "默认",
+											MinSize: Size{Width: 44}, MaxSize: Size{Width: 44},
+											OnClicked: func() { remoteURLEdit.SetText(domain.DefaultRemoteWebUIURL) },
+										},
+									},
+								},
 							},
 						},
 					},
@@ -91,6 +109,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 			OnAccept: func() (bool, error) {
 				addr := strings.TrimSpace(addrEdit.Text())
 				secret := strings.TrimSpace(secretEdit.Text())
+				rURL := strings.TrimSpace(remoteURLEdit.Text())
 
 				if !netutil.IsValidHostPort(addr) {
 					RunErrorDialog(currentControllerEditor, "保存失败", "地址格式错误。")
@@ -100,9 +119,14 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 					RunErrorDialog(currentControllerEditor, "保存失败", "当前地址支持外网访问，密钥不能为空。")
 					return false, nil
 				}
+				
+				if rURL == "" {
+					rURL = domain.DefaultRemoteWebUIURL
+				}
 
 				finalAddr = addr
 				finalSecret = secret
+				finalRemoteURL = rURL
 				finalOnline = onlineCheck.Checked()
 				finalSysBrowser = sysBrowserCheck.Checked()
 				return true, nil
@@ -113,8 +137,8 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 
 	select {
 	case res := <-resultCh:
-		return finalAddr, finalSecret, finalOnline, finalSysBrowser, res.Accepted
+		return finalAddr, finalSecret, finalOnline, finalSysBrowser, finalRemoteURL, res.Accepted
 	case <-e.ctx.Done():
-		return "", "", false, false, false
+		return "", "", false, false, "", false
 	}
 }
