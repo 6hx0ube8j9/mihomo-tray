@@ -55,12 +55,8 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 	}
 
 	baseName := strings.TrimSuffix(filepath.Base(absSrc), filepath.Ext(absSrc))
-	lowerName := strings.ToLower(baseName)
-	if lowerName == "config" || lowerName == "default" {
-		baseName = baseName + "_1"
-	}
-
 	finalName := baseName
+
 	for i := 1; i <= 50; i++ {
 		conflictPath := filepath.Join(profilesDirAbs, finalName+".yaml")
 		if _, err := os.Stat(conflictPath); os.IsNotExist(err) {
