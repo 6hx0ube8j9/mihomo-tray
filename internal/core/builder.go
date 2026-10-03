@@ -11,10 +11,9 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"mihomo-tray/internal/domain"
-	"mihomo-tray/internal/fs"
 )
 
-const yamlHeader = "# Auto-generated config. DO NOT EDIT.\n\n";
+const yamlHeader = "# Auto-generated config. DO NOT EDIT.\n\n"
 
 func clearComments(node *yaml.Node) {
 	if node == nil {
@@ -28,18 +27,17 @@ func clearComments(node *yaml.Node) {
 	}
 }
 
-func BuildRuntimeYAML(cfg domain.TrayConfig, relPath string, baseDir string) (bool, map[string]string, error) {
+func BuildRuntimeYAML(cfg domain.TrayConfig, sourceAbsPath string, baseDir string) (string, bool, map[string]string, error) {
 	var root yaml.Node
 	extracted := make(map[string]string)
 
-	if relPath != "" {
-		sourcePath := filepath.Join(baseDir, filepath.FromSlash(relPath))
-		content, err := os.ReadFile(sourcePath)
+	if sourceAbsPath != "" {
+		content, err := os.ReadFile(sourceAbsPath)
 		if err != nil {
-			return false, nil, fmt.Errorf("底稿文件读取失败: %w", err)
+			return "", false, nil, fmt.Errorf("底稿文件读取失败: %w", err)
 		}
 		if err := yaml.Unmarshal(content, &root); err != nil {
-			return false, nil, fmt.Errorf("底稿 YAML 格式错误: %w", err)
+			return "", false, nil, fmt.Errorf("底稿 YAML 语法或结构断裂: %w", err)
 		}
 	}
 
@@ -48,7 +46,7 @@ func BuildRuntimeYAML(cfg domain.TrayConfig, relPath string, baseDir string) (bo
 	}
 	rootMap := root.Content[0]
 	if rootMap.Kind != yaml.MappingNode {
-		return false, nil, fmt.Errorf("YAML 根节点不是 Mapping 类型")
+		return "", false, nil, fmt.Errorf("YAML 根节点不是 Mapping 类型")
 	}
 
 	deleteKeys(rootMap, "redir-port", "tproxy-port")
@@ -156,7 +154,7 @@ func BuildRuntimeYAML(cfg domain.TrayConfig, relPath string, baseDir string) (bo
 
 	outBytes, err := yaml.Marshal(&root)
 	if err != nil {
-		return false, nil, fmt.Errorf("运行时配置合成失败: %w", err)
+		return "", false, nil, fmt.Errorf("运行时配置合成失败: %w", err)
 	}
 
 	output := yamlHeader + string(outBytes)
@@ -164,17 +162,18 @@ func BuildRuntimeYAML(cfg domain.TrayConfig, relPath string, baseDir string) (bo
 
 	if existingContent, err := os.ReadFile(runtimePath); err == nil {
 		if strings.TrimSpace(string(existingContent)) == strings.TrimSpace(output) {
-			slog.Debug("运行时配置无实质变动，跳过磁盘覆写")
-			return true, extracted, nil
+			slog.Debug("运行时配置无实质变动，跳过磁盘覆写与校验")
+			return "", true, extracted, nil
 		}
 	}
 
-	if err := fs.WriteAtomic(runtimePath, []byte(output)); err != nil {
-		return false, nil, fmt.Errorf("写入运行时配置失败: %w", err)
+	tempPath := filepath.Join(baseDir, "config.test.yaml")
+	if err := os.WriteFile(tempPath, []byte(output), 0644); err != nil {
+		return "", false, nil, fmt.Errorf("写入沙盒测试配置失败: %w", err)
 	}
 
-	slog.Debug("已成功生成运行时配置", "target", domain.RuntimeConfigName)
-	return true, extracted, nil
+	slog.Debug("已生成沙盒测试配置", "target", tempPath)
+	return tempPath, false, extracted, nil
 }
 
 func findKey(node *yaml.Node, key string) (int, *yaml.Node) {
