@@ -1,11 +1,12 @@
 package core
 
 import (
+	"bytes"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
+	"time"
 
 	"mihomo-tray/internal/domain"
 )
@@ -35,7 +36,7 @@ func DeployRuntimeConfig(cfg domain.TrayConfig, relPath string, baseDir string) 
 	runtimeAbs := filepath.Join(baseDir, domain.RuntimeConfigName)
 
 	if existingContent, err := os.ReadFile(runtimeAbs); err == nil {
-		if strings.TrimSpace(string(existingContent)) == strings.TrimSpace(string(res.YAML)) {
+		if bytes.Equal(bytes.TrimSpace(existingContent), bytes.TrimSpace(res.YAML)) {
 			slog.Debug("运行时配置无实质变动，跳过落盘与校验")
 			return &DeployResult{
 				RuntimeAbs:  runtimeAbs,
@@ -45,11 +46,10 @@ func DeployRuntimeConfig(cfg domain.TrayConfig, relPath string, baseDir string) 
 		}
 	}
 
-	stageFile, err := os.CreateTemp(baseDir, ".stage_*.yaml")
+	stagePath, err := writeStageConfig(baseDir, res.YAML)
 	if err != nil {
-		return nil, fmt.Errorf("创建沙盒测试配置失败: %w", err)
+		return nil, err
 	}
-	stagePath := stageFile.Name()
 
 	committed := false
 	defer func() {
@@ -58,23 +58,13 @@ func DeployRuntimeConfig(cfg domain.TrayConfig, relPath string, baseDir string) 
 		}
 	}()
 
-	if _, err := stageFile.Write(res.YAML); err != nil {
-		_ = stageFile.Close()
-		return nil, fmt.Errorf("写入沙盒测试配置失败: %w", err)
-	}
-	_ = stageFile.Sync()
-	_ = stageFile.Close()
-
 	exePath := GetKernelPath(baseDir)
 	if err := ValidateConfig(exePath, baseDir, stagePath); err != nil {
 		return nil, fmt.Errorf("终态配置业务语义错误，内核拒绝加载:\n\n%w", err)
 	}
 
-	if err := os.Rename(stagePath, runtimeAbs); err != nil {
-		_ = os.Remove(runtimeAbs)
-		if err := os.Rename(stagePath, runtimeAbs); err != nil {
-			return nil, fmt.Errorf("原子提交正式配置失败: %w", err)
-		}
+	if err := commitRuntimeFile(stagePath, runtimeAbs); err != nil {
+		return nil, fmt.Errorf("提交正式配置失败: %w", err)
 	}
 	committed = true
 
@@ -84,4 +74,50 @@ func DeployRuntimeConfig(cfg domain.TrayConfig, relPath string, baseDir string) 
 		TunDevice:   res.TunDevice,
 		IsUnchanged: false,
 	}, nil
+}
+
+func writeStageConfig(baseDir string, data []byte) (string, error) {
+	stageFile, err := os.CreateTemp(baseDir, ".stage_*.yaml")
+	if err != nil {
+		return "", fmt.Errorf("创建沙盒测试配置失败: %w", err)
+	}
+	stagePath := stageFile.Name()
+
+	var writeSucceeded bool
+	defer func() {
+		if !writeSucceeded {
+			_ = stageFile.Close()
+			_ = os.Remove(stagePath)
+		}
+	}()
+
+	if _, err := stageFile.Write(data); err != nil {
+		return "", fmt.Errorf("写入沙盒测试配置失败: %w", err)
+	}
+
+	if err := stageFile.Sync(); err != nil {
+		return "", fmt.Errorf("沙盒测试配置刷盘失败: %w", err)
+	}
+
+	if err := stageFile.Close(); err != nil {
+		return "", fmt.Errorf("关闭沙盒测试配置句柄失败: %w", err)
+	}
+
+	writeSucceeded = true
+	return stagePath, nil
+}
+
+func commitRuntimeFile(stagePath, targetPath string) error {
+	var lastErr error
+	for i := 0; i < 3; i++ {
+		err := os.Rename(stagePath, targetPath)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+
+		_ = os.Remove(targetPath)
+		time.Sleep(10 * time.Millisecond)
+	}
+	return lastErr
 }
