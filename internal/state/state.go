@@ -37,6 +37,10 @@ func NewRuntimeState() *RuntimeState {
 	return rs
 }
 
+// =====================================================================
+// 1. WebUI 运行时快照管理
+// =====================================================================
+
 func (r *RuntimeState) UpdateWebUISnapshot(addr, secret, uiName string) {
 	r.snapshotMu.Lock()
 	defer r.snapshotMu.Unlock()
@@ -51,6 +55,10 @@ func (r *RuntimeState) GetWebUISnapshot() (string, string, string) {
 	return r.activeAPIAddr, r.activeSecret, r.activeUIName
 }
 
+// =====================================================================
+// 2. 订阅独立锁 (防单配置重复拉取)
+// =====================================================================
+
 func (r *RuntimeState) TryAcquireProfileLock(path string) bool {
 	_, loaded := r.profileLocks.LoadOrStore(path, true)
 	return !loaded
@@ -58,6 +66,45 @@ func (r *RuntimeState) TryAcquireProfileLock(path string) bool {
 
 func (r *RuntimeState) ReleaseProfileLock(path string) {
 	r.profileLocks.Delete(path)
+}
+
+// =====================================================================
+// 3. 配置事务原子互斥锁 (防并发踩踏与连击)
+// =====================================================================
+
+// TryBeginReload 原子抢占重载状态锁：系统退出中、重启中、切换中时直接拒绝
+func (r *RuntimeState) TryBeginReload() bool {
+	if r.IsExiting() || r.isRestarting.Load() || r.profileSwitching.Load() {
+		return false
+	}
+	return r.isReloading.CompareAndSwap(false, true)
+}
+
+// TryBeginRestart 原子抢占重启状态锁：系统退出中、重载中、切换中时直接拒绝
+func (r *RuntimeState) TryBeginRestart() bool {
+	if r.IsExiting() || r.isReloading.Load() || r.profileSwitching.Load() {
+		return false
+	}
+	return r.isRestarting.CompareAndSwap(false, true)
+}
+
+// TryBeginSwitchProfile 原子抢占配置切换状态锁：系统退出中、重启中、重载中时直接拒绝
+func (r *RuntimeState) TryBeginSwitchProfile() bool {
+	if r.IsExiting() || r.isRestarting.Load() || r.isReloading.Load() {
+		return false
+	}
+	return r.profileSwitching.CompareAndSwap(false, true)
+}
+
+// CanStartConfigTransaction 检查当前状态机是否允许开启新的配置事务
+func (r *RuntimeState) CanStartConfigTransaction() bool {
+	if r.IsExiting() {
+		return false
+	}
+	if r.isRestarting.Load() || r.isReloading.Load() || r.profileSwitching.Load() {
+		return false
+	}
+	return true
 }
 
 func (r *RuntimeState) SetProfileSwitching(b bool) { r.profileSwitching.Store(b) }
@@ -68,6 +115,10 @@ func (r *RuntimeState) SetRestarting(b bool)       { r.isRestarting.Store(b) }
 func (r *RuntimeState) IsRestarting() bool         { return r.isRestarting.Load() }
 func (r *RuntimeState) SetReloading(b bool)        { r.isReloading.Store(b) }
 func (r *RuntimeState) IsReloading() bool          { return r.isReloading.Load() }
+
+// =====================================================================
+// 4. 应用全局生命周期
+// =====================================================================
 
 func (r *RuntimeState) GetPhase() domain.AppPhase { return domain.AppPhase(r.phase.Load()) }
 
@@ -90,6 +141,10 @@ func (r *RuntimeState) ForceExitPhase() {
 func (r *RuntimeState) IsExiting() bool {
 	return r.GetPhase() == domain.PhaseExiting
 }
+
+// =====================================================================
+// 5. TUN 网卡与时间保护期
+// =====================================================================
 
 func (r *RuntimeState) SetTunAlive(alive bool) { r.tunAlive.Store(alive) }
 func (r *RuntimeState) IsTunAlive() bool       { return r.tunAlive.Load() }
@@ -115,12 +170,6 @@ func (r *RuntimeState) GetTunRequestedTime() time.Time  { return r.loadTime(&r.t
 func (r *RuntimeState) SetTunLostTime(t time.Time)      { r.storeTime(&r.tunLostTime, t) }
 func (r *RuntimeState) GetTunLostTime() time.Time       { return r.loadTime(&r.tunLostTime) }
 
-func (r *RuntimeState) TryAcquireProxyRepair() bool { return r.proxyRepairing.CompareAndSwap(false, true) }
-func (r *RuntimeState) ReleaseProxyRepair()         { r.proxyRepairing.Store(false) }
-
-func (r *RuntimeState) AdvanceProbeGen() uint64 { return r.probeGen.Add(1) }
-func (r *RuntimeState) GetProbeGen() uint64     { return r.probeGen.Load() }
-
 func (r *RuntimeState) SetActualTunDevice(dev string) { r.tunDevName.Store(dev) }
 func (r *RuntimeState) GetActualTunDevice() string {
 	if v := r.tunDevName.Load(); v != nil {
@@ -129,12 +178,12 @@ func (r *RuntimeState) GetActualTunDevice() string {
 	return ""
 }
 
-func (r *RuntimeState) CanStartConfigTransaction() bool {
-	if r.IsExiting() {
-		return false
-	}
-	if r.isRestarting.Load() || r.isReloading.Load() || r.profileSwitching.Load() {
-		return false
-	}
-	return true
-}
+// =====================================================================
+// 6. 系统代理自愈与探针世代
+// =====================================================================
+
+func (r *RuntimeState) TryAcquireProxyRepair() bool { return r.proxyRepairing.CompareAndSwap(false, true) }
+func (r *RuntimeState) ReleaseProxyRepair()         { r.proxyRepairing.Store(false) }
+
+func (r *RuntimeState) AdvanceProbeGen() uint64 { return r.probeGen.Add(1) }
+func (r *RuntimeState) GetProbeGen() uint64     { return r.probeGen.Load() }
