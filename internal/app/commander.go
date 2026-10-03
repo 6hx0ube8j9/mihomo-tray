@@ -113,10 +113,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	case domain.ActionRequestEditController:
 		go func() {
 			if a.ui != nil {
-				cAddr, cSec, cOnline, cSys := a.GetControllerConfigSnapshot()
-				nAddr, nSec, nOnline, nSys, ok := a.ui.ShowControllerEditor(cAddr, cSec, cOnline, cSys)
+				cAddr, cSec, cOnline, cSys, cRemoteURL := a.GetControllerConfigSnapshot()
+				nAddr, nSec, nOnline, nSys, nRemoteURL, ok := a.ui.ShowControllerEditor(cAddr, cSec, cOnline, cSys, cRemoteURL)
 				if ok {
-					a.ApplyControllerConfig(nAddr, nSec, nOnline, nSys)
+					a.ApplyControllerConfig(nAddr, nSec, nOnline, nSys, nRemoteURL)
 				}
 			}
 		}()
