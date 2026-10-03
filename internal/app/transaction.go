@@ -111,7 +111,7 @@ func (a *Application) ReloadConfig(ctx context.Context) error {
 		return fmt.Errorf("内核拒绝加载当前配置文件，请检查语法或依赖：\n\n%w", err)
 	} 
 	
-	a.restartWebUIIfOpen()
+	// 移除了过度的 a.restartWebUIIfOpen()，交由 WebUI 自动重连
 	return nil
 }
 
@@ -162,8 +162,6 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 	}
 
 	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
-	
-	a.restartWebUIIfOpen()
 	
 	return nil
 }
@@ -216,13 +214,13 @@ func (a *Application) SyncRuntimeConfig() {
 	mergedBytes, extracted, err := core.BuildRuntimeYAML(cfg, sourceAbs)
 	if err != nil {
 		slog.Error("配置生成失败 (底稿语法异常)，应用将暂停代理", "err", err)        
-		a.Cfg.SetActiveProfile("")
+		a.fallbackToEmptyConfig(cfg)
 		return
 	}
 
 	if err := core.ValidateConfigContent(a.Cfg.ExePath(), a.Cfg.BaseDir(), mergedBytes); err != nil {
 		slog.Error("终态配置语义错误，应用将暂停代理", "err", err)
-		a.Cfg.SetActiveProfile("")
+		a.fallbackToEmptyConfig(cfg)
 		return
 	}
 
@@ -237,27 +235,9 @@ func (a *Application) SyncRuntimeConfig() {
 	}    
 }
 
-func (a *Application) restartWebUIIfOpen() {
-	wasOpen := a.WebUI.IsActive()
-	a.WebUI.Cleanup()
-	
-	if wasOpen {
-		slog.Debug("等待内核就绪，尝试恢复 Web 面板")
-
-		go func() {
-			for i := 0; i < 50; i++ {
-				if a.State.IsExiting() {
-					return
-				}
-
-				if a.State.GetPhase() == domain.PhaseRunning {
-					slog.Debug("内核已就绪，正在自动恢复 Web 面板")
-					a.UICommandCh <- domain.UICommand{Action: domain.ActionOpenWebUI}
-					return
-				}
-				time.Sleep(200 * time.Millisecond)
-			}
-			slog.Warn("等待内核就绪超时，恢复 Web 面板失败")
-		}()
-	}
+func (a *Application) fallbackToEmptyConfig(cfg domain.TrayConfig) {
+	a.Cfg.SetActiveProfile("")
+	emptyBytes, _, _ := core.BuildRuntimeYAML(cfg, "")
+	runtimeAbs := filepath.Join(a.Cfg.BaseDir(), domain.RuntimeConfigName)
+	_ = fs.WriteAtomic(runtimeAbs, emptyBytes)
 }
