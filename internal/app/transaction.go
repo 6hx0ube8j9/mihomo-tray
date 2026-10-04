@@ -32,47 +32,75 @@ func (a *Application) deployAndSyncState(targetRelPath string) (*core.DeployResu
 func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath string) error {
 	deployRes, err := a.deployAndSyncState(targetRelPath)
 	if err != nil {
-		return fmt.Errorf("交付运行配置失败: %w", err)
+		return err
 	}
 
-	isKernelRunning := a.State.GetPhase() == domain.PhaseRunning
+	a.syncSystemProxy()
+	isKernelRunning := a.State.GetPhase() == domain.PhaseRunning && !a.Kernel.IsPaused()
 
 	if isKernelRunning {
-		reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
 
 		payload := map[string]interface{}{"path": filepath.ToSlash(deployRes.RuntimeAbs)}
 		err := a.API.ForceReloadKernel(reqCtx, payload)
 
-		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
-				slog.Error("加载配置超时", "target", targetRelPath)
-				a.Kernel.WriteCoreLog("RELOAD", fmt.Sprintf("内核热加载配置超时 | 配置: %s", targetRelPath))
-				return fmt.Errorf("内核加载新配置超时")
-			}
-			slog.Error("加载配置失败", "target", targetRelPath, "err", err)
-			a.Kernel.WriteCoreLog("RELOAD", fmt.Sprintf("内核热加载配置失败 | 配置: %s | 原因: %v", targetRelPath, err))
-			return err
+		if err == nil {
+			slog.Info("内核已热更新为新配置", "target", targetRelPath)
+			time.Sleep(200 * time.Millisecond)
+			a.syncAllConfig(ctx)
+			a.ForceSyncAPI()
+			return nil
 		}
-		slog.Info("新配置已生效")
-	} else {
-		slog.Info("准备唤醒内核并应用新配置")
+
+		if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
+			if a.Kernel.IsRunning() {
+				slog.Info("内核正在拉取外部依赖（Geo），保持当前勾选，移交异步等待")
+				a.Kernel.WriteCoreLog("CONFIG", "新配置已激活，内核正在后台下载外部数据文件，暂未开放 API...")
+				a.State.SetPhase(domain.PhaseInitializing)
+				a.asyncWaitForKernelReady(ctx)
+				return nil
+			}
+		}
+
+		slog.Warn("配置热更新被内核明确拒绝", "err", err)
+		a.Kernel.WriteCoreLog("RELOAD", fmt.Sprintf("内核拒绝加载配置 | 错误: %v", err))
+		return err
 	}
 
-	a.Cfg.SetActiveProfile(targetRelPath)
-	a.syncSystemProxy()
-
+	slog.Info("准备唤醒内核并应用新配置")
 	cfg := a.Cfg.GetConfig()
-	if !isKernelRunning {
-		a.Kernel.WakeDaemon()
-		a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
-	} else {
-		time.Sleep(500 * time.Millisecond)
-		a.syncAllConfig(ctx)
-		a.ForceSyncAPI()
-	}
-
+	a.executePhysicalRestart(cfg)
 	return nil
+}
+
+func (a *Application) executePhysicalRestart(cfg domain.TrayConfig) {
+	if cfg.Config.Tun.Enable {
+		a.State.SetTunRequestedTime(time.Now())
+	}
+	a.State.SetPhase(domain.PhaseInitializing)
+	a.Kernel.HaltDaemon()
+	a.Kernel.WakeDaemon()
+	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
+}
+
+func (a *Application) asyncWaitForKernelReady(ctx context.Context) {
+	currentGen := a.State.AdvanceProbeGen()
+	go func(gen uint64) {
+		waitCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+
+		if err := a.API.WaitForReady(waitCtx); err == nil {
+			if a.State.IsExiting() || a.State.GetProbeGen() != gen {
+				return
+			}
+			slog.Info("外部依赖下载完毕，API 通信已恢复")
+			a.State.SetPhase(domain.PhaseRunning)
+			a.syncAllConfig(ctx)
+			a.ForceSyncAPI()
+			a.pushUIState()
+		}
+	}(currentGen)
 }
 
 func (a *Application) ReloadConfig(ctx context.Context) error {
