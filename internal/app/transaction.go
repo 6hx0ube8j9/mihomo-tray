@@ -125,8 +125,8 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 		}
 	}
 
-	slog.Info("开始重启内核")
-	
+	slog.Info("开始物理硬重启内核")
+
 	defer func() {
 		a.State.SetRestarting(false)
 		a.pushUIState()
@@ -148,16 +148,55 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 		a.State.SetTunRequestedTime(time.Now())
 	}
 
-	if a.State.GetPhase() == domain.PhaseRunning && a.restartKernelViaAPI(ctx) {
-		a.State.SetPhase(domain.PhaseRunning)
-	} else {
-		a.State.SetPhase(domain.PhaseInitializing)
-		a.Kernel.HaltDaemon()
-		a.Kernel.WakeDaemon()
-	}
+	a.State.SetPhase(domain.PhaseInitializing)
+	a.Kernel.HaltDaemon()
+	a.Kernel.WakeDaemon()
 
 	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
 	a.restartWebUIIfOpen()
+
+	return nil
+}
+
+func (a *Application) RestartKernelViaAPI(ctx context.Context) error {
+	if a.State.GetPhase() != domain.PhaseRunning {
+		return fmt.Errorf("内核当前未处于运行状态，无法执行 API 重启")
+	}
+
+	if !a.State.TryBeginRestart() {
+		return fmt.Errorf("系统正处于其他事务中，无法启动重启")
+	}
+
+	slog.Info("开始请求内核 API 重启")
+
+	defer func() {
+		a.State.SetRestarting(false)
+		a.pushUIState()
+	}()
+
+	cmdCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	if err := a.API.RestartKernel(cmdCtx); err != nil {
+		a.Kernel.WriteCoreLog("RELOAD", fmt.Sprintf("内核 API 重启指令发送失败: %v", err))
+		return fmt.Errorf("发送 API 重启指令失败: %w", err)
+	}
+
+	waitCtx, waitCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer waitCancel()
+
+	if err := a.API.WaitForReady(waitCtx); err != nil {
+		a.Kernel.WriteCoreLog("RELOAD", fmt.Sprintf("内核 API 重启后就绪超时: %v", err))
+		return fmt.Errorf("等待内核重启就绪超时: %w", err)
+	}
+
+	slog.Info("内核已通过 API 重启就绪")
+
+	syncCtx, syncCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer syncCancel()
+
+	a.syncAllConfig(syncCtx)
+	a.ForceSyncAPI()
 
 	return nil
 }
@@ -177,34 +216,6 @@ func (a *Application) SyncRuntimeConfig() {
 		slog.Error("生成运行配置失败，应用将暂停代理", "err", err)
 		a.Cfg.SetActiveProfile("")
 	}
-}
-
-func (a *Application) restartKernelViaAPI(ctx context.Context) bool {
-	cmdCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-
-	if err := a.API.RestartKernel(cmdCtx); err != nil {
-		slog.Warn("API 重启请求失败", "err", err)
-		return false
-	}
-
-	waitCtx, waitCancel := context.WithTimeout(ctx, 3*time.Second)
-	defer waitCancel()
-
-	if err := a.API.WaitForReady(waitCtx); err != nil {
-		slog.Warn("等待内核就绪超时", "err", err)
-		return false
-	}
-
-	slog.Info("内核已通过 API 重启就绪")
-
-	syncCtx, syncCancel := context.WithTimeout(ctx, 3*time.Second)
-	defer syncCancel()
-
-	a.syncAllConfig(syncCtx)
-	a.ForceSyncAPI()
-
-	return true
 }
 
 func (a *Application) restartWebUIIfOpen() {
