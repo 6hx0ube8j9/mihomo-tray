@@ -21,32 +21,14 @@ func (a *Application) validateProfileSource(absOrTempPath string) error {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("配置文件不存在")
 		}
-		return fmt.Errorf("无法读取待校验配置文件信息: %w", err)
+		return fmt.Errorf("无法读取配置文件信息: %w", err)
 	}
-
 	if fi.Size() == 0 {
 		return fmt.Errorf("配置文件内容为空 (0 字节)")
 	}
 	if fi.Size() > domain.MaxProfileBytes {
 		return fmt.Errorf("配置文件体积超出上限 (最大允许 %d MB)", domain.MaxProfileBytes/(1024*1024))
 	}
-
-	content, err := os.ReadFile(absOrTempPath)
-	if err != nil {
-		return fmt.Errorf("读取待校验配置失败: %w", err)
-	}
-
-	if _, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), content); err != nil {
-		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("配置语法断言失败 [%s]:\n%v", filepath.Base(absOrTempPath), err))
-		return err
-	}
-
-	exePath := core.GetKernelPath(a.Cfg.BaseDir())
-	if err := core.ValidateConfig(exePath, a.Cfg.BaseDir(), absOrTempPath); err != nil {
-		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("底稿语义校验未通过 [%s]:\n%v", filepath.Base(absOrTempPath), err))
-		return err
-	}
-
 	return nil
 }
 
@@ -148,40 +130,43 @@ func (a *Application) SetProfileInterval(payload string) {
 
 func (a *Application) SwitchProfile(ctx context.Context, targetPath string) error {
 	if targetPath != "" && targetPath == a.Cfg.GetActivePath() {
-		slog.Debug("配置已在使用中，忽略重复切换", "path", targetPath)
 		a.ForcePushUIState()
 		return nil
 	}
 
 	if !a.State.TryBeginSwitchProfile() {
-		slog.Debug("系统正处于其他操作中，忽略本次配置切换")
 		a.ForcePushUIState()
 		return nil
 	}
 
-	isFailed := false
 	defer func() {
 		a.State.SetProfileSwitching(false)
-		if isFailed {
-			a.ForcePushUIState()
-		} else {
-			a.pushUIState()
-		}
+		a.pushUIState()
 	}()
 
-	target := targetPath
-	if target == "" {
-		target = a.Cfg.GetActivePath()
+	if targetPath != "" {
+		if err := a.Cfg.ValidatePhysicalFile(targetPath); err != nil {
+			a.Cfg.SetActiveProfile("")
+			return fmt.Errorf("配置文件损坏或丢失，已取消选中: %w", err)
+		}
 	}
 
-	if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
-		isFailed = true
-		return fmt.Errorf("目标配置异常，请求已取消。\n\n错误: %w", err)
+	if targetPath != "" {
+		sourcePath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetPath))
+		content, _ := os.ReadFile(sourcePath)
+		if _, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), content); err != nil {
+			a.Cfg.SetActiveProfile("")
+			a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("语法断言未通过 [%s]: %v", filepath.Base(targetPath), err))
+			return fmt.Errorf("配置存在语法/格式错误，已取消激活：\n\n%w", err)
+		}
 	}
 
-	if err := a.applyConfigTransaction(ctx, target); err != nil {
-		isFailed = true
-		return fmt.Errorf("配置加载失败，已保持原配置运行。\n\n错误: %w", err)
+	a.Cfg.SetActiveProfile(targetPath)
+	a.pushUIState()
+
+	if err := a.applyConfigTransaction(ctx, targetPath); err != nil {
+		a.Cfg.SetActiveProfile("")
+		return fmt.Errorf("内核拒绝加载该配置，请检查规则或协议语义：\n\n%w", err)
 	}
 
 	a.restartWebUIIfOpen()
