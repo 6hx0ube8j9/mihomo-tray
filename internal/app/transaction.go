@@ -17,16 +17,21 @@ func (a *Application) deployAndSyncState(targetRelPath string) (*core.DeployResu
 	cfg := a.Cfg.GetConfig()
 	deployRes, err := core.DeployRuntimeConfig(cfg, targetRelPath, a.Cfg.BaseDir())
 	if err != nil {
-		targetDesc := targetRelPath
-		if targetDesc == "" {
-			targetDesc = "默认基础配置"
-		}
-		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("运行配置预检未通过 [%s]:\n%v", targetDesc, err))
+		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("运行配置落盘失败 [%s]:\n%v", targetRelPath, err))
 		return nil, err
 	}
-
 	a.State.SetActualTunDevice(deployRes.TunDevice)
 	return deployRes, nil
+}
+
+func (a *Application) executePhysicalRestart(cfg domain.TrayConfig) {
+	if cfg.Config.Tun.Enable {
+		a.State.SetTunRequestedTime(time.Now())
+	}
+	a.State.SetPhase(domain.PhaseInitializing)
+	a.Kernel.HaltDaemon()
+	a.Kernel.WakeDaemon()
+	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
 }
 
 func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath string) error {
@@ -55,7 +60,7 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 
 		if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
 			if a.Kernel.IsRunning() {
-				slog.Info("内核正在拉取外部依赖（Geo），保持当前勾选，移交异步等待")
+				slog.Info("内核正在拉取外部依赖（Geo），移交异步等待")
 				a.Kernel.WriteCoreLog("CONFIG", "新配置已激活，内核正在后台下载外部数据文件，暂未开放 API...")
 				a.State.SetPhase(domain.PhaseInitializing)
 				a.asyncWaitForKernelReady(ctx)
@@ -63,8 +68,10 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 			}
 		}
 
-		slog.Warn("配置热更新被内核明确拒绝", "err", err)
-		a.Kernel.WriteCoreLog("RELOAD", fmt.Sprintf("内核拒绝加载配置 | 错误: %v", err))
+		slog.Warn("配置热更新被内核明确拒绝或通信失败", "err", err)
+		a.Kernel.WriteCoreLog("RELOAD", fmt.Sprintf("内核拒绝加载配置或失去响应 | 错误: %v", err))
+
+		a.State.SetPhase(domain.PhaseInitializing)
 		return err
 	}
 
@@ -72,16 +79,6 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 	cfg := a.Cfg.GetConfig()
 	a.executePhysicalRestart(cfg)
 	return nil
-}
-
-func (a *Application) executePhysicalRestart(cfg domain.TrayConfig) {
-	if cfg.Config.Tun.Enable {
-		a.State.SetTunRequestedTime(time.Now())
-	}
-	a.State.SetPhase(domain.PhaseInitializing)
-	a.Kernel.HaltDaemon()
-	a.Kernel.WakeDaemon()
-	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
 }
 
 func (a *Application) asyncWaitForKernelReady(ctx context.Context) {
@@ -99,6 +96,8 @@ func (a *Application) asyncWaitForKernelReady(ctx context.Context) {
 			a.syncAllConfig(ctx)
 			a.ForceSyncAPI()
 			a.pushUIState()
+		} else {
+			slog.Error("等待外部依赖下载超时", "err", err)
 		}
 	}(currentGen)
 }
