@@ -193,7 +193,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 						a.State.SetPhase(domain.PhaseRunning)
 						a.ForceSyncAPI()
 					} else {
-						slog.Error(fmt.Sprintf("内核无响应时间过长 (超 %v)，守护进程挂起", core.KernelReadyTimeout), "err", err)
+						slog.Error("内核无响应时间过长，守护进程已主动挂起","timeout", core.KernelReadyTimeout,"err", err,)
 						a.Kernel.HaltDaemon()
 						a.State.SetPhase(domain.PhaseInitializing)
 					}
