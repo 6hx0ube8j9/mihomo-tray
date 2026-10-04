@@ -392,3 +392,9 @@ func (km *KernelManager) WriteCoreLog(errType, rawMsg string) {
 		km.logger.WriteLog(errType, rawMsg)
 	}
 }
+
+func (km *KernelManager) IsRunning() bool {
+	km.mu.Lock()
+	defer km.mu.Unlock()
+	return km.activeProc != nil && atomic.LoadUint32(&km.currentPid) != 0
+}
