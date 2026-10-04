@@ -71,7 +71,7 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	if !(method == http.MethodGet && path == "/configs") {
+	if !(method == http.MethodGet && (path == "/configs" || path == "/version")) {
 		slog.Debug("发送内核 IPC 管道请求", "method", method, "path", path)
 	}
 
