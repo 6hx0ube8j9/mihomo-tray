@@ -80,12 +80,15 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 
 	if isKernelRunning {
 		slog.Info("尝试通过 API 热加载内核配置")
-		if err := a.executeAPIHotReload(ctx, deployRes.RuntimeAbs); err == nil {
+		
+		reloadErr := a.executeAPIHotReload(ctx, deployRes.RuntimeAbs)
+		if reloadErr == nil {
 			slog.Info("内核已热更新为新配置", "target", targetRelPath)
 			return nil
 		}
-		slog.Warn("内核热加载受阻，退化为物理硬重启拉起", "err", err)
-		a.Kernel.WriteCoreLog("RELOAD", fmt.Sprintf("热加载异常转冷启动 | 错误: %v", err))
+		
+		slog.Warn("内核热加载受阻，退化为物理硬重启拉起", "err", reloadErr)
+		a.Kernel.WriteCoreLog("RELOAD", fmt.Sprintf("热加载异常转冷启动 | 错误: %v", reloadErr))
 	} else {
 		slog.Info("准备唤醒内核并应用新配置")
 	}
@@ -104,12 +107,15 @@ func (a *Application) comboKernelRestart(ctx context.Context, targetRelPath stri
 
 	if isKernelRunning {
 		slog.Info("尝试通过 API 执行内核热重启")
-		if err := a.executeAPISoftRestart(ctx); err == nil {
+		
+		restartErr := a.executeAPISoftRestart(ctx)
+		if restartErr == nil {
 			slog.Info("内核 API 重启成功，已挂载新配置")
 			return nil
 		}
-		slog.Warn("API 热重启受阻，退化为底层进程冷启动", "err", err)
-		a.Kernel.WriteCoreLog("RESTART", "API 重启异常转冷启动")
+		
+		slog.Warn("API 热重启受阻，退化为底层进程冷启动", "err", restartErr)
+		a.Kernel.WriteCoreLog("RESTART", fmt.Sprintf("API 重启异常转冷启动 | 错误: %v", restartErr))
 	} else {
 		slog.Info("内核当前未运行，准备直接唤醒底层进程")
 	}
