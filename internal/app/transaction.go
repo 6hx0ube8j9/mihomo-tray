@@ -18,6 +18,7 @@ func (a *Application) deployAndSyncState(targetRelPath string) (*core.DeployResu
 		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("运行配置落盘失败 [%s]:\n%v", targetRelPath, err))
 		return nil, err
 	}
+
 	a.State.SetActualTunDevice(deployRes.TunDevice)
 	return deployRes, nil
 }
@@ -35,7 +36,7 @@ func (a *Application) executePhysicalRestart(cfg domain.TrayConfig) {
 func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath string) error {
 	deployRes, err := a.deployAndSyncState(targetRelPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("交付运行配置失败: %w", err)
 	}
 
 	a.syncSystemProxy()
@@ -64,29 +65,7 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 
 	cfg := a.Cfg.GetConfig()
 	a.executePhysicalRestart(cfg)
-	
 	return nil
-}
-
-func (a *Application) asyncWaitForKernelReady(ctx context.Context) {
-	currentGen := a.State.AdvanceProbeGen()
-	go func(gen uint64) {
-		waitCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-		defer cancel()
-
-		if err := a.API.WaitForReady(waitCtx); err == nil {
-			if a.State.IsExiting() || a.State.GetProbeGen() != gen {
-				return
-			}
-			slog.Info("外部依赖下载完毕，API 通信已恢复")
-			a.State.SetPhase(domain.PhaseRunning)
-			a.syncAllConfig(ctx)
-			a.ForceSyncAPI()
-			a.pushUIState()
-		} else {
-			slog.Error("等待外部依赖下载超时", "err", err)
-		}
-	}(currentGen)
 }
 
 func (a *Application) ReloadConfig(ctx context.Context) error {
@@ -99,7 +78,7 @@ func (a *Application) ReloadConfig(ctx context.Context) error {
 
 	defer func() {
 		a.State.SetReloading(false)
-		a.pushUIState()
+		a.ForcePushUIState()
 	}()
 
 	if err := a.Cfg.ReloadFromDisk(); err != nil {
@@ -117,7 +96,7 @@ func (a *Application) ReloadConfig(ctx context.Context) error {
 	}
 
 	if err := a.applyConfigTransaction(ctx, target); err != nil {
-		return fmt.Errorf("内核拒绝加载当前配置文件，请检查语法或依赖：\n\n%w", err)
+		return fmt.Errorf("运行配置文件装配失败：\n\n%w", err)
 	}
 
 	a.restartWebUIIfOpen()
@@ -134,7 +113,7 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 	if target != "" {
 		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
 			a.State.SetRestarting(false)
-			a.pushUIState()
+			a.ForcePushUIState()
 			return fmt.Errorf("目标配置读取异常，请求已取消。\n\n错误: %w", err)
 		}
 	}
@@ -143,7 +122,7 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 
 	defer func() {
 		a.State.SetRestarting(false)
-		a.pushUIState()
+		a.ForcePushUIState()
 	}()
 
 	if err := a.Cfg.ReloadFromDisk(); err != nil {
@@ -154,19 +133,11 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 	a.CheckAndReconcilePrivileges(false)
 
 	if _, err := a.deployAndSyncState(target); err != nil {
-		return fmt.Errorf("内核拒绝重启，配置文件校验未通过：\n\n%w", err)
+		return fmt.Errorf("运行配置文件装配失败，内核拒绝重启：\n\n%w", err)
 	}
 
 	cfg := a.Cfg.GetConfig()
-	if cfg.Config.Tun.Enable {
-		a.State.SetTunRequestedTime(time.Now())
-	}
-
-	a.State.SetPhase(domain.PhaseInitializing)
-	a.Kernel.HaltDaemon()
-	a.Kernel.WakeDaemon()
-
-	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
+	a.executePhysicalRestart(cfg)
 	a.restartWebUIIfOpen()
 
 	return nil
@@ -185,7 +156,7 @@ func (a *Application) RestartKernelViaAPI(ctx context.Context) error {
 
 	defer func() {
 		a.State.SetRestarting(false)
-		a.pushUIState()
+		a.ForcePushUIState()
 	}()
 
 	cmdCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
