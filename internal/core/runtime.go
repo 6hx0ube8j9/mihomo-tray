@@ -30,7 +30,7 @@ func DeployRuntimeConfig(cfg domain.TrayConfig, relPath string, baseDir string) 
 
 	res, err := ComposeRuntimeYAML(cfg, sourceBytes)
 	if err != nil {
-		return nil, fmt.Errorf("配置语法合成失败: %w", err)
+		return nil, fmt.Errorf("配置合成失败: %w", err)
 	}
 
 	runtimeAbs := filepath.Join(baseDir, domain.RuntimeConfigName)
@@ -38,7 +38,11 @@ func DeployRuntimeConfig(cfg domain.TrayConfig, relPath string, baseDir string) 
 	if existingContent, err := os.ReadFile(runtimeAbs); err == nil {
 		if bytes.Equal(bytes.TrimSpace(existingContent), bytes.TrimSpace(res.YAML)) {
 			slog.Debug("运行时配置无变动，跳过落盘")
-			return &DeployResult{RuntimeAbs: runtimeAbs, TunDevice: res.TunDevice, IsUnchanged: true}, nil
+			return &DeployResult{
+				RuntimeAbs:  runtimeAbs,
+				TunDevice:   res.TunDevice,
+				IsUnchanged: true,
+			}, nil
 		}
 	}
 
@@ -47,7 +51,11 @@ func DeployRuntimeConfig(cfg domain.TrayConfig, relPath string, baseDir string) 
 	}
 
 	slog.Debug("已安全提交运行时配置", "target", domain.RuntimeConfigName)
-	return &DeployResult{RuntimeAbs: runtimeAbs, TunDevice: res.TunDevice, IsUnchanged: false}, nil
+	return &DeployResult{
+		RuntimeAbs:  runtimeAbs,
+		TunDevice:   res.TunDevice,
+		IsUnchanged: false,
+	}, nil
 }
 
 func writeStageConfig(baseDir string, data []byte) (string, error) {
