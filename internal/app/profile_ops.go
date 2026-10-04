@@ -128,6 +128,7 @@ func (a *Application) SetProfileInterval(payload string) {
 	}
 }
 
+// SwitchProfile 切换配置：AST 拦截错误；交付后无条件服从 transaction
 func (a *Application) SwitchProfile(ctx context.Context, targetPath string) error {
 	if targetPath != "" && targetPath == a.Cfg.GetActivePath() {
 		a.ForcePushUIState()
@@ -141,16 +142,14 @@ func (a *Application) SwitchProfile(ctx context.Context, targetPath string) erro
 
 	defer func() {
 		a.State.SetProfileSwitching(false)
-		a.pushUIState()
+		a.ForcePushUIState()
 	}()
 
 	if targetPath != "" {
 		if err := a.Cfg.ValidatePhysicalFile(targetPath); err != nil {
-			return fmt.Errorf("配置文件损坏或丢失，已拦截切换: %w", err)
+			return fmt.Errorf("配置文件丢失或损坏，已拦截切换: %w", err)
 		}
-	}
-
-	if targetPath != "" {
+		
 		sourcePath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetPath))
 		content, _ := os.ReadFile(sourcePath)
 		if _, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), content); err != nil {
@@ -160,10 +159,10 @@ func (a *Application) SwitchProfile(ctx context.Context, targetPath string) erro
 	}
 
 	a.Cfg.SetActiveProfile(targetPath)
-	a.pushUIState()
+	a.ForcePushUIState()
 
 	if err := a.applyConfigTransaction(ctx, targetPath); err != nil {
-		return fmt.Errorf("配置已激活，但内核拒绝加载或通信异常：\n\n%w", err)
+		return fmt.Errorf("配置生成异常：\n\n%w", err)
 	}
 
 	a.restartWebUIIfOpen()
