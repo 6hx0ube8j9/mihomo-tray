@@ -176,29 +176,25 @@ func (a *Application) eventLoop(ctx context.Context) {
 				currentGen := a.State.AdvanceProbeGen()
 
 				go func(gen uint64) {
-					defer func() {
-						a.State.SetRestarting(false)
-						a.pushUIState()
-					}()
+					defer a.ForcePushUIState()
 
-					waitCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+					waitCtx, cancel := context.WithTimeout(ctx, core.KernelReadyTimeout)
 					defer cancel()
 					err := a.API.WaitForReady(waitCtx)
 
 					if a.State.IsExiting() || ctx.Err() != nil || a.State.GetProbeGen() != gen {
+						slog.Debug("内核就绪探测已被新的操作打断，当前探测销毁", "gen", gen)
 						return
 					}
 
 					if err == nil {
-						slog.Info("内核 API 已就绪")
+						slog.Info("内核 API 已就绪，资产加载完成")
 						a.State.SetPhase(domain.PhaseRunning)
 						a.ForceSyncAPI()
-						a.pushUIState()
 					} else {
-						slog.Error("内核无响应，守护进程挂起", "err", err)
+						slog.Error(fmt.Sprintf("内核无响应时间过长 (超 %v)，守护进程挂起", core.KernelReadyTimeout), "err", err)
 						a.Kernel.HaltDaemon()
 						a.State.SetPhase(domain.PhaseInitializing)
-						a.pushUIState()
 					}
 				}(currentGen)
 
