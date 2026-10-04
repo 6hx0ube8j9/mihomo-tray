@@ -123,17 +123,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionToggleTun:
 		go func(enableStr string) {
-			restarted, err := a.ToggleTun(ctx, enableStr == "true")
-			if restarted && a.ui != nil {
+			if restarted := a.ToggleTun(ctx, enableStr == "true"); restarted && a.ui != nil {
 				a.ui.Exit()
-				return
 			}
-			
 			a.pushUIState()
-			
-			if err != nil && a.ui != nil {
-				a.ui.ShowError("TUN 设置失败", err.Error())
-			}
 		}(cmd.Payload)
 
 	case domain.ActionToggleProxy:
@@ -145,20 +138,14 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionSwitchMode:
 		go func() {
-			err := a.SwitchMode(ctx, cmd.Payload)
+			a.SwitchMode(ctx, cmd.Payload)
 			a.pushUIState()
-			if err != nil && a.ui != nil {
-				a.ui.ShowError("切换模式失败", err.Error())
-			}
 		}()
 
 	case domain.ActionToggleAllowLan:
 		go func() {
-			err := a.ToggleAllowLan(ctx, cmd.Payload == "true")
+			a.ToggleAllowLan(ctx, cmd.Payload == "true")
 			a.pushUIState()
-			if err != nil && a.ui != nil {
-				a.ui.ShowError("局域网设置失败", err.Error())
-			}
 		}()
 
 	case domain.ActionForceSyncAPI:
