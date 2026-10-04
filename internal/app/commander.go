@@ -130,7 +130,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			}
 			
 			a.pushUIState()
-
+			
 			if err != nil && a.ui != nil {
 				a.ui.ShowError("TUN 设置失败", err.Error())
 			}
@@ -145,14 +145,20 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionSwitchMode:
 		go func() {
-			a.SwitchMode(ctx, cmd.Payload)
+			err := a.SwitchMode(ctx, cmd.Payload)
 			a.pushUIState()
+			if err != nil && a.ui != nil {
+				a.ui.ShowError("切换模式失败", err.Error())
+			}
 		}()
 
 	case domain.ActionToggleAllowLan:
 		go func() {
-			a.ToggleAllowLan(ctx, cmd.Payload == "true")
+			err := a.ToggleAllowLan(ctx, cmd.Payload == "true")
 			a.pushUIState()
+			if err != nil && a.ui != nil {
+				a.ui.ShowError("局域网设置失败", err.Error())
+			}
 		}()
 
 	case domain.ActionForceSyncAPI:
