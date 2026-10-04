@@ -5,15 +5,26 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"mihomo-tray/internal/domain"
 )
 
+var configOpMu sync.Mutex
+
 func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted bool, err error) {
+	if !configOpMu.TryLock() {
+		return false, fmt.Errorf("系统正在处理网络配置，请勿频繁操作")
+	}
+	defer configOpMu.Unlock()
+
 	originalTun := a.Cfg.GetConfig().Config.Tun.Enable
+	if originalTun == enable {
+		return false, nil
+	}
+
 	a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = enable })
-	
 	if enable {
 		a.State.SetTunRequestedTime(time.Now())
 	}
@@ -24,10 +35,11 @@ func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted boo
 			a.State.SetTunRequestedTime(time.Time{})
 		}
 	})
-	if restarted { return true, nil }
+	if restarted {
+		return true, nil
+	}
 
 	a.State.SetConfigSyncing(true)
-
 	defer a.ForceSyncAPI()
 	defer a.State.SetConfigSyncing(false)
 
@@ -36,7 +48,7 @@ func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted boo
 		tunPayload["device"] = dev
 	}
 	
-	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	
 	if syncErr := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"tun": tunPayload}); syncErr != nil {
@@ -66,52 +78,55 @@ func (a *Application) ToggleProxy(enable bool) {
 }
 
 func (a *Application) SwitchMode(ctx context.Context, mode string) error {
-	originalMode := a.Cfg.GetConfig().Config.Mode
-	a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Mode = mode })
+	if !configOpMu.TryLock() {
+		return fmt.Errorf("系统正在处理网络配置，请勿频繁操作")
+	}
+	defer configOpMu.Unlock()
+
+	if mode == a.Cfg.GetConfig().Config.Mode {
+		return nil
+	}
 	
 	a.State.SetConfigSyncing(true)
-	defer a.ForceSyncAPI()
+	defer a.ForceSyncAPI() 
 	defer a.State.SetConfigSyncing(false)
 	
-	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	
 	if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"mode": mode}); err != nil {
-		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Mode = originalMode })
-		
-		if ctx.Err() == nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
-			return fmt.Errorf("未能实时同步到内核。\n\n详情: %v", err)
-		}
 		return fmt.Errorf("请求内核超时，切换未能生效。\n\n详情: %v", err)
 	}
+
+	a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Mode = mode })
 	return nil
 }
 
 func (a *Application) ToggleAllowLan(ctx context.Context, enable bool) error {
-	originalLan := *a.Cfg.GetConfig().Config.AllowLan
+	if !configOpMu.TryLock() {
+		return fmt.Errorf("系统正在处理网络配置，请勿频繁操作")
+	}
+	defer configOpMu.Unlock()
+
+	if enable == *a.Cfg.GetConfig().Config.AllowLan {
+		return nil
+	}
+	
+	a.State.SetConfigSyncing(true)
+	defer a.ForceSyncAPI() 
+	defer a.State.SetConfigSyncing(false)
+	
+	reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	
+	if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"allow-lan": enable}); err != nil {
+		return fmt.Errorf("请求内核超时，设置未能生效。\n\n详情: %v", err)
+	}
+	
 	a.Cfg.Update(func(c *domain.TrayConfig) {
 		b := enable
 		c.Config.AllowLan = &b
 	})
-	
-	a.State.SetConfigSyncing(true)
-	defer a.ForceSyncAPI()
-	defer a.State.SetConfigSyncing(false)
-	
-	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	
-	if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"allow-lan": enable}); err != nil {
-		a.Cfg.Update(func(c *domain.TrayConfig) {
-			b := originalLan
-			c.Config.AllowLan = &b
-		})
-		
-		if ctx.Err() == nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
-			return fmt.Errorf("局域网开关未能实时同步到内核。\n\n详情: %v", err)
-		}
-		return fmt.Errorf("请求内核超时，设置未能生效。\n\n详情: %v", err)
-	}
 	return nil
 }
 	
@@ -169,11 +184,11 @@ func (a *Application) ApplyPortConfig(ctx context.Context, mixed, socks, httpPor
 	}
 
 	a.State.SetConfigSyncing(true)
-	defer a.ForceSyncAPI()
+	defer a.ForceSyncAPI() 
 	defer a.State.SetConfigSyncing(false)
 
 	if a.State.GetPhase() == domain.PhaseRunning {
-		reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
 		payload := map[string]interface{}{"mixed-port": mixed, "socks-port": socks, "port": httpPort}
 		
