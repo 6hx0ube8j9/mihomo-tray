@@ -11,6 +11,7 @@ import (
 )
 
 func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted bool, err error) {
+	originalTun := a.Cfg.GetConfig().Config.Tun.Enable
 	a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = enable })
 	
 	if enable {
@@ -18,7 +19,7 @@ func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted boo
 	}
 
 	restarted = a.ElevatePrivilege(func() {
-		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = false })
+		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = originalTun })
 		if enable {
 			a.State.SetTunRequestedTime(time.Time{})
 		}
@@ -26,6 +27,8 @@ func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted boo
 	if restarted { return true, nil }
 
 	a.State.SetConfigSyncing(true)
+
+	defer a.ForceSyncAPI()
 	defer a.State.SetConfigSyncing(false)
 
 	tunPayload := map[string]interface{}{"enable": enable}
@@ -37,15 +40,20 @@ func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted boo
 	defer cancel()
 	
 	if syncErr := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"tun": tunPayload}); syncErr != nil {
+		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = originalTun })
+		if enable {
+			a.State.SetTunRequestedTime(time.Time{})
+		}
+		
 		if ctx.Err() == nil {
-			a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = !enable })
-			
 			if !errors.Is(syncErr, context.DeadlineExceeded) && !errors.Is(syncErr, context.Canceled) {
 				return false, fmt.Errorf("内核拒绝加载 TUN 配置，请检查驱动或系统权限。\n\n详情: %v", syncErr)
 			}
+			return false, fmt.Errorf("内核通信超时，设置未能生效。\n\n详情: %v", syncErr)
 		}
+		return false, syncErr
 	}
-	a.ForceSyncAPI()
+	
 	return false, nil
 }
 
@@ -58,39 +66,52 @@ func (a *Application) ToggleProxy(enable bool) {
 }
 
 func (a *Application) SwitchMode(ctx context.Context, mode string) error {
+	originalMode := a.Cfg.GetConfig().Config.Mode
 	a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Mode = mode })
+	
 	a.State.SetConfigSyncing(true)
+	defer a.ForceSyncAPI()
 	defer a.State.SetConfigSyncing(false)
 	
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	
 	if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"mode": mode}); err != nil {
+		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Mode = originalMode })
+		
 		if ctx.Err() == nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
 			return fmt.Errorf("未能实时同步到内核。\n\n详情: %v", err)
 		}
+		return fmt.Errorf("请求内核超时，切换未能生效。\n\n详情: %v", err)
 	}
-	a.ForceSyncAPI()
 	return nil
 }
 
 func (a *Application) ToggleAllowLan(ctx context.Context, enable bool) error {
+	originalLan := *a.Cfg.GetConfig().Config.AllowLan
 	a.Cfg.Update(func(c *domain.TrayConfig) {
 		b := enable
 		c.Config.AllowLan = &b
 	})
+	
 	a.State.SetConfigSyncing(true)
+	defer a.ForceSyncAPI()
 	defer a.State.SetConfigSyncing(false)
 	
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	
 	if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"allow-lan": enable}); err != nil {
+		a.Cfg.Update(func(c *domain.TrayConfig) {
+			b := originalLan
+			c.Config.AllowLan = &b
+		})
+		
 		if ctx.Err() == nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
 			return fmt.Errorf("局域网开关未能实时同步到内核。\n\n详情: %v", err)
 		}
+		return fmt.Errorf("请求内核超时，设置未能生效。\n\n详情: %v", err)
 	}
-	a.ForceSyncAPI()
 	return nil
 }
 	
@@ -148,6 +169,7 @@ func (a *Application) ApplyPortConfig(ctx context.Context, mixed, socks, httpPor
 	}
 
 	a.State.SetConfigSyncing(true)
+	defer a.ForceSyncAPI()
 	defer a.State.SetConfigSyncing(false)
 
 	if a.State.GetPhase() == domain.PhaseRunning {
@@ -162,7 +184,6 @@ func (a *Application) ApplyPortConfig(ctx context.Context, mixed, socks, httpPor
 			}
 		}
 	}
-	a.ForceSyncAPI()
 	return nil
 }
 
