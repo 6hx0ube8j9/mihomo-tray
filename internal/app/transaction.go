@@ -100,6 +100,27 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 	return nil
 }
 
+func (a *Application) comboKernelRestart(ctx context.Context, targetRelPath string) error {
+	isKernelRunning := a.State.GetPhase() == domain.PhaseRunning && !a.Kernel.IsPaused()
+
+	if isKernelRunning {
+		slog.Info("尝试通过 API 执行内核热重启")
+		if err := a.executeAPIRestart(ctx); err == nil {
+			slog.Info("内核 API 重启成功")
+			return nil
+		}
+		slog.Warn("API 热重启受阻，退化为底层进程冷启动")
+		a.Kernel.WriteCoreLog("RESTART", "API 重启异常转冷启动")
+	} else {
+		slog.Info("内核当前未运行，准备直接唤醒底层进程")
+	}
+
+	if err := a.executeProcessRestart(targetRelPath); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (a *Application) ReloadConfig(ctx context.Context) error {
 	if !a.State.TryBeginReload() {
 		slog.Debug("系统正处于其他操作或重载中，忽略本次重载请求")
@@ -163,24 +184,8 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 	}
 
 	a.CheckAndReconcilePrivileges(false)
-	isKernelRunning := a.State.GetPhase() == domain.PhaseRunning && !a.Kernel.IsPaused()
 
-	if isKernelRunning {
-		slog.Info("尝试通过 API 执行内核热重启")
-		
-		if err := a.executeAPIRestart(ctx); err == nil {
-			slog.Info("内核 API 重启成功")
-			a.restartWebUIIfOpen()
-			return nil
-		}
-		
-		slog.Warn("API 热重启受阻，退化为底层进程冷启动")
-		a.Kernel.WriteCoreLog("RESTART", "API 重启异常转冷启动")
-	} else {
-		slog.Info("内核当前未运行，准备直接唤醒底层进程")
-	}
-
-	if err := a.executeProcessRestart(target); err != nil {
+	if err := a.comboKernelRestart(ctx, target); err != nil {
 		return err
 	}
 
