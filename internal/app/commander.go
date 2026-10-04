@@ -123,10 +123,17 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionToggleTun:
 		go func(enableStr string) {
-			if restarted := a.ToggleTun(ctx, enableStr == "true"); restarted && a.ui != nil {
+			restarted, err := a.ToggleTun(ctx, enableStr == "true")
+			if restarted && a.ui != nil {
 				a.ui.Exit()
+				return
 			}
+			
 			a.pushUIState()
+
+			if err != nil && a.ui != nil {
+				a.ui.ShowError("TUN 设置失败", err.Error())
+			}
 		}(cmd.Payload)
 
 	case domain.ActionToggleProxy:
