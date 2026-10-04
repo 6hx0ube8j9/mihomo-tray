@@ -125,7 +125,10 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 		slog.Info("更新配置成功", "path", targetRelPath)
 		if a.Cfg.GetActivePath() == targetRelPath {
 			slog.Info("当前活跃配置已更新，执行底层重载")
-			_ = a.applyConfigTransaction(ctx, targetRelPath)
+			if reloadErr := a.applyConfigTransaction(ctx, targetRelPath); reloadErr != nil {
+				a.ForcePushUIState()
+				return fmt.Errorf("订阅更新成功，但应用新配置到内核时失败：\n\n%w", reloadErr)
+			}
 			a.ForcePushUIState()
 		}
 	}
