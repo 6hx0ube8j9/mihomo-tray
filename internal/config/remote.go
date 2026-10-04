@@ -128,6 +128,13 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 	limitReader := io.LimitReader(resp.Body, domain.MaxProfileBytes)
 	_, copyErr := io.Copy(tmpFile, limitReader)
 
+	var extra [1]byte
+	if n, _ := resp.Body.Read(extra[:]); n > 0 {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpName)
+		return nil, fmt.Errorf("订阅文件体积超出安全上限 (最大允许 %d MB)", domain.MaxProfileBytes/(1024*1024))
+	}
+
 	if copyErr == nil {
 		_ = tmpFile.Sync()
 	}
