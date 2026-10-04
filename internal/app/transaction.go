@@ -33,35 +33,39 @@ func (a *Application) executePhysicalRestart(cfg domain.TrayConfig) {
 	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
 }
 
-func (a *Application) executeAPIRestart(ctx context.Context) error {
+func (a *Application) executeAPIHotReload(ctx context.Context, runtimeAbs string) error {
+	reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	payload := map[string]interface{}{"path": filepath.ToSlash(runtimeAbs)}
+	if err := a.API.ForceReloadKernel(reqCtx, payload); err != nil {
+		return err
+	}
+
+	time.Sleep(200 * time.Millisecond)
+	a.syncAllConfig(ctx)
+	a.ForceSyncAPI()
+	return nil
+}
+
+func (a *Application) executeAPISoftRestart(ctx context.Context) error {
 	cmdCtx, cmdCancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cmdCancel()
 
 	if err := a.API.RestartKernel(cmdCtx); err != nil {
-		return fmt.Errorf("发送 API 重启指令失败: %w", err)
+		return fmt.Errorf("发送指令失败: %w", err)
 	}
 
 	waitCtx, waitCancel := context.WithTimeout(ctx, 3*time.Second)
 	defer waitCancel()
 
 	if err := a.API.WaitForReady(waitCtx); err != nil {
-		return fmt.Errorf("等待内核重启就绪超时: %w", err)
+		return fmt.Errorf("就绪超时: %w", err)
 	}
 
 	time.Sleep(200 * time.Millisecond)
 	a.syncAllConfig(ctx)
 	a.ForceSyncAPI()
-
-	return nil
-}
-
-func (a *Application) executeProcessRestart(targetRelPath string) error {
-	if _, err := a.deployAndSyncState(targetRelPath); err != nil {
-		return fmt.Errorf("运行配置文件装配失败，内核拒绝拉起: %w", err)
-	}
-
-	cfg := a.Cfg.GetConfig()
-	a.executePhysicalRestart(cfg)
 	return nil
 }
 
@@ -75,49 +79,42 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 	isKernelRunning := a.State.GetPhase() == domain.PhaseRunning && !a.Kernel.IsPaused()
 
 	if isKernelRunning {
-		reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		defer cancel()
-
-		payload := map[string]interface{}{"path": filepath.ToSlash(deployRes.RuntimeAbs)}
-		err := a.API.ForceReloadKernel(reqCtx, payload)
-
-		if err == nil {
+		slog.Info("尝试通过 API 热加载内核配置")
+		if err := a.executeAPIHotReload(ctx, deployRes.RuntimeAbs); err == nil {
 			slog.Info("内核已热更新为新配置", "target", targetRelPath)
-			time.Sleep(200 * time.Millisecond)
-			a.syncAllConfig(ctx)
-			a.ForceSyncAPI()
 			return nil
 		}
-
 		slog.Warn("内核热加载受阻，退化为物理硬重启拉起", "err", err)
 		a.Kernel.WriteCoreLog("RELOAD", fmt.Sprintf("热加载异常转冷启动 | 错误: %v", err))
 	} else {
 		slog.Info("准备唤醒内核并应用新配置")
 	}
 
-	cfg := a.Cfg.GetConfig()
-	a.executePhysicalRestart(cfg)
+	a.executePhysicalRestart(a.Cfg.GetConfig())
 	return nil
 }
 
 func (a *Application) comboKernelRestart(ctx context.Context, targetRelPath string) error {
+	if _, err := a.deployAndSyncState(targetRelPath); err != nil {
+		return fmt.Errorf("运行配置文件装配失败: %w", err)
+	}
+
+	a.syncSystemProxy()
 	isKernelRunning := a.State.GetPhase() == domain.PhaseRunning && !a.Kernel.IsPaused()
 
 	if isKernelRunning {
 		slog.Info("尝试通过 API 执行内核热重启")
-		if err := a.executeAPIRestart(ctx); err == nil {
-			slog.Info("内核 API 重启成功")
+		if err := a.executeAPISoftRestart(ctx); err == nil {
+			slog.Info("内核 API 重启成功，已挂载新配置")
 			return nil
 		}
-		slog.Warn("API 热重启受阻，退化为底层进程冷启动")
+		slog.Warn("API 热重启受阻，退化为底层进程冷启动", "err", err)
 		a.Kernel.WriteCoreLog("RESTART", "API 重启异常转冷启动")
 	} else {
 		slog.Info("内核当前未运行，准备直接唤醒底层进程")
 	}
 
-	if err := a.executeProcessRestart(targetRelPath); err != nil {
-		return err
-	}
+	a.executePhysicalRestart(a.Cfg.GetConfig())
 	return nil
 }
 
