@@ -50,10 +50,12 @@ func (a *Application) onProfileImported(ctx context.Context, newProfilePath stri
 		
 		a.Cfg.SetActiveProfile(newProfilePath)
 		a.ForcePushUIState()
-
-		if err := a.RestartKernel(ctx); err != nil {
+		
+		if err := a.comboKernelRestart(ctx, newProfilePath); err != nil {
 			slog.Warn("自动激活首个配置时遇到启动异常", "err", err)
 		}
+		
+		a.restartWebUIIfOpen()
 	} else {
 		a.ForcePushUIState()
 	}
