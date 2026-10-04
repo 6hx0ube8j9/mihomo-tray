@@ -35,9 +35,15 @@ func (a *Application) validateProfileSource(absOrTempPath string) error {
 func (a *Application) onProfileImported(ctx context.Context, newProfilePath string) {
 	if len(a.Cfg.GetProfiles()) == 1 {
 		slog.Info("首个配置导入成功，触发全局自动激活并加载", "path", newProfilePath)
-		_ = a.applyConfigTransaction(ctx, newProfilePath)
+		
+		a.Cfg.SetActiveProfile(newProfilePath)
+		a.ForcePushUIState()
+		if err := a.applyConfigTransaction(ctx, newProfilePath); err != nil {
+			slog.Warn("自动激活首个配置时遇到交付异常", "err", err)
+		}
+	} else {
+		a.ForcePushUIState()
 	}
-	a.pushUIState()
 }
 
 func (a *Application) ImportLocalProfile(ctx context.Context, sourcePath string) error {
