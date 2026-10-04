@@ -20,12 +20,14 @@ import (
 	"mihomo-tray/internal/sys"
 )
 
+const KernelReadyTimeout = 30 * time.Minute
+
 const (
-	MaxQuickCrashes     = 15               // 绝对启动失败上限次数
-	MaxCrashWindow      = 10 * time.Minute // 持续失败的宽限时间
-	CoolDownCrashCount  = 3                // 触发冷却的连续失败次数
-	CoolDownDuration    = 15 * time.Second // 冷却时长
-	QuickCrashThreshold = 5 * time.Second  // 判定为秒退的时间阈值
+	MaxQuickCrashes     = 10
+	MaxCrashWindow      = KernelReadyTimeout
+	CoolDownCrashCount  = 3
+	CoolDownDuration    = 15 * time.Second
+	QuickCrashThreshold = 5 * time.Second
 )
 
 func GetKernelPath(baseDir string) string {
@@ -174,7 +176,6 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 
 			crashCount++
 			if crashCount >= CoolDownCrashCount {
-				slog.Error("连续启动失败，进程进入冷却状态", "cooldown", CoolDownDuration)
 				currentDelay = CoolDownDuration
 				crashCount = 0
 			} else {
@@ -233,16 +234,25 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 		wasRunning := km.st.GetPhase() == domain.PhaseRunning
 
 		if isCrash {
-			shouldLog := runDuration < QuickCrashThreshold
-			if !shouldLog {
-				upperOut := strings.ToUpper(errBuf.String())
-				shouldLog = strings.Contains(upperOut, "FATA") || strings.Contains(upperOut, "PANIC")
-			}
+			rawErr := strings.TrimSpace(errBuf.String())
+			upperOut := strings.ToUpper(rawErr)
+			isConfigFatal := strings.Contains(upperOut, "FATA") || strings.Contains(upperOut, "PANIC")
+			shouldLog := runDuration < QuickCrashThreshold || isConfigFatal
 
 			if shouldLog {
-				rawErr := strings.TrimSpace(errBuf.String())
 				errMsg := fmt.Sprintf("内核崩溃 | %v | %s", waitErr, rawErr)
 				km.logger.WriteLog("CRASH", errMsg)
+			}
+
+			if isConfigFatal {
+				slog.Error("内核遭遇致命语义错误，已主动挂起")
+				km.HaltDaemon()
+				
+				select {
+				case eventCh <- domain.EventKernelExit:
+				default:
+				}
+				continue
 			}
 		}
 
@@ -265,23 +275,21 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 				quickCrashCount = 0
 				firstCrashTime = time.Time{}
 			}
-
 			if firstCrashTime.IsZero() {
 				firstCrashTime = time.Now()
 			}
-
 			if runDuration < QuickCrashThreshold {
 				quickCrashCount++
 			}
 
 			if quickCrashCount >= MaxQuickCrashes {
-				slog.Error("内核频繁崩溃达到上限，进程已挂起，请检查配置")
+				slog.Error("内核频繁崩溃达到上限，进程已挂起，请检查环境")
 				km.HaltDaemon()
 				continue
 			}
 
 			if time.Since(firstCrashTime) >= MaxCrashWindow {
-				slog.Error("内核持续异常超时，进程已挂起，请检查网络或配置")
+				slog.Error("内核持续异常超时，进程已挂起，请检查配置")
 				km.HaltDaemon()
 				continue
 			}
@@ -341,19 +349,19 @@ func (km *KernelManager) KillCurrent() {
 		forceKill()
 	} else {
 		exited := false
-		for i := 0; i < 100; i++ {
+		for i := 0; i < 30; i++ {
 			if !sys.IsPidRunning(pid, domain.KernelExeName) {
 				exited = true
 				break
 			}
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 		}
 
 		if !exited {
 			forceKill()
 		}
 	}
-	time.Sleep(250 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 }
 
 func (km *KernelManager) calculateBackoff(current, max time.Duration) time.Duration {
@@ -387,14 +395,14 @@ func (km *KernelManager) IsPaused() bool {
 	return km.isPaused
 }
 
-func (km *KernelManager) WriteCoreLog(errType, rawMsg string) {
-	if km.logger != nil {
-		km.logger.WriteLog(errType, rawMsg)
-	}
-}
-
 func (km *KernelManager) IsRunning() bool {
 	km.mu.Lock()
 	defer km.mu.Unlock()
 	return km.activeProc != nil && atomic.LoadUint32(&km.currentPid) != 0
+}
+
+func (km *KernelManager) WriteCoreLog(errType, rawMsg string) {
+	if km.logger != nil {
+		km.logger.WriteLog(errType, rawMsg)
+	}
 }
