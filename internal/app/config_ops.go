@@ -10,7 +10,7 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted bool, err error) { 
+func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted bool, err error) {
 	a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = enable })
 	
 	if enable {
@@ -57,7 +57,7 @@ func (a *Application) ToggleProxy(enable bool) {
 	a.syncSystemProxy()
 }
 
-func (a *Application) SwitchMode(ctx context.Context, mode string) {
+func (a *Application) SwitchMode(ctx context.Context, mode string) error {
 	a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Mode = mode })
 	a.State.SetConfigSyncing(true)
 	defer a.State.SetConfigSyncing(false)
@@ -66,14 +66,15 @@ func (a *Application) SwitchMode(ctx context.Context, mode string) {
 	defer cancel()
 	
 	if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"mode": mode}); err != nil {
-		if ctx.Err() == nil && a.ui != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
-			a.ui.ShowError("切换模式失败", fmt.Sprintf("未能实时同步到内核。\n\n详情: %v", err))
+		if ctx.Err() == nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+			return fmt.Errorf("未能实时同步到内核。\n\n详情: %v", err)
 		}
 	}
 	a.ForceSyncAPI()
+	return nil
 }
 
-func (a *Application) ToggleAllowLan(ctx context.Context, enable bool) {
+func (a *Application) ToggleAllowLan(ctx context.Context, enable bool) error {
 	a.Cfg.Update(func(c *domain.TrayConfig) {
 		b := enable
 		c.Config.AllowLan = &b
@@ -85,11 +86,12 @@ func (a *Application) ToggleAllowLan(ctx context.Context, enable bool) {
 	defer cancel()
 	
 	if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"allow-lan": enable}); err != nil {
-		if ctx.Err() == nil && a.ui != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
-			a.ui.ShowError("设置失败", fmt.Sprintf("局域网开关未能实时同步到内核。\n\n详情: %v", err))
+		if ctx.Err() == nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+			return fmt.Errorf("局域网开关未能实时同步到内核。\n\n详情: %v", err)
 		}
 	}
 	a.ForceSyncAPI()
+	return nil
 }
 	
 func (a *Application) ToggleSystemBrowser(enable bool) {
@@ -126,10 +128,10 @@ func (a *Application) GetControllerConfigSnapshot() (addr, secret string, online
 	return
 }
 
-func (a *Application) ApplyPortConfig(ctx context.Context, mixed, socks, httpPort int) {
+func (a *Application) ApplyPortConfig(ctx context.Context, mixed, socks, httpPort int) error {
 	cMixed, cSocks, cHttp := a.GetPortConfigSnapshot()
 	if mixed == cMixed && socks == cSocks && httpPort == cHttp {
-		return
+		return nil
 	}
 
 	a.Cfg.Update(func(c *domain.TrayConfig) {
@@ -155,12 +157,13 @@ func (a *Application) ApplyPortConfig(ctx context.Context, mixed, socks, httpPor
 		
 		if err := a.API.SyncConfigToKernel(reqCtx, payload); err != nil {
 			slog.Warn("热刷端口到内核失败，等待下次内核重载生效", "err", err)
-			if ctx.Err() == nil && a.ui != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
-				a.ui.ShowError("端口应用部分失败", fmt.Sprintf("配置已保存，但未能热刷入内核。将在下次配置重载时生效。\n\n详情: %v", err))
+			if ctx.Err() == nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+				return fmt.Errorf("配置已保存，但未能热刷入内核。将在下次配置重载时生效。\n\n详情: %v", err)
 			}
 		}
 	}
 	a.ForceSyncAPI()
+	return nil
 }
 
 func (a *Application) ApplyControllerConfig(addr, secret string, online, sysBrowser bool, remoteURL string) {
