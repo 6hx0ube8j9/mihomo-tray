@@ -333,7 +333,10 @@ func (a *Application) EditRemoteProfile(ctx context.Context, oldPath, newName, n
 
 	if urlChanged && a.Cfg.GetActivePath() == p.Path {
 		slog.Info("当前活跃配置链接已修改且拉取成功，执行底层重载")
-		_ = a.applyConfigTransaction(ctx, p.Path)
+		if reloadErr := a.applyConfigTransaction(ctx, p.Path); reloadErr != nil {
+			a.ForcePushUIState()
+			return fmt.Errorf("订阅信息修改并拉取成功，但内核加载新配置失败：\n\n%w", reloadErr)
+		}
 	}
 
 	a.ForcePushUIState()
