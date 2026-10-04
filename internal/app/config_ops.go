@@ -10,7 +10,7 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted bool) {
+func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted bool, err error) { 
 	a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = enable })
 	
 	if enable {
@@ -23,7 +23,7 @@ func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted boo
 			a.State.SetTunRequestedTime(time.Time{})
 		}
 	})
-	if restarted { return true }
+	if restarted { return true, nil }
 
 	a.State.SetConfigSyncing(true)
 	defer a.State.SetConfigSyncing(false)
@@ -36,19 +36,17 @@ func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted boo
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	
-	if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"tun": tunPayload}); err != nil {
+	if syncErr := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"tun": tunPayload}); syncErr != nil {
 		if ctx.Err() == nil {
 			a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = !enable })
 			
-			if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
-				if a.ui != nil {
-					a.ui.ShowError("TUN 设置失败", fmt.Sprintf("内核拒绝加载 TUN 配置，请检查驱动或系统权限。\n\n详情: %v", err))
-				}
+			if !errors.Is(syncErr, context.DeadlineExceeded) && !errors.Is(syncErr, context.Canceled) {
+				return false, fmt.Errorf("内核拒绝加载 TUN 配置，请检查驱动或系统权限。\n\n详情: %v", syncErr)
 			}
 		}
 	}
 	a.ForceSyncAPI()
-	return false
+	return false, nil
 }
 
 func (a *Application) ToggleProxy(enable bool) {
