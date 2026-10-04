@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"mihomo-tray/internal/domain"
 )
@@ -126,26 +127,30 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			if restarted := a.ToggleTun(ctx, enableStr == "true"); restarted && a.ui != nil {
 				a.ui.Exit()
 			}
-			a.pushUIState()
+			time.Sleep(100 * time.Millisecond)
+			a.ForcePushUIState()
 		}(cmd.Payload)
 
 	case domain.ActionToggleProxy:
 		a.asyncRun("系统代理设置失败", func() error {
 			a.ToggleProxy(cmd.Payload == "true")
-			a.pushUIState()
+			time.Sleep(100 * time.Millisecond)
+			a.ForcePushUIState()
 			return nil
 		})
 
 	case domain.ActionSwitchMode:
 		go func() {
 			a.SwitchMode(ctx, cmd.Payload)
-			a.pushUIState()
+			time.Sleep(100 * time.Millisecond)
+			a.ForcePushUIState()
 		}()
 
 	case domain.ActionToggleAllowLan:
 		go func() {
 			a.ToggleAllowLan(ctx, cmd.Payload == "true")
-			a.pushUIState()
+			time.Sleep(100 * time.Millisecond)
+			a.ForcePushUIState()
 		}()
 
 	case domain.ActionForceSyncAPI:
