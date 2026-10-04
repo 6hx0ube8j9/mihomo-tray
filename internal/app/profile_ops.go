@@ -49,10 +49,10 @@ func (a *Application) onProfileImported(ctx context.Context, newProfilePath stri
 		slog.Info("首个配置导入成功，触发全局自动激活并加载", "path", newProfilePath)
 		
 		a.Cfg.SetActiveProfile(newProfilePath)
-		a.ForcePushUIState() 
+		a.ForcePushUIState()
 		
 		if err := a.applyConfigTransaction(ctx, newProfilePath); err != nil {
-			slog.Warn("首个配置装配异常", "err", err)
+			slog.Warn("自动激活首个配置时遇到交付异常", "err", err)
 		}
 	} else {
 		a.ForcePushUIState()
@@ -104,10 +104,13 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 		return a.validateProfileSource(tmpPath)
 	}
 
-	cfg := a.Cfg.GetConfig()
-	port := strconv.Itoa(a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort))
+	var proxyPort string
+	if a.State.GetPhase() == domain.PhaseRunning && !a.Kernel.IsPaused() {
+		cfg := a.Cfg.GetConfig()
+		proxyPort = strconv.Itoa(a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort))
+	}
 
-	success, err := a.Cfg.UpgradeSubscription(ctx, targetRelPath, port, validator)
+	success, err := a.Cfg.UpgradeSubscription(ctx, targetRelPath, proxyPort, validator)
 	if err != nil {
 		slog.Error("更新配置失败", "path", targetRelPath, "err", err)
 		if isManual {
@@ -244,10 +247,13 @@ func (a *Application) AddRemoteProfile(ctx context.Context, rawName, url string,
 		return fmt.Errorf("配置名称或路径已存在冲突")
 	}
 
-	cfg := a.Cfg.GetConfig()
-	port := strconv.Itoa(a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort))
+	var proxyPort string
+	if a.State.GetPhase() == domain.PhaseRunning && !a.Kernel.IsPaused() {
+		cfg := a.Cfg.GetConfig()
+		proxyPort = strconv.Itoa(a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort))
+	}
 
-	fetchRes, err := a.Cfg.FetchRemoteProfile(ctx, newItem.URL, port)
+	fetchRes, err := a.Cfg.FetchRemoteProfile(ctx, newItem.URL, proxyPort)
 	if err != nil {
 		return fmt.Errorf("拉取订阅失败: %w", err)
 	}
@@ -286,10 +292,13 @@ func (a *Application) EditRemoteProfile(ctx context.Context, oldPath, newName, n
 	urlChanged := (newURL != p.URL)
 
 	if urlChanged {
-		cfg := a.Cfg.GetConfig()
-		port := strconv.Itoa(a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort))
+		var proxyPort string
+		if a.State.GetPhase() == domain.PhaseRunning && !a.Kernel.IsPaused() {
+			cfg := a.Cfg.GetConfig()
+			proxyPort = strconv.Itoa(a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort))
+		}
 
-		fetchRes, err := a.Cfg.FetchRemoteProfile(ctx, newURL, port)
+		fetchRes, err := a.Cfg.FetchRemoteProfile(ctx, newURL, proxyPort)
 		if err != nil {
 			return fmt.Errorf("拉取新订阅链接失败: %w", err)
 		}
