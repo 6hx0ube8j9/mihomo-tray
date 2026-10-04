@@ -2,10 +2,8 @@ package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -58,26 +56,15 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 			return nil
 		}
 
-		if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
-			if a.Kernel.IsRunning() {
-				slog.Info("内核正在拉取外部依赖（Geo），移交异步等待")
-				a.Kernel.WriteCoreLog("CONFIG", "新配置已激活，内核正在后台下载外部数据文件，暂未开放 API...")
-				a.State.SetPhase(domain.PhaseInitializing)
-				a.asyncWaitForKernelReady(ctx)
-				return nil
-			}
-		}
-
-		slog.Warn("配置热更新被内核明确拒绝或通信失败", "err", err)
-		a.Kernel.WriteCoreLog("RELOAD", fmt.Sprintf("内核拒绝加载配置或失去响应 | 错误: %v", err))
-
-		a.State.SetPhase(domain.PhaseInitializing)
-		return err
+		slog.Warn("内核热加载受阻，退化为物理硬重启拉起", "err", err)
+		a.Kernel.WriteCoreLog("RELOAD", fmt.Sprintf("热加载异常转冷启动 | 错误: %v", err))
+	} else {
+		slog.Info("准备唤醒内核并应用新配置")
 	}
 
-	slog.Info("准备唤醒内核并应用新配置")
 	cfg := a.Cfg.GetConfig()
 	a.executePhysicalRestart(cfg)
+	
 	return nil
 }
 
