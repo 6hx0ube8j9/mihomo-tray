@@ -30,50 +30,24 @@ func DeployRuntimeConfig(cfg domain.TrayConfig, relPath string, baseDir string) 
 
 	res, err := ComposeRuntimeYAML(cfg, sourceBytes)
 	if err != nil {
-		return nil, fmt.Errorf("配置合成失败: %w", err)
+		return nil, fmt.Errorf("配置语法合成失败: %w", err)
 	}
 
 	runtimeAbs := filepath.Join(baseDir, domain.RuntimeConfigName)
 
 	if existingContent, err := os.ReadFile(runtimeAbs); err == nil {
 		if bytes.Equal(bytes.TrimSpace(existingContent), bytes.TrimSpace(res.YAML)) {
-			slog.Debug("运行时配置无变动，跳过落盘与预检")
-			return &DeployResult{
-				RuntimeAbs:  runtimeAbs,
-				TunDevice:   res.TunDevice,
-				IsUnchanged: true,
-			}, nil
+			slog.Debug("运行时配置无变动，跳过落盘")
+			return &DeployResult{RuntimeAbs: runtimeAbs, TunDevice: res.TunDevice, IsUnchanged: true}, nil
 		}
 	}
 
-	stagePath, err := writeStageConfig(baseDir, res.YAML)
-	if err != nil {
-		return nil, err
-	}
-
-	committed := false
-	defer func() {
-		if !committed {
-			_ = os.Remove(stagePath)
-		}
-	}()
-
-	exePath := GetKernelPath(baseDir)
-	if err := ValidateConfig(exePath, baseDir, stagePath); err != nil {
-		return nil, fmt.Errorf("配置业务语义错误，内核拒绝加载:\n\n%w", err)
-	}
-
-	if err := fs.ReplaceAtomic(stagePath, runtimeAbs); err != nil {
+	if err := fs.WriteAtomic(runtimeAbs, res.YAML); err != nil {
 		return nil, fmt.Errorf("提交正式配置失败: %w", err)
 	}
-	committed = true
 
 	slog.Debug("已安全提交运行时配置", "target", domain.RuntimeConfigName)
-	return &DeployResult{
-		RuntimeAbs:  runtimeAbs,
-		TunDevice:   res.TunDevice,
-		IsUnchanged: false,
-	}, nil
+	return &DeployResult{RuntimeAbs: runtimeAbs, TunDevice: res.TunDevice, IsUnchanged: false}, nil
 }
 
 func writeStageConfig(baseDir string, data []byte) (string, error) {
