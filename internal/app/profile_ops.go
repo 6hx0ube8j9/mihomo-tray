@@ -21,14 +21,26 @@ func (a *Application) validateProfileSource(absOrTempPath string) error {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("配置文件不存在")
 		}
-		return fmt.Errorf("无法读取配置文件信息: %w", err)
+		return fmt.Errorf("无法读取待校验配置文件信息: %w", err)
 	}
+
 	if fi.Size() == 0 {
 		return fmt.Errorf("配置文件内容为空 (0 字节)")
 	}
 	if fi.Size() > domain.MaxProfileBytes {
 		return fmt.Errorf("配置文件体积超出上限 (最大允许 %d MB)", domain.MaxProfileBytes/(1024*1024))
 	}
+
+	content, err := os.ReadFile(absOrTempPath)
+	if err != nil {
+		return fmt.Errorf("读取待校验配置失败: %w", err)
+	}
+
+	if _, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), content); err != nil {
+		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("底稿语法断言失败 [%s]:\n%v", filepath.Base(absOrTempPath), err))
+		return err
+	}
+
 	return nil
 }
 
@@ -37,9 +49,10 @@ func (a *Application) onProfileImported(ctx context.Context, newProfilePath stri
 		slog.Info("首个配置导入成功，触发全局自动激活并加载", "path", newProfilePath)
 		
 		a.Cfg.SetActiveProfile(newProfilePath)
-		a.ForcePushUIState()
+		a.ForcePushUIState() 
+		
 		if err := a.applyConfigTransaction(ctx, newProfilePath); err != nil {
-			slog.Warn("自动激活首个配置时遇到交付异常", "err", err)
+			slog.Warn("首个配置装配异常", "err", err)
 		}
 	} else {
 		a.ForcePushUIState()
@@ -57,7 +70,7 @@ func (a *Application) ImportLocalProfile(ctx context.Context, sourcePath string)
 	a.State.SetProfileSwitching(true)
 	defer func() {
 		a.State.SetProfileSwitching(false)
-		a.pushUIState()
+		a.ForcePushUIState()
 	}()
 
 	slog.Info("开始导入本地配置", "source", sourcePath)
@@ -108,7 +121,7 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 		if a.Cfg.GetActivePath() == targetRelPath {
 			slog.Info("当前活跃配置已更新，执行底层重载")
 			_ = a.applyConfigTransaction(ctx, targetRelPath)
-			a.pushUIState()
+			a.ForcePushUIState()
 		}
 	}
 	return nil
@@ -130,11 +143,10 @@ func (a *Application) SetProfileInterval(payload string) {
 		p.AutoUpdate = interval > 0
 		a.Cfg.UpsertProfile(p)
 		slog.Info("修改订阅更新频率", "path", targetPath, "interval", interval)
-		a.pushUIState()
+		a.ForcePushUIState()
 	}
 }
 
-// SwitchProfile 切换配置：AST 拦截错误；交付后无条件服从 transaction
 func (a *Application) SwitchProfile(ctx context.Context, targetPath string) error {
 	if targetPath != "" && targetPath == a.Cfg.GetActivePath() {
 		a.ForcePushUIState()
@@ -151,23 +163,28 @@ func (a *Application) SwitchProfile(ctx context.Context, targetPath string) erro
 		a.ForcePushUIState()
 	}()
 
-	if targetPath != "" {
-		if err := a.Cfg.ValidatePhysicalFile(targetPath); err != nil {
+	target := targetPath
+	if target == "" {
+		target = a.Cfg.GetActivePath()
+	}
+
+	if target != "" {
+		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
 			return fmt.Errorf("配置文件丢失或损坏，已拦截切换: %w", err)
 		}
 		
-		sourcePath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetPath))
+		sourcePath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(target))
 		content, _ := os.ReadFile(sourcePath)
 		if _, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), content); err != nil {
-			a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("语法断言未通过 [%s]: %v", filepath.Base(targetPath), err))
+			a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("语法断言未通过 [%s]: %v", filepath.Base(target), err))
 			return fmt.Errorf("配置存在语法/格式错误，已拦截切换：\n\n%w", err)
 		}
 	}
 
-	a.Cfg.SetActiveProfile(targetPath)
+	a.Cfg.SetActiveProfile(target)
 	a.ForcePushUIState()
 
-	if err := a.applyConfigTransaction(ctx, targetPath); err != nil {
+	if err := a.applyConfigTransaction(ctx, target); err != nil {
 		return fmt.Errorf("配置生成异常：\n\n%w", err)
 	}
 
@@ -192,7 +209,7 @@ func (a *Application) DeleteProfile(targetPath string) {
 		})
 	}
 
-	a.pushUIState()
+	a.ForcePushUIState()
 }
 
 func (a *Application) MoveProfileUp(targetPath string) {
@@ -305,6 +322,6 @@ func (a *Application) EditRemoteProfile(ctx context.Context, oldPath, newName, n
 		_ = a.applyConfigTransaction(ctx, p.Path)
 	}
 
-	a.pushUIState()
+	a.ForcePushUIState()
 	return nil
 }
