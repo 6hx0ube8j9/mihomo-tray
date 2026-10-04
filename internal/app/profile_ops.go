@@ -146,8 +146,7 @@ func (a *Application) SwitchProfile(ctx context.Context, targetPath string) erro
 
 	if targetPath != "" {
 		if err := a.Cfg.ValidatePhysicalFile(targetPath); err != nil {
-			a.Cfg.SetActiveProfile("")
-			return fmt.Errorf("配置文件损坏或丢失，已取消选中: %w", err)
+			return fmt.Errorf("配置文件损坏或丢失，已拦截切换: %w", err)
 		}
 	}
 
@@ -155,9 +154,8 @@ func (a *Application) SwitchProfile(ctx context.Context, targetPath string) erro
 		sourcePath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetPath))
 		content, _ := os.ReadFile(sourcePath)
 		if _, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), content); err != nil {
-			a.Cfg.SetActiveProfile("")
 			a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("语法断言未通过 [%s]: %v", filepath.Base(targetPath), err))
-			return fmt.Errorf("配置存在语法/格式错误，已取消激活：\n\n%w", err)
+			return fmt.Errorf("配置存在语法/格式错误，已拦截切换：\n\n%w", err)
 		}
 	}
 
@@ -165,8 +163,7 @@ func (a *Application) SwitchProfile(ctx context.Context, targetPath string) erro
 	a.pushUIState()
 
 	if err := a.applyConfigTransaction(ctx, targetPath); err != nil {
-		a.Cfg.SetActiveProfile("")
-		return fmt.Errorf("内核拒绝加载该配置，请检查规则或协议语义：\n\n%w", err)
+		return fmt.Errorf("配置已激活，但内核拒绝加载或通信异常：\n\n%w", err)
 	}
 
 	a.restartWebUIIfOpen()
