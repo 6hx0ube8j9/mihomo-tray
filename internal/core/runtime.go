@@ -57,32 +57,3 @@ func DeployRuntimeConfig(cfg domain.TrayConfig, relPath string, baseDir string) 
 		IsUnchanged: false,
 	}, nil
 }
-
-func writeStageConfig(baseDir string, data []byte) (string, error) {
-	stageFile, err := os.CreateTemp(baseDir, ".stage_*.yaml")
-	if err != nil {
-		return "", fmt.Errorf("创建沙盒测试配置失败: %w", err)
-	}
-	stagePath := stageFile.Name()
-
-	var writeSucceeded bool
-	defer func() {
-		if !writeSucceeded {
-			_ = stageFile.Close()
-			_ = os.Remove(stagePath)
-		}
-	}()
-
-	if _, err := stageFile.Write(data); err != nil {
-		return "", fmt.Errorf("写入沙盒测试配置失败: %w", err)
-	}
-	if err := stageFile.Sync(); err != nil {
-		return "", fmt.Errorf("沙盒测试配置刷盘失败: %w", err)
-	}
-	if err := stageFile.Close(); err != nil {
-		return "", fmt.Errorf("关闭沙盒测试配置句柄失败: %w", err)
-	}
-
-	writeSucceeded = true
-	return stagePath, nil
-}
