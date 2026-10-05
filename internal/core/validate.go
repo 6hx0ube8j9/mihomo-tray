@@ -35,15 +35,15 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		return errors.New("无法建立输出管道: " + err.Error())
+		return errors.New("无法读取校验输出: " + err.Error())
 	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		return errors.New("无法建立错误管道: " + err.Error())
+		return errors.New("无法读取校验错误: " + err.Error())
 	}
 
 	if err := cmd.Start(); err != nil {
-		return errors.New("沙盒进程启动失败: " + err.Error())
+		return errors.New("校验进程启动失败: " + err.Error())
 	}
 
 	resultCh := make(chan error, 1)
@@ -113,7 +113,7 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 			if errMsg != "" {
 				resultCh <- errors.New(errMsg)
 			} else {
-				resultCh <- errors.New("内核预检测异常闪退 (可能存在协议或格式不兼容)")
+				resultCh <- errors.New("内核校验进程意外退出 (请检查配置格式或内核版本兼容性)")
 			}
 		} else {
 			resultCh <- nil
@@ -123,7 +123,7 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 	var finalErr error
 	select {
 	case <-ctx.Done():
-		finalErr = errors.New("内核检测超时(10s)，可能遭遇系统 I/O 死锁")
+		finalErr = errors.New("配置校验超时 (10秒)，内核无响应")
 	case err := <-resultCh:
 		finalErr = err
 	}
