@@ -25,12 +25,12 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 		dec := yaml.NewDecoder(bytes.NewReader(sourceYAML))
 		if err := dec.Decode(&root); err != nil {
 			if !errors.Is(err, io.EOF) {
-				return nil, fmt.Errorf("底稿 YAML 语法错误: %w", err)
+				return nil, fmt.Errorf("YAML 语法解析错误: %w", err)
 			}
 		} else {
 			var extra yaml.Node
 			if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
-				return nil, fmt.Errorf("底稿存在多余文档块或缩进异常断裂 (未完整解析)")
+				return nil, fmt.Errorf("配置内容包含多余的文档块或缩进格式错误")
 			}
 		}
 	}
@@ -40,11 +40,11 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 	}
 	rootMap := root.Content[0]
 	if rootMap.Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("YAML 根节点不是 Mapping 类型")
+		return nil, fmt.Errorf("配置根节点格式错误 (应为键值对结构)")
 	}
 
 	if len(rootMap.Content) > 0 && rootMap.Content[0].Column != 1 {
-		return nil, fmt.Errorf("底稿顶层配置项必须顶格书写，首项在第 %d 列存在非法前导缩进", rootMap.Content[0].Column)
+		return nil, fmt.Errorf("顶层配置项必须顶格书写 (首项在第 %d 列发现多余缩进)", rootMap.Content[0].Column)
 	}
 
 	deleteKeys(rootMap, "redir-port", "tproxy-port")
@@ -110,7 +110,7 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 
 	outBytes, err := yaml.Marshal(&root)
 	if err != nil {
-		return nil, fmt.Errorf("运行时配置序列化失败: %w", err)
+		return nil, fmt.Errorf("运行配置序列化失败: %w", err)
 	}
 
 	return &ComposeResult{
