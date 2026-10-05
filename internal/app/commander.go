@@ -94,7 +94,13 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 					return
 				}
 			}
-			a.DeleteProfile(path)
+			
+			if err := a.DeleteProfile(path); err != nil {
+				slog.Error("删除配置后重置状态失败", "err", err)
+				if a.ui != nil {
+					a.ui.ShowError("删除后重置失败", err.Error())
+				}
+			}
 		}(targetPath)
 
 	case domain.ActionMoveProfileUp:
