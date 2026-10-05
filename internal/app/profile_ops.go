@@ -180,20 +180,17 @@ func (a *Application) SwitchProfile(ctx context.Context, targetPath string) erro
 		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
 			return fmt.Errorf("配置文件丢失或损坏，已拦截切换: %w", err)
 		}
-		
-		sourcePath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(target))
-		content, _ := os.ReadFile(sourcePath)
-		if _, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), content); err != nil {
-			a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("语法断言未通过 [%s]: %v", filepath.Base(target), err))
-			return fmt.Errorf("配置存在语法/格式错误，已拦截切换：\n\n%w", err)
-		}
 	}
+
+	oldProfile := a.Cfg.GetActivePath()
 
 	a.Cfg.SetActiveProfile(target)
 	a.ForcePushUIState()
 
 	if err := a.applyConfigTransaction(ctx, target); err != nil {
-		return fmt.Errorf("配置生成异常：\n\n%w", err)
+		a.Cfg.SetActiveProfile(oldProfile)
+		a.ForcePushUIState()
+		return fmt.Errorf("配置装配或协议检测未通过，已自动撤销切换：\n\n%w", err)
 	}
 
 	a.restartWebUIIfOpen()
