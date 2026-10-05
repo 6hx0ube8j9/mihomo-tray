@@ -235,11 +235,15 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 	}
 	defer a.State.ReleaseProfileLock(targetRelPath)
 
-	validator := func(tmpPath string) error {
-		return a.validateProfileSource(tmpPath)
+	p, ok := a.Cfg.GetProfileByPath(targetRelPath)
+	if !ok || p.URL == "" {
+		if isManual {
+			return fmt.Errorf("配置文件不存在或 URL 为空")
+		}
+		return nil
 	}
 
-	success, err := a.Cfg.UpgradeSubscription(ctx, targetRelPath, a.getActiveProxyPort(), validator)
+	err := a.fetchAndCommitRemoteProfile(ctx, targetRelPath, p.URL, &p)
 	if err != nil {
 		slog.Error("更新配置失败", "path", targetRelPath, "err", err)
 		if isManual {
@@ -248,17 +252,17 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 		return nil
 	}
 
-	if success {
-		slog.Info("更新配置成功", "path", targetRelPath)
-		if a.Cfg.GetActivePath() == targetRelPath {
-			slog.Info("当前活跃配置已更新，执行底层重载")
-			if reloadErr := a.applyConfigTransaction(ctx, targetRelPath); reloadErr != nil {
-				a.ForcePushUIState()
-				return fmt.Errorf("订阅更新成功，但应用新配置到内核时失败：\n\n%w", reloadErr)
-			}
+	slog.Info("更新配置成功", "path", targetRelPath)
+	
+	if a.Cfg.GetActivePath() == targetRelPath {
+		slog.Info("当前活跃配置已更新，执行底层重载")
+		if reloadErr := a.applyConfigTransaction(ctx, targetRelPath); reloadErr != nil {
 			a.ForcePushUIState()
+			return fmt.Errorf("订阅更新成功，但应用新配置到内核时失败：\n\n%w", reloadErr)
 		}
 	}
+
+	a.ForcePushUIState()
 	return nil
 }
 
