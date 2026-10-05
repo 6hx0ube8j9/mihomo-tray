@@ -8,6 +8,7 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/sys/windows"
@@ -19,7 +20,7 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 
 	cmd := exec.CommandContext(ctx, exePath, "-d", ".", "-t", "-f", yamlAbsPath)
 	cmd.Dir = workDir
-	
+
 	const CREATE_DEFAULT_ERROR_MODE = 0x04000000
 	cmd.SysProcAttr = &windows.SysProcAttr{
 		HideWindow:    true,
@@ -41,27 +42,63 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 
 	resultCh := make(chan error, 1)
 
-	go func() {
-		scanner := bufio.NewScanner(io.MultiReader(stdoutPipe, stderrPipe))
-		var lastErrorMsg string
+	var lastErrorMsg string
+	var msgMu sync.Mutex
 
+	scanCtx, scanCancel := context.WithCancel(context.Background())
+	defer scanCancel()
+
+	scanFunc := func(r io.Reader) {
+		scanner := bufio.NewScanner(r)
 		for scanner.Scan() {
-			line := scanner.Text()
+			select {
+			case <-scanCtx.Done():
+				return
+			default:
+			}
 
-			if strings.Contains(strings.ToLower(line), "download") {
-				resultCh <- nil
+			line := scanner.Text()
+			lowerLine := strings.ToLower(line)
+
+			if strings.Contains(lowerLine, "download") {
+				select {
+				case resultCh <- nil:
+				default:
+				}
+				scanCancel()
 				return
 			}
 
 			if errMsg, isFatal := extractFatalError(line); isFatal {
+				msgMu.Lock()
 				lastErrorMsg = errMsg
+				msgMu.Unlock()
 			}
 		}
-		
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); scanFunc(stdoutPipe) }()
+	go func() { defer wg.Done(); scanFunc(stderrPipe) }()
+
+	go func() {
+		wg.Wait()
 		err := cmd.Wait()
+
+		select {
+		case <-scanCtx.Done():
+			return
+		default:
+		}
+
+		msgMu.Lock()
+		errMsg := lastErrorMsg
+		msgMu.Unlock()
+
 		if err != nil {
-			if lastErrorMsg != "" {
-				resultCh <- errors.New(lastErrorMsg)
+			if errMsg != "" {
+				resultCh <- errors.New(errMsg)
 			} else {
 				resultCh <- fmt.Errorf("内核预检测异常闪退 (可能存在协议或格式不兼容)")
 			}
@@ -73,7 +110,7 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 	var finalErr error
 	select {
 	case <-ctx.Done():
-		finalErr = fmt.Errorf("内核检测超时(10s)，可能遭遇死锁或杀软拦截，操作已重置")
+		finalErr = fmt.Errorf("内核检测超时(10s)，可能遭遇系统 I/O 死锁")
 	case err := <-resultCh:
 		finalErr = err
 	}
@@ -87,7 +124,7 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 
 func extractFatalError(line string) (string, bool) {
 	lowerLine := strings.ToLower(line)
-	
+
 	isErrorLevel := strings.Contains(lowerLine, "level=error") ||
 		strings.Contains(lowerLine, "level=fatal") ||
 		strings.Contains(lowerLine, "fata[") ||
@@ -96,12 +133,11 @@ func extractFatalError(line string) (string, bool) {
 	if !isErrorLevel {
 		return "", false
 	}
-
 	cleanMsg := extractLogMsg(line)
 	if cleanMsg != "" {
 		return cleanMsg, true
 	}
-
+	
 	return line, true
 }
 
