@@ -46,7 +46,7 @@ func (a *Application) reconcileTunState(kernelTunEnabled bool) bool {
 			}
 		}
 
-		slog.Info("TUN 状态外部变更", "expected", wantTun, "actual", kernelTunEnabled)
+		slog.Warn("TUN 状态发生外部异常变更，执行同步覆写", "expected", wantTun, "actual", kernelTunEnabled)
 		a.Cfg.Update(func(c *domain.TrayConfig) {
 			c.Config.Tun.Enable = kernelTunEnabled
 		})
@@ -61,9 +61,9 @@ func (a *Application) syncSystemProxy() {
 	port := strconv.Itoa(a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort))
 
 	if enable {
-		slog.Info("系统代理配置已启用", "port", port)
+		slog.Debug("系统代理配置已启用", "port", port)
 	} else {
-		slog.Info("系统代理配置已关闭")
+		slog.Debug("系统代理配置已关闭")
 	}
 	if err := sys.SetSystemProxy(enable, port); err != nil {
 		slog.Error("设置系统代理失败", "err", err)
@@ -83,7 +83,7 @@ func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.Pr
 	if expectedProxy {
 		if status.Enabled {
 			if status.Server != "" && !strings.EqualFold(status.Server, expectedServer) {
-				slog.Warn("代理被外部修改，关闭本地状态", "server", status.Server)
+				slog.Warn("系统代理被外部强行接管，本地代理开关已退避关闭", "intruder_server", status.Server)
 				a.Cfg.Update(func(c *domain.TrayConfig) {
 					b := false
 					c.General.SystemProxy = &b
@@ -226,7 +226,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 	}
 
 	if resp.LogLevel != "" && resp.LogLevel != cfg.Config.LogLevel {
-		slog.Info("内核日志级别已变更", "from", cfg.Config.LogLevel, "to", resp.LogLevel)
+		slog.Debug("内核日志级别同步", "to", resp.LogLevel)
 		a.Cfg.Update(func(c *domain.TrayConfig) {
 			c.Config.LogLevel = resp.LogLevel
 		})
@@ -234,7 +234,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 	}
 
 	if cfg.Config.UnifiedDelay != nil && resp.UnifiedDelay != *cfg.Config.UnifiedDelay {
-		slog.Info("内核 Unified-Delay 已变更", "from", *cfg.Config.UnifiedDelay, "to", resp.UnifiedDelay)
+		slog.Debug("内核 Unified-Delay 同步", "to", resp.UnifiedDelay)
 		a.Cfg.Update(func(c *domain.TrayConfig) {
 			b := resp.UnifiedDelay
 			c.Config.UnifiedDelay = &b
@@ -243,7 +243,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 	}
 
 	if resp.MixedPort != 0 && (cfg.Config.MixedPort == nil || *cfg.Config.MixedPort != resp.MixedPort) {
-		slog.Info("混合端口被外部修改，立即同步", "to", resp.MixedPort)
+		slog.Warn("混合端口被外部修改，立即覆写同步", "to", resp.MixedPort)
 		a.Cfg.Update(func(c *domain.TrayConfig) {
 			p := resp.MixedPort
 			c.Config.MixedPort = &p
@@ -276,7 +276,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 
 	wantTun := a.Cfg.GetConfig().Config.Tun.Enable
 	if changed && wantTun && !realAlive && !a.isTunInGracePeriod() {
-		slog.Warn("TUN 接口异常断开", "device", currentActual)
+		slog.Warn("TUN 虚拟网卡出现异常断开", "device", currentActual)
 	}
 
 	return changed
