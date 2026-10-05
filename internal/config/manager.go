@@ -47,7 +47,7 @@ func (m *Manager) LoadAndInitMemory() {
 
 	if f, err := os.Open(cfgPath); err == nil {
 		if err := json.NewDecoder(f).Decode(&m.data); err != nil {
-			slog.Error("配置解析失败，启用默认设置", "path", cfgPath, "err", err)
+			slog.Warn("主配置文件解析失败，已自动备份并重置为默认设置", "path", cfgPath, "err", err)
 			_ = f.Close()
 			
 			corruptPath := cfgPath + fmt.Sprintf(".%d.err", time.Now().Unix())
@@ -58,7 +58,7 @@ func (m *Manager) LoadAndInitMemory() {
 			_ = f.Close()
 		}
 	} else {
-		slog.Info("配置文件不存在，初始化默认设置", "path", cfgPath)
+		slog.Debug("主配置文件不存在，正在初始化默认设置", "path", cfgPath)
 		isTainted = true
 	}
 
@@ -72,7 +72,7 @@ func (m *Manager) ReloadFromDisk() error {
 	content, err := os.ReadFile(jsonPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			slog.Warn("检测到配置文件丢失，正从内存数据重新生成文件")
+			slog.Warn("主配置文件丢失，已从内存数据自动恢复")
 			m.FlushInitialState()
 			return nil
 		}
@@ -82,7 +82,7 @@ func (m *Manager) ReloadFromDisk() error {
 	var newCfg domain.TrayConfig
 	if err := json.Unmarshal(content, &newCfg); err != nil {
 		m.FlushInitialState()
-		return fmt.Errorf("JSON 格式错误，已恢复为上一次配置: %w", err)
+		return fmt.Errorf("主配置文件格式已损坏，当前重载请求已拦截，系统自动恢复为上一次的有效配置。\n\n%w", err)
 	}
 
 	isTainted := m.applyDefaults(&newCfg)
@@ -136,7 +136,7 @@ func (m *Manager) applyDefaults(cfg *domain.TrayConfig) bool {
 		s := random.String(domain.DefaultSecretLength)
 		cfg.Config.Secret = &s
 		isTainted = true 
-		slog.Warn("检测到高危配置：外网监听但未设置密码，已强制生成随机密码")
+		slog.Warn("安全拦截：已阻止外网无密码监听，系统强制生成随机访问密码")
 	}
 
 	if cfg.Config.ExternalUIURL == nil { 
@@ -254,7 +254,7 @@ func (m *Manager) SetActiveProfile(relPath string) {
 func (m *Manager) RemoveProfile(relPath string) {
 	m.Update(func(cfg *domain.TrayConfig) {
 		if relPath == cfg.Profiles.Active {
-			slog.Info("活跃配置已移除，系统进入空转")
+			slog.Info("当前活跃配置被移除，系统切换至空转状态")
 			cfg.Profiles.Active = ""
 		}
 		
@@ -284,21 +284,21 @@ func (m *Manager) MoveProfile(relPath string, offset int) bool {
 }
 
 func (m *Manager) ValidatePhysicalFile(relPath string) error {
-	if relPath == "" { return fmt.Errorf("配置路径为空") }
+	if relPath == "" { return fmt.Errorf("未指定配置文件路径") }
 	absPath := filepath.Join(m.baseDir, filepath.FromSlash(relPath))
 	fi, err := os.Stat(absPath)
 	if err != nil {
-		if os.IsNotExist(err) { return fmt.Errorf("物理配置文件已丢失") }
-		return fmt.Errorf("无法读取配置文件: %w", err)
+		if os.IsNotExist(err) { return fmt.Errorf("本地配置文件已丢失或被移除") }
+		return fmt.Errorf("无法读取本地配置文件，请检查系统权限。\n\n%w", err)
 	}
-	if fi.Size() == 0 { return fmt.Errorf("配置文件已损坏 (0字节)") }
+	if fi.Size() == 0 { return fmt.Errorf("配置文件已损坏 (文件内容为空)") }
 	return nil
 }
 
 func (m *Manager) lockedSave() {
 	b, err := json.MarshalIndent(m.data, "", "  ")
 	if err != nil {
-		slog.Error("配置序列化失败", "err", err)
+		slog.Error("配置状态写入磁盘失败", "err", err)
 		return
 	}
 	cfgPath := filepath.Join(m.baseDir, ConfigFileName)
