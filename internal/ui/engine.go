@@ -28,7 +28,7 @@ type Engine struct {
 	Dashboard *Dashboard
 
 	activeAlertMu sync.Mutex
-	activeAlert   *walk.Dialog
+	activeAlerts  map[string]*walk.Dialog
 }
 
 func NewEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- domain.UICommand, notifyCh <-chan struct{}, getState func() domain.UIState) *Engine {
@@ -39,6 +39,7 @@ func NewEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- doma
 		stateNotifyCh: notifyCh,
 		getState:      getState,
 		ReadyCh:       make(chan struct{}),
+		activeAlerts:  make(map[string]*walk.Dialog),
 	}
 }
 
@@ -129,18 +130,43 @@ func (e *Engine) ShowProfileManager(state domain.UIState) {
 	}
 }
 
-func (e *Engine) tryAcquireAlertFocus() bool {
+func getDialogKey(title, message string) string {
+	return title + "|" + message
+}
+
+func (e *Engine) tryAcquireAlertFocus(key string) bool {
 	e.activeAlertMu.Lock()
 	defer e.activeAlertMu.Unlock()
-	if e.activeAlert != nil {
-		hwnd := e.activeAlert.Handle()
+	
+	if dlg, exists := e.activeAlerts[key]; exists && dlg != nil {
+		hwnd := dlg.Handle()
 		if hwnd != 0 && win.IsWindowVisible(hwnd) && !win.IsIconic(hwnd) {
 			win.SetForegroundWindow(hwnd)
-			e.activeAlert.SetFocus()
+			dlg.SetFocus()
 			return true
 		}
 	}
 	return false
+}
+
+func (e *Engine) executeGuardedDialog(title, message string, icon *walk.Icon, beep uint32, isConfirm bool) bool {
+	key := getDialogKey(title, message)
+
+	if e.tryAcquireAlertFocus(key) {
+		return false
+	}
+
+	res := runBaseDialog(e.activeOwner(), title, message, icon, beep, isConfirm, func(dlg *walk.Dialog) {
+		e.activeAlertMu.Lock()
+		e.activeAlerts[key] = dlg
+		e.activeAlertMu.Unlock()
+	})
+
+	e.activeAlertMu.Lock()
+	delete(e.activeAlerts, key)
+	e.activeAlertMu.Unlock()
+
+	return res
 }
 
 func (e *Engine) showAsyncDialog(title, message string, walkIcon *walk.Icon, beep uint32, fallbackIcon uint32) {
@@ -155,19 +181,7 @@ func (e *Engine) showAsyncDialog(title, message string, walkIcon *walk.Icon, bee
 	}
 
 	go e.app.Synchronize(func() {
-		if e.tryAcquireAlertFocus() {
-			return
-		}
-
-		runBaseDialog(e.activeOwner(), title, message, walkIcon, beep, false, func(dlg *walk.Dialog) {
-			e.activeAlertMu.Lock()
-			e.activeAlert = dlg
-			e.activeAlertMu.Unlock()
-		})
-
-		e.activeAlertMu.Lock()
-		e.activeAlert = nil
-		e.activeAlertMu.Unlock()
+		e.executeGuardedDialog(title, message, walkIcon, beep, false)
 	})
 }
 
@@ -185,12 +199,9 @@ func (e *Engine) ShowConfirm(title, message string) bool {
 	}
 	
 	resultCh := make(chan bool, 1)
+
 	e.app.Synchronize(func() {
-		if e.tryAcquireAlertFocus() {
-			resultCh <- false
-			return
-		}
-		resultCh <- runBaseDialog(e.activeOwner(), title, message, walk.IconQuestion(), win.MB_ICONQUESTION, true, &e.activeAlert)
+		resultCh <- e.executeGuardedDialog(title, message, walk.IconQuestion(), win.MB_ICONQUESTION, true)
 	})
 
 	select {
