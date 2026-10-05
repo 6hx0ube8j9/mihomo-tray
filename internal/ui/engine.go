@@ -251,5 +251,5 @@ func (e *Engine) activeOwner() walk.Form {
 			return e.Dashboard.window
 		}
 	}
-	return nil
+	return e.mw
 }
