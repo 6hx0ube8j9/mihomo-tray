@@ -21,6 +21,7 @@ func (a *Application) prepareAndValidateConfig(targetRelPath string) (*core.Depl
 
 	kernelPath := core.GetKernelPath(a.Cfg.BaseDir())
 	if err := core.ValidateConfig(kernelPath, a.Cfg.BaseDir(), deployRes.RuntimeAbs); err != nil {
+		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("配置内核兼容性校验失败 [%s]:\n%v", filepath.Base(targetRelPath), err))
 		return nil, fmt.Errorf("该配置不被当前内核支持，已拦截加载：\n\n%w", err)
 	}
 
