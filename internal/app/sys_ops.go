@@ -93,7 +93,7 @@ func (a *Application) OpenConfigFile(targetRelPath string) error {
 		targetRelPath = a.Cfg.GetActivePath()
 	}
 	if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
-		return fmt.Errorf("目标配置异常，请求已取消。\n\n错误: %w", err)
+		return fmt.Errorf("配置文件已损坏或丢失，无法打开。\n\n%w", err)
 	}
 	absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
 	_ = sys.ExecuteSystemCommand(absPath)
@@ -103,7 +103,7 @@ func (a *Application) OpenConfigFile(targetRelPath string) error {
 func (a *Application) EditCurrentConfig() error {
 	targetRelPath := a.Cfg.GetActivePath()
 	if targetRelPath == "" {
-		return fmt.Errorf("当前没有正在运行的配置文件。")
+		return fmt.Errorf("当前系统处于空转状态，没有正在运行的配置")
 	}
 	return a.OpenConfigFile(targetRelPath)
 }
