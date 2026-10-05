@@ -13,13 +13,13 @@ func (a *Application) ElevatePrivilege(rollback func()) (restarted bool) {
 	if sys.IsAdmin() {
 		return false
 	}
-	slog.Info("操作需要管理员权限，正在申请提权")
+	slog.Debug("操作受限，正在拉起 UAC 申请提权")
 	err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--restarting")
 	if err == nil {
-		slog.Info("新提权实例已唤起，当前实例准备优雅退出")
+		slog.Info("高权限实例已唤起，当前受限实例准备退出")
 		return true
 	}
-	slog.Warn("提权被取消或失败，回滚状态")
+	slog.Warn("UAC 提权被取消或失败，回滚操作状态")
 	if rollback != nil {
 		rollback()
 	}
@@ -33,7 +33,7 @@ func (a *Application) CheckAndReconcilePrivileges(isStartup bool) {
 
 	if needsAdmin && !sys.IsAdmin() {
 		if isStartup {
-			slog.Warn("以普通权限启动，暂时停用提权功能")
+			slog.Warn("系统正以普通用户权限启动，高级网络功能已被暂时停用")
 			a.revertPrivilegedConfig()
 			return
 		}
@@ -77,7 +77,6 @@ func (a *Application) ToggleRunAsAdmin(enable bool) (restarted bool) {
 		a.Cfg.Update(func(c *domain.TrayConfig) { c.General.RunAsAdmin = false })
 	})
 }
-
 
 func (a *Application) OpenBaseDir() {
 	_ = sys.ExecuteSystemCommand(a.Cfg.BaseDir())
