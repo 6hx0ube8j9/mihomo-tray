@@ -75,6 +75,11 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 		return fmt.Errorf("交付运行配置失败: %w", err)
 	}
 
+	kernelPath := core.GetKernelPath(a.Cfg.BaseDir())
+	if err := core.ValidateConfig(kernelPath, a.Cfg.BaseDir(), deployRes.RuntimeAbs); err != nil {
+		return fmt.Errorf("该配置不被当前内核支持，已拦截加载：\n\n%w", err)
+	}
+
 	a.syncSystemProxy()
 	isKernelRunning := a.State.GetPhase() == domain.PhaseRunning && !a.Kernel.IsPaused()
 
@@ -100,6 +105,12 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 func (a *Application) comboKernelRestart(ctx context.Context, targetRelPath string) error {
 	if _, err := a.deployAndSyncState(targetRelPath); err != nil {
 		return fmt.Errorf("运行配置文件装配失败: %w", err)
+	}
+
+	kernelPath := core.GetKernelPath(a.Cfg.BaseDir())
+	activeAbs := filepath.Join(a.Cfg.BaseDir(), domain.RuntimeConfigName)
+	if err := core.ValidateConfig(kernelPath, a.Cfg.BaseDir(), activeAbs); err != nil {
+		return fmt.Errorf("该配置不被当前内核支持，已拦截加载：\n\n%w", err)
 	}
 
 	a.syncSystemProxy()
