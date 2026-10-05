@@ -12,25 +12,16 @@ import (
 )
 
 func (a *Application) prepareAndValidateConfig(targetRelPath string) (*core.DeployResult, error) {
-	deployRes, err := a.deployAndSyncState(targetRelPath)
+	cfg := a.Cfg.GetConfig()
+	deployRes, err := core.DeployRuntimeConfig(cfg, targetRelPath, a.Cfg.BaseDir())
 	if err != nil {
+		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("运行配置落盘失败 [%s]:\n%v", targetRelPath, err))
 		return nil, fmt.Errorf("运行配置文件装配失败: %w", err)
 	}
 
 	kernelPath := core.GetKernelPath(a.Cfg.BaseDir())
 	if err := core.ValidateConfig(kernelPath, a.Cfg.BaseDir(), deployRes.RuntimeAbs); err != nil {
 		return nil, fmt.Errorf("该配置不被当前内核支持，已拦截加载：\n\n%w", err)
-	}
-
-	return deployRes, nil
-}
-
-func (a *Application) deployAndSyncState(targetRelPath string) (*core.DeployResult, error) {
-	cfg := a.Cfg.GetConfig()
-	deployRes, err := core.DeployRuntimeConfig(cfg, targetRelPath, a.Cfg.BaseDir())
-	if err != nil {
-		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("运行配置落盘失败 [%s]:\n%v", targetRelPath, err))
-		return nil, err
 	}
 
 	a.State.SetActualTunDevice(deployRes.TunDevice)
@@ -48,13 +39,12 @@ func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath 
 
 	if isKernelRunning {
 		slog.Info("尝试通过 API 热加载内核配置")
-		
 		reloadErr := a.executeAPIHotReload(ctx, deployRes.RuntimeAbs)
 		if reloadErr == nil {
 			slog.Info("内核已热更新为新配置", "target", targetRelPath)
 			return nil
 		}
-		
+
 		slog.Warn("内核热加载受阻，退化为物理硬重启拉起", "err", reloadErr)
 		a.Kernel.WriteCoreLog("RELOAD", fmt.Sprintf("热加载异常转冷启动 | 错误: %v", reloadErr))
 	} else {
@@ -75,13 +65,12 @@ func (a *Application) comboKernelRestart(ctx context.Context, targetRelPath stri
 
 	if isKernelRunning {
 		slog.Info("尝试通过 API 执行内核热重启")
-		
 		restartErr := a.executeAPISoftRestart(ctx)
 		if restartErr == nil {
 			slog.Info("内核 API 重启成功，已挂载新配置")
 			return nil
 		}
-		
+
 		slog.Warn("API 热重启受阻，退化为底层进程冷启动", "err", restartErr)
 		a.Kernel.WriteCoreLog("RESTART", fmt.Sprintf("API 重启异常转冷启动 | 错误: %v", restartErr))
 	} else {
@@ -145,7 +134,6 @@ func (a *Application) ReloadConfig(ctx context.Context) error {
 	}
 
 	slog.Info("开始重载配置")
-
 	defer func() {
 		a.State.SetReloading(false)
 		a.ForcePushUIState()
@@ -189,7 +177,6 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 	}
 
 	slog.Info("开始重启内核")
-
 	defer func() {
 		a.State.SetRestarting(false)
 		a.ForcePushUIState()
@@ -221,8 +208,8 @@ func (a *Application) SyncRuntimeConfig() {
 		}
 	}
 
-	if _, err := a.deployAndSyncState(activePath); err != nil {
-		slog.Error("生成运行配置失败，应用将暂停代理", "err", err)
+	if _, err := a.prepareAndValidateConfig(activePath); err != nil {
+		slog.Error("生成或校验运行配置失败，应用将暂停代理", "err", err)
 		a.Cfg.SetActiveProfile("")
 	}
 }
@@ -233,13 +220,11 @@ func (a *Application) restartWebUIIfOpen() {
 
 	if wasOpen {
 		slog.Debug("等待内核就绪，尝试恢复 Web 面板")
-
 		go func() {
 			for i := 0; i < 50; i++ {
 				if a.State.IsExiting() {
 					return
 				}
-
 				if a.State.GetPhase() == domain.PhaseRunning {
 					slog.Debug("内核已就绪，正在自动恢复 Web 面板")
 					a.UICommandCh <- domain.UICommand{Action: domain.ActionOpenWebUI}
