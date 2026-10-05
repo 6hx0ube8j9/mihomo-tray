@@ -44,7 +44,7 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 	}
 
 	if len(rootMap.Content) > 0 && rootMap.Content[0].Column != 1 {
-		return nil, fmt.Errorf("配置文件第一行不能有空格 (第 %d 列多出空格)", rootMap.Content[0].Column)
+		return nil, fmt.Errorf("配置文件首行不能有空格 (第 %d 列多出空格)", rootMap.Content[0].Column)
 	}
 
 	deleteKeys(rootMap, "redir-port", "tproxy-port")
