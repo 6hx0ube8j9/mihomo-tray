@@ -11,6 +11,20 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
+func (a *Application) prepareAndValidateConfig(targetRelPath string) (*core.DeployResult, error) {
+	deployRes, err := a.deployAndSyncState(targetRelPath)
+	if err != nil {
+		return nil, fmt.Errorf("运行配置文件装配失败: %w", err)
+	}
+
+	kernelPath := core.GetKernelPath(a.Cfg.BaseDir())
+	if err := core.ValidateConfig(kernelPath, a.Cfg.BaseDir(), deployRes.RuntimeAbs); err != nil {
+		return nil, fmt.Errorf("该配置不被当前内核支持，已拦截加载：\n\n%w", err)
+	}
+
+	return deployRes, nil
+}
+
 func (a *Application) deployAndSyncState(targetRelPath string) (*core.DeployResult, error) {
 	cfg := a.Cfg.GetConfig()
 	deployRes, err := core.DeployRuntimeConfig(cfg, targetRelPath, a.Cfg.BaseDir())
@@ -21,6 +35,61 @@ func (a *Application) deployAndSyncState(targetRelPath string) (*core.DeployResu
 
 	a.State.SetActualTunDevice(deployRes.TunDevice)
 	return deployRes, nil
+}
+
+func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath string) error {
+	deployRes, err := a.prepareAndValidateConfig(targetRelPath)
+	if err != nil {
+		return err
+	}
+
+	a.syncSystemProxy()
+	isKernelRunning := a.State.GetPhase() == domain.PhaseRunning && !a.Kernel.IsPaused()
+
+	if isKernelRunning {
+		slog.Info("尝试通过 API 热加载内核配置")
+		
+		reloadErr := a.executeAPIHotReload(ctx, deployRes.RuntimeAbs)
+		if reloadErr == nil {
+			slog.Info("内核已热更新为新配置", "target", targetRelPath)
+			return nil
+		}
+		
+		slog.Warn("内核热加载受阻，退化为物理硬重启拉起", "err", reloadErr)
+		a.Kernel.WriteCoreLog("RELOAD", fmt.Sprintf("热加载异常转冷启动 | 错误: %v", reloadErr))
+	} else {
+		slog.Info("准备唤醒内核并应用新配置")
+	}
+
+	a.executePhysicalRestart(a.Cfg.GetConfig())
+	return nil
+}
+
+func (a *Application) comboKernelRestart(ctx context.Context, targetRelPath string) error {
+	if _, err := a.prepareAndValidateConfig(targetRelPath); err != nil {
+		return err
+	}
+
+	a.syncSystemProxy()
+	isKernelRunning := a.State.GetPhase() == domain.PhaseRunning && !a.Kernel.IsPaused()
+
+	if isKernelRunning {
+		slog.Info("尝试通过 API 执行内核热重启")
+		
+		restartErr := a.executeAPISoftRestart(ctx)
+		if restartErr == nil {
+			slog.Info("内核 API 重启成功，已挂载新配置")
+			return nil
+		}
+		
+		slog.Warn("API 热重启受阻，退化为底层进程冷启动", "err", restartErr)
+		a.Kernel.WriteCoreLog("RESTART", fmt.Sprintf("API 重启异常转冷启动 | 错误: %v", restartErr))
+	} else {
+		slog.Info("内核当前未运行，准备直接唤醒底层进程")
+	}
+
+	a.executePhysicalRestart(a.Cfg.GetConfig())
+	return nil
 }
 
 func (a *Application) executePhysicalRestart(cfg domain.TrayConfig) {
@@ -69,72 +138,6 @@ func (a *Application) executeAPISoftRestart(ctx context.Context) error {
 	return nil
 }
 
-func (a *Application) applyConfigTransaction(ctx context.Context, targetRelPath string) error {
-	deployRes, err := a.deployAndSyncState(targetRelPath)
-	if err != nil {
-		return fmt.Errorf("交付运行配置失败: %w", err)
-	}
-
-	kernelPath := core.GetKernelPath(a.Cfg.BaseDir())
-	if err := core.ValidateConfig(kernelPath, a.Cfg.BaseDir(), deployRes.RuntimeAbs); err != nil {
-		return fmt.Errorf("该配置不被当前内核支持，已拦截加载：\n\n%w", err)
-	}
-
-	a.syncSystemProxy()
-	isKernelRunning := a.State.GetPhase() == domain.PhaseRunning && !a.Kernel.IsPaused()
-
-	if isKernelRunning {
-		slog.Info("尝试通过 API 热加载内核配置")
-		
-		reloadErr := a.executeAPIHotReload(ctx, deployRes.RuntimeAbs)
-		if reloadErr == nil {
-			slog.Info("内核已热更新为新配置", "target", targetRelPath)
-			return nil
-		}
-		
-		slog.Warn("内核热加载受阻，退化为物理硬重启拉起", "err", reloadErr)
-		a.Kernel.WriteCoreLog("RELOAD", fmt.Sprintf("热加载异常转冷启动 | 错误: %v", reloadErr))
-	} else {
-		slog.Info("准备唤醒内核并应用新配置")
-	}
-
-	a.executePhysicalRestart(a.Cfg.GetConfig())
-	return nil
-}
-
-func (a *Application) comboKernelRestart(ctx context.Context, targetRelPath string) error {
-	if _, err := a.deployAndSyncState(targetRelPath); err != nil {
-		return fmt.Errorf("运行配置文件装配失败: %w", err)
-	}
-
-	kernelPath := core.GetKernelPath(a.Cfg.BaseDir())
-	activeAbs := filepath.Join(a.Cfg.BaseDir(), domain.RuntimeConfigName)
-	if err := core.ValidateConfig(kernelPath, a.Cfg.BaseDir(), activeAbs); err != nil {
-		return fmt.Errorf("该配置不被当前内核支持，已拦截加载：\n\n%w", err)
-	}
-
-	a.syncSystemProxy()
-	isKernelRunning := a.State.GetPhase() == domain.PhaseRunning && !a.Kernel.IsPaused()
-
-	if isKernelRunning {
-		slog.Info("尝试通过 API 执行内核热重启")
-		
-		restartErr := a.executeAPISoftRestart(ctx)
-		if restartErr == nil {
-			slog.Info("内核 API 重启成功，已挂载新配置")
-			return nil
-		}
-		
-		slog.Warn("API 热重启受阻，退化为底层进程冷启动", "err", restartErr)
-		a.Kernel.WriteCoreLog("RESTART", fmt.Sprintf("API 重启异常转冷启动 | 错误: %v", restartErr))
-	} else {
-		slog.Info("内核当前未运行，准备直接唤醒底层进程")
-	}
-
-	a.executePhysicalRestart(a.Cfg.GetConfig())
-	return nil
-}
-
 func (a *Application) ReloadConfig(ctx context.Context) error {
 	if !a.State.TryBeginReload() {
 		slog.Debug("系统正处于其他操作或重载中，忽略本次重载请求")
@@ -163,7 +166,7 @@ func (a *Application) ReloadConfig(ctx context.Context) error {
 	}
 
 	if err := a.applyConfigTransaction(ctx, target); err != nil {
-		return fmt.Errorf("运行配置文件装配失败：\n\n%w", err)
+		return err
 	}
 
 	a.restartWebUIIfOpen()
