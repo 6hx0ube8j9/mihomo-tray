@@ -143,32 +143,40 @@ func (e *Engine) tryAcquireAlertFocus() bool {
 	return false
 }
 
-func (e *Engine) ShowError(title, message string) {
+func (e *Engine) showAsyncDialog(title, message string, walkIcon *walk.Icon, beep uint32, fallbackIcon uint32) {
 	if e.app == nil || e.mw == nil {
 		slog.Error("严重错误 (UI尚未就绪/已销毁)", "title", title, "message", message)
-		titlePtr, _ := syscall.UTF16PtrFromString(title)
-		msgPtr, _ := syscall.UTF16PtrFromString(message)
-		win.MessageBox(0, msgPtr, titlePtr, win.MB_ICONERROR|win.MB_SYSTEMMODAL)
+		go func() {
+			titlePtr, _ := syscall.UTF16PtrFromString(title)
+			msgPtr, _ := syscall.UTF16PtrFromString(message)
+			win.MessageBox(0, msgPtr, titlePtr, fallbackIcon|win.MB_SYSTEMMODAL)
+		}()
 		return
 	}
-	e.app.Synchronize(func() {
+
+	go e.app.Synchronize(func() {
 		if e.tryAcquireAlertFocus() {
 			return
 		}
-		runBaseDialog(e.activeOwner(), title, message, walk.IconWarning(), win.MB_ICONWARNING, false, &e.activeAlert)
+
+		runBaseDialog(e.activeOwner(), title, message, walkIcon, beep, false, func(dlg *walk.Dialog) {
+			e.activeAlertMu.Lock()
+			e.activeAlert = dlg
+			e.activeAlertMu.Unlock()
+		})
+
+		e.activeAlertMu.Lock()
+		e.activeAlert = nil
+		e.activeAlertMu.Unlock()
 	})
 }
 
+func (e *Engine) ShowError(title, message string) {
+	e.showAsyncDialog(title, message, walk.IconWarning(), win.MB_ICONWARNING, win.MB_ICONERROR)
+}
+
 func (e *Engine) ShowInfo(title, message string) {
-	if e.app == nil || e.mw == nil {
-		return
-	}
-	e.app.Synchronize(func() {
-		if e.tryAcquireAlertFocus() {
-			return
-		}
-		runBaseDialog(e.activeOwner(), title, message, walk.IconInformation(), win.MB_ICONINFORMATION, false, &e.activeAlert)
-	})
+	e.showAsyncDialog(title, message, walk.IconInformation(), win.MB_ICONINFORMATION, win.MB_ICONINFORMATION)
 }
 
 func (e *Engine) ShowConfirm(title, message string) bool {
