@@ -62,6 +62,7 @@ func (l *CoreLogger) WriteLog(errType, rawMsg string) {
 	if idx := strings.Index(rawMsg, "level="); idx != -1 {
 		cleanedMsg = rawMsg[idx:]
 	}
+	cleanedMsg = strings.TrimSpace(cleanedMsg)
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -73,7 +74,7 @@ func (l *CoreLogger) WriteLog(errType, rawMsg string) {
 
 	logPath := filepath.Join(l.logDir, "core.log")
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	finalLog := fmt.Sprintf("[%s] [%s] %s\n----------------------------------------\n", timestamp, errType, rawMsg)
+	finalLog := fmt.Sprintf("[%s] [%s]\n%s\n----------------------------------------\n", timestamp, errType, cleanedMsg)
 
 	fi, err := os.Stat(logPath)
 	if err == nil && fi.Size()+int64(len(finalLog)) > MaxLogFileSize {
@@ -108,7 +109,7 @@ func (l *CoreLogger) rotateLocked(logPath, finalLog, timestamp string, currSize 
 		}
 	}
 
-	notice := fmt.Sprintf("[%s] --- 日志大小已超限，仅保留最新部分 ---\n...\n", timestamp)
+	notice := fmt.Sprintf("[%s] --- 历史日志已被自动清理 ---\n...\n", timestamp)
 	combined := append(append([]byte(notice), keepData...), []byte(finalLog)...)
 
 	_ = fs.WriteAtomic(logPath, combined)
