@@ -105,6 +105,11 @@ func (t *Tray) UpdateState(state domain.UIState) {
 	if t.ni == nil {
 		return
 	}
+	
+	stateChanged := t.latestState.Mode != state.Mode || 
+	                t.latestState.IsAdmin != state.IsAdmin ||
+					t.latestState.AutoStart != state.AutoStart
+					
 	t.latestState = state
 
 	if state.IconState != t.lastIconId && state.IconState >= 0 && state.IconState < len(t.icons) && t.icons[state.IconState] != nil {
@@ -115,28 +120,30 @@ func (t *Tray) UpdateState(state domain.UIState) {
 	if !t.isBuilt {
 		t.buildMenuSkeleton()
 		t.isBuilt = true
+		stateChanged = true 
 	}
 
-	t.actProxy.SetChecked(state.IsProxy)
-	t.actTun.SetChecked(state.IsTun)
-	t.actModeRule.SetChecked(state.Mode == "rule")
-	t.actModeDirect.SetChecked(state.Mode == "direct")
-	t.actModeGlobal.SetChecked(state.Mode == "global")
-	t.actModeMenu.SetText(fmt.Sprintf("路由模式: %s", getModeName(state.Mode)))
-
-	adminText := "运行权限：普通用户"
-	if state.IsAdmin {
-		adminText = "运行权限：管理员"
-	}
-	t.actAdminMenu.SetText(adminText)
-
-	t.actAutoStart.SetChecked(state.AutoStart)
-	t.actRunAdmin.SetChecked(state.RunAsAdmin || state.AutoStart)
+	t.safelySetChecked(t.actProxy, state.IsProxy)
+	t.safelySetChecked(t.actTun, state.IsTun)
+	t.safelySetChecked(t.actModeRule, state.Mode == "rule")
+	t.safelySetChecked(t.actModeDirect, state.Mode == "direct")
+	t.safelySetChecked(t.actModeGlobal, state.Mode == "global")
+	
+	t.safelySetChecked(t.actAutoStart, state.AutoStart)
+	t.safelySetChecked(t.actRunAdmin, state.RunAsAdmin || state.AutoStart)
 	t.actRunAdmin.SetEnabled(!state.AutoStart)
+	t.safelySetChecked(t.actSysBrowser, state.UseSystemBrowser)
+	t.safelySetChecked(t.actRemoteWebUI, state.RemoteWebUI)
+	t.safelySetChecked(t.actAllowLan, state.AllowLan)
 
-	t.actSysBrowser.SetChecked(state.UseSystemBrowser)
-	t.actRemoteWebUI.SetChecked(state.RemoteWebUI)
-	t.actAllowLan.SetChecked(state.AllowLan)
+	if stateChanged {
+		t.actModeMenu.SetText(fmt.Sprintf("路由模式: %s", getModeName(state.Mode)))
+		adminText := "运行权限：普通用户"
+		if state.IsAdmin {
+			adminText = "运行权限：管理员"
+		}
+		t.actAdminMenu.SetText(adminText)
+	}
 
 	fp := generateProfileFingerprint(state.ProfileItems)
 	if fp != t.lastProfileFingerprint {
@@ -146,9 +153,15 @@ func (t *Tray) UpdateState(state domain.UIState) {
 		actions := t.menuSwitchProfile.Actions()
 		for i, item := range state.ProfileItems {
 			if i < actions.Len() {
-				actions.At(i).SetChecked(item.IsActive)
+				t.safelySetChecked(actions.At(i), item.IsActive)
 			}
 		}
+	}
+}
+
+func (t *Tray) safelySetChecked(act *walk.Action, checked bool) {
+	if act != nil && act.Checked() != checked {
+		act.SetChecked(checked)
 	}
 }
 
@@ -204,7 +217,6 @@ func (t *Tray) buildMenuSkeleton() {
 
 	t.addSeparator()
 	t.addAction("退出程序", func() {
-		// NOTE: If app crashes on exit, switch to forceSafeExit(t.engine) in tray_fallback.go
 		t.engine.SendCommand(domain.ActionExitApp, "")
 	})
 }
