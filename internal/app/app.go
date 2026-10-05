@@ -121,9 +121,9 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	a.Kernel.KillCurrent()
 
 	if *a.Cfg.GetConfig().General.SystemProxy {
-		slog.Info("关闭系统代理")
+		slog.Debug("关闭系统代理")
 		if err := sys.SetSystemProxy(false, ""); err != nil {
-			slog.Error("关闭系统代理失败", "err", err)
+			slog.Warn("关闭系统代理受阻（忽略）", "err", err)
 		}
 	}
 
@@ -143,7 +143,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 	tryPollAPI := func() {
 		if a.State.GetPhase() == domain.PhaseRunning && !a.State.IsConfigSyncing() && !a.State.IsReloading() {
 			if a.pollKernelAPI(ctx) {
-				slog.Debug("内核 API 状态变更")
+				slog.Debug("内核 API 状态变更，触发 UI 刷新")
 				a.pushUIState()
 			}
 		}
@@ -153,7 +153,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 		select {
 		case event := <-a.webuiEventCh:
 			if event == webui.EventError {
-				slog.Error("WebUI 运行异常")
+				slog.Warn("WebUI 服务运行异常")
 			}
 		case <-ctx.Done():
 			slog.Debug("退出主事件循环")
@@ -191,7 +191,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 						a.State.SetPhase(domain.PhaseRunning)
 						a.ForceSyncAPI()
 					} else {
-						slog.Error("内核无响应时间过长，守护进程已主动挂起","timeout", core.KernelReadyTimeout,"err", err,)
+						slog.Error("内核无响应时间过长，守护进程已主动挂起", "timeout", core.KernelReadyTimeout, "err", err)
 						a.Kernel.HaltDaemon()
 						a.State.SetPhase(domain.PhaseInitializing)
 					}
@@ -224,7 +224,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 		case <-subTicker.C:
 			for _, p := range a.Cfg.GetProfiles() {
 				if p.IsUpdateDue() {
-					slog.Debug("触发自动更新任务", "name", p.Name)
+					slog.Debug("触发后台自动更新任务", "name", p.Name)
 					go a.UpdateRemoteProfile(ctx, p.Path, false)
 				}
 			}
