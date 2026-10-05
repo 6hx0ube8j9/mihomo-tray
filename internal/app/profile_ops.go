@@ -60,7 +60,7 @@ func (a *Application) fetchAndCommitRemoteProfile(ctx context.Context, targetRel
 	defer os.Remove(fetchRes.TempPath)
 
 	if err := a.validateProfileSource(fetchRes.TempPath); err != nil {
-		return fmt.Errorf("订阅配置语法或规则存在错误，已拒绝保存：\n\n%w", err)
+		return fmt.Errorf("订阅配置语法或规则存在错误，已拒绝保存。\n\n%w", err)
 	}
 
 	p.Upload = fetchRes.Upload
@@ -70,7 +70,7 @@ func (a *Application) fetchAndCommitRemoteProfile(ctx context.Context, targetRel
 	p.LastUpdate = time.Now().Unix()
 
 	if err := a.Cfg.CommitRemoteProfile(fetchRes.TempPath, targetRelPath, *p); err != nil {
-		return fmt.Errorf("保存订阅文件失败: %w", err)
+		return fmt.Errorf("保存订阅文件失败，请检查磁盘权限: %w", err)
 	}
 
 	return nil
@@ -116,12 +116,12 @@ func (a *Application) SwitchProfile(ctx context.Context, targetPath string) erro
 
 	if target != "" {
 		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
-			return fmt.Errorf("配置文件丢失或损坏，已拦截切换: %w", err)
+			return fmt.Errorf("配置文件丢失或损坏，已拦截切换。\n\n%w", err)
 		}
 	}
 
 	if err := a.applyConfigTransaction(ctx, target); err != nil {
-		return fmt.Errorf("该配置不被当前内核支持，已自动撤销切换：\n\n%w", err)
+		return fmt.Errorf("该配置不被当前内核支持，已自动撤销切换。\n\n%w", err)
 	}
 
 	a.Cfg.SetActiveProfile(target)
@@ -143,16 +143,15 @@ func (a *Application) ImportLocalProfile(ctx context.Context, sourcePath string)
 		a.ForcePushUIState()
 	}()
 
-	slog.Info("开始导入本地配置", "source", sourcePath)
+	slog.Debug("开始导入本地配置", "source", sourcePath)
 
 	if err := a.validateProfileSource(sourcePath); err != nil {
-		return fmt.Errorf("配置文件存在语法或规则错误：\n\n%w", err)
+		return fmt.Errorf("配置文件存在语法或规则错误。\n\n%w", err)
 	}
 
 	targetName, _, err := a.Cfg.SafeCopyUntrustedConfig(sourcePath)
 	if err != nil {
-		slog.Error("本地配置复制失败", "err", err)
-		return fmt.Errorf("文件复制失败，请检查系统权限：\n\n%w", err)
+		return fmt.Errorf("文件复制失败，请检查系统权限。\n\n%w", err)
 	}
 
 	a.Cfg.RegisterNewProfile(targetName)
@@ -218,7 +217,7 @@ func (a *Application) EditRemoteProfile(ctx context.Context, oldPath, newName, n
 		slog.Info("当前活跃配置链接已修改且拉取成功，执行底层重载")
 		if reloadErr := a.applyConfigTransaction(ctx, p.Path); reloadErr != nil {
 			a.ForcePushUIState()
-			return fmt.Errorf("订阅信息修改并拉取成功，但内核加载新配置失败：\n\n%w", reloadErr)
+			return fmt.Errorf("订阅信息修改并拉取成功，但应用至内核失败。\n\n%w", reloadErr)
 		}
 	}
 
@@ -229,7 +228,7 @@ func (a *Application) EditRemoteProfile(ctx context.Context, oldPath, newName, n
 func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath string, isManual bool) error {
 	if !a.State.TryAcquireProfileLock(targetRelPath) {
 		if isManual {
-			slog.Warn("拦截重复更新请求", "path", targetRelPath)
+			slog.Debug("拦截到用户重复点击的更新请求", "path", targetRelPath)
 		}
 		return nil
 	}
@@ -238,27 +237,30 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 	p, ok := a.Cfg.GetProfileByPath(targetRelPath)
 	if !ok || p.URL == "" {
 		if isManual {
-			return fmt.Errorf("配置文件不存在或 URL 为空")
+			return fmt.Errorf("配置文件不存在或尚未配置订阅链接")
 		}
 		return nil
 	}
 
 	err := a.fetchAndCommitRemoteProfile(ctx, targetRelPath, p.URL, &p)
 	if err != nil {
-		slog.Error("更新配置失败", "path", targetRelPath, "err", err)
 		if isManual {
-			return fmt.Errorf("无法拉取最新的订阅配置，请检查网络或链接状态。\n\n详情：%w", err)
+			return fmt.Errorf("无法拉取最新的订阅配置，请检查网络或链接状态。\n\n%w", err)
 		}
+		slog.Warn("后台自动更新订阅失败", "path", targetRelPath, "err", err)
 		return nil
 	}
 
-	slog.Info("更新配置成功", "path", targetRelPath)
+	slog.Info("配置更新成功", "path", targetRelPath)
 	
 	if a.Cfg.GetActivePath() == targetRelPath {
 		slog.Info("当前活跃配置已更新，执行底层重载")
 		if reloadErr := a.applyConfigTransaction(ctx, targetRelPath); reloadErr != nil {
 			a.ForcePushUIState()
-			return fmt.Errorf("订阅更新成功，但应用新配置到内核时失败：\n\n%w", reloadErr)
+			if isManual {
+				return fmt.Errorf("订阅更新成功，但应用新配置到内核时失败。\n\n%w", reloadErr)
+			}
+			slog.Error("自动更新订阅成功，但应用内核失败", "err", reloadErr)
 		}
 	}
 
@@ -291,13 +293,13 @@ func (a *Application) DeleteProfile(targetPath string) {
 
 	absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetPath))
 	if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
-		slog.Warn("清理本地物理文件失败", "path", absPath, "err", err)
+		slog.Warn("清理本地物理文件受阻", "path", absPath, "err", err)
 	}
 
 	a.Cfg.RemoveProfile(targetPath)
 
 	if isActive {
-		slog.Info("当前活跃配置已被删除，正在重置内核进入空转状态")
+		slog.Info("当前活跃配置已被删除，重置内核进入空转状态")
 		a.asyncRun("状态重置失败", func() error {
 			return a.applyConfigTransaction(context.Background(), "")
 		})
