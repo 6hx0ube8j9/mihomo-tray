@@ -121,7 +121,7 @@ func (a *Application) SwitchProfile(ctx context.Context, targetPath string) erro
 	}
 
 	if err := a.applyConfigTransaction(ctx, target); err != nil {
-		return fmt.Errorf("该配置不被当前内核支持，已自动撤销切换。\n\n%w", err)
+		return err 
 	}
 
 	a.Cfg.SetActiveProfile(target)
@@ -288,7 +288,7 @@ func (a *Application) SetProfileInterval(payload string) {
 	}
 }
 
-func (a *Application) DeleteProfile(targetPath string) {
+func (a *Application) DeleteProfile(targetPath string) error {
 	isActive := targetPath == a.Cfg.GetActivePath()
 
 	absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetPath))
@@ -298,14 +298,18 @@ func (a *Application) DeleteProfile(targetPath string) {
 
 	a.Cfg.RemoveProfile(targetPath)
 
+	var resetErr error
 	if isActive {
 		slog.Info("当前活跃配置已被删除，重置内核进入空转状态")
-		a.asyncRun("状态重置失败", func() error {
-			return a.applyConfigTransaction(context.Background(), "")
-		})
+		resetErr = a.applyConfigTransaction(context.Background(), "")
 	}
 
 	a.ForcePushUIState()
+	
+	if resetErr != nil {
+		return fmt.Errorf("配置已被删除，但系统进入空转状态时发生异常。\n\n%w", resetErr)
+	}
+	return nil
 }
 
 func (a *Application) MoveProfileUp(targetPath string) {
