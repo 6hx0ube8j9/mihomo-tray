@@ -1,30 +1,108 @@
 package core
 
 import (
+	"bufio"
+	"context"
 	"errors"
+	"fmt"
+	"io"
+	"os/exec"
 	"strings"
+	"time"
 
-	"mihomo-tray/internal/sys"
+	"golang.org/x/sys/windows"
 )
 
 func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
-	output, err := sys.ExecHidden(workDir, exePath, "-d", ".", "-t", "-f", yamlAbsPath)
-	if err == nil {
-		return nil
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, exePath, "-d", ".", "-t", "-f", yamlAbsPath)
+	cmd.Dir = workDir
+	
+	const CREATE_DEFAULT_ERROR_MODE = 0x04000000
+	cmd.SysProcAttr = &windows.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | CREATE_DEFAULT_ERROR_MODE,
 	}
 
-	output = strings.TrimSpace(output)
-	errMsg := extractLogMsg(output)
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("无法建立输出管道: %w", err)
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("无法建立错误管道: %w", err)
+	}
 
-	if errMsg == "" {
-		if output != "" {
-			errMsg = output
-		} else {
-			errMsg = err.Error()
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("沙盒进程启动失败: %w", err)
+	}
+
+	resultCh := make(chan error, 1)
+
+	go func() {
+		scanner := bufio.NewScanner(io.MultiReader(stdoutPipe, stderrPipe))
+		var lastErrorMsg string
+
+		for scanner.Scan() {
+			line := scanner.Text()
+
+			if strings.Contains(strings.ToLower(line), "download") {
+				resultCh <- nil
+				return
+			}
+
+			if errMsg, isFatal := extractFatalError(line); isFatal {
+				lastErrorMsg = errMsg
+			}
 		}
+		
+		err := cmd.Wait()
+		if err != nil {
+			if lastErrorMsg != "" {
+				resultCh <- errors.New(lastErrorMsg)
+			} else {
+				resultCh <- fmt.Errorf("内核预检测异常闪退 (可能存在协议或格式不兼容)")
+			}
+		} else {
+			resultCh <- nil
+		}
+	}()
+
+	var finalErr error
+	select {
+	case <-ctx.Done():
+		finalErr = fmt.Errorf("内核检测超时(10s)，可能遭遇死锁或杀软拦截，操作已重置")
+	case err := <-resultCh:
+		finalErr = err
 	}
 
-	return errors.New(errMsg)
+	if cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+
+	return finalErr
+}
+
+func extractFatalError(line string) (string, bool) {
+	lowerLine := strings.ToLower(line)
+	
+	isErrorLevel := strings.Contains(lowerLine, "level=error") ||
+		strings.Contains(lowerLine, "level=fatal") ||
+		strings.Contains(lowerLine, "fata[") ||
+		strings.Contains(lowerLine, "err[")
+
+	if !isErrorLevel {
+		return "", false
+	}
+
+	cleanMsg := extractLogMsg(line)
+	if cleanMsg != "" {
+		return cleanMsg, true
+	}
+
+	return line, true
 }
 
 func extractLogMsg(output string) string {
