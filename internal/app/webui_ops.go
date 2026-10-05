@@ -14,13 +14,13 @@ import (
 
 func (a *Application) OpenWebUI() error {
 	if a.State.GetPhase() != domain.PhaseRunning {
-		return fmt.Errorf("内核未启动完成，暂无法打开 WebUI")
+		return fmt.Errorf("内核尚未完全就绪，请稍后重试")
 	}
 
 	cfg := a.Cfg.GetConfig()
 	apiAddr, secret, uiName := a.State.GetWebUISnapshot()
 
-	slog.Info("正在打开面板", "强制系统浏览器", *cfg.General.SystemBrowser, "使用远程面板", *cfg.General.RemoteWebUI)
+	slog.Info("准备唤起 Web 面板", "强制系统浏览器", *cfg.General.SystemBrowser, "使用在线面板", *cfg.General.RemoteWebUI)
 
 	wcfg := webui.Config{
 		APIAddr:            apiAddr,
@@ -40,11 +40,11 @@ func (a *Application) OpenWebUI() error {
 func (a *Application) CopyWebUIPassword() error {
 	_, secret, _ := a.State.GetWebUISnapshot()
 	if secret == "" {
-		return fmt.Errorf("当前 Web 面板无需密码即可访问")
+		return fmt.Errorf("当前面板允许无密码访问，无需复制")
 	}
 	
 	if err := sys.WriteToClipboard(secret); err != nil {
-		return fmt.Errorf("无法写入系统剪贴板。\n\n错误: %w", err)
+		return fmt.Errorf("系统剪贴板写入受阻，请检查系统设置")
 	}
 	return nil
 }
@@ -52,7 +52,7 @@ func (a *Application) CopyWebUIPassword() error {
 func (a *Application) ClearWebUICache() error {
 	cacheDir := filepath.Join(a.Cfg.BaseDir(), "webcache")
 	if err := os.RemoveAll(cacheDir); err != nil {
-		return fmt.Errorf("无法彻底清除缓存目录，文件可能正在被使用。\n\n错误: %w", err)
+		return fmt.Errorf("本地缓存文件可能正被系统或其他程序占用。\n\n%w", err)
 	}
 	return nil
 }
