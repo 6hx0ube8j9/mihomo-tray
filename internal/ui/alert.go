@@ -6,7 +6,7 @@ import (
 	"github.com/tailscale/win"
 )
 
-func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep uint32, isConfirm bool, onReady func(dlg *walk.Dialog)) bool {
+func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep uint32, isConfirm bool) bool {
 	parent := owner
 	hActive := win.GetForegroundWindow()
 	safeMsg := autoWrapText(message, 55)
@@ -61,10 +61,6 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 		return false
 	}
 	
-	if onReady != nil {
-		onReady(dlg)
-	}
-	
 	defer dlg.Dispose()
 	
 	dlg.Starting().Attach(func() { 
@@ -86,11 +82,11 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 }
 
 func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, beep uint32) {
-	runBaseDialog(owner, title, message, icon, beep, false, nil)
+	runBaseDialog(owner, title, message, icon, beep, false)
 }
 
 func RunConfirmDialog(owner walk.Form, title, message string) bool {
-	return runBaseDialog(owner, title, message, walk.IconQuestion(), win.MB_ICONQUESTION, true, nil)
+	return runBaseDialog(owner, title, message, walk.IconQuestion(), win.MB_ICONQUESTION, true)
 }
 
 func RunErrorDialog(owner walk.Form, title, message string) {
