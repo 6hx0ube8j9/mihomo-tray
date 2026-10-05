@@ -25,12 +25,12 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 		dec := yaml.NewDecoder(bytes.NewReader(sourceYAML))
 		if err := dec.Decode(&root); err != nil {
 			if !errors.Is(err, io.EOF) {
-				return nil, fmt.Errorf("YAML 语法解析错误: %w", err)
+				return nil, err 
 			}
 		} else {
 			var extra yaml.Node
 			if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
-				return nil, fmt.Errorf("配置内容包含多余的文档块或缩进格式错误")
+				return nil, errors.New("文件格式异常或缩进错误")
 			}
 		}
 	}
@@ -40,11 +40,11 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 	}
 	rootMap := root.Content[0]
 	if rootMap.Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("配置根节点格式错误 (应为键值对结构)")
+		return nil, errors.New("配置文件整体结构不正确")
 	}
 
 	if len(rootMap.Content) > 0 && rootMap.Content[0].Column != 1 {
-		return nil, fmt.Errorf("顶层配置项必须顶格书写 (首项在第 %d 列发现多余缩进)", rootMap.Content[0].Column)
+		return nil, fmt.Errorf("配置文件第一行不能有空格 (第 %d 列多出空格)", rootMap.Content[0].Column)
 	}
 
 	deleteKeys(rootMap, "redir-port", "tproxy-port")
