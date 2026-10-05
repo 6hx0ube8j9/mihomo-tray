@@ -154,8 +154,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 		startTime := time.Now()
 
 		if err := cmd.Start(); err != nil {
-			errMsg := fmt.Sprintf("进程启动失败: %v", err)
-			km.logger.WriteLog("DAEMON", errMsg)
+			km.logger.WriteLog("DAEMON", fmt.Sprintf("进程启动失败: %v", err))
 
 			if firstCrashTime.IsZero() {
 				firstCrashTime = time.Now()
@@ -163,13 +162,13 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 			quickCrashCount++
 
 			if quickCrashCount >= MaxQuickCrashes {
-				slog.Error("启动失败次数达到上限，进程已挂起，请手动干预")
+				slog.Error("内核启动失败次数过多，守护进程已挂起保护")
 				km.HaltDaemon()
 				continue
 			}
 
 			if time.Since(firstCrashTime) >= MaxCrashWindow {
-				slog.Error("持续启动失败超时，进程已挂起")
+				slog.Error("内核持续启动失败，守护进程已挂起保护")
 				km.HaltDaemon()
 				continue
 			}
@@ -195,7 +194,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 			continue
 		}
 
-		slog.Info("内核进程已启动", "PID", cmd.Process.Pid)
+		slog.Debug("内核底层进程已运行", "PID", cmd.Process.Pid)
 
 		km.mu.Lock()
 		km.activeProc = cmd.Process
@@ -240,12 +239,11 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 			shouldLog := runDuration < QuickCrashThreshold || isConfigFatal
 
 			if shouldLog {
-				errMsg := fmt.Sprintf("内核崩溃 | %v | %s", waitErr, rawErr)
-				km.logger.WriteLog("CRASH", errMsg)
+				km.logger.WriteLog("PROCESS", fmt.Sprintf("异常退出 | 状态码: %v | 日志:\n%s", waitErr, rawErr))
 			}
 
 			if isConfigFatal {
-				slog.Error("内核遭遇致命语义错误，已主动挂起")
+				slog.Error("配置存在无法运行的致命错误，内核进程已挂起")
 				km.HaltDaemon()
 				
 				select {
@@ -283,20 +281,20 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 			}
 
 			if quickCrashCount >= MaxQuickCrashes {
-				slog.Error("内核频繁崩溃达到上限，进程已挂起，请检查环境")
+				slog.Error("内核异常退出次数超限，进程已挂起保护")
 				km.HaltDaemon()
 				continue
 			}
 
 			if time.Since(firstCrashTime) >= MaxCrashWindow {
-				slog.Error("内核持续异常超时，进程已挂起，请检查配置")
+				slog.Error("内核持续处于不稳定状态，进程已挂起保护")
 				km.HaltDaemon()
 				continue
 			}
 
 			crashCount++
 			if crashCount >= CoolDownCrashCount {
-				slog.Error("内核异常退出频繁，进入冷却状态", "cooldown", CoolDownDuration)
+				slog.Warn("内核退出过于频繁，进入冷却等待状态", "cooldown", CoolDownDuration)
 				currentDelay = CoolDownDuration
 				crashCount = 0
 			} else {
