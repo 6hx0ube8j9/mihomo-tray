@@ -18,40 +18,6 @@ import (
 
 const RemoteFetchTimeout = 90 * time.Second
 
-func (m *Manager) UpgradeSubscription(ctx context.Context, relPath string, proxyPort string, validator func(tmpPath string) error) (bool, error) {
-	item, ok := m.GetProfileByPath(relPath)
-	if !ok || item.URL == "" {
-		return false, fmt.Errorf("配置文件不存在或 URL 为空")
-	}
-
-	fetchRes, err := m.FetchRemoteProfile(ctx, item.URL, proxyPort)
-	if err != nil {
-		return false, fmt.Errorf("拉取订阅失败: %w", err)
-	}
-
-	defer func() {
-		if _, err := os.Stat(fetchRes.TempPath); err == nil {
-			_ = os.Remove(fetchRes.TempPath)
-		}
-	}()
-
-	if err := validator(fetchRes.TempPath); err != nil {
-		return false, err
-	}
-
-	item.Upload = fetchRes.Upload
-	item.Download = fetchRes.Download
-	item.Total = fetchRes.Total
-	item.Expire = fetchRes.Expire
-	item.LastUpdate = time.Now().Unix()
-
-	if err := m.CommitRemoteProfile(fetchRes.TempPath, relPath, item); err != nil {
-		return false, fmt.Errorf("保存订阅失败: %w", err)
-	}
-
-	return true, nil
-}
-
 func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPort string) (*domain.FetchResult, error) {
 	subURL = strings.TrimSpace(subURL)
 	slog.Info("开始拉取订阅", "url", subURL)
