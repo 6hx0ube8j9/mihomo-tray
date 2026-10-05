@@ -66,10 +66,10 @@ func (a *Application) Bootstrap(ctx context.Context) {
 		if err := a.Cfg.ValidatePhysicalFile(activePath); err != nil {
 			if p, ok := a.Cfg.GetProfileByPath(activePath); ok && p.URL != "" {
 				slog.Info("订阅丢失，尝试静默拉取", "path", activePath)
+				
 				fetchErr := a.fetchAndCommitRemoteProfile(context.Background(), activePath, p.URL, &p)
 				success := (fetchErr == nil)
 
-				success, fetchErr := a.Cfg.UpgradeSubscription(context.Background(), activePath, "", validator)
 				if !success {
 					slog.Warn("静默拉取失败，进入空转", "err", fetchErr)
 					a.Cfg.SetActiveProfile("")
