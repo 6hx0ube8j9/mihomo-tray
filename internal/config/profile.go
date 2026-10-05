@@ -31,13 +31,13 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 	isOverLimit := len(m.data.Profiles.Items) >= domain.MaxProfileCount
 	m.mu.RUnlock()
 	if isOverLimit {
-		return "", false, fmt.Errorf("配置数量达到上限 (%d)", domain.MaxProfileCount)
+		return "", false, fmt.Errorf("配置数量已达系统上限 (%d 个)，请先清理不需要的配置", domain.MaxProfileCount)
 	}
 
 	absSrc, err := filepath.EvalSymlinks(srcPath)
 	if err != nil {
 		if absSrc, err = filepath.Abs(srcPath); err != nil {
-			return "", false, err
+			return "", false, fmt.Errorf("无法解析目标文件路径: %w", err)
 		}
 	}
 
@@ -49,7 +49,7 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 
 	profilesDirAbs := filepath.Join(m.baseDir, ProfilesDir)
 	if err := os.MkdirAll(profilesDirAbs, 0755); err != nil {
-		return "", false, err
+		return "", false, fmt.Errorf("无法创建配置存放目录，请检查系统权限: %w", err)
 	}
 
 	baseName := strings.TrimSuffix(filepath.Base(absSrc), filepath.Ext(absSrc))
@@ -57,7 +57,7 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 	dstAbs := filepath.Join(m.baseDir, filepath.FromSlash(finalRelPath))
 
 	if err := copyFileWithLimit(absSrc, dstAbs, domain.MaxProfileBytes); err != nil {
-		return "", false, err
+		return "", false, fmt.Errorf("文件导入受阻。\n\n%w", err)
 	}
 
 	return finalRelPath, true, nil
@@ -111,7 +111,7 @@ func resolveUniqueProfileRelPath(profilesDirAbs, baseName string) string {
 func copyFileWithLimit(srcPath, dstPath string, maxBytes int64) error {
 	srcFile, err := os.Open(srcPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("源文件已被删除或无读取权限: %w", err)
 	}
 	defer srcFile.Close()
 
@@ -120,7 +120,7 @@ func copyFileWithLimit(srcPath, dstPath string, maxBytes int64) error {
 
 	tmpFile, err := os.CreateTemp(targetDir, "profile.*.tmp")
 	if err != nil {
-		return err
+		return fmt.Errorf("无法在系统目录创建缓存文件: %w", err)
 	}
 	tmpName := tmpFile.Name()
 
@@ -133,23 +133,26 @@ func copyFileWithLimit(srcPath, dstPath string, maxBytes int64) error {
 	}()
 
 	if _, err := io.Copy(tmpFile, io.LimitReader(srcFile, maxBytes)); err != nil {
-		return err
+		return fmt.Errorf("数据传输过程中发生异常: %w", err)
 	}
 
 	var extra [1]byte
 	if n, _ := srcFile.Read(extra[:]); n > 0 {
-		return fmt.Errorf("文件体积超限")
+		return fmt.Errorf("配置文件体积超出上限 (最大允许 %d MB)", maxBytes/(1024*1024))
 	}
 
 	if err := tmpFile.Sync(); err != nil {
-		return err
+		return fmt.Errorf("文件落盘失败: %w", err)
 	}
 	if err := tmpFile.Close(); err != nil {
-		return err
+		return fmt.Errorf("文件系统占有释放失败: %w", err)
 	}
 	cleaned = true
 
-	return os.Rename(tmpName, dstPath)
+	if err := os.Rename(tmpName, dstPath); err != nil {
+		return fmt.Errorf("最终配置文件生成失败: %w", err)
+	}
+	return nil
 }
 
 func enforceProfileLimit(cfg *domain.TrayConfig) {
