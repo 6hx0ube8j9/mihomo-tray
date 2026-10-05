@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os/exec"
 	"strings"
@@ -13,6 +12,13 @@ import (
 
 	"golang.org/x/sys/windows"
 )
+
+var shortCircuitKeywords = []string{
+	"download",
+	"fetching",
+	"updating",
+	"pulling",
+}
 
 func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -29,19 +35,18 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		return fmt.Errorf("无法建立输出管道: %w", err)
+		return errors.New("无法建立输出管道: " + err.Error())
 	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		return fmt.Errorf("无法建立错误管道: %w", err)
+		return errors.New("无法建立错误管道: " + err.Error())
 	}
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("沙盒进程启动失败: %w", err)
+		return errors.New("沙盒进程启动失败: " + err.Error())
 	}
 
 	resultCh := make(chan error, 1)
-
 	var lastErrorMsg string
 	var msgMu sync.Mutex
 
@@ -60,7 +65,15 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 			line := scanner.Text()
 			lowerLine := strings.ToLower(line)
 
-			if strings.Contains(lowerLine, "download") {
+			isShortCircuit := false
+			for _, kw := range shortCircuitKeywords {
+				if strings.Contains(lowerLine, kw) {
+					isShortCircuit = true
+					break
+				}
+			}
+
+			if isShortCircuit {
 				select {
 				case resultCh <- nil:
 				default:
@@ -100,7 +113,7 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 			if errMsg != "" {
 				resultCh <- errors.New(errMsg)
 			} else {
-				resultCh <- fmt.Errorf("内核预检测异常闪退 (可能存在协议或格式不兼容)")
+				resultCh <- errors.New("内核预检测异常闪退 (可能存在协议或格式不兼容)")
 			}
 		} else {
 			resultCh <- nil
@@ -110,7 +123,7 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 	var finalErr error
 	select {
 	case <-ctx.Done():
-		finalErr = fmt.Errorf("内核检测超时(10s)，可能遭遇系统 I/O 死锁")
+		finalErr = errors.New("内核检测超时(10s)，可能遭遇系统 I/O 死锁")
 	case err := <-resultCh:
 		finalErr = err
 	}
