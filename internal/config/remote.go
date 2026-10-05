@@ -46,7 +46,7 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 
 		req, err := http.NewRequestWithContext(ctx, "GET", subURL, nil)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("无效的订阅链接格式: %w", err)
 		}
 
 		req.Header.Set("User-Agent", domain.DefaultUserAgent)
@@ -63,23 +63,23 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
 			}
-			slog.Warn("网络请求异常，准备重试", "url", subURL, "retry", i+1, "err", reqErr)
+			slog.Warn("网络不稳定，准备进行自动重试", "url", subURL, "retry", i+1, "err", reqErr)
 			time.Sleep(1500 * time.Millisecond)
 		}
 	}
 
 	if reqErr != nil {
-		return nil, fmt.Errorf("网络请求失败 (已重试%d次): %w", maxRetries, reqErr)
+		return nil, fmt.Errorf("无法连接至订阅服务器 (已重试%d次)。请检查网络状态或代理设置。\n\n%w", maxRetries, reqErr)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("服务器响应异常，状态码: %d", resp.StatusCode)
+		return nil, fmt.Errorf("服务器拒绝提供配置，HTTP 状态码: %d", resp.StatusCode)
 	}
 
 	contentType := strings.ToLower(resp.Header.Get("Content-Type"))
 	if strings.Contains(contentType, "text/html") {
-		return nil, fmt.Errorf("拉取异常: 目标服务器返回了 HTML 页面，可能已被防火墙拦截")
+		return nil, fmt.Errorf("目标链接无效或提供的内容非代理配置 (服务器返回了网页内容)")
 	}
 
 	profilesDirAbs := filepath.Join(m.baseDir, ProfilesDir)
@@ -87,7 +87,7 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 
 	tmpFile, err := os.CreateTemp(profilesDirAbs, "sub_*.tmp")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("系统缓存文件创建失败，请检查磁盘权限: %w", err)
 	}
 	tmpName := tmpFile.Name()
 
@@ -98,7 +98,7 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 	if n, _ := resp.Body.Read(extra[:]); n > 0 {
 		_ = tmpFile.Close()
 		_ = os.Remove(tmpName)
-		return nil, fmt.Errorf("订阅文件体积超出安全上限 (最大允许 %d MB)", domain.MaxProfileBytes/(1024*1024))
+		return nil, fmt.Errorf("订阅文件体积超出上限 (最大允许 %d MB)", domain.MaxProfileBytes/(1024*1024))
 	}
 
 	if copyErr == nil {
@@ -109,7 +109,7 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 
 	if copyErr != nil {
 		_ = os.Remove(tmpName)
-		return nil, copyErr
+		return nil, fmt.Errorf("订阅内容写入本地失败: %w", copyErr)
 	}
 
 	res := &domain.FetchResult{TempPath: tmpName}
@@ -140,7 +140,7 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 func (m *Manager) CommitRemoteProfile(tempPath string, targetRelPath string, item domain.ProfileItem) error {
 	targetAbs := filepath.Join(m.baseDir, filepath.FromSlash(targetRelPath))
 	if err := os.Rename(tempPath, targetAbs); err != nil {
-		return err
+		return fmt.Errorf("配置落盘受阻，文件可能被系统占用。\n\n%w", err)
 	}
 
 	m.UpsertProfile(item)
