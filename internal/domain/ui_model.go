@@ -18,7 +18,7 @@ const (
 	ActionOpenProfileManager  = "OpenProfileManager"
 	ActionRequestAddLocal     = "RequestAddLocalProfile"
 	ActionRequestAddRemote    = "RequestAddRemoteProfile"
-	ActionRequestEditRemote   = "RequestEditRemoteProfile"
+	ActionEditProfileInfo     = "ActionEditProfileInfo"
 	ActionAddLocalProfile     = "AddLocalProfile"
 	ActionAddRemoteProfile    = "AddRemoteProfile"
 	ActionSetProfileInterval  = "SetProfileInterval"
