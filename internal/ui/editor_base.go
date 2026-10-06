@@ -15,7 +15,6 @@ type EditorConfig struct {
 	AcceptBtnText string
 	CancelBtnText string
 	OnReady       func(dlg *walk.Dialog)
-	AssignTo      **walk.Dialog
 }
 
 type EditorResult struct {
@@ -49,14 +48,6 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 					Text:     cfg.AcceptBtnText,
 					MinSize:  Size{Width: 80, Height: 26},
 					OnClicked: func() {
-						if cfg.OnAccept != nil {
-							ok, err := cfg.OnAccept()
-							if !ok {
-								return
-							}
-							processErr = err
-						}
-						isAccepted = true
 						dlg.Accept()
 					},
 				},
@@ -86,10 +77,6 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 		return EditorResult{Accepted: false, Error: err}
 	}
 
-	if cfg.AssignTo != nil {
-		*cfg.AssignTo = dlg
-	}
-	
 	if cfg.OnReady != nil {
 		cfg.OnReady(dlg)
 	}
@@ -106,14 +93,24 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	})
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-		if cfg.AssignTo != nil {
-			*cfg.AssignTo = nil
+		if reason == walk.CloseReasonUnknown && dlg.Result() == walk.DlgCmdOK {
+			if cfg.OnAccept != nil {
+				ok, err := cfg.OnAccept()
+				if !ok {
+					*canceled = true 
+					return
+				}
+				processErr = err
+			}
+			isAccepted = true
 		}
-		restoreFocus(owner, hActive)
+		
+		if !*canceled {
+			restoreFocus(owner, hActive)
+		}
 	})
 
-	cmd := dlg.Run()
-	
-	isConfirmed := (cmd == walk.DlgCmdOK) || isAccepted
-	return EditorResult{Accepted: isConfirmed, Error: processErr}
+	dlg.Run()
+
+	return EditorResult{Accepted: isAccepted, Error: processErr}
 }
