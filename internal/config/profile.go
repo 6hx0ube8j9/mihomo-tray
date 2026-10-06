@@ -101,7 +101,9 @@ func (m *Manager) UpsertProfile(item domain.ProfileItem) {
 func (m *Manager) GetActivePathAbs() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.data.Profiles.Active == "" { return "" }
+	if m.data.Profiles.Active == "" {
+		return ""
+	}
 	return filepath.Join(m.baseDir, filepath.FromSlash(m.data.Profiles.Active))
 }
 
@@ -120,8 +122,8 @@ func (m *Manager) GetProfiles() []domain.ProfileItem {
 }
 
 func (m *Manager) SetActiveProfile(relPath string) {
-	if m.GetActivePath() == relPath { 
-		return 
+	if m.GetActivePath() == relPath {
+		return
 	}
 	m.Update(func(cfg *domain.TrayConfig) {
 		cfg.Profiles.Active = relPath
@@ -134,11 +136,11 @@ func (m *Manager) RemoveProfile(relPath string) {
 			slog.Info("当前活跃配置被移除，系统切换至空转状态")
 			cfg.Profiles.Active = ""
 		}
-		
+
 		var newItems []domain.ProfileItem
 		for _, item := range cfg.Profiles.Items {
-			if item.Path != relPath { 
-				newItems = append(newItems, item) 
+			if item.Path != relPath {
+				newItems = append(newItems, item)
 			}
 		}
 		cfg.Profiles.Items = newItems
@@ -146,30 +148,37 @@ func (m *Manager) RemoveProfile(relPath string) {
 }
 
 func (m *Manager) MoveProfile(relPath string, offset int) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for i, p := range m.data.Profiles.Items {
-		if p.Path == relPath {
-			targetIdx := i + offset
-			if targetIdx < 0 || targetIdx >= len(m.data.Profiles.Items) { return false }
-			m.data.Profiles.Items[i], m.data.Profiles.Items[targetIdx] = m.data.Profiles.Items[targetIdx], m.data.Profiles.Items[i]
-			
-			m.lockedSerializeAndSave()
-			return true
+	moved := false
+	m.Update(func(cfg *domain.TrayConfig) {
+		for i, p := range cfg.Profiles.Items {
+			if p.Path == relPath {
+				targetIdx := i + offset
+				if targetIdx >= 0 && targetIdx < len(cfg.Profiles.Items) {
+					cfg.Profiles.Items[i], cfg.Profiles.Items[targetIdx] = cfg.Profiles.Items[targetIdx], cfg.Profiles.Items[i]
+					moved = true
+				}
+				return
+			}
 		}
-	}
-	return false
+	})
+	return moved
 }
 
 func (m *Manager) ValidatePhysicalFile(relPath string) error {
-	if relPath == "" { return fmt.Errorf("未指定配置文件路径") }
+	if relPath == "" {
+		return fmt.Errorf("未指定配置文件路径")
+	}
 	absPath := filepath.Join(m.baseDir, filepath.FromSlash(relPath))
 	fi, err := os.Stat(absPath)
 	if err != nil {
-		if os.IsNotExist(err) { return fmt.Errorf("本地配置文件已丢失或被移除") }
+		if os.IsNotExist(err) {
+			return fmt.Errorf("本地配置文件已丢失或被移除")
+		}
 		return fmt.Errorf("无法读取本地配置文件，请检查系统权限。\n\n%w", err)
 	}
-	if fi.Size() == 0 { return fmt.Errorf("配置文件已损坏 (文件内容为空)") }
+	if fi.Size() == 0 {
+		return fmt.Errorf("配置文件已损坏 (文件内容为空)")
+	}
 	return nil
 }
 
