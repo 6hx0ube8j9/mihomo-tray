@@ -12,7 +12,7 @@ import (
 
 var currentSubEditor *walk.Dialog
 
-func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultUrl string, defaultInterval int) (string, string, int, bool) {
+func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultUrl string, defaultInterval int, isRemote bool) (string, string, int, bool) {
 	if e.app == nil || e.mw == nil {
 		return "", "", 0, false
 	}
@@ -38,15 +38,16 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultUrl string, d
 						Label{Text: "配置名称:", Alignment: AlignHFarVCenter},
 						LineEdit{AssignTo: &nameEdit, Text: defaultName},
 
-						Label{Text: "订阅链接:", Alignment: AlignHFarVCenter},
-						LineEdit{AssignTo: &urlEdit, Text: defaultUrl},
+						Label{Text: "订阅链接:", Alignment: AlignHFarVCenter, Enabled: isRemote},
+						LineEdit{AssignTo: &urlEdit, Text: defaultUrl, Enabled: isRemote},
 
-						Label{Text: "更新频率:", Alignment: AlignHFarVCenter},
+						Label{Text: "更新频率:", Alignment: AlignHFarVCenter, Enabled: isRemote},
 						Composite{
 							Layout: HBox{MarginsZero: true},
+							Enabled: isRemote,
 							Children: []Widget{
-								NumberEdit{AssignTo: &intervalEdit, Value: float64(defaultInterval), MinValue: 0, MaxValue: float64(domain.MaxUpdateInterval)},
-								Label{Text: "天 (填 0 为禁用自动更新)"},
+								NumberEdit{AssignTo: &intervalEdit, Value: float64(defaultInterval), MinValue: 0, MaxValue: float64(domain.MaxUpdateInterval), Enabled: isRemote},
+								Label{Text: "天 (填 0 为禁用自动更新)", Enabled: isRemote},
 								HSpacer{},
 							},
 						},
@@ -57,9 +58,11 @@ func (e *Engine) ShowSubscriptionEditor(title, defaultName, defaultUrl string, d
 				inputName := strings.TrimSpace(nameEdit.Text())
 				inputUrl := strings.TrimSpace(urlEdit.Text())
 
-				if !netutil.IsValidHTTPURL(inputUrl) {
-					RunErrorDialog(currentSubEditor, "输入错误", "请输入有效的 HTTP/HTTPS 订阅链接")
-					return false, nil
+				if isRemote {
+					if !netutil.IsValidHTTPURL(inputUrl) {
+						RunErrorDialog(currentSubEditor, "输入错误", "请输入有效的 HTTP/HTTPS 订阅链接")
+						return false, nil
+					}
 				}
 
 				finalName = inputName
