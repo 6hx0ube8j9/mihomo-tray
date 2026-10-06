@@ -207,7 +207,7 @@ func (e *Engine) showAsyncDialog(title, message string, walkIcon *walk.Icon, bee
 }
 
 func (e *Engine) ShowError(title, message string) {
-	e.showAsyncDialog(title, message, walk.IconWarning(), win.MB_ICONWARNING, win.MB_ICONERROR)
+	e.showAsyncDialog(title, message, walk.IconError(), win.MB_ICONERROR, win.MB_ICONERROR)
 }
 
 func (e *Engine) ShowInfo(title, message string) {
@@ -222,7 +222,7 @@ func (e *Engine) ShowConfirm(title, message string) bool {
 	resultCh := make(chan bool, 1)
 
 	e.app.Synchronize(func() {
-		resultCh <- e.executeGuardedDialog(title, message, walk.IconQuestion(), win.MB_ICONQUESTION, true)
+		resultCh <- e.executeGuardedDialog(title, message, walk.IconQuestion(), win.MB_ICONEXCLAMATION, true)
 	})
 
 	select {
