@@ -13,7 +13,6 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 
 	var dlg *walk.Dialog
 	var acceptPB, cancelPB *walk.PushButton
-	isAccepted := false
 
 	buttons := []Widget{
 		HSpacer{},
@@ -26,7 +25,6 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 			},
 		},
 	}
-	
 	if isConfirm {
 		buttons = append(buttons, PushButton{
 			AssignTo: &cancelPB,
@@ -89,6 +87,10 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 		if beep != 0 {
 			win.MessageBeep(beep)
 		}
+		
+		if acceptPB != nil {
+			acceptPB.SetFocus()
+		}
 	})
 
 	dlg.SizeChanged().Attach(func() {
@@ -96,14 +98,10 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 	})
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-		if reason == walk.CloseReasonUnknown && dlg.Result() == walk.DlgCmdOK {
-			isAccepted = true
-		}
 		restoreFocus(parent, hActive)
 	})
 
-	dlg.Run()
-	return isAccepted
+	return dlg.Run() == walk.DlgCmdOK
 }
 
 func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, beep uint32) {
