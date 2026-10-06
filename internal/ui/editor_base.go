@@ -84,7 +84,11 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	defer dlg.Dispose()
 
 	dlg.Starting().Attach(func() {
-		lockWindowSize(dlg.Handle())
+		hwnd := dlg.Handle()
+		lockWindowSize(hwnd)
+
+		win.SetWindowLong(hwnd, win.GWL_EXSTYLE, win.GetWindowLong(hwnd, win.GWL_EXSTYLE)|win.WS_EX_APPWINDOW)
+
 		centerDialog(dlg, owner, hActive)
 	})
 
