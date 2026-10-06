@@ -60,7 +60,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			}
 		}()
 
-    case domain.ActionRequestEditProfileInfo:
+    case domain.ActionEditProfileInfo:
 		if profile, ok := a.GetProfileInfo(cmd.Payload); ok {
 			go func(p domain.ProfileItem) {
 				if a.ui != nil {
