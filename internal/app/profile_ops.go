@@ -13,133 +13,23 @@ import (
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/state"
 )
-
-func (a *Application) validateProfileSource(absOrTempPath string) error {
-	fi, err := os.Stat(absOrTempPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("配置文件不存在")
-		}
-		return fmt.Errorf("无法读取待校验配置文件信息: %w", err)
-	}
-
-	if fi.Size() == 0 {
-		return fmt.Errorf("配置文件内容为空 (0 字节)")
-	}
-	if fi.Size() > domain.MaxProfileBytes {
-		return fmt.Errorf("配置文件体积超出上限 (最大允许 %d MB)", domain.MaxProfileBytes/(1024*1024))
-	}
-
-	content, err := os.ReadFile(absOrTempPath)
-	if err != nil {
-		return fmt.Errorf("读取待校验配置失败: %w", err)
-	}
-
-	if _, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), content); err != nil {
-		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("底稿语法断言失败 [%s]:\n%v", filepath.Base(absOrTempPath), err))
-		return err
-	}
-
-	return nil
-}
-
-func (a *Application) getActiveProxyPort() string {
-	if a.State.GetPhase() == domain.PhaseRunning && !a.Kernel.IsPaused() {
-		cfg := a.Cfg.GetConfig()
-		return strconv.Itoa(a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort))
-	}
-	return ""
-}
-
-func (a *Application) fetchAndCommitRemoteProfile(ctx context.Context, targetRelPath, url string, p *domain.ProfileItem) error {
-	fetchRes, err := a.Cfg.FetchRemoteProfile(ctx, url, a.getActiveProxyPort())
-	if err != nil {
-		return fmt.Errorf("拉取订阅失败: %w", err)
-	}
-	defer os.Remove(fetchRes.TempPath)
-
-	if err := a.validateProfileSource(fetchRes.TempPath); err != nil {
-		return fmt.Errorf("订阅配置语法或规则存在错误，已拒绝保存。\n\n%w", err)
-	}
-
-	p.Upload = fetchRes.Upload
-	p.Download = fetchRes.Download
-	p.Total = fetchRes.Total
-	p.Expire = fetchRes.Expire
-	p.LastUpdate = time.Now().Unix()
-
-	if err := a.Cfg.CommitRemoteProfile(fetchRes.TempPath, targetRelPath, *p); err != nil {
-		return fmt.Errorf("保存订阅文件失败，请检查磁盘权限: %w", err)
-	}
-
-	return nil
-}
-
-func (a *Application) onProfileImported(ctx context.Context, newProfilePath string) {
-	if len(a.Cfg.GetProfiles()) == 1 {
-		slog.Info("首个配置导入成功，触发全局自动激活并加载", "path", newProfilePath)
-		
-		a.Cfg.SetActiveProfile(newProfilePath)
-		a.ForcePushUIState()
-		
-		if err := a.comboKernelRestart(ctx, newProfilePath); err != nil {
-			slog.Warn("自动激活首个配置时遇到启动异常", "err", err)
-		}
-		
-		a.restartWebUIIfOpen()
-	} else {
-		a.ForcePushUIState()
-	}
-}
-
-func (a *Application) SwitchProfile(ctx context.Context, targetPath string) error {
-	if targetPath != "" && targetPath == a.Cfg.GetActivePath() {
-		a.ForcePushUIState()
-		return nil
-	}
-
-	if !a.State.TryBeginSwitchProfile() {
-		a.ForcePushUIState()
-		return nil
-	}
-
-	defer func() {
-		a.State.SetProfileSwitching(false)
-		a.ForcePushUIState()
-	}()
-
-	target := targetPath
-	if target == "" {
-		target = a.Cfg.GetActivePath()
-	}
-
-	if target != "" {
-		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
-			return fmt.Errorf("配置文件丢失或损坏，已拦截切换。\n\n%w", err)
-		}
-	}
-
-	if err := a.applyConfigTransaction(ctx, target); err != nil {
-		return err 
-	}
-
-	a.Cfg.SetActiveProfile(target)
-	a.restartWebUIIfOpen()
-	return nil
-}
 
 func (a *Application) ImportLocalProfile(ctx context.Context, sourcePath string) error {
 	if sourcePath == "" {
 		return nil
 	}
 
-	if a.State.IsProfileSwitching() {
+	if err := a.Cfg.CheckProfileLimit(); err != nil {
+		return err
+	}
+
+	if !a.State.TryBeginAction(state.ActionSwitchProfile) {
 		return fmt.Errorf("系统正在处理其他配置操作，请稍后重试")
 	}
-	a.State.SetProfileSwitching(true)
 	defer func() {
-		a.State.SetProfileSwitching(false)
+		a.State.EndAction()
 		a.ForcePushUIState()
 	}()
 
@@ -161,6 +51,15 @@ func (a *Application) ImportLocalProfile(ctx context.Context, sourcePath string)
 }
 
 func (a *Application) AddRemoteProfile(ctx context.Context, rawName, url string, interval int) error {
+	if err := a.Cfg.CheckProfileLimit(); err != nil {
+		return err
+	}
+
+	cleanURL := strings.TrimSpace(url)
+	if cleanURL == "" {
+		return fmt.Errorf("订阅链接不可为空")
+	}
+
 	if rawName == "" {
 		rawName = fmt.Sprintf("%d", time.Now().Unix())
 	}
@@ -168,16 +67,16 @@ func (a *Application) AddRemoteProfile(ctx context.Context, rawName, url string,
 	fileName := fmt.Sprintf("%s.yaml", safeName)
 	targetRelPath := filepath.ToSlash(filepath.Join(config.ProfilesDir, fileName))
 
+	if _, exists := a.Cfg.GetProfileByPath(targetRelPath); exists {
+		return fmt.Errorf("配置名称或路径已存在冲突，请重命名")
+	}
+
 	newItem := domain.ProfileItem{
 		Name:       safeName,
 		Path:       targetRelPath,
-		URL:        strings.TrimSpace(url),
+		URL:        cleanURL,
 		AutoUpdate: interval > 0,
 		Interval:   interval,
-	}
-
-	if _, exists := a.Cfg.GetProfileByPath(targetRelPath); exists {
-		return fmt.Errorf("配置名称或路径已存在冲突")
 	}
 
 	if err := a.fetchAndCommitRemoteProfile(ctx, targetRelPath, newItem.URL, &newItem); err != nil {
@@ -186,6 +85,47 @@ func (a *Application) AddRemoteProfile(ctx context.Context, rawName, url string,
 
 	slog.Info("添加并拉取订阅成功", "path", targetRelPath)
 	a.onProfileImported(ctx, targetRelPath)
+	return nil
+}
+
+func (a *Application) SwitchProfile(ctx context.Context, targetPath string) error {
+	if targetPath != "" && targetPath == a.Cfg.GetActivePath() {
+		a.ForcePushUIState()
+		return nil
+	}
+
+	if !a.State.TryBeginAction(state.ActionSwitchProfile) {
+		a.ForcePushUIState()
+		return fmt.Errorf("系统正在处理其他核心任务，请稍后重试")
+	}
+	defer func() {
+		a.State.EndAction()
+		a.ForcePushUIState()
+	}()
+
+	target := targetPath
+	if target == "" {
+		target = a.Cfg.GetActivePath()
+	}
+
+	if target != "" {
+		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
+			return fmt.Errorf("配置文件丢失或损坏，已拦截切换。\n\n%w", err)
+		}
+	}
+
+	deployRes, err := a.prepareAndValidateConfig(target)
+	if err != nil {
+		return err 
+	}
+
+	a.Cfg.SetActiveProfile(target)
+
+	a.executeKernelTransition(ctx, func(c context.Context) error {
+		return a.apiHotReloadCommand(c, deployRes.RuntimeAbs)
+	}, "切换配置")
+
+	a.restartWebUIIfOpen()
 	return nil
 }
 
@@ -214,10 +154,10 @@ func (a *Application) EditRemoteProfile(ctx context.Context, oldPath, newName, n
 	a.Cfg.UpsertProfile(p)
 
 	if urlChanged && a.Cfg.GetActivePath() == p.Path {
-		slog.Info("当前活跃配置链接已修改且拉取成功，执行底层重载")
-		if reloadErr := a.applyConfigTransaction(ctx, p.Path); reloadErr != nil {
+		slog.Info("当前活跃配置链接已修改且拉取成功，执行内核下发")
+		if err := a.applyActiveConfig(ctx, "订阅更新热加载"); err != nil {
 			a.ForcePushUIState()
-			return fmt.Errorf("订阅信息修改并拉取成功，但应用至内核失败。\n\n%w", reloadErr)
+			return fmt.Errorf("订阅信息拉取成功，但应用至内核失败。\n\n%w", err)
 		}
 	}
 
@@ -230,15 +170,34 @@ func (a *Application) EditLocalProfile(ctx context.Context, targetPath, newName 
 	if !ok {
 		return fmt.Errorf("找不到指定的配置文件，可能已被删除")
 	}
-
-	if newName == p.Name {
+	if p.Name == newName {
 		return nil
 	}
 
 	p.Name = newName
 	a.Cfg.UpsertProfile(p)
+	a.ForcePushUIState()
+	return nil
+}
 
-	slog.Info("本地配置名称已修改", "path", targetPath, "newName", newName)
+func (a *Application) DeleteProfile(targetPath string) error {
+	isActive := targetPath == a.Cfg.GetActivePath()
+
+	absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetPath))
+	if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
+		slog.Warn("清理本地物理文件受阻", "path", absPath, "err", err)
+	}
+
+	a.Cfg.RemoveProfile(targetPath)
+
+	if isActive {
+		slog.Info("当前活跃配置已被删除，重置内核进入空转状态")
+		if err := a.applyActiveConfig(context.Background(), "空转重置"); err != nil {
+			a.ForcePushUIState()
+			return fmt.Errorf("配置已被删除，但系统进入空转状态时发生异常。\n\n%w", err)
+		}
+	}
+
 	a.ForcePushUIState()
 	return nil
 }
@@ -263,22 +222,22 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 	err := a.fetchAndCommitRemoteProfile(ctx, targetRelPath, p.URL, &p)
 	if err != nil {
 		if isManual {
-			return fmt.Errorf("无法拉取最新的订阅配置，请检查网络或链接状态。\n\n%w", err)
+			return fmt.Errorf("无法拉取最新的订阅配置。\n\n%w", err)
 		}
 		slog.Warn("后台自动更新订阅失败", "path", targetRelPath, "err", err)
 		return nil
 	}
 
 	slog.Info("配置更新成功", "path", targetRelPath)
-	
+
 	if a.Cfg.GetActivePath() == targetRelPath {
 		slog.Info("当前活跃配置已更新，执行底层重载")
-		if reloadErr := a.applyConfigTransaction(ctx, targetRelPath); reloadErr != nil {
+		if err := a.applyActiveConfig(ctx, "订阅更新重载"); err != nil {
 			a.ForcePushUIState()
 			if isManual {
-				return fmt.Errorf("订阅更新成功，但应用新配置到内核时失败。\n\n%w", reloadErr)
+				return fmt.Errorf("订阅更新成功，但应用内核时失败。\n\n%w", err)
 			}
-			slog.Error("自动更新订阅成功，但应用内核失败", "err", reloadErr)
+			slog.Error("自动更新订阅成功，但应用内核失败", "err", err)
 		}
 	}
 
@@ -286,58 +245,113 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 	return nil
 }
 
+func (a *Application) getActiveProxyPort() string {
+	if a.State.GetPhase() == domain.PhaseRunning && !a.Kernel.IsPaused() {
+		cfg := a.Cfg.GetConfig()
+		port := a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort)
+		return strconv.Itoa(port)
+	}
+	return ""
+}
+
+func (a *Application) fetchAndCommitRemoteProfile(ctx context.Context, targetRelPath, url string, item *domain.ProfileItem) error {
+	proxyPort := a.getActiveProxyPort()
+
+	res, err := a.Cfg.FetchRemoteProfile(ctx, url, proxyPort)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(res.TempPath)
+
+	if err := a.validateProfileSource(res.TempPath); err != nil {
+		return fmt.Errorf("订阅文件内容存在语法或规则错误，已拒绝保存。\n\n%w", err)
+	}
+
+	item.Upload = res.Upload
+	item.Download = res.Download
+	item.Total = res.Total
+	item.Expire = res.Expire
+	item.LastUpdate = time.Now().Unix()
+
+	return a.Cfg.CommitRemoteProfile(res.TempPath, targetRelPath, *item)
+}
+
+func (a *Application) validateProfileSource(sourcePath string) error {
+	absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(sourcePath))
+	if filepath.IsAbs(sourcePath) {
+		absPath = sourcePath
+	}
+
+	fi, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("配置文件不存在")
+		}
+		return fmt.Errorf("读取配置文件状态失败: %w", err)
+	}
+	if fi.Size() == 0 {
+		return fmt.Errorf("配置文件内容为空 (0 字节)")
+	}
+	if fi.Size() > domain.MaxProfileBytes {
+		return fmt.Errorf("配置文件体积超出上限 (最大允许 %d MB)", domain.MaxProfileBytes/(1024*1024))
+	}
+
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return fmt.Errorf("读取待校验配置失败: %w", err)
+	}
+
+	if _, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), content); err != nil {
+		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("底稿语法断言失败 [%s]:\n%v", filepath.Base(sourcePath), err))
+		return fmt.Errorf("配置语法或规则存在错误，无法合成运行配置。\n\n%w", err)
+	}
+
+	return nil
+}
+
+func (a *Application) onProfileImported(ctx context.Context, newProfilePath string) {
+	if len(a.Cfg.GetProfiles()) == 1 {
+		slog.Info("首个配置导入成功，触发全局自动激活并加载", "path", newProfilePath)
+		a.Cfg.SetActiveProfile(newProfilePath)
+		a.ForcePushUIState()
+
+		if err := a.applyActiveConfig(ctx, "首配置自动激活"); err != nil {
+			slog.Warn("自动激活首个配置时遇到启动异常", "err", err)
+		}
+
+		a.restartWebUIIfOpen()
+	} else {
+		a.ForcePushUIState()
+	}
+}
+
+func (a *Application) GetProfileInfo(path string) (domain.ProfileItem, bool) {
+	return a.Cfg.GetProfileByPath(path)
+}
+
+func (a *Application) MoveProfileUp(path string) {
+	a.Cfg.MoveProfile(path, -1)
+}
+
+func (a *Application) MoveProfileDown(path string) {
+	a.Cfg.MoveProfile(path, 1)
+}
+
 func (a *Application) SetProfileInterval(payload string) {
-	parts := strings.Split(payload, "|")
+	parts := strings.SplitN(payload, "|", 2)
 	if len(parts) != 2 {
 		return
 	}
-	targetPath := parts[0]
+	path := parts[0]
 	interval, err := strconv.Atoi(parts[1])
 	if err != nil {
 		return
 	}
 
-	if p, ok := a.Cfg.GetProfileByPath(targetPath); ok {
+	if p, ok := a.Cfg.GetProfileByPath(path); ok {
 		p.Interval = interval
 		p.AutoUpdate = interval > 0
 		a.Cfg.UpsertProfile(p)
-		slog.Info("修改订阅更新频率", "path", targetPath, "interval", interval)
 		a.ForcePushUIState()
 	}
-}
-
-func (a *Application) DeleteProfile(targetPath string) error {
-	isActive := targetPath == a.Cfg.GetActivePath()
-
-	absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetPath))
-	if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
-		slog.Warn("清理本地物理文件受阻", "path", absPath, "err", err)
-	}
-
-	a.Cfg.RemoveProfile(targetPath)
-
-	var resetErr error
-	if isActive {
-		slog.Info("当前活跃配置已被删除，重置内核进入空转状态")
-		resetErr = a.applyConfigTransaction(context.Background(), "")
-	}
-
-	a.ForcePushUIState()
-	
-	if resetErr != nil {
-		return fmt.Errorf("配置已被删除，但系统进入空转状态时发生异常。\n\n%w", resetErr)
-	}
-	return nil
-}
-
-func (a *Application) MoveProfileUp(targetPath string) {
-	a.Cfg.MoveProfile(targetPath, -1)
-}
-
-func (a *Application) MoveProfileDown(targetPath string) {
-	a.Cfg.MoveProfile(targetPath, 1)
-}
-
-func (a *Application) GetProfileInfo(targetPath string) (domain.ProfileItem, bool) {
-	return a.Cfg.GetProfileByPath(targetPath)
 }
