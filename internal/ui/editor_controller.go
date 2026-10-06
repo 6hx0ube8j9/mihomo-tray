@@ -11,27 +11,35 @@ import (
 	"mihomo-tray/internal/random"
 )
 
-var currentControllerEditor *walk.Dialog
-
 func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, defaultOnline, defaultSysBrowser bool, defaultRemoteURL string) (string, string, bool, bool, string, bool) {
-	if e.app == nil || e.mw == nil {
+	if e.dialogMgr == nil {
 		return "", "", false, false, "", false
 	}
 
-	var addrEdit, secretEdit, remoteURLEdit *walk.LineEdit
-	var onlineCheck, sysBrowserCheck *walk.CheckBox
 	var finalAddr, finalSecret, finalRemoteURL string
 	var finalOnline, finalSysBrowser bool
+	var isAccepted bool
 
-	resultCh := make(chan EditorResult, 1)
+	e.dialogMgr.RunOnUI(func() {
+		key := "editor_controller"
+		if !e.dialogMgr.TryAcquire(key) {
+			return
+		}
+		defer e.dialogMgr.Release(key)
 
-	e.app.Synchronize(func() {
+		var addrEdit, secretEdit, remoteURLEdit *walk.LineEdit
+		var onlineCheck, sysBrowserCheck *walk.CheckBox
+		var currentDlg *walk.Dialog
+
 		res := RunEditor(e.activeOwner(), EditorConfig{
-			AssignTo:      &currentControllerEditor,
 			Title:         "Web 面板设置",
 			Width:         430,
 			MinHeight:     240,
 			AcceptBtnText: "确定",
+			OnReady: func(dlg *walk.Dialog) {
+				currentDlg = dlg
+				e.dialogMgr.Register(key, dlg)
+			},
 			Widgets: []Widget{
 				Composite{
 					Layout: VBox{MarginsZero: true, Spacing: 8},
@@ -116,16 +124,16 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 				rURL := strings.TrimSpace(remoteURLEdit.Text())
 
 				if !netutil.IsValidHostPort(addr) {
-					RunErrorDialog(currentControllerEditor, "保存失败", "地址格式错误。")
+					RunErrorDialog(currentDlg, "保存失败", "地址格式错误。")
 					return false, nil
 				}
 				if netutil.IsPublicAddress(addr) && secret == "" {
-					RunErrorDialog(currentControllerEditor, "保存失败", "当前地址支持外网访问，密钥不能为空。")
+					RunErrorDialog(currentDlg, "保存失败", "当前地址支持外网访问，密钥不能为空。")
 					return false, nil
 				}
 				
 				if !netutil.IsValidHTTPURL(rURL) {
-					RunErrorDialog(currentControllerEditor, "保存失败", "地址格式错误，请输入有效的 HTTP/HTTPS 链接。")
+					RunErrorDialog(currentDlg, "保存失败", "地址格式错误，请输入有效的 HTTP/HTTPS 链接。")
 					return false, nil
 				}
 
@@ -137,13 +145,9 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 				return true, nil
 			},
 		})
-		resultCh <- res
+		
+		isAccepted = res.Accepted
 	})
 
-	select {
-	case res := <-resultCh:
-		return finalAddr, finalSecret, finalOnline, finalSysBrowser, finalRemoteURL, res.Accepted
-	case <-e.ctx.Done():
-		return "", "", false, false, "", false
-	}
+	return finalAddr, finalSecret, finalOnline, finalSysBrowser, finalRemoteURL, isAccepted
 }
