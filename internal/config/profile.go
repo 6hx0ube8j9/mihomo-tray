@@ -3,12 +3,24 @@ package config
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"mihomo-tray/internal/domain"
 )
+
+var ErrProfileLimitExceeded = fmt.Errorf("配置数量已达系统上限 (%d 个)，请先清理不需要的配置", domain.MaxProfileCount)
+
+func (m *Manager) CheckProfileLimit() error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.data.Profiles.Items) >= domain.MaxProfileCount {
+		return ErrProfileLimitExceeded
+	}
+	return nil
+}
 
 func IsInAppTree(appDir, targetPath string) (string, bool) {
 	rel, err := filepath.Rel(appDir, targetPath)
@@ -27,13 +39,6 @@ func TruncateMiddle(name string) string {
 }
 
 func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) {
-	m.mu.RLock()
-	isOverLimit := len(m.data.Profiles.Items) >= domain.MaxProfileCount
-	m.mu.RUnlock()
-	if isOverLimit {
-		return "", false, fmt.Errorf("配置数量已达系统上限 (%d 个)，请先清理不需要的配置", domain.MaxProfileCount)
-	}
-
 	absSrc, err := filepath.EvalSymlinks(srcPath)
 	if err != nil {
 		if absSrc, err = filepath.Abs(srcPath); err != nil {
@@ -78,7 +83,6 @@ func (m *Manager) RegisterNewProfile(relPath string) {
 			Name: displayName,
 			Path: relPath,
 		})
-		enforceProfileLimit(cfg)
 	})
 }
 
@@ -90,10 +94,83 @@ func (m *Manager) UpsertProfile(item domain.ProfileItem) {
 				return
 			}
 		}
-
 		cfg.Profiles.Items = append(cfg.Profiles.Items, item)
-		enforceProfileLimit(cfg)
 	})
+}
+
+func (m *Manager) GetActivePathAbs() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.data.Profiles.Active == "" { return "" }
+	return filepath.Join(m.baseDir, filepath.FromSlash(m.data.Profiles.Active))
+}
+
+func (m *Manager) GetActivePath() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.data.Profiles.Active
+}
+
+func (m *Manager) GetProfiles() []domain.ProfileItem {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	res := make([]domain.ProfileItem, len(m.data.Profiles.Items))
+	copy(res, m.data.Profiles.Items)
+	return res
+}
+
+func (m *Manager) SetActiveProfile(relPath string) {
+	if m.GetActivePath() == relPath { 
+		return 
+	}
+	m.Update(func(cfg *domain.TrayConfig) {
+		cfg.Profiles.Active = relPath
+	})
+}
+
+func (m *Manager) RemoveProfile(relPath string) {
+	m.Update(func(cfg *domain.TrayConfig) {
+		if relPath == cfg.Profiles.Active {
+			slog.Info("当前活跃配置被移除，系统切换至空转状态")
+			cfg.Profiles.Active = ""
+		}
+		
+		var newItems []domain.ProfileItem
+		for _, item := range cfg.Profiles.Items {
+			if item.Path != relPath { 
+				newItems = append(newItems, item) 
+			}
+		}
+		cfg.Profiles.Items = newItems
+	})
+}
+
+func (m *Manager) MoveProfile(relPath string, offset int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, p := range m.data.Profiles.Items {
+		if p.Path == relPath {
+			targetIdx := i + offset
+			if targetIdx < 0 || targetIdx >= len(m.data.Profiles.Items) { return false }
+			m.data.Profiles.Items[i], m.data.Profiles.Items[targetIdx] = m.data.Profiles.Items[targetIdx], m.data.Profiles.Items[i]
+			
+			m.lockedSerializeAndSave()
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Manager) ValidatePhysicalFile(relPath string) error {
+	if relPath == "" { return fmt.Errorf("未指定配置文件路径") }
+	absPath := filepath.Join(m.baseDir, filepath.FromSlash(relPath))
+	fi, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) { return fmt.Errorf("本地配置文件已丢失或被移除") }
+		return fmt.Errorf("无法读取本地配置文件，请检查系统权限。\n\n%w", err)
+	}
+	if fi.Size() == 0 { return fmt.Errorf("配置文件已损坏 (文件内容为空)") }
+	return nil
 }
 
 func resolveUniqueProfileRelPath(profilesDirAbs, baseName string) string {
@@ -153,10 +230,4 @@ func copyFileWithLimit(srcPath, dstPath string, maxBytes int64) error {
 		return fmt.Errorf("最终配置文件生成失败: %w", err)
 	}
 	return nil
-}
-
-func enforceProfileLimit(cfg *domain.TrayConfig) {
-	if len(cfg.Profiles.Items) > domain.MaxProfileCount {
-		cfg.Profiles.Items = append(cfg.Profiles.Items[:1], cfg.Profiles.Items[2:]...)
-	}
 }
