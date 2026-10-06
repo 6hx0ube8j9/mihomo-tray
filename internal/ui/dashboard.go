@@ -27,7 +27,7 @@ func (d *Dashboard) Show() {
 	d.engine.app.Synchronize(func() {
 		if d.window == nil {
 			d.createWindow()
-			if d.window == nil {  
+			if d.window == nil {
 				return
 			}
 		}
