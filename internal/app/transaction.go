@@ -22,7 +22,7 @@ func (a *Application) prepareAndValidateConfig(targetRelPath string) (*core.Depl
 	kernelPath := core.GetKernelPath(a.Cfg.BaseDir())
 	if err := core.ValidateConfig(kernelPath, a.Cfg.BaseDir(), deployRes.RuntimeAbs); err != nil {
 		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("配置内核兼容性校验失败 [%s]:\n%v", filepath.Base(targetRelPath), err))
-		return nil, fmt.Errorf("该配置不被内核支持，加载失败。\n\n%w", err)
+		return nil, fmt.Errorf("内核不支持该配置文件，加载失败。\n\n%w", err)
 	}
 
 	a.State.SetActualTunDevice(deployRes.TunDevice)
