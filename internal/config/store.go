@@ -23,8 +23,8 @@ type Manager struct {
 	exePath string
 	isAdmin bool
 
-	mu   sync.RWMutex
-	ioMu sync.Mutex
+	mu   sync.RWMutex // 仅保护内存数据 m.data
+	ioMu sync.Mutex   // 保证落盘严格串行
 
 	data domain.TrayConfig
 }
