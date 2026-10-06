@@ -7,7 +7,7 @@ import (
 	"github.com/tailscale/win"
 )
 
-// Workaround for tailscale/walk bug (Commit 3490772, 2024-12-03). 
+// Workaround for tailscale/walk bug (Commit 3490772, 2024-12-03).
 // Upstream forces WS_VISIBLE on the default toolbar, currently known to only affect MainWindow.
 // This empty toolbar overlaps top UI elements. Manually hiding it restores the correct layout.
 func disableGhostToolbar(win *walk.MainWindow) {
@@ -27,7 +27,8 @@ func centerWindow(w *walk.MainWindow) {
 	monitor := walk.PrimaryMonitor()
 	workArea := monitor.WorkArea()
 	bounds := w.Bounds()
-	newX, newY := workArea.X+(workArea.Width-bounds.Width)/2, workArea.Y+(workArea.Height-bounds.Height)/2
+	newX := workArea.X + (workArea.Width-bounds.Width)/2
+	newY := workArea.Y + (workArea.Height-bounds.Height)/2
 	if newX < 0 {
 		newX = 0
 	}
@@ -47,7 +48,7 @@ type WindowHidePatch struct {
 
 // ApplyHideOnClosePatch intercepts WM_CLOSE to hide the window instead of exiting.
 func ApplyHideOnClosePatch(mw *walk.MainWindow) *WindowHidePatch {
-	if mw == nil {
+	if mw == nil || mw.Handle() == 0 {
 		return nil
 	}
 	patch := &WindowHidePatch{}
