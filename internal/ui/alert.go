@@ -26,6 +26,7 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 			},
 		},
 	}
+	
 	if isConfirm {
 		buttons = append(buttons, PushButton{
 			AssignTo: &cancelPB,
@@ -83,13 +84,7 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 	defer dlg.Dispose()
 
 	dlg.Starting().Attach(func() {
-		hwnd := dlg.Handle()
-		lockWindowSize(hwnd)
-
-		exStyle := win.GetWindowLong(hwnd, win.GWL_EXSTYLE)
-		exStyle |= win.WS_EX_APPWINDOW
-		win.SetWindowLong(hwnd, win.GWL_EXSTYLE, exStyle)
-
+		lockWindowSize(dlg.Handle())
 		centerDialog(dlg, parent, hActive)
 		if beep != 0 {
 			win.MessageBeep(beep)
