@@ -1,4 +1,3 @@
-// internal/config/store.go
 package config
 
 import (
