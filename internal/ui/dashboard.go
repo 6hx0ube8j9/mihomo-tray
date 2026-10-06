@@ -11,7 +11,7 @@ type Dashboard struct {
 	engine      *Engine
 	window      *walk.MainWindow
 	ProfileView *ProfileView
-	lastState   domain.UIState 
+	lastState   domain.UIState
 
 	closePatch *WindowHidePatch
 }
@@ -27,6 +27,9 @@ func (d *Dashboard) Show() {
 	d.engine.app.Synchronize(func() {
 		if d.window == nil {
 			d.createWindow()
+			if d.window == nil {  
+				return
+			}
 		}
 
 		hwnd := d.window.Handle()
@@ -75,14 +78,16 @@ func (d *Dashboard) BackgroundUpdate(state domain.UIState) {
 
 func (d *Dashboard) ForceInjectData(state domain.UIState) {
 	d.lastState = state
-	d.ProfileView.RefreshData(state) 
+	if d.window != nil {
+		d.ProfileView.RefreshData(state)
+	}
 }
 
 func (d *Dashboard) Dispose() {
 	if d.window == nil {
 		return
 	}
-	
+
 	d.engine.app.Synchronize(func() {
 		if d.window != nil {
 			if d.closePatch != nil {
