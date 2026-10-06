@@ -146,7 +146,7 @@ func (e *Engine) tryAcquireOrFocus(key string) bool {
 	if exists {
 		if slot != nil && slot.dlg != nil {
 			hwnd := slot.dlg.Handle()
-			if hwnd != 0 && win.IsWindowVisible(hwnd) && !win.IsIconic(hwnd) {
+			if hwnd != 0 && win.IsWindowVisible(hwnd) {
 				win.SetForegroundWindow(hwnd)
 				slot.dlg.SetFocus()
 			}
@@ -181,6 +181,8 @@ func (e *Engine) executeGuardedDialog(title, message string, icon *walk.Icon, be
 
 func (e *Engine) showAsyncDialog(title, message string, walkIcon *walk.Icon, beep uint32, fallbackIcon uint32) {
 	if e.app == nil || e.mw == nil {
+		slog.Error("严重错误 (UI尚未就绪/已销毁)", "title", title, "message", message)
+		
 		go func() {
 			key := getDialogKey(title, message)
 			if !e.tryAcquireOrFocus(key) {
