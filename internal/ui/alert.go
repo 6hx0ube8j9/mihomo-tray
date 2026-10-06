@@ -70,6 +70,11 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 	dlg.Starting().Attach(func() { 
 		lockWindowSize(dlg.Handle())
 		centerDialog(dlg, parent, hActive)
+		
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			win.MessageBeep(beep)
+		}()
 	})
 
 	dlg.SizeChanged().Attach(func() {
@@ -79,8 +84,6 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 		restoreFocus(parent, hActive)
 	})
-
-	win.MessageBeep(beep)
 	
 	dlg.Run()
 	return accepted
