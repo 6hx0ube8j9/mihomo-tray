@@ -13,20 +13,34 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 
 	var dlg *walk.Dialog
 	var acceptPB, cancelPB *walk.PushButton
-	accepted := false
+	isAccepted := false
 
 	buttons := []Widget{
 		HSpacer{},
-		PushButton{AssignTo: &acceptPB, Text: "确定", MinSize: Size{Width: 90, Height: 26}, OnClicked: func() { accepted = true; dlg.Accept() }},
+		PushButton{
+			AssignTo: &acceptPB,
+			Text:     "确定",
+			MinSize:  Size{Width: 90, Height: 26},
+			OnClicked: func() {
+				dlg.Accept()
+			},
+		},
 	}
 	if isConfirm {
-		buttons = append(buttons, PushButton{AssignTo: &cancelPB, Text: "取消", MinSize: Size{Width: 90, Height: 26}, OnClicked: func() { dlg.Cancel() }})
+		buttons = append(buttons, PushButton{
+			AssignTo: &cancelPB,
+			Text:     "取消",
+			MinSize:  Size{Width: 90, Height: 26},
+			OnClicked: func() {
+				dlg.Cancel()
+			},
+		})
 	}
 
 	dlgConfig := Dialog{
-		AssignTo: &dlg,
-		Title:    title,
-		MinSize:  Size{Width: 320, Height: 155},
+		AssignTo:      &dlg,
+		Title:         title,
+		MinSize:       Size{Width: 320, Height: 155},
 		Layout:        VBox{Margins: Margins{Left: 15, Top: 20, Right: 15, Bottom: 12}, Spacing: 12},
 		DefaultButton: &acceptPB,
 		Children: []Widget{
@@ -55,7 +69,7 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 	if isConfirm {
 		dlgConfig.CancelButton = &cancelPB
 	} else {
-		dlgConfig.CancelButton = &acceptPB 
+		dlgConfig.CancelButton = &acceptPB
 	}
 
 	if err := dlgConfig.Create(parent); err != nil {
@@ -69,7 +83,13 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 	defer dlg.Dispose()
 
 	dlg.Starting().Attach(func() {
-		lockWindowSize(dlg.Handle())
+		hwnd := dlg.Handle()
+		lockWindowSize(hwnd)
+
+		exStyle := win.GetWindowLong(hwnd, win.GWL_EXSTYLE)
+		exStyle |= win.WS_EX_APPWINDOW
+		win.SetWindowLong(hwnd, win.GWL_EXSTYLE, exStyle)
+
 		centerDialog(dlg, parent, hActive)
 		if beep != 0 {
 			win.MessageBeep(beep)
@@ -81,11 +101,14 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 	})
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
+		if reason == walk.CloseReasonUnknown && dlg.Result() == walk.DlgCmdOK {
+			isAccepted = true
+		}
 		restoreFocus(parent, hActive)
 	})
 
-	cmd := dlg.Run()
-	return (cmd == walk.DlgCmdOK) || accepted
+	dlg.Run()
+	return isAccepted
 }
 
 func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, beep uint32) {
