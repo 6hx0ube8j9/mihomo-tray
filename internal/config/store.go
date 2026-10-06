@@ -1,3 +1,4 @@
+// internal/config/store.go
 package config
 
 import (
@@ -22,7 +23,7 @@ type Manager struct {
 	baseDir string
 	exePath string
 	isAdmin bool
-	
+
 	mu   sync.RWMutex
 	ioMu sync.Mutex
 
@@ -38,20 +39,18 @@ func NewManager(baseDir, exePath string, isAdmin bool) *Manager {
 }
 
 func (m *Manager) LoadAndInitMemory() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	cfgPath := filepath.Join(m.baseDir, ConfigFileName)
 	isTainted := false
 
+	m.mu.Lock()
 	if f, err := os.Open(cfgPath); err == nil {
 		if err := json.NewDecoder(f).Decode(&m.data); err != nil {
 			slog.Warn("主配置文件解析失败，已自动备份并重置为默认设置", "path", cfgPath, "err", err)
 			_ = f.Close()
-			
+
 			corruptPath := cfgPath + fmt.Sprintf(".%d.err", time.Now().Unix())
 			_ = os.Rename(cfgPath, corruptPath)
-			
+
 			isTainted = true
 		} else {
 			_ = f.Close()
@@ -62,8 +61,11 @@ func (m *Manager) LoadAndInitMemory() {
 	}
 
 	if applyDefaults(&m.data) || isTainted {
-		m.lockedSerializeAndSave()
+		m.mu.Unlock()
+		m.FlushInitialState()
+		return
 	}
+	m.mu.Unlock()
 }
 
 func (m *Manager) ReloadFromDisk() error {
@@ -81,19 +83,19 @@ func (m *Manager) ReloadFromDisk() error {
 	var newCfg domain.TrayConfig
 	if err := json.Unmarshal(content, &newCfg); err != nil {
 		m.FlushInitialState()
-		return fmt.Errorf("主配置文件格式已损坏，当前重载请求已拦截，系统自动恢复为上一次的有效配置。\n\n%w", err)
+		return fmt.Errorf("主配置文件格式已损坏，重载请求已拦截，系统恢复为上一次的有效配置。\n\n%w", err)
 	}
 
 	isTainted := applyDefaults(&newCfg)
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	m.data = newCfg
+	m.mu.Unlock()
+
 	if isTainted {
-		m.lockedSerializeAndSave()
+		m.FlushInitialState()
 	}
-	
+
 	return nil
 }
 
@@ -104,54 +106,43 @@ func (m *Manager) GetConfig() domain.TrayConfig {
 }
 
 func (m *Manager) Update(updater func(cfg *domain.TrayConfig)) {
+	m.ioMu.Lock()
+	defer m.ioMu.Unlock()
+
 	m.mu.Lock()
 	updater(&m.data)
-	
 	snapshotBytes, err := json.MarshalIndent(m.data, "", "  ")
 	m.mu.Unlock()
 
 	if err != nil {
-		slog.Error("配置快照序列化失败，本次更改未能落盘", "err", err)
+		slog.Error("配置序列化失败", "err", err)
 		return
 	}
-	
-	go m.asyncSaveToDisk(snapshotBytes)
+
+	cfgPath := filepath.Join(m.baseDir, ConfigFileName)
+	if err := fs.WriteAtomic(cfgPath, snapshotBytes); err != nil {
+		slog.Error("配置原子落盘失败", "err", err)
+	}
 }
 
 func (m *Manager) GetEffectivePort(p *int, defaultPort int) int {
-	if p == nil { return defaultPort }
+	if p == nil {
+		return defaultPort
+	}
 	return *p
 }
 
 func (m *Manager) GetEffectiveSecret(s *string) string {
-	if s == nil { return "" }
+	if s == nil {
+		return ""
+	}
 	return *s
 }
 
 func (m *Manager) FlushInitialState() {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	m.lockedSerializeAndSave()
+	m.Update(func(cfg *domain.TrayConfig) {
+	})
 }
 
 func (m *Manager) BaseDir() string { return m.baseDir }
 func (m *Manager) ExePath() string { return m.exePath }
-
-func (m *Manager) lockedSerializeAndSave() {
-	b, err := json.MarshalIndent(m.data, "", "  ")
-	if err != nil {
-		slog.Error("配置状态同步写入磁盘失败", "err", err)
-		return
-	}
-	m.asyncSaveToDisk(b)
-}
-
-func (m *Manager) asyncSaveToDisk(content []byte) {
-	m.ioMu.Lock()
-	defer m.ioMu.Unlock()
-
-	cfgPath := filepath.Join(m.baseDir, ConfigFileName)
-	if err := fs.WriteAtomic(cfgPath, content); err != nil {
-		slog.Error("文件系统 IO 异常，配置原子落盘失败", "err", err)
-	}
-}
