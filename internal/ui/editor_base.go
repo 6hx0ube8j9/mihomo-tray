@@ -14,6 +14,7 @@ type EditorConfig struct {
 	OnAccept      func() (bool, error)
 	AcceptBtnText string
 	CancelBtnText string
+	OnReady       func(dlg *walk.Dialog)
 	AssignTo      **walk.Dialog
 }
 
@@ -23,19 +24,6 @@ type EditorResult struct {
 }
 
 func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
-	if cfg.AssignTo != nil && *cfg.AssignTo != nil {
-		dlg := *cfg.AssignTo
-		if dlg.Visible() {
-			hwnd := dlg.Handle()
-			if win.IsIconic(hwnd) {
-				win.ShowWindow(hwnd, win.SW_RESTORE)
-			}
-			win.SetForegroundWindow(hwnd)
-			dlg.SetFocus()
-		}
-		return EditorResult{Accepted: false}
-	}
-
 	if cfg.AcceptBtnText == "" {
 		cfg.AcceptBtnText = "保存"
 	}
@@ -85,10 +73,9 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	)
 
 	err := Dialog{
-		AssignTo:      cfg.AssignTo,
+		AssignTo:      &dlg,
 		Title:         cfg.Title,
 		MinSize:       Size{Width: cfg.Width, Height: cfg.MinHeight},
-		MaxSize:       Size{Width: cfg.Width, Height: cfg.MinHeight},
 		Layout:        VBox{Margins: Margins{Left: 18, Top: 15, Right: 18, Bottom: 15}, Spacing: 12},
 		DefaultButton: &acceptPB,
 		CancelButton:  &cancelPB,
@@ -100,18 +87,17 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	}
 
 	if cfg.AssignTo != nil {
-		dlg = *cfg.AssignTo
+		*cfg.AssignTo = dlg
+	}
+	
+	if cfg.OnReady != nil {
+		cfg.OnReady(dlg)
 	}
 
 	defer dlg.Dispose()
 
 	dlg.Starting().Attach(func() {
-		hwnd := dlg.Handle()
-		style := win.GetWindowLong(hwnd, win.GWL_STYLE)
-		style &^= win.WS_THICKFRAME | win.WS_MAXIMIZEBOX
-		win.SetWindowLong(hwnd, win.GWL_STYLE, style)
-		win.SetWindowPos(hwnd, 0, 0, 0, 0, 0, win.SWP_NOMOVE|win.SWP_NOSIZE|win.SWP_NOZORDER|win.SWP_FRAMECHANGED)
-
+		lockWindowSize(dlg.Handle())
 		centerDialog(dlg, owner, hActive)
 	})
 
@@ -123,11 +109,11 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 		if cfg.AssignTo != nil {
 			*cfg.AssignTo = nil
 		}
-		
 		restoreFocus(owner, hActive)
 	})
 
-	dlg.Run()
+	cmd := dlg.Run()
 	
-	return EditorResult{Accepted: isAccepted, Error: processErr}
+	isConfirmed := (cmd == walk.DlgCmdOK) || isAccepted
+	return EditorResult{Accepted: isConfirmed, Error: processErr}
 }
