@@ -70,7 +70,6 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 	dlg.Starting().Attach(func() { 
 		lockWindowSize(dlg.Handle())
 		centerDialog(dlg, parent, hActive)
-		win.MessageBeep(beep) 
 	})
 
 	dlg.SizeChanged().Attach(func() {
@@ -81,6 +80,8 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 		restoreFocus(parent, hActive)
 	})
 
+	win.MessageBeep(beep)
+	
 	dlg.Run()
 	return accepted
 }
@@ -94,5 +95,5 @@ func RunConfirmDialog(owner walk.Form, title, message string) bool {
 }
 
 func RunErrorDialog(owner walk.Form, title, message string) {
-	RunAlertDialog(owner, title, message, walk.IconWarning(), win.MB_ICONWARNING)
+	RunAlertDialog(owner, title, message, walk.IconError(), win.MB_ICONERROR)
 }
