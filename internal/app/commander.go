@@ -50,7 +50,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	case domain.ActionRequestAddRemote:
 		go func() {
 			if a.ui != nil {
-				name, url, interval, ok := a.ui.ShowProfileInfoEditor("添加远程订阅", "", "", domain.DefaultUpdateInterval)
+				name, url, interval, ok := a.ui.ShowProfileInfoEditor("添加远程订阅", "", "", domain.DefaultUpdateInterval, true)
 				if ok {
 					if err := a.AddRemoteProfile(ctx, name, url, interval); err != nil {
 						slog.Error("添加订阅失败", "url", url, "err", err)
@@ -61,27 +61,30 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		}()
 
     case domain.ActionEditProfileInfo:
-		if profile, ok := a.GetProfileInfo(cmd.Payload); ok {
-			go func(p domain.ProfileItem) {
-				if a.ui != nil {
-					isRemote := p.URL != ""
-
-					name, url, interval, ok := a.ui.ShowProfileInfoEditor("编辑信息", p.Name, p.URL, p.Interval, isRemote)
-					if ok {
-						if isRemote {
-							if err := a.EditRemoteProfile(ctx, p.Path, name, url, interval); err != nil {
-								slog.Error("保存订阅修改失败", "path", p.Path, "err", err)
-								a.ui.ShowError("保存失败", err.Error())
-							}
-						} else {
-							if err := a.EditLocalProfile(ctx, p.Path, name); err != nil {
-								slog.Error("保存配置名称失败", "path", p.Path, "err", err)
-								a.ui.ShowError("保存失败", err.Error())
-							}
-						}
-					}
+		if p, ok := a.GetProfileInfo(cmd.Payload); ok {
+			go func(profile domain.ProfileItem) {
+				if a.ui == nil {
+					return
 				}
-			}(profile)
+
+				isRemote := profile.URL != ""
+				name, url, interval, ok := a.ui.ShowProfileInfoEditor("编辑信息", profile.Name, profile.URL, profile.Interval, isRemote)
+				if !ok {
+					return
+				}
+				
+				var err error
+				if isRemote {
+					err = a.EditRemoteProfile(ctx, profile.Path, name, url, interval)
+				} else {
+					err = a.EditLocalProfile(ctx, profile.Path, name)
+				}
+
+				if err != nil {
+					slog.Error("保存配置信息失败", "path", profile.Path, "err", err)
+					a.ui.ShowError("保存失败", err.Error())
+				}
+			}(p)
 		}
 
 	case domain.ActionUpdateRemoteProfile:
