@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"syscall"
 
 	"github.com/tailscale/walk"
@@ -11,6 +12,10 @@ import (
 	"github.com/tailscale/win"
 	"mihomo-tray/internal/domain"
 )
+
+type alertSlot struct {
+	dlg *walk.Dialog
+}
 
 type Engine struct {
 	ctx           context.Context
@@ -25,6 +30,9 @@ type Engine struct {
 
 	Tray      *Tray
 	Dashboard *Dashboard
+
+	activeAlertMu sync.Mutex
+	activeAlerts  map[string]*alertSlot
 }
 
 func NewEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- domain.UICommand, notifyCh <-chan struct{}, getState func() domain.UIState) *Engine {
@@ -35,6 +43,7 @@ func NewEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- doma
 		stateNotifyCh: notifyCh,
 		getState:      getState,
 		ReadyCh:       make(chan struct{}),
+		activeAlerts:  make(map[string]*alertSlot),
 	}
 }
 
@@ -125,9 +134,64 @@ func (e *Engine) ShowProfileManager(state domain.UIState) {
 	}
 }
 
+func getDialogKey(title, message string) string {
+	return title + "|" + message
+}
+
+func (e *Engine) tryAcquireOrFocus(key string) bool {
+	e.activeAlertMu.Lock()
+	defer e.activeAlertMu.Unlock()
+
+	slot, exists := e.activeAlerts[key]
+	if exists {
+		if slot != nil && slot.dlg != nil {
+			hwnd := slot.dlg.Handle()
+			if hwnd != 0 && win.IsWindowVisible(hwnd) && !win.IsIconic(hwnd) {
+				win.SetForegroundWindow(hwnd)
+				slot.dlg.SetFocus()
+			}
+		}
+		return false
+	}
+
+	e.activeAlerts[key] = &alertSlot{}
+	return true
+}
+
+func (e *Engine) executeGuardedDialog(title, message string, icon *walk.Icon, beep uint32, isConfirm bool) bool {
+	key := getDialogKey(title, message)
+
+	if !e.tryAcquireOrFocus(key) {
+		return false
+	}
+	defer func() {
+		e.activeAlertMu.Lock()
+		delete(e.activeAlerts, key)
+		e.activeAlertMu.Unlock()
+	}()
+
+	return runBaseDialog(e.activeOwner(), title, message, icon, beep, isConfirm, func(dlg *walk.Dialog) {
+		e.activeAlertMu.Lock()
+		if slot, ok := e.activeAlerts[key]; ok && slot != nil {
+			slot.dlg = dlg
+		}
+		e.activeAlertMu.Unlock()
+	})
+}
+
 func (e *Engine) showAsyncDialog(title, message string, walkIcon *walk.Icon, beep uint32, fallbackIcon uint32) {
 	if e.app == nil || e.mw == nil {
 		go func() {
+			key := getDialogKey(title, message)
+			if !e.tryAcquireOrFocus(key) {
+				return
+			}
+			defer func() {
+				e.activeAlertMu.Lock()
+				delete(e.activeAlerts, key)
+				e.activeAlertMu.Unlock()
+			}()
+
 			titlePtr, _ := syscall.UTF16PtrFromString(title)
 			msgPtr, _ := syscall.UTF16PtrFromString(message)
 			win.MessageBox(0, msgPtr, titlePtr, fallbackIcon|win.MB_SYSTEMMODAL)
@@ -136,7 +200,7 @@ func (e *Engine) showAsyncDialog(title, message string, walkIcon *walk.Icon, bee
 	}
 
 	go e.app.Synchronize(func() {
-		runBaseDialog(e.activeOwner(), title, message, walkIcon, beep, false)
+		e.executeGuardedDialog(title, message, walkIcon, beep, false)
 	})
 }
 
@@ -156,7 +220,7 @@ func (e *Engine) ShowConfirm(title, message string) bool {
 	resultCh := make(chan bool, 1)
 
 	e.app.Synchronize(func() {
-		resultCh <- runBaseDialog(e.activeOwner(), title, message, walk.IconQuestion(), win.MB_ICONQUESTION, true)
+		resultCh <- e.executeGuardedDialog(title, message, walk.IconQuestion(), win.MB_ICONQUESTION, true)
 	})
 
 	select {
