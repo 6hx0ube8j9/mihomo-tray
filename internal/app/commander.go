@@ -50,7 +50,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	case domain.ActionRequestAddRemote:
 		go func() {
 			if a.ui != nil {
-				name, url, interval, ok := a.ui.ShowSubscriptionEditor("添加远程订阅", "", "", domain.DefaultUpdateInterval)
+				name, url, interval, ok := a.ui.ShowProfileInfoEditor("添加远程订阅", "", "", domain.DefaultUpdateInterval)
 				if ok {
 					if err := a.AddRemoteProfile(ctx, name, url, interval); err != nil {
 						slog.Error("添加订阅失败", "url", url, "err", err)
