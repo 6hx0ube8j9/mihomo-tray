@@ -66,7 +66,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				if a.ui != nil {
 					isRemote := p.URL != ""
 
-					name, url, interval, ok := a.ui.ShowSubscriptionEditor("编辑信息", p.Name, p.URL, p.Interval, isRemote)
+					name, url, interval, ok := a.ui.ShowProfileInfoEditor("编辑信息", p.Name, p.URL, p.Interval, isRemote)
 					if ok {
 						if isRemote {
 							if err := a.EditRemoteProfile(ctx, p.Path, name, url, interval); err != nil {
