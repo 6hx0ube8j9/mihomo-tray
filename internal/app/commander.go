@@ -60,15 +60,24 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			}
 		}()
 
-	case domain.ActionRequestEditRemote:
+    case domain.ActionRequestEditProfileInfo:
 		if profile, ok := a.GetProfileInfo(cmd.Payload); ok {
 			go func(p domain.ProfileItem) {
 				if a.ui != nil {
-					name, url, interval, ok := a.ui.ShowSubscriptionEditor("编辑订阅信息", p.Name, p.URL, p.Interval)
+					isRemote := p.URL != ""
+
+					name, url, interval, ok := a.ui.ShowSubscriptionEditor("编辑信息", p.Name, p.URL, p.Interval, isRemote)
 					if ok {
-						if err := a.EditRemoteProfile(ctx, p.Path, name, url, interval); err != nil {
-							slog.Error("保存订阅修改失败", "path", p.Path, "err", err)
-							a.ui.ShowError("保存失败", err.Error())
+						if isRemote {
+							if err := a.EditRemoteProfile(ctx, p.Path, name, url, interval); err != nil {
+								slog.Error("保存订阅修改失败", "path", p.Path, "err", err)
+								a.ui.ShowError("保存失败", err.Error())
+							}
+						} else {
+							if err := a.EditLocalProfile(ctx, p.Path, name); err != nil {
+								slog.Error("保存配置名称失败", "path", p.Path, "err", err)
+								a.ui.ShowError("保存失败", err.Error())
+							}
 						}
 					}
 				}
