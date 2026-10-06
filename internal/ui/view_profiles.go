@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
@@ -77,10 +78,11 @@ func (v *ProfileView) Declarative() []Widget {
 				TableView{
 					AssignTo: &v.tableView,
 					Columns: []TableViewColumn{
-						{Title: "状态", Width: 90, Alignment: AlignCenter},
-						{Title: "名称", Width: 220},
+						{Title: "状态", Width: 80, Alignment: AlignCenter},
+						{Title: "名称", Width: 180},
+						{Title: "文件名", Width: 130},
 						{Title: "类型", Width: 80, Alignment: AlignCenter},
-						{Title: "更新频率", Width: 100, Alignment: AlignCenter},
+						{Title: "更新频率", Width: 90, Alignment: AlignCenter},
 						{Title: "上次更新", Width: 130, Alignment: AlignCenter},
 					},
 					Model:                 v.model,
@@ -183,13 +185,15 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	case 1:
 		return item.Name
 	case 2:
+		return filepath.Base(item.Path)
+	case 3:
 		if item.IsRemote { return "订阅配置" }
 		return "本地配置"
-	case 3:
+	case 4:
 		if !item.IsRemote { return "-" }
 		if item.Interval > 0 { return fmt.Sprintf("%d 天", item.Interval) }
 		return "停止更新"
-	case 4:
+	case 5:
 		if !item.IsRemote { return "-" }
 		return item.LastUpdate
 	}
