@@ -4,18 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sync"
-	"syscall"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
 	"github.com/tailscale/win"
+
 	"mihomo-tray/internal/domain"
 )
-
-type alertSlot struct {
-	dlg *walk.Dialog
-}
 
 type Engine struct {
 	ctx           context.Context
@@ -30,9 +25,7 @@ type Engine struct {
 
 	Tray      *Tray
 	Dashboard *Dashboard
-
-	activeAlertMu sync.Mutex
-	activeAlerts  map[string]*alertSlot
+	dialogMgr *DialogManager
 }
 
 func NewEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- domain.UICommand, notifyCh <-chan struct{}, getState func() domain.UIState) *Engine {
@@ -43,7 +36,6 @@ func NewEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- doma
 		stateNotifyCh: notifyCh,
 		getState:      getState,
 		ReadyCh:       make(chan struct{}),
-		activeAlerts:  make(map[string]*alertSlot),
 	}
 }
 
@@ -63,6 +55,8 @@ func (e *Engine) Run() error {
 	if err != nil {
 		return fmt.Errorf("主控窗口创建失败: %w", err)
 	}
+
+	e.dialogMgr = NewDialogManager(e.app, e.mw)
 
 	e.Tray = NewTray(e)
 	e.Dashboard = NewDashboard(e)
@@ -95,9 +89,7 @@ func (e *Engine) listenState() {
 			if e.getState == nil || e.app == nil {
 				continue
 			}
-
 			state := e.getState()
-
 			e.app.Synchronize(func() {
 				if e.Tray != nil {
 					e.Tray.UpdateState(state)
@@ -134,103 +126,60 @@ func (e *Engine) ShowProfileManager(state domain.UIState) {
 	}
 }
 
-func getDialogKey(title, message string) string {
-	return title + "|" + message
-}
-
-func (e *Engine) tryAcquireOrFocus(key string) bool {
-	e.activeAlertMu.Lock()
-	defer e.activeAlertMu.Unlock()
-
-	slot, exists := e.activeAlerts[key]
-	if exists {
-		if slot != nil && slot.dlg != nil {
-			hwnd := slot.dlg.Handle()
-			if hwnd != 0 && win.IsWindowVisible(hwnd) {
-				win.SetForegroundWindow(hwnd)
-				slot.dlg.SetFocus()
-			}
-		}
-		return false
-	}
-
-	e.activeAlerts[key] = &alertSlot{}
-	return true
-}
-
-func (e *Engine) executeGuardedDialog(title, message string, icon *walk.Icon, beep uint32, isConfirm bool) bool {
-	key := getDialogKey(title, message)
-
-	if !e.tryAcquireOrFocus(key) {
-		return false
-	}
-	defer func() {
-		e.activeAlertMu.Lock()
-		delete(e.activeAlerts, key)
-		e.activeAlertMu.Unlock()
-	}()
-
-	return runBaseDialog(e.activeOwner(), title, message, icon, beep, isConfirm, func(dlg *walk.Dialog) {
-		e.activeAlertMu.Lock()
-		if slot, ok := e.activeAlerts[key]; ok && slot != nil {
-			slot.dlg = dlg
-		}
-		e.activeAlertMu.Unlock()
-	})
-}
-
-func (e *Engine) showAsyncDialog(title, message string, walkIcon *walk.Icon, beep uint32, fallbackIcon uint32) {
-	if e.app == nil || e.mw == nil {
-		slog.Error("严重错误 (UI尚未就绪/已销毁)", "title", title, "message", message)
-		
-		go func() {
-			key := getDialogKey(title, message)
-			if !e.tryAcquireOrFocus(key) {
-				return
-			}
-			defer func() {
-				e.activeAlertMu.Lock()
-				delete(e.activeAlerts, key)
-				e.activeAlertMu.Unlock()
-			}()
-
-			titlePtr, _ := syscall.UTF16PtrFromString(title)
-			msgPtr, _ := syscall.UTF16PtrFromString(message)
-			win.MessageBox(0, msgPtr, titlePtr, fallbackIcon|win.MB_SYSTEMMODAL)
-		}()
+func (e *Engine) ShowError(title, message string) {
+	if e.dialogMgr == nil {
 		return
 	}
-
-	go e.app.Synchronize(func() {
-		e.executeGuardedDialog(title, message, walkIcon, beep, false)
+	e.dialogMgr.RunOnUI(func() {
+		key := "error|" + title + "|" + message
+		if !e.dialogMgr.TryAcquire(key) {
+			return
+		}
+		defer e.dialogMgr.Release(key)
+		RunErrorDialog(e.activeOwner(), title, message)
 	})
-}
-
-func (e *Engine) ShowError(title, message string) {
-	e.showAsyncDialog(title, message, walk.IconError(), win.MB_ICONERROR, win.MB_ICONERROR)
 }
 
 func (e *Engine) ShowInfo(title, message string) {
-	e.showAsyncDialog(title, message, walk.IconInformation(), win.MB_ICONINFORMATION, win.MB_ICONINFORMATION)
+	if e.dialogMgr == nil {
+		return
+	}
+	e.dialogMgr.RunOnUI(func() {
+		key := "info|" + title + "|" + message
+		if !e.dialogMgr.TryAcquire(key) {
+			return
+		}
+		defer e.dialogMgr.Release(key)
+		RunAlertDialog(e.activeOwner(), title, message, walk.IconInformation(), win.MB_ICONINFORMATION)
+	})
 }
 
 func (e *Engine) ShowConfirm(title, message string) bool {
-	if e.app == nil || e.mw == nil {
+	if e.dialogMgr == nil {
 		return false
 	}
-	
-	resultCh := make(chan bool, 1)
-
-	e.app.Synchronize(func() {
-		resultCh <- e.executeGuardedDialog(title, message, walk.IconQuestion(), win.MB_ICONEXCLAMATION, true)
+	var result bool
+	e.dialogMgr.RunOnUI(func() {
+		key := "confirm|" + title + "|" + message
+		if !e.dialogMgr.TryAcquire(key) {
+			return
+		}
+		defer e.dialogMgr.Release(key)
+		result = RunConfirmDialog(e.activeOwner(), title, message)
 	})
+	return result
+}
 
-	select {
-	case res := <-resultCh:
-		return res
-	case <-e.ctx.Done():
-		return false
+func (e *Engine) OpenYAMLFileDialog() (string, bool) {
+	if e.dialogMgr == nil {
+		return "", false
 	}
+	var path string
+	var ok bool
+	e.dialogMgr.RunOnUI(func() {
+		path, ok = RunOpenYAMLFileDialog(e.activeOwner())
+	})
+	return path, ok
 }
 
 func (e *Engine) ShowNotification(title, message string) {
@@ -238,30 +187,6 @@ func (e *Engine) ShowNotification(title, message string) {
 		e.app.Synchronize(func() {
 			e.Tray.ShowNotification(title, message)
 		})
-	}
-}
-
-func (e *Engine) OpenYAMLFileDialog() (string, bool) {
-	if e.app == nil || e.mw == nil {
-		return "", false
-	}
-
-	type fileResult struct {
-		Path string
-		OK   bool
-	}
-	resultCh := make(chan fileResult, 1)
-
-	e.app.Synchronize(func() {
-		path, ok := RunOpenYAMLFileDialog(e.activeOwner())
-		resultCh <- fileResult{Path: path, OK: ok}
-	})
-
-	select {
-	case res := <-resultCh:
-		return res.Path, res.OK
-	case <-e.ctx.Done(): 
-		return "", false
 	}
 }
 
