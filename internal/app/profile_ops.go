@@ -225,6 +225,24 @@ func (a *Application) EditRemoteProfile(ctx context.Context, oldPath, newName, n
 	return nil
 }
 
+func (a *Application) EditLocalProfile(ctx context.Context, targetPath, newName string) error {
+	p, ok := a.Cfg.GetProfileByPath(targetPath)
+	if !ok {
+		return fmt.Errorf("找不到指定的配置文件，可能已被删除")
+	}
+
+	if newName == p.Name {
+		return nil
+	}
+
+	p.Name = newName
+	a.Cfg.UpsertProfile(p)
+
+	slog.Info("本地配置名称已修改", "path", targetPath, "newName", newName)
+	a.ForcePushUIState()
+	return nil
+}
+
 func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath string, isManual bool) error {
 	if !a.State.TryAcquireProfileLock(targetRelPath) {
 		if isManual {
