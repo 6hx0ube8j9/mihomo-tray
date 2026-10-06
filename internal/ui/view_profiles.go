@@ -47,7 +47,7 @@ func (v *ProfileView) Declarative() []Widget {
 		canMoveUp, canMoveDown := idx > 0, idx < len(v.model.Items)-1
 
 		actionSwitch.SetEnabled(!item.IsActive); actionDelete.SetEnabled(true)
-		actionEditText.SetEnabled(true); actionEditSub.SetEnabled(item.IsRemote); actionUpdate.SetEnabled(item.IsRemote)
+		actionEditText.SetEnabled(true); actionEditSub.SetEnabled(true); actionUpdate.SetEnabled(item.IsRemote)
 		actionMoveUp.SetEnabled(canMoveUp); actionMoveDown.SetEnabled(canMoveDown)
 		if btnMoveUp != nil { btnMoveUp.SetEnabled(canMoveUp) }
 		if btnMoveDown != nil { btnMoveDown.SetEnabled(canMoveDown) }
@@ -97,7 +97,7 @@ func (v *ProfileView) Declarative() []Widget {
 						Action{AssignTo: &actionEditText, Text: "打开文本", OnTriggered: func() {
 							if idx := v.tableView.CurrentIndex(); idx >= 0 { v.engine.SendCommand(domain.ActionOpenConfigFile, v.model.Items[idx].Path) }
 						}},
-						Action{AssignTo: &actionEditSub, Text: "编辑订阅", OnTriggered: func() {
+						Action{AssignTo: &actionEditSub, Text: "编辑信息", OnTriggered: func() {
 							if idx := v.tableView.CurrentIndex(); idx >= 0 { v.engine.SendCommand(domain.ActionRequestEditRemote, v.model.Items[idx].Path) }
 						}},
 						Action{AssignTo: &actionUpdate, Text: "立即更新", OnTriggered: func() {
