@@ -11,7 +11,7 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-var ErrProfileLimitExceeded = fmt.Errorf("配置数量已达系统上限 (%d 个)，请先清理不需要的配置", domain.MaxProfileCount)
+var ErrProfileLimitExceeded = fmt.Errorf("配置数量已达上限 (%d 个)。", domain.MaxProfileCount)
 
 func (m *Manager) CheckProfileLimit() error {
 	m.mu.RLock()
@@ -39,6 +39,10 @@ func TruncateMiddle(name string) string {
 }
 
 func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) {
+	if err := m.CheckProfileLimit(); err != nil {
+		return "", false, err
+	}
+
 	absSrc, err := filepath.EvalSymlinks(srcPath)
 	if err != nil {
 		if absSrc, err = filepath.Abs(srcPath); err != nil {
@@ -148,6 +152,23 @@ func (m *Manager) RemoveProfile(relPath string) {
 }
 
 func (m *Manager) MoveProfile(relPath string, offset int) bool {
+	m.mu.RLock()
+	canMove := false
+	for i, p := range m.data.Profiles.Items {
+		if p.Path == relPath {
+			targetIdx := i + offset
+			if targetIdx >= 0 && targetIdx < len(m.data.Profiles.Items) {
+				canMove = true
+			}
+			break
+		}
+	}
+	m.mu.RUnlock()
+
+	if !canMove {
+		return false
+	}
+
 	moved := false
 	m.Update(func(cfg *domain.TrayConfig) {
 		for i, p := range cfg.Profiles.Items {
@@ -195,9 +216,17 @@ func resolveUniqueProfileRelPath(profilesDirAbs, baseName string) string {
 }
 
 func copyFileWithLimit(srcPath, dstPath string, maxBytes int64) error {
-	srcFile, err := os.Open(srcPath)
+	fi, err := os.Stat(srcPath)
 	if err != nil {
 		return fmt.Errorf("源文件已被删除或无读取权限: %w", err)
+	}
+	if fi.Size() == 0 {
+		return fmt.Errorf("源文件内容为空，已拒绝拷贝")
+	}
+
+	srcFile, err := os.Open(srcPath)
+	if err != nil {
+		return fmt.Errorf("无法打开源文件: %w", err)
 	}
 	defer srcFile.Close()
 
