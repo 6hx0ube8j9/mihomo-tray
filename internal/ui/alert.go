@@ -90,9 +90,9 @@ func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, bee
 }
 
 func RunConfirmDialog(owner walk.Form, title, message string) bool {
-	return runBaseDialog(owner, title, message, walk.IconQuestion(), win.MB_ICONQUESTION, true, nil)
+	return runBaseDialog(owner, title, message, walk.IconQuestion(), win.MB_ICONWARNING, true, nil)
 }
 
 func RunErrorDialog(owner walk.Form, title, message string) {
-	RunAlertDialog(owner, title, message, walk.IconWarning(), win.MB_ICONWARNING)
+	RunAlertDialog(owner, title, message, walk.IconError(), win.MB_ICONERROR)
 }
