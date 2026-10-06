@@ -10,7 +10,7 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 	parent := owner
 	hActive := win.GetForegroundWindow()
 	safeMsg := autoWrapText(message, 55)
-	
+
 	var dlg *walk.Dialog
 	var acceptPB, cancelPB *walk.PushButton
 	accepted := false
@@ -24,10 +24,9 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 	}
 
 	dlgConfig := Dialog{
-		AssignTo:      &dlg,
-		Title:         title,
-		MinSize:       Size{Width: 320, Height: 125},
-		MaxSize:       Size{Width: 320, Height: 125},
+		AssignTo: &dlg,
+		Title:    title,
+		MinSize:  Size{Width: 320, Height: 155},
 		Layout:        VBox{Margins: Margins{Left: 15, Top: 20, Right: 15, Bottom: 12}, Spacing: 12},
 		DefaultButton: &acceptPB,
 		Children: []Widget{
@@ -47,7 +46,7 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 			},
 			VSpacer{},
 			Composite{
-				Layout: HBox{MarginsZero: true, Spacing: 10},
+				Layout:   HBox{MarginsZero: true, Spacing: 10},
 				Children: buttons,
 			},
 		},
@@ -55,22 +54,26 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 
 	if isConfirm {
 		dlgConfig.CancelButton = &cancelPB
+	} else {
+		dlgConfig.CancelButton = &acceptPB 
 	}
 
 	if err := dlgConfig.Create(parent); err != nil {
 		return false
 	}
-	
+
 	if onReady != nil {
 		onReady(dlg)
 	}
-	
+
 	defer dlg.Dispose()
-	
-	dlg.Starting().Attach(func() { 
+
+	dlg.Starting().Attach(func() {
 		lockWindowSize(dlg.Handle())
 		centerDialog(dlg, parent, hActive)
-		win.MessageBeep(beep) 
+		if beep != 0 {
+			win.MessageBeep(beep)
+		}
 	})
 
 	dlg.SizeChanged().Attach(func() {
@@ -81,8 +84,8 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 		restoreFocus(parent, hActive)
 	})
 
-	dlg.Run()
-	return accepted
+	cmd := dlg.Run()
+	return (cmd == walk.DlgCmdOK) || accepted
 }
 
 func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, beep uint32) {
@@ -90,7 +93,7 @@ func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, bee
 }
 
 func RunConfirmDialog(owner walk.Form, title, message string) bool {
-	return runBaseDialog(owner, title, message, walk.IconQuestion(), win.MB_ICONWARNING, true, nil)
+	return runBaseDialog(owner, title, message, walk.IconQuestion(), win.MB_ICONEXCLAMATION, true, nil)
 }
 
 func RunErrorDialog(owner walk.Form, title, message string) {
