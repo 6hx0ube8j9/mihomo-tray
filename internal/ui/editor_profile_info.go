@@ -10,27 +10,35 @@ import (
 	"mihomo-tray/internal/netutil"
 )
 
-var currentProfileInfoEditor *walk.Dialog
-
 func (e *Engine) ShowProfileInfoEditor(title, defaultName, defaultUrl string, defaultInterval int, isRemote bool) (string, string, int, bool) {
-	if e.app == nil || e.mw == nil {
+	if e.dialogMgr == nil {
 		return "", "", 0, false
 	}
 
-	var nameEdit, urlEdit *walk.LineEdit
-	var intervalEdit *walk.NumberEdit
 	var finalName, finalUrl string
 	var finalInterval int
+	var isAccepted bool
 
-	resultCh := make(chan EditorResult, 1)
+	e.dialogMgr.RunOnUI(func() {
+		key := "editor_profile_info"
+		if !e.dialogMgr.TryAcquire(key) {
+			return
+		}
+		defer e.dialogMgr.Release(key)
 
-	e.app.Synchronize(func() {
+		var nameEdit, urlEdit *walk.LineEdit
+		var intervalEdit *walk.NumberEdit
+		var currentDlg *walk.Dialog
+
 		res := RunEditor(e.activeOwner(), EditorConfig{
-			AssignTo:      &currentProfileInfoEditor,
 			Title:         title,
 			Width:         450,
 			MinHeight:     145,
 			AcceptBtnText: "确定",
+			OnReady: func(dlg *walk.Dialog) {
+				currentDlg = dlg
+				e.dialogMgr.Register(key, dlg)
+			},
 			Widgets: []Widget{
 				Composite{
 					Layout: Grid{Columns: 2, Spacing: 10, MarginsZero: true},
@@ -43,7 +51,7 @@ func (e *Engine) ShowProfileInfoEditor(title, defaultName, defaultUrl string, de
 
 						Label{Text: "更新频率:", Alignment: AlignHFarVCenter, Enabled: isRemote},
 						Composite{
-							Layout: HBox{MarginsZero: true},
+							Layout:  HBox{MarginsZero: true},
 							Enabled: isRemote,
 							Children: []Widget{
 								NumberEdit{AssignTo: &intervalEdit, Value: float64(defaultInterval), MinValue: 0, MaxValue: float64(domain.MaxUpdateInterval), Enabled: isRemote},
@@ -60,7 +68,7 @@ func (e *Engine) ShowProfileInfoEditor(title, defaultName, defaultUrl string, de
 
 				if isRemote {
 					if !netutil.IsValidHTTPURL(inputUrl) {
-						RunErrorDialog(currentProfileInfoEditor, "输入错误", "请输入有效的 HTTP/HTTPS 订阅链接")
+						RunErrorDialog(currentDlg, "输入错误", "请输入有效的 HTTP/HTTPS 订阅链接")
 						return false, nil
 					}
 				}
@@ -71,13 +79,9 @@ func (e *Engine) ShowProfileInfoEditor(title, defaultName, defaultUrl string, de
 				return true, nil
 			},
 		})
-		resultCh <- res
+		
+		isAccepted = res.Accepted
 	})
 
-	select {
-	case res := <-resultCh:
-		return finalName, finalUrl, finalInterval, res.Accepted
-	case <-e.ctx.Done():
-		return "", "", 0, false
-	}
+	return finalName, finalUrl, finalInterval, isAccepted
 }
