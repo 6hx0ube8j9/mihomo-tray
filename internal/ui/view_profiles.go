@@ -23,7 +23,7 @@ func NewProfileView(e *Engine) *ProfileView {
 }
 
 func (v *ProfileView) Declarative() []Widget {
-	var actionSwitch, actionEditText, actionEditSub, actionUpdate *walk.Action
+	var actionSwitch, actionEditText, actionEditInfo, actionUpdate *walk.Action
 	var actionMoveUp, actionMoveDown, actionDelete *walk.Action
 	var btnMoveUp, btnMoveDown *walk.PushButton
 
@@ -35,7 +35,7 @@ func (v *ProfileView) Declarative() []Widget {
 		hasSelection := idx >= 0 && idx < len(v.model.Items)
 
 		if !hasSelection {
-			actionSwitch.SetEnabled(false); actionEditText.SetEnabled(false); actionEditSub.SetEnabled(false)
+			actionSwitch.SetEnabled(false); actionEditText.SetEnabled(false); actionEditInfo.SetEnabled(false)
 			actionUpdate.SetEnabled(false); actionMoveUp.SetEnabled(false); actionMoveDown.SetEnabled(false)
 			actionDelete.SetEnabled(false)
 			if btnMoveUp != nil { btnMoveUp.SetEnabled(false) }
@@ -47,7 +47,7 @@ func (v *ProfileView) Declarative() []Widget {
 		canMoveUp, canMoveDown := idx > 0, idx < len(v.model.Items)-1
 
 		actionSwitch.SetEnabled(!item.IsActive); actionDelete.SetEnabled(true)
-		actionEditText.SetEnabled(true); actionEditSub.SetEnabled(true); actionUpdate.SetEnabled(item.IsRemote)
+		actionEditText.SetEnabled(true); actionEditInfo.SetEnabled(true); actionUpdate.SetEnabled(item.IsRemote)
 		actionMoveUp.SetEnabled(canMoveUp); actionMoveDown.SetEnabled(canMoveDown)
 		if btnMoveUp != nil { btnMoveUp.SetEnabled(canMoveUp) }
 		if btnMoveDown != nil { btnMoveDown.SetEnabled(canMoveDown) }
@@ -97,8 +97,8 @@ func (v *ProfileView) Declarative() []Widget {
 						Action{AssignTo: &actionEditText, Text: "打开文本", OnTriggered: func() {
 							if idx := v.tableView.CurrentIndex(); idx >= 0 { v.engine.SendCommand(domain.ActionOpenConfigFile, v.model.Items[idx].Path) }
 						}},
-						Action{AssignTo: &actionEditSub, Text: "编辑信息", OnTriggered: func() {
-							if idx := v.tableView.CurrentIndex(); idx >= 0 { v.engine.SendCommand(domain.ActionRequestEditRemote, v.model.Items[idx].Path) }
+						Action{AssignTo: &actionEditInfo, Text: "编辑信息", OnTriggered: func() {
+							if idx := v.tableView.CurrentIndex(); idx >= 0 { v.engine.SendCommand(domain.ActionEditProfileInfo, v.model.Items[idx].Path) }
 						}},
 						Action{AssignTo: &actionUpdate, Text: "立即更新", OnTriggered: func() {
 							if idx := v.tableView.CurrentIndex(); idx >= 0 { v.engine.SendCommand(domain.ActionUpdateRemoteProfile, v.model.Items[idx].Path) }
