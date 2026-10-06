@@ -190,7 +190,7 @@ func (t *Tray) buildMenuSkeleton() {
 	t.addAction("管理/添加配置", func() { t.engine.SendCommand(domain.ActionOpenProfileManager, "") })
 	
 	t.addSeparator()
-	t.addAction("编辑当前配置", func() { t.engine.SendCommand(domain.ActionEditCurrentConfig, "") })
+	t.addAction("编辑当前文本", func() { t.engine.SendCommand(domain.ActionEditCurrentConfig, "") })
 	t.addAction("打开程序目录", func() { t.engine.SendCommand(domain.ActionOpenBaseDir, "") })
 	t.addSeparator()
 
