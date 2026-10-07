@@ -15,7 +15,6 @@ type EditorConfig struct {
 	AcceptBtnText string
 	CancelBtnText string
 	OnReady       func(dlg *walk.Dialog)
-	AssignTo      **walk.Dialog
 }
 
 type EditorResult struct {
@@ -37,28 +36,19 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	var acceptPB, cancelPB *walk.PushButton
 	var isAccepted bool
 	var processErr error
-	var isProcessing bool
-
-	doAccept := func() {
-		if isProcessing {
-			return
-		}
-		isProcessing = true
-		
-		defer func() { isProcessing = false }()
-
+	
+    doAccept := func() {
 		if cfg.OnAccept != nil {
 			ok, err := cfg.OnAccept()
 			if !ok {
-				return 
+				return
 			}
 			processErr = err
 		}
-		
 		isAccepted = true
 		dlg.Accept()
 	}
-
+	
 	layoutChildren := append(cfg.Widgets,
 		VSpacer{},
 		Composite{
@@ -69,7 +59,9 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 					AssignTo: &acceptPB,
 					Text:     cfg.AcceptBtnText,
 					MinSize:  Size{Width: 80, Height: 26},
-					OnClicked: doAccept,
+					OnClicked: func() {
+						dlg.Accept()
+					},
 				},
 				PushButton{
 					AssignTo: &cancelPB,
@@ -97,9 +89,6 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 		return EditorResult{Accepted: false, Error: err}
 	}
 
-	if cfg.AssignTo != nil {
-		*cfg.AssignTo = dlg
-	}
 	if cfg.OnReady != nil {
 		cfg.OnReady(dlg)
 	}
@@ -107,9 +96,7 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	defer dlg.Dispose()
 
 	dlg.Starting().Attach(func() {
-		hwnd := dlg.Handle()
-		lockWindowSize(hwnd)
-		win.SetWindowLong(hwnd, win.GWL_EXSTYLE, win.GetWindowLong(hwnd, win.GWL_EXSTYLE)|win.WS_EX_APPWINDOW)
+		lockWindowSize(dlg.Handle())
 		centerDialog(dlg, owner, hActive)
 	})
 
@@ -118,10 +105,21 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	})
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-		if cfg.AssignTo != nil {
-			*cfg.AssignTo = nil
+		if reason == walk.CloseReasonUnknown && dlg.Result() == walk.DlgCmdOK {
+			if cfg.OnAccept != nil {
+				ok, err := cfg.OnAccept()
+				if !ok {
+					*canceled = true 
+					return
+				}
+				processErr = err
+			}
+			isAccepted = true
 		}
-		restoreFocus(owner, hActive)
+		
+		if !*canceled {
+			restoreFocus(owner, hActive)
+		}
 	})
 
 	dlg.Run()
