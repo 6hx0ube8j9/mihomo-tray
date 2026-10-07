@@ -25,7 +25,7 @@ type Engine struct {
 
 	Tray      *Tray
 	Dashboard *Dashboard
-	dialogMgr *DialogManager
+	modalMgr  *ModalManager
 }
 
 func NewEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- domain.UICommand, notifyCh <-chan struct{}, getState func() domain.UIState) *Engine {
@@ -56,7 +56,7 @@ func (e *Engine) Run() error {
 		return fmt.Errorf("主控窗口创建失败: %w", err)
 	}
 
-	e.dialogMgr = NewDialogManager(e.mw)
+	e.modalMgr = NewModalManager()
 
 	e.Tray = NewTray(e)
 	e.Dashboard = NewDashboard(e)
@@ -150,44 +150,44 @@ func (e *Engine) ShowProfileManager(state domain.UIState) {
 }
 
 func (e *Engine) ShowError(title, message string) {
-	if e.dialogMgr == nil {
+	if e.modalMgr == nil {
 		return
 	}
 	e.RunOnUI(func() {
 		key := "error|" + title + "|" + message
-		if !e.dialogMgr.TryAcquire(key) {
+		if !e.modalMgr.TryAcquire(key) {
 			return
 		}
-		defer e.dialogMgr.Release(key)
+		defer e.modalMgr.Release(key)
 		RunErrorDialog(e.activeOwner(), title, message)
 	})
 }
 
 func (e *Engine) ShowInfo(title, message string) {
-	if e.dialogMgr == nil {
+	if e.modalMgr == nil {
 		return
 	}
 	e.RunOnUI(func() {
 		key := "info|" + title + "|" + message
-		if !e.dialogMgr.TryAcquire(key) {
+		if !e.modalMgr.TryAcquire(key) {
 			return
 		}
-		defer e.dialogMgr.Release(key)
+		defer e.modalMgr.Release(key)
 		RunAlertDialog(e.activeOwner(), title, message, walk.IconInformation(), win.MB_ICONINFORMATION)
 	})
 }
 
 func (e *Engine) ShowConfirm(title, message string) bool {
-	if e.dialogMgr == nil {
+	if e.modalMgr == nil {
 		return false
 	}
 	var result bool
 	e.RunOnUI(func() {
 		key := "confirm|" + title + "|" + message
-		if !e.dialogMgr.TryAcquire(key) {
+		if !e.modalMgr.TryAcquire(key) {
 			return
 		}
-		defer e.dialogMgr.Release(key)
+		defer e.modalMgr.Release(key)
 		result = RunConfirmDialog(e.activeOwner(), title, message)
 	})
 	return result
