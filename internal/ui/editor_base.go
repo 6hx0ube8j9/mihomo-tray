@@ -36,19 +36,7 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	var acceptPB, cancelPB *walk.PushButton
 	var isAccepted bool
 	var processErr error
-	
-    doAccept := func() {
-		if cfg.OnAccept != nil {
-			ok, err := cfg.OnAccept()
-			if !ok {
-				return
-			}
-			processErr = err
-		}
-		isAccepted = true
-		dlg.Accept()
-	}
-	
+
 	layoutChildren := append(cfg.Widgets,
 		VSpacer{},
 		Composite{
@@ -109,14 +97,14 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 			if cfg.OnAccept != nil {
 				ok, err := cfg.OnAccept()
 				if !ok {
-					*canceled = true 
+					*canceled = true
 					return
 				}
 				processErr = err
 			}
 			isAccepted = true
 		}
-		
+
 		if !*canceled {
 			restoreFocus(owner, hActive)
 		}
