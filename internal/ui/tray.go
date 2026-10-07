@@ -105,11 +105,11 @@ func (t *Tray) UpdateState(state domain.UIState) {
 	if t.ni == nil {
 		return
 	}
-	
-	stateChanged := t.latestState.Mode != state.Mode || 
-	                t.latestState.IsAdmin != state.IsAdmin ||
-					t.latestState.AutoStart != state.AutoStart
-					
+
+	stateChanged := t.latestState.Mode != state.Mode ||
+		t.latestState.IsAdmin != state.IsAdmin ||
+		t.latestState.AutoStart != state.AutoStart
+
 	t.latestState = state
 
 	if state.IconState != t.lastIconId && state.IconState >= 0 && state.IconState < len(t.icons) && t.icons[state.IconState] != nil {
@@ -120,7 +120,7 @@ func (t *Tray) UpdateState(state domain.UIState) {
 	if !t.isBuilt {
 		t.buildMenuSkeleton()
 		t.isBuilt = true
-		stateChanged = true 
+		stateChanged = true
 	}
 
 	t.safelySetChecked(t.actProxy, state.IsProxy)
@@ -128,7 +128,7 @@ func (t *Tray) UpdateState(state domain.UIState) {
 	t.safelySetChecked(t.actModeRule, state.Mode == "rule")
 	t.safelySetChecked(t.actModeDirect, state.Mode == "direct")
 	t.safelySetChecked(t.actModeGlobal, state.Mode == "global")
-	
+
 	t.safelySetChecked(t.actAutoStart, state.AutoStart)
 	t.safelySetChecked(t.actRunAdmin, state.RunAsAdmin || state.AutoStart)
 	t.actRunAdmin.SetEnabled(!state.AutoStart)
@@ -184,11 +184,9 @@ func (t *Tray) buildMenuSkeleton() {
 	t.addSeparator()
 
 	t.menuSwitchProfile, _ = t.addSubMenu("切换配置文件")
-	emptyAction := t.addActionTo(t.menuSwitchProfile, "无配置", nil)
-	emptyAction.SetEnabled(false)
 
 	t.addAction("管理/添加配置", func() { t.engine.SendCommand(domain.ActionOpenProfileManager, "") })
-	
+
 	t.addSeparator()
 	t.addAction("编辑当前文本", func() { t.engine.SendCommand(domain.ActionEditCurrentConfig, "") })
 	t.addAction("打开程序目录", func() { t.engine.SendCommand(domain.ActionOpenBaseDir, "") })
@@ -206,7 +204,7 @@ func (t *Tray) buildMenuSkeleton() {
 	t.addActionTo(moreMenu, "清理 Web 面板缓存", func() {
 		t.engine.SendCommand(domain.ActionClearWebUICache, "")
 	})
-	
+
 	t.addActionTo(moreMenu, "-", nil)
 	t.actRemoteWebUI = t.addCheckableSubAction(moreMenu, "使用在线 Web 面板", t.latestState.RemoteWebUI, func() { t.engine.SendCommand(domain.ActionToggleRemoteWebUI, fmt.Sprintf("%t", !t.latestState.RemoteWebUI)) })
 	t.actSysBrowser = t.addCheckableSubAction(moreMenu, "使用默认浏览器打开面板", t.latestState.UseSystemBrowser, func() { t.engine.SendCommand(domain.ActionToggleSystemBrowser, fmt.Sprintf("%t", !t.latestState.UseSystemBrowser)) })
@@ -226,7 +224,7 @@ func (t *Tray) rebuildProfilesMenu(state domain.UIState) {
 		return
 	}
 	actions := t.menuSwitchProfile.Actions()
-	for i := 0; i < actions.Len(); i++ {
+	for i := actions.Len() - 1; i >= 0; i-- {
 		actions.At(i).Dispose()
 	}
 	actions.Clear()
@@ -252,7 +250,7 @@ func (t *Tray) rebuildProfilesMenu(state domain.UIState) {
 
 func (t *Tray) ShowNotification(title, message string) {
 	if t.ni != nil {
-		t.engine.app.Synchronize(func() { _ = t.ni.ShowInfo(title, message) })
+		t.engine.RunOnUI(func() { _ = t.ni.ShowInfo(title, message) })
 	}
 }
 
