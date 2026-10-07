@@ -97,6 +97,10 @@ func ShowNativeMsgBox(owner walk.Form, title, message string, style walk.MsgBoxS
 		}
 	}()
 
+	if style&walk.MsgBoxIconQuestion == walk.MsgBoxIconQuestion {
+		win.MessageBeep(win.MB_ICONINFORMATION)
+	}
+
 	return walk.MsgBox(effectiveOwner, title, message, style)
 }
 
