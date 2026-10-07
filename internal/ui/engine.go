@@ -159,7 +159,10 @@ func (e *Engine) ShowError(title, message string) {
 			return
 		}
 		defer e.modalMgr.Release(key)
-		RunErrorDialog(e.activeOwner(), title, message)
+
+		ShowNativeMsgBox(e.activeOwner(), title, message, walk.MsgBoxOK|walk.MsgBoxIconError, func(hwnd win.HWND) {
+			e.modalMgr.RegisterHWND(key, hwnd)
+		})
 	})
 }
 
@@ -173,7 +176,10 @@ func (e *Engine) ShowInfo(title, message string) {
 			return
 		}
 		defer e.modalMgr.Release(key)
-		RunAlertDialog(e.activeOwner(), title, message, walk.IconInformation(), win.MB_ICONINFORMATION)
+
+		ShowNativeMsgBox(e.activeOwner(), title, message, walk.MsgBoxOK|walk.MsgBoxIconInformation, func(hwnd win.HWND) {
+			e.modalMgr.RegisterHWND(key, hwnd)
+		})
 	})
 }
 
@@ -188,7 +194,11 @@ func (e *Engine) ShowConfirm(title, message string) bool {
 			return
 		}
 		defer e.modalMgr.Release(key)
-		result = RunConfirmDialog(e.activeOwner(), title, message)
+
+		res := ShowNativeMsgBox(e.activeOwner(), title, message, walk.MsgBoxYesNo|walk.MsgBoxIconQuestion, func(hwnd win.HWND) {
+			e.modalMgr.RegisterHWND(key, hwnd)
+		})
+		result = (res == win.IDYES)
 	})
 	return result
 }
