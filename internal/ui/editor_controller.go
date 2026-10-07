@@ -21,7 +21,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 	var isAccepted bool
 
 	e.dialogMgr.RunOnUI(func() {
-		key := "editor_controller"
+		key := "editor_port"
 		if !e.dialogMgr.TryAcquire(key) {
 			return
 		}
@@ -30,6 +30,23 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 		var addrEdit, secretEdit, remoteURLEdit *walk.LineEdit
 		var onlineCheck, sysBrowserCheck *walk.CheckBox
 		var currentDlg *walk.Dialog
+
+		toolBtn := func(text string, onClick func()) PushButton {
+			return PushButton{
+				Text:      text,
+				MinSize:   Size{Width: 44},
+				MaxSize:   Size{Width: 44},
+				OnClicked: onClick,
+			}
+		}
+
+		copyBtn := func(edit **walk.LineEdit) PushButton {
+			return toolBtn("复制", func() {
+				if *edit != nil {
+					_ = walk.Clipboard().SetText((*edit).Text())
+				}
+			})
+		}
 
 		res := RunEditor(e.activeOwner(), EditorConfig{
 			Title:         "Web 面板设置",
@@ -53,16 +70,8 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 									Layout: HBox{MarginsZero: true, Spacing: 4},
 									Children: []Widget{
 										LineEdit{AssignTo: &addrEdit, Text: defaultAddr},
-										PushButton{
-											Text:    "复制",
-											MinSize: Size{Width: 44}, MaxSize: Size{Width: 44},
-											OnClicked: func() { _ = walk.Clipboard().SetText(addrEdit.Text()) },
-										},
-										PushButton{
-											Text:    "默认",
-											MinSize: Size{Width: 44}, MaxSize: Size{Width: 44},
-											OnClicked: func() { addrEdit.SetText(domain.DefaultExternalController) },
-										},
+										copyBtn(&addrEdit),
+										toolBtn("默认", func() { addrEdit.SetText(domain.DefaultExternalController) }),
 									},
 								},
 								Label{Text: "访问密钥:", Alignment: AlignHFarVCenter},
@@ -70,16 +79,8 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 									Layout: HBox{MarginsZero: true, Spacing: 4},
 									Children: []Widget{
 										LineEdit{AssignTo: &secretEdit, Text: defaultSecret},
-										PushButton{
-											Text:    "复制",
-											MinSize: Size{Width: 44}, MaxSize: Size{Width: 44},
-											OnClicked: func() { _ = walk.Clipboard().SetText(secretEdit.Text()) },
-										},
-										PushButton{
-											Text:    "生成",
-											MinSize: Size{Width: 44}, MaxSize: Size{Width: 44},
-											OnClicked: func() { secretEdit.SetText(random.String(domain.DefaultSecretLength)) },
-										},
+										copyBtn(&secretEdit),
+										toolBtn("生成", func() { secretEdit.SetText(random.String(domain.DefaultSecretLength)) }),
 									},
 								},
 							},
@@ -101,16 +102,8 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 									Children: []Widget{
 										Label{Text: "在线面板地址:"},
 										LineEdit{AssignTo: &remoteURLEdit, Text: defaultRemoteURL},
-										PushButton{
-											Text:    "复制",
-											MinSize: Size{Width: 44}, MaxSize: Size{Width: 44},
-											OnClicked: func() { _ = walk.Clipboard().SetText(remoteURLEdit.Text()) },
-										},
-										PushButton{
-											Text:    "默认",
-											MinSize: Size{Width: 44}, MaxSize: Size{Width: 44},
-											OnClicked: func() { remoteURLEdit.SetText(domain.DefaultRemoteWebUIURL) },
-										},
+										copyBtn(&remoteURLEdit),
+										toolBtn("默认", func() { remoteURLEdit.SetText(domain.DefaultRemoteWebUIURL) }),
 									},
 								},
 							},
@@ -123,18 +116,18 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 				secret := strings.TrimSpace(secretEdit.Text())
 				rURL := strings.TrimSpace(remoteURLEdit.Text())
 
-				if !netutil.IsValidHostPort(addr) {
-					RunErrorDialog(currentDlg, "保存失败", "地址格式错误。")
+				showError := func(msg string) (bool, error) {
+					RunErrorDialog(currentDlg, "保存失败", msg)
 					return false, nil
 				}
-				if netutil.IsPublicAddress(addr) && secret == "" {
-					RunErrorDialog(currentDlg, "保存失败", "当前地址支持外网访问，密钥不能为空。")
-					return false, nil
-				}
-				
-				if !netutil.IsValidHTTPURL(rURL) {
-					RunErrorDialog(currentDlg, "保存失败", "地址格式错误，请输入有效的 HTTP/HTTPS 链接。")
-					return false, nil
+
+				switch {
+				case !netutil.IsValidHostPort(addr):
+					return showError("地址格式错误。")
+				case netutil.IsPublicAddress(addr) && secret == "":
+					return showError("当前地址支持外网访问，密钥不能为空。")
+				case !netutil.IsValidHTTPURL(rURL):
+					return showError("地址格式错误，请输入有效的 HTTP/HTTPS 链接。")
 				}
 
 				finalAddr = addr
@@ -145,7 +138,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 				return true, nil
 			},
 		})
-		
+
 		isAccepted = res.Accepted
 	})
 
