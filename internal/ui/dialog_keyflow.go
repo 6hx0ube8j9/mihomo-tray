@@ -15,7 +15,7 @@ var (
 	kfCallback   uintptr
 	kfStackMu    sync.Mutex
 	kfStack      []*keyFlowContext
-	activeHookId win.HHOOK
+	activeHookId uintptr
 )
 
 type keyFlowContext struct {
@@ -70,13 +70,15 @@ func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 						for i, hwnd := range ctx.inputHWNDs {
 							if hFocus == hwnd {
 								if ctx.isTextEdit[i] {
+									// TextEdit: Ctrl+Enter saves; plain Enter inserts newline
 									if isCtrl {
 										ctx.dlg.Accept()
 										pMsg.Message = win.WM_NULL
 										return 0
 									}
-									break // Allow multiline TextEdit to handle Enter natively
+									break
 								} else {
+									// LineEdit: Ctrl+Enter saves; plain Enter shifts focus to next input
 									if isCtrl {
 										ctx.dlg.Accept()
 										pMsg.Message = win.WM_NULL
@@ -95,6 +97,7 @@ func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 					}
 
 				case 'S':
+					// Ctrl+S: shortcut to save anywhere in the dialog
 					if isCtrl {
 						ctx.dlg.Accept()
 						pMsg.Message = win.WM_NULL
@@ -105,11 +108,12 @@ func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 		}
 	}
 
-	return win.CallNextHookEx(0, nCode, wParam, lParam)
+	ret, _, _ := procCallNextHookEx.Call(0, uintptr(nCode), wParam, lParam)
+	return ret
 }
 
 // CollectInputs recursively traverses the container to find all LineEdit and TextEdit controls.
-func CollectInputs(container walk.Container) []walk.Widget {
+func collectInputs(container walk.Container) []walk.Widget {
 	if container == nil || container.Children() == nil {
 		return nil
 	}
@@ -127,7 +131,7 @@ func CollectInputs(container walk.Container) []walk.Widget {
 }
 
 // FocusFirstInput focuses the first editable input and positions the caret at the end.
-func FocusFirstInput(inputs []walk.Widget) {
+func focusFirstInput(inputs []walk.Widget) {
 	for _, in := range inputs {
 		if in.Visible() && in.Enabled() {
 			in.SetFocus()
@@ -141,7 +145,6 @@ func FocusFirstInput(inputs []walk.Widget) {
 }
 
 // SetupDialogKeyFlow sets up input traversal, auto-wrap styles, initial focus, and keyboard routing.
-// Returns a cleanup closure that must be called via defer before dialog disposal.
 func SetupDialogKeyFlow(dlg *walk.Dialog, acceptPB, cancelPB *walk.PushButton) func() {
 	ensureKeyFlowCallback()
 
@@ -157,8 +160,8 @@ func SetupDialogKeyFlow(dlg *walk.Dialog, acceptPB, cancelPB *walk.PushButton) f
 		if ok {
 			hwnd := in.Handle()
 			style := win.GetWindowLong(hwnd, win.GWL_STYLE)
-			if style&win.ES_WANTRETURN == 0 {
-				win.SetWindowLong(hwnd, win.GWL_STYLE, style|win.ES_WANTRETURN)
+			if style&esWantReturn == 0 {
+				win.SetWindowLong(hwnd, win.GWL_STYLE, style|esWantReturn)
 				win.SetWindowPos(hwnd, 0, 0, 0, 0, 0, win.SWP_NOMOVE|win.SWP_NOSIZE|win.SWP_NOZORDER|win.SWP_FRAMECHANGED)
 			}
 		}
@@ -181,7 +184,8 @@ func SetupDialogKeyFlow(dlg *walk.Dialog, acceptPB, cancelPB *walk.PushButton) f
 	kfStackMu.Lock()
 	if len(kfStack) == 0 {
 		tid := win.GetCurrentThreadId()
-		activeHookId = win.SetWindowsHookEx(win.WH_GETMESSAGE, kfCallback, 0, tid)
+		hHook, _, _ := procSetWindowsHookExW.Call(uintptr(whGetMessage), kfCallback, 0, uintptr(tid))
+		activeHookId = hHook
 	}
 	kfStack = append(kfStack, ctx)
 	kfStackMu.Unlock()
@@ -195,7 +199,7 @@ func SetupDialogKeyFlow(dlg *walk.Dialog, acceptPB, cancelPB *walk.PushButton) f
 			}
 		}
 		if len(kfStack) == 0 && activeHookId != 0 {
-			win.UnhookWindowsHookEx(activeHookId)
+			procUnhookWindowsHookEx.Call(activeHookId)
 			activeHookId = 0
 		}
 		kfStackMu.Unlock()
