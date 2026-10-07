@@ -92,3 +92,27 @@ func ShowNativeMsgBox(owner walk.Form, title, message string, style walk.MsgBoxS
 	}()
 
 	return walk.MsgBox(owner, title, message, style)
+}
+
+func RunErrorDialog(owner walk.Form, title string, errOrMsg any) {
+	ShowNativeMsgBox(owner, title, toMessage(errOrMsg), walk.MsgBoxOK|walk.MsgBoxIconError, nil)
+}
+
+func RunConfirmDialog(owner walk.Form, title, message string) bool {
+	res := ShowNativeMsgBox(owner, title, message, walk.MsgBoxYesNo|walk.MsgBoxIconQuestion, nil)
+	return res == win.IDYES
+}
+
+func toMessage(v any) string {
+	switch val := v.(type) {
+	case error:
+		if val != nil {
+			return val.Error()
+		}
+		return "未知错误"
+	case string:
+		return val
+	default:
+		return fmt.Sprintf("%v", val)
+	}
+}
