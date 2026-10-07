@@ -36,6 +36,27 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	var acceptPB, cancelPB *walk.PushButton
 	var isAccepted bool
 	var processErr error
+	var isSubmitting bool
+	submit := func() {
+		if isSubmitting {
+			return
+		}
+		isSubmitting = true
+		defer func() {
+			isSubmitting = false
+		}()
+
+		if cfg.OnAccept != nil {
+			ok, err := cfg.OnAccept()
+			if !ok {
+				return
+			}
+			processErr = err
+		}
+
+		isAccepted = true
+		dlg.Accept()
+	}
 
 	layoutChildren := append(cfg.Widgets,
 		VSpacer{},
@@ -44,17 +65,15 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 			Children: []Widget{
 				HSpacer{},
 				PushButton{
-					AssignTo: &acceptPB,
-					Text:     cfg.AcceptBtnText,
-					MinSize:  Size{Width: 80, Height: 26},
-					OnClicked: func() {
-						dlg.Accept()
-					},
+					AssignTo:  &acceptPB,
+					Text:      cfg.AcceptBtnText,
+					MinSize:   Size{Width: 80, Height: 26},
+					OnClicked: submit,
 				},
 				PushButton{
-					AssignTo: &cancelPB,
-					Text:     cfg.CancelBtnText,
-					MinSize:  Size{Width: 80, Height: 26},
+					AssignTo:  &cancelPB,
+					Text:      cfg.CancelBtnText,
+					MinSize:   Size{Width: 80, Height: 26},
 					OnClicked: func() {
 						dlg.Cancel()
 					},
@@ -93,21 +112,7 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	})
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-		if reason == walk.CloseReasonUnknown && dlg.Result() == walk.DlgCmdOK {
-			if cfg.OnAccept != nil {
-				ok, err := cfg.OnAccept()
-				if !ok {
-					*canceled = true
-					return
-				}
-				processErr = err
-			}
-			isAccepted = true
-		}
-
-		if !*canceled {
-			restoreFocus(owner, hActive)
-		}
+		restoreFocus(owner, hActive)
 	})
 
 	dlg.Run()
