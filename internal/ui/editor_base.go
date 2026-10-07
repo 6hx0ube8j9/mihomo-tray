@@ -37,6 +37,18 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	var isAccepted bool
 	var processErr error
 
+	submit := func() {
+		if cfg.OnAccept != nil {
+			ok, err := cfg.OnAccept()
+			if !ok {
+				return
+			}
+			processErr = err
+		}
+		isAccepted = true
+		dlg.Accept()
+	}
+
 	layoutChildren := append(cfg.Widgets,
 		VSpacer{},
 		Composite{
@@ -48,7 +60,7 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 					Text:     cfg.AcceptBtnText,
 					MinSize:  Size{Width: 80, Height: 26},
 					OnClicked: func() {
-						dlg.Accept()
+						submit()
 					},
 				},
 				PushButton{
@@ -91,21 +103,7 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	})
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-		if dlg.Result() == walk.DlgCmdOK {
-			if cfg.OnAccept != nil {
-				ok, err := cfg.OnAccept()
-				if !ok {
-					*canceled = true
-					return
-				}
-				processErr = err
-			}
-			isAccepted = true
-		}
-
-		if !*canceled {
-			restoreFocus(owner, hActive)
-		}
+		restoreFocus(owner, hActive)
 	})
 
 	dlg.Run()
