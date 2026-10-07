@@ -100,7 +100,7 @@ func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 										next.SetFocus()
 										if nextLE, ok := next.(*walk.LineEdit); ok {
 											l := len([]rune(nextLE.Text()))
-											nextLE.SetTextSelection(l, l)
+											nextLE.SetTextSelection(0, l)
 										}
 									} else {
 										win.SetFocus(ctx.acceptHWND)
@@ -151,7 +151,7 @@ func focusFirstInput(inputs []walk.Widget) {
 			in.SetFocus()
 			if le, ok := in.(*walk.LineEdit); ok {
 				textLen := len([]rune(le.Text()))
-				le.SetTextSelection(textLen, textLen)
+				le.SetTextSelection(0, textLen)
 			}
 			return
 		}
