@@ -24,28 +24,12 @@ func (e *Engine) ShowPortEditor(defaultMixed, defaultSocks, defaultHttp int) (in
 		}
 		defer e.dialogMgr.Release(key)
 
-		type portField struct {
-			name   string
-			defVal int
-			edit   *walk.LineEdit
-			target *int
-		}
-
-		fields := []*portField{
-			{name: "Mixed", defVal: defaultMixed, target: &finalMixed},
-			{name: "Socks", defVal: defaultSocks, target: &finalSocks},
-			{name: "HTTP(S)", defVal: defaultHttp, target: &finalHttp},
-		}
-
-		children := make([]Widget, 0, len(fields)*2)
-		for _, f := range fields {
-			children = append(children,
-				Label{Text: f.name + " 端口:", Alignment: AlignHFarVCenter},
-				LineEdit{AssignTo: &f.edit, Text: strconv.Itoa(f.defVal)},
-			)
-		}
-
+		var mixedEdit, socksEdit, httpEdit *walk.LineEdit
 		var currentDlg *walk.Dialog
+
+		portLabel := func(name string) Label {
+			return Label{Text: name + " 端口:", Alignment: AlignHFarVCenter}
+		}
 
 		res := RunEditor(e.activeOwner(), EditorConfig{
 			Title:     "更改代理端口",
@@ -57,24 +41,43 @@ func (e *Engine) ShowPortEditor(defaultMixed, defaultSocks, defaultHttp int) (in
 			},
 			Widgets: []Widget{
 				Composite{
-					Layout:   Grid{Columns: 2, Spacing: 10, MarginsZero: true},
-					Children: children,
+					Layout: Grid{Columns: 2, Spacing: 10, MarginsZero: true},
+					Children: []Widget{
+						portLabel("Mixed"),
+						LineEdit{AssignTo: &mixedEdit, Text: strconv.Itoa(defaultMixed)},
+
+						portLabel("Socks"),
+						LineEdit{AssignTo: &socksEdit, Text: strconv.Itoa(defaultSocks)},
+
+						portLabel("HTTP(S)"),
+						LineEdit{AssignTo: &httpEdit, Text: strconv.Itoa(defaultHttp)},
+					},
 				},
 			},
 			OnAccept: func() (bool, error) {
-				parsed := make([]int, len(fields))
-				for i, f := range fields {
-					val, err := netutil.ParseAndValidatePort(f.edit.Text())
+				validate := func(name string, edit *walk.LineEdit) (int, bool) {
+					val, err := netutil.ParseAndValidatePort(edit.Text())
 					if err != nil {
-						RunErrorDialog(currentDlg, "输入错误", formatPortError(f.name, err))
-						return false, nil
+						RunErrorDialog(currentDlg, "输入错误", formatPortError(name, err))
+						return 0, false
 					}
-					parsed[i] = val
+					return val, true
 				}
 
-				for i, f := range fields {
-					*f.target = parsed[i]
+				m, ok := validate("Mixed", mixedEdit)
+				if !ok {
+					return false, nil
 				}
+				s, ok := validate("Socks", socksEdit)
+				if !ok {
+					return false, nil
+				}
+				h, ok := validate("HTTP(S)", httpEdit)
+				if !ok {
+					return false, nil
+				}
+
+				finalMixed, finalSocks, finalHttp = m, s, h
 				return true, nil
 			},
 		})
