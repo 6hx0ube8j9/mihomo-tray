@@ -124,7 +124,7 @@ func collectInputs(container walk.Container) []walk.Widget {
 		case *walk.LineEdit, *walk.TextEdit:
 			list = append(list, w)
 		case walk.Container:
-			list = append(list, CollectInputs(w)...)
+			list = append(list, collectInputs(w)...)
 		}
 	}
 	return list
@@ -168,7 +168,7 @@ func SetupDialogKeyFlow(dlg *walk.Dialog, acceptPB, cancelPB *walk.PushButton) f
 	}
 
 	dlg.Activating().Attach(func() {
-		FocusFirstInput(inputs)
+		focusFirstInput(inputs)
 	})
 
 	ctx := &keyFlowContext{
