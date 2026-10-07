@@ -21,7 +21,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 	var isAccepted bool
 
 	e.dialogMgr.RunOnUI(func() {
-		key := "editor_port"
+		key := "editor_controller"
 		if !e.dialogMgr.TryAcquire(key) {
 			return
 		}
