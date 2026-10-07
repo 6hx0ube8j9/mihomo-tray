@@ -195,10 +195,10 @@ func (e *Engine) ShowConfirm(title, message string) bool {
 		}
 		defer e.modalMgr.Release(key)
 
-		res := ShowNativeMsgBox(e.activeOwner(), title, message, walk.MsgBoxYesNo|walk.MsgBoxIconQuestion, func(hwnd win.HWND) {
+		res := ShowNativeMsgBox(e.activeOwner(), title, message, walk.MsgBoxOKCancel|walk.MsgBoxIconQuestion, func(hwnd win.HWND) {
 			e.modalMgr.RegisterHWND(key, hwnd)
 		})
-		result = (res == win.IDYES)
+		result = (res == win.IDOK)
 	})
 	return result
 }
@@ -223,8 +223,11 @@ func (e *Engine) ShowNotification(title, message string) {
 func (e *Engine) activeOwner() walk.Form {
 	if e.Dashboard != nil && e.Dashboard.window != nil {
 		hwnd := e.Dashboard.window.Handle()
-		if win.IsWindowVisible(hwnd) && !win.IsIconic(hwnd) {
-			return e.Dashboard.window
+		if hwnd != 0 && win.IsWindowVisible(hwnd) && !win.IsIconic(hwnd) {
+			hActive := win.GetForegroundWindow()
+			if hActive == hwnd || win.IsChild(hwnd, hActive) {
+				return e.Dashboard.window
+			}
 		}
 	}
 	return nil
