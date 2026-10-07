@@ -15,7 +15,6 @@ type EditorConfig struct {
 	AcceptBtnText string
 	CancelBtnText string
 	OnReady       func(dlg *walk.Dialog)
-	AssignTo      **walk.Dialog
 }
 
 type EditorResult struct {
@@ -78,9 +77,6 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 		return EditorResult{Accepted: false, Error: err}
 	}
 
-	if cfg.AssignTo != nil {
-		*cfg.AssignTo = dlg
-	}
 	if cfg.OnReady != nil {
 		cfg.OnReady(dlg)
 	}
@@ -88,9 +84,7 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	defer dlg.Dispose()
 
 	dlg.Starting().Attach(func() {
-		hwnd := dlg.Handle()
-		lockWindowSize(hwnd)
-		win.SetWindowLong(hwnd, win.GWL_EXSTYLE, win.GetWindowLong(hwnd, win.GWL_EXSTYLE)|win.WS_EX_APPWINDOW)
+		lockWindowSize(dlg.Handle())
 		centerDialog(dlg, owner, hActive)
 	})
 
@@ -112,9 +106,6 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 		}
 		
 		if !*canceled {
-			if cfg.AssignTo != nil {
-				*cfg.AssignTo = nil
-			}
 			restoreFocus(owner, hActive)
 		}
 	})
