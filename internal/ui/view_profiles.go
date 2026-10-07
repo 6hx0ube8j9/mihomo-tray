@@ -28,6 +28,16 @@ func (v *ProfileView) Declarative() []Widget {
 	var actionMoveUp, actionMoveDown, actionDelete *walk.Action
 	var btnMoveUp, btnMoveDown *walk.PushButton
 
+	sendWithSelected := func(action string) {
+		if v.tableView == nil {
+			return
+		}
+		idx := v.tableView.CurrentIndex()
+		if idx >= 0 && idx < len(v.model.Items) {
+			v.engine.SendCommand(action, v.model.Items[idx].Path)
+		}
+	}
+
 	updateActionState := func() {
 		if v.tableView == nil || actionSwitch == nil {
 			return
@@ -35,23 +45,29 @@ func (v *ProfileView) Declarative() []Widget {
 		idx := v.tableView.CurrentIndex()
 		hasSelection := idx >= 0 && idx < len(v.model.Items)
 
-		if !hasSelection {
-			actionSwitch.SetEnabled(false); actionEditText.SetEnabled(false); actionEditInfo.SetEnabled(false)
-			actionUpdate.SetEnabled(false); actionMoveUp.SetEnabled(false); actionMoveDown.SetEnabled(false)
-			actionDelete.SetEnabled(false)
-			if btnMoveUp != nil { btnMoveUp.SetEnabled(false) }
-			if btnMoveDown != nil { btnMoveDown.SetEnabled(false) }
-			return
+		var canSwitch, canUpdate, canMoveUp, canMoveDown bool
+		if hasSelection {
+			item := v.model.Items[idx]
+			canSwitch = !item.IsActive
+			canUpdate = item.IsRemote
+			canMoveUp = idx > 0
+			canMoveDown = idx < len(v.model.Items)-1
 		}
 
-		item := v.model.Items[idx]
-		canMoveUp, canMoveDown := idx > 0, idx < len(v.model.Items)-1
+		actionSwitch.SetEnabled(canSwitch)
+		actionEditText.SetEnabled(hasSelection)
+		actionEditInfo.SetEnabled(hasSelection)
+		actionUpdate.SetEnabled(canUpdate)
+		actionDelete.SetEnabled(hasSelection)
 
-		actionSwitch.SetEnabled(!item.IsActive); actionDelete.SetEnabled(true)
-		actionEditText.SetEnabled(true); actionEditInfo.SetEnabled(true); actionUpdate.SetEnabled(item.IsRemote)
-		actionMoveUp.SetEnabled(canMoveUp); actionMoveDown.SetEnabled(canMoveDown)
-		if btnMoveUp != nil { btnMoveUp.SetEnabled(canMoveUp) }
-		if btnMoveDown != nil { btnMoveDown.SetEnabled(canMoveDown) }
+		actionMoveUp.SetEnabled(canMoveUp)
+		actionMoveDown.SetEnabled(canMoveDown)
+		if btnMoveUp != nil {
+			btnMoveUp.SetEnabled(canMoveUp)
+		}
+		if btnMoveDown != nil {
+			btnMoveDown.SetEnabled(canMoveDown)
+		}
 	}
 
 	return []Widget{
@@ -62,9 +78,9 @@ func (v *ProfileView) Declarative() []Widget {
 				PushButton{Text: "导入本地配置", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestAddLocal, "") }},
 				PushButton{Text: "更改代理端口", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestEditPort, "") }},
 				PushButton{Text: "Web 面板设置", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestEditController, "") }},
-				
-				HSpacer{}, 
-				
+
+				HSpacer{},
+
 				Label{
 					AssignTo: &v.portsLabel,
 					Font:     Font{Family: "JetBrains Mono"},
@@ -87,47 +103,37 @@ func (v *ProfileView) Declarative() []Widget {
 					},
 					Model:                 v.model,
 					OnCurrentIndexChanged: updateActionState,
-					OnItemActivated: func() {
-						if idx := v.tableView.CurrentIndex(); idx >= 0 {
-							v.engine.SendCommand(domain.ActionSwitchProfile, v.model.Items[idx].Path)
-						}
-					},
+					OnItemActivated:       func() { sendWithSelected(domain.ActionSwitchProfile) },
 					ContextMenuItems: []MenuItem{
-						Action{AssignTo: &actionSwitch, Text: "切换配置", OnTriggered: func() {
-							if idx := v.tableView.CurrentIndex(); idx >= 0 { v.engine.SendCommand(domain.ActionSwitchProfile, v.model.Items[idx].Path) }
-						}},
-						Action{AssignTo: &actionEditText, Text: "打开文本", OnTriggered: func() {
-							if idx := v.tableView.CurrentIndex(); idx >= 0 { v.engine.SendCommand(domain.ActionOpenConfigFile, v.model.Items[idx].Path) }
-						}},
-						Action{AssignTo: &actionEditInfo, Text: "编辑信息", OnTriggered: func() {
-							if idx := v.tableView.CurrentIndex(); idx >= 0 { v.engine.SendCommand(domain.ActionEditProfileInfo, v.model.Items[idx].Path) }
-						}},
-						Action{AssignTo: &actionUpdate, Text: "立即更新", OnTriggered: func() {
-							if idx := v.tableView.CurrentIndex(); idx >= 0 { v.engine.SendCommand(domain.ActionUpdateRemoteProfile, v.model.Items[idx].Path) }
-						}},
+						Action{AssignTo: &actionSwitch, Text: "切换配置", OnTriggered: func() { sendWithSelected(domain.ActionSwitchProfile) }},
+						Action{AssignTo: &actionEditText, Text: "打开文本", OnTriggered: func() { sendWithSelected(domain.ActionOpenConfigFile) }},
+						Action{AssignTo: &actionEditInfo, Text: "编辑信息", OnTriggered: func() { sendWithSelected(domain.ActionEditProfileInfo) }},
+						Action{AssignTo: &actionUpdate, Text: "立即更新", OnTriggered: func() { sendWithSelected(domain.ActionUpdateRemoteProfile) }},
 						Separator{},
-						Action{AssignTo: &actionMoveUp, Text: "向上移动", OnTriggered: func() {
-							if idx := v.tableView.CurrentIndex(); idx >= 0 { v.engine.SendCommand(domain.ActionMoveProfileUp, v.model.Items[idx].Path) }
-						}},
-						Action{AssignTo: &actionMoveDown, Text: "向下移动", OnTriggered: func() {
-							if idx := v.tableView.CurrentIndex(); idx >= 0 { v.engine.SendCommand(domain.ActionMoveProfileDown, v.model.Items[idx].Path) }
-						}},
+						Action{AssignTo: &actionMoveUp, Text: "向上移动", OnTriggered: func() { sendWithSelected(domain.ActionMoveProfileUp) }},
+						Action{AssignTo: &actionMoveDown, Text: "向下移动", OnTriggered: func() { sendWithSelected(domain.ActionMoveProfileDown) }},
 						Separator{},
-						Action{AssignTo: &actionDelete, Text: "删除配置", OnTriggered: func() {
-							if idx := v.tableView.CurrentIndex(); idx >= 0 { v.engine.SendCommand(domain.ActionRemoveProfile, v.model.Items[idx].Path) }
-						}},
+						Action{AssignTo: &actionDelete, Text: "删除配置", OnTriggered: func() { sendWithSelected(domain.ActionRemoveProfile) }},
 					},
 				},
 
 				Composite{
 					Layout: VBox{MarginsZero: true, Spacing: 8},
 					Children: []Widget{
-						PushButton{AssignTo: &btnMoveUp, Text: "上移", Enabled: false, MinSize: Size{Width: 90}, OnClicked: func() {
-							if idx := v.tableView.CurrentIndex(); idx >= 0 { v.engine.SendCommand(domain.ActionMoveProfileUp, v.model.Items[idx].Path) }
-						}},
-						PushButton{AssignTo: &btnMoveDown, Text: "下移", Enabled: false, MinSize: Size{Width: 90}, OnClicked: func() {
-							if idx := v.tableView.CurrentIndex(); idx >= 0 { v.engine.SendCommand(domain.ActionMoveProfileDown, v.model.Items[idx].Path) }
-						}},
+						PushButton{
+							AssignTo:  &btnMoveUp,
+							Text:      "上移",
+							Enabled:   false,
+							MinSize:   Size{Width: 90},
+							OnClicked: func() { sendWithSelected(domain.ActionMoveProfileUp) },
+						},
+						PushButton{
+							AssignTo:  &btnMoveDown,
+							Text:      "下移",
+							Enabled:   false,
+							MinSize:   Size{Width: 90},
+							OnClicked: func() { sendWithSelected(domain.ActionMoveProfileDown) },
+						},
 						VSpacer{},
 					},
 				},
@@ -143,7 +149,7 @@ func (v *ProfileView) RefreshData(state domain.UIState) {
 	}
 
 	items := state.ProfileItems
-	
+
 	var selectedPath string
 	if v.tableView != nil {
 		if idx := v.tableView.CurrentIndex(); idx >= 0 && idx < len(v.model.Items) {
@@ -180,21 +186,31 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	item := m.Items[row]
 	switch col {
 	case 0:
-		if item.IsActive { return "✔ 使用中" }
+		if item.IsActive {
+			return "✔ 使用中"
+		}
 		return ""
 	case 1:
 		return item.Name
 	case 2:
 		return filepath.Base(item.Path)
 	case 3:
-		if item.IsRemote { return "订阅配置" }
+		if item.IsRemote {
+			return "订阅配置"
+		}
 		return "本地配置"
 	case 4:
-		if !item.IsRemote { return "-" }
-		if item.Interval > 0 { return fmt.Sprintf("%d 天", item.Interval) }
+		if !item.IsRemote {
+			return "-"
+		}
+		if item.Interval > 0 {
+			return fmt.Sprintf("%d 天", item.Interval)
+		}
 		return "停止更新"
 	case 5:
-		if !item.IsRemote { return "-" }
+		if !item.IsRemote {
+			return "-"
+		}
 		return item.LastUpdate
 	}
 	return ""
