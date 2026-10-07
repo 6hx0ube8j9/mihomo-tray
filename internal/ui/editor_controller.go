@@ -58,54 +58,58 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 				e.modalMgr.RegisterHWND(key, dlg.Handle())
 			},
 			Widgets: []Widget{
-				Composite{
-					Layout: VBox{MarginsZero: true, Spacing: 8},
+				GroupBox{
+					Title:  "控制器连接",
+					Layout: Grid{Columns: 2, Spacing: 6, Margins: Margins{Left: 8, Top: 10, Right: 8, Bottom: 8}},
 					Children: []Widget{
-						GroupBox{
-							Title:  "控制器连接",
-							Layout: Grid{Columns: 2, Spacing: 6, Margins: Margins{Left: 8, Top: 12, Right: 8, Bottom: 8}},
+						Label{
+							Text:      "监听地址:",
+							Alignment: AlignHFarVCenter,
+						},
+						Composite{
+							Layout: HBox{MarginsZero: true, Spacing: 4},
 							Children: []Widget{
-								Label{Text: "监听地址:", Alignment: AlignHFarVCenter},
-								Composite{
-									Layout: HBox{MarginsZero: true, Spacing: 4},
-									Children: []Widget{
-										LineEdit{AssignTo: &addrEdit, Text: defaultAddr},
-										copyBtn(&addrEdit),
-										toolBtn("默认", func() { addrEdit.SetText(domain.DefaultExternalController) }),
-									},
-								},
-								Label{Text: "访问密钥:", Alignment: AlignHFarVCenter},
-								Composite{
-									Layout: HBox{MarginsZero: true, Spacing: 4},
-									Children: []Widget{
-										LineEdit{AssignTo: &secretEdit, Text: defaultSecret},
-										copyBtn(&secretEdit),
-										toolBtn("生成", func() { secretEdit.SetText(random.String(domain.DefaultSecretLength)) }),
-									},
-								},
+								LineEdit{AssignTo: &addrEdit, Text: defaultAddr},
+								copyBtn(&addrEdit),
+								toolBtn("默认", func() { addrEdit.SetText(domain.DefaultExternalController) }),
 							},
 						},
-						GroupBox{
-							Title:  "启动偏好",
-							Layout: VBox{Margins: Margins{Left: 8, Top: 10, Right: 8, Bottom: 8}, Spacing: 12},
+						Label{
+							Text:      "访问密钥:",
+							Alignment: AlignHFarVCenter,
+						},
+						Composite{
+							Layout: HBox{MarginsZero: true, Spacing: 4},
 							Children: []Widget{
-								Composite{
-									Layout: HBox{MarginsZero: true, Spacing: 12},
-									Children: []Widget{
-										CheckBox{AssignTo: &onlineCheck, Text: "使用在线 Web 面板", Checked: defaultOnline},
-										CheckBox{AssignTo: &sysBrowserCheck, Text: "使用系统默认浏览器", Checked: defaultSysBrowser},
-										HSpacer{},
-									},
+								LineEdit{AssignTo: &secretEdit, Text: defaultSecret},
+								copyBtn(&secretEdit),
+								toolBtn("生成", func() { secretEdit.SetText(random.String(domain.DefaultSecretLength)) }),
+							},
+						},
+					},
+				},
+				GroupBox{
+					Title:  "启动偏好",
+					Layout: VBox{Margins: Margins{Left: 8, Top: 10, Right: 8, Bottom: 8}, Spacing: 8},
+					Children: []Widget{
+						Composite{
+							Layout: HBox{MarginsZero: true, Spacing: 12},
+							Children: []Widget{
+								CheckBox{AssignTo: &onlineCheck, Text: "使用在线 Web 面板", Checked: defaultOnline},
+								CheckBox{AssignTo: &sysBrowserCheck, Text: "使用系统默认浏览器", Checked: defaultSysBrowser},
+								HSpacer{},
+							},
+						},
+						Composite{
+							Layout: HBox{MarginsZero: true, Spacing: 4},
+							Children: []Widget{
+								Label{
+									Text:      "在线面板地址:",
+									Alignment: AlignHNearVCenter,
 								},
-								Composite{
-									Layout: HBox{MarginsZero: true, Spacing: 6},
-									Children: []Widget{
-										Label{Text: "在线面板地址:"},
-										LineEdit{AssignTo: &remoteURLEdit, Text: defaultRemoteURL},
-										copyBtn(&remoteURLEdit),
-										toolBtn("默认", func() { remoteURLEdit.SetText(domain.DefaultRemoteWebUIURL) }),
-									},
-								},
+								LineEdit{AssignTo: &remoteURLEdit, Text: defaultRemoteURL},
+								copyBtn(&remoteURLEdit),
+								toolBtn("默认", func() { remoteURLEdit.SetText(domain.DefaultRemoteWebUIURL) }),
 							},
 						},
 					},
