@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"strings"
 	"unsafe"
 
 	"github.com/tailscale/walk"
@@ -86,37 +85,4 @@ func restoreFocus(parent walk.Form, hActive win.HWND) {
 		win.SetForegroundWindow(hActive)
 		win.SetFocus(hActive)
 	}
-}
-
-func autoWrapText(text string, maxVisualWidth int) string {
-	text = strings.ReplaceAll(text, "\r\n", "\n")
-	var result []string
-	lines := strings.Split(text, "\n")
-	for _, line := range lines {
-		runes := []rune(line)
-		if len(runes) == 0 {
-			result = append(result, "")
-			continue
-		}
-		var currentLine []rune
-		currentWidth := 0
-		for _, r := range runes {
-			w := 1
-			if r > 255 {
-				w = 2
-			}
-			if currentWidth+w > maxVisualWidth {
-				result = append(result, string(currentLine))
-				currentLine = []rune{r}
-				currentWidth = w
-			} else {
-				currentLine = append(currentLine, r)
-				currentWidth += w
-			}
-		}
-		if len(currentLine) > 0 {
-			result = append(result, string(currentLine))
-		}
-	}
-	return strings.Join(result, "\r\n")
 }
