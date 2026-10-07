@@ -224,10 +224,7 @@ func (e *Engine) activeOwner() walk.Form {
 	if e.Dashboard != nil && e.Dashboard.window != nil {
 		hwnd := e.Dashboard.window.Handle()
 		if hwnd != 0 && win.IsWindowVisible(hwnd) && !win.IsIconic(hwnd) {
-			hActive := win.GetForegroundWindow()
-			if hActive == hwnd || win.IsChild(hwnd, hActive) {
-				return e.Dashboard.window
-			}
+			return e.Dashboard.window
 		}
 	}
 	return nil
