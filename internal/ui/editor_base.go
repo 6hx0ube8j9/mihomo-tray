@@ -102,6 +102,10 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 		centerDialog(dlg, owner)
 	})
 
+	dlg.SizeChanged().Attach(func() {
+		centerDialog(dlg, owner)
+	})
+
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 		restoreFocus(owner, hActive)
 	})
