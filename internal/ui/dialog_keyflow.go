@@ -10,7 +10,11 @@ import (
 	"github.com/tailscale/win"
 )
 
-const bmClick = 0x00F5 // Win32 BM_CLICK 消息
+const (
+	bmClick         = 0x00F5 // Win32 BM_CLICK 
+	bmSetStyle      = 0x00F4 // Win32 BM_SETSTYLE 
+	bsDefPushButton = 0x0001 // Win32 BS_DEFPUSHBUTTON 
+)
 
 var (
 	kfOnce       sync.Once
@@ -69,7 +73,7 @@ func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 						return 0
 
 					case hFocus == ctx.cancelHWND:
-						ctx.dlg.Cancel()
+						win.SendMessage(ctx.cancelHWND, bmClick, 0, 0)
 						pMsg.Message = win.WM_NULL
 						return 0
 
@@ -99,6 +103,7 @@ func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 										}
 									} else {
 										win.SetFocus(ctx.acceptHWND)
+										win.SendMessage(ctx.acceptHWND, bmSetStyle, uintptr(bsDefPushButton), 1)
 									}
 									pMsg.Message = win.WM_NULL
 									return 0
