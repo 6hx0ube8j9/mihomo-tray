@@ -37,26 +37,6 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	var isAccepted bool
 	var processErr error
 	var isSubmitting bool
-	submit := func() {
-		if isSubmitting {
-			return
-		}
-		isSubmitting = true
-		defer func() {
-			isSubmitting = false
-		}()
-
-		if cfg.OnAccept != nil {
-			ok, err := cfg.OnAccept()
-			if !ok {
-				return
-			}
-			processErr = err
-		}
-
-		isAccepted = true
-		dlg.Accept()
-	}
 
 	layoutChildren := append(cfg.Widgets,
 		VSpacer{},
@@ -65,15 +45,17 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 			Children: []Widget{
 				HSpacer{},
 				PushButton{
-					AssignTo:  &acceptPB,
-					Text:      cfg.AcceptBtnText,
-					MinSize:   Size{Width: 80, Height: 26},
-					OnClicked: submit,
+					AssignTo: &acceptPB,
+					Text:     cfg.AcceptBtnText,
+					MinSize:  Size{Width: 80, Height: 26},
+					OnClicked: func() {
+						dlg.Accept()
+					},
 				},
 				PushButton{
-					AssignTo:  &cancelPB,
-					Text:      cfg.CancelBtnText,
-					MinSize:   Size{Width: 80, Height: 26},
+					AssignTo: &cancelPB,
+					Text:     cfg.CancelBtnText,
+					MinSize:  Size{Width: 80, Height: 26},
 					OnClicked: func() {
 						dlg.Cancel()
 					},
@@ -83,24 +65,26 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	)
 
 	err := Dialog{
-		AssignTo:      &dlg,
-		Title:         cfg.Title,
-		MinSize:       Size{Width: cfg.Width, Height: cfg.MinHeight},
-		Layout:        VBox{Margins: Margins{Left: 18, Top: 15, Right: 18, Bottom: 15}, Spacing: 12},
-		DefaultButton: &acceptPB,
-		CancelButton:  &cancelPB,
-		Children:      layoutChildren,
+		AssignTo:  &dlg,
+		Title:     cfg.Title,
+		MinSize:   Size{Width: cfg.Width, Height: cfg.MinHeight},
+		Layout:    VBox{Margins: Margins{Left: 18, Top: 15, Right: 18, Bottom: 15}, Spacing: 12},
+		Children:  layoutChildren,
 	}.Create(owner)
 
 	if err != nil {
 		return EditorResult{Accepted: false, Error: err}
 	}
 
+	cleanupKeyFlow := SetupDialogKeyFlow(dlg, acceptPB, cancelPB)
+	defer func() {
+		cleanupKeyFlow()
+		dlg.Dispose()
+	}()
+
 	if cfg.OnReady != nil {
 		cfg.OnReady(dlg)
 	}
-
-	defer dlg.Dispose()
 
 	dlg.Starting().Attach(func() {
 		lockWindowSize(dlg.Handle())
@@ -112,7 +96,30 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	})
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-		restoreFocus(owner, hActive)
+		if dlg.Result() == walk.DlgCmdOK {
+			if isSubmitting {
+				*canceled = true
+				return
+			}
+			isSubmitting = true
+			defer func() {
+				isSubmitting = false
+			}()
+
+			if cfg.OnAccept != nil {
+				ok, err := cfg.OnAccept()
+				if !ok {
+					*canceled = true
+					return
+				}
+				processErr = err
+			}
+			isAccepted = true
+		}
+
+		if !*canceled {
+			restoreFocus(owner, hActive)
+		}
 	})
 
 	dlg.Run()
