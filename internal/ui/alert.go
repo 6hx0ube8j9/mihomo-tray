@@ -13,33 +13,20 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 
 	var dlg *walk.Dialog
 	var acceptPB, cancelPB *walk.PushButton
+	accepted := false
 
 	buttons := []Widget{
 		HSpacer{},
-		PushButton{
-			AssignTo: &acceptPB,
-			Text:     "确定",
-			MinSize:  Size{Width: 90, Height: 26},
-			OnClicked: func() {
-				dlg.Accept()
-			},
-		},
+		PushButton{AssignTo: &acceptPB, Text: "确定", MinSize: Size{Width: 90, Height: 26}, OnClicked: func() { accepted = true; dlg.Accept() }},
 	}
 	if isConfirm {
-		buttons = append(buttons, PushButton{
-			AssignTo: &cancelPB,
-			Text:     "取消",
-			MinSize:  Size{Width: 90, Height: 26},
-			OnClicked: func() {
-				dlg.Cancel()
-			},
-		})
+		buttons = append(buttons, PushButton{AssignTo: &cancelPB, Text: "取消", MinSize: Size{Width: 90, Height: 26}, OnClicked: func() { dlg.Cancel() }})
 	}
 
 	dlgConfig := Dialog{
-		AssignTo:      &dlg,
-		Title:         title,
-		MinSize:       Size{Width: 320, Height: 155},
+		AssignTo: &dlg,
+		Title:    title,
+		MinSize:  Size{Width: 320, Height: 155},
 		Layout:        VBox{Margins: Margins{Left: 15, Top: 20, Right: 15, Bottom: 12}, Spacing: 12},
 		DefaultButton: &acceptPB,
 		Children: []Widget{
@@ -68,7 +55,7 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 	if isConfirm {
 		dlgConfig.CancelButton = &cancelPB
 	} else {
-		dlgConfig.CancelButton = &acceptPB
+		dlgConfig.CancelButton = &acceptPB 
 	}
 
 	if err := dlgConfig.Create(parent); err != nil {
@@ -87,10 +74,6 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 		if beep != 0 {
 			win.MessageBeep(beep)
 		}
-		
-		if acceptPB != nil {
-			acceptPB.SetFocus()
-		}
 	})
 
 	dlg.SizeChanged().Attach(func() {
@@ -101,7 +84,8 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 		restoreFocus(parent, hActive)
 	})
 
-	return dlg.Run() == walk.DlgCmdOK
+	cmd := dlg.Run()
+	return (cmd == walk.DlgCmdOK) || accepted
 }
 
 func RunAlertDialog(owner walk.Form, title, message string, icon *walk.Icon, beep uint32) {
