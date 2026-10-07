@@ -15,6 +15,7 @@ type EditorConfig struct {
 	AcceptBtnText string
 	CancelBtnText string
 	OnReady       func(dlg *walk.Dialog)
+	AssignTo      **walk.Dialog
 }
 
 type EditorResult struct {
@@ -24,10 +25,10 @@ type EditorResult struct {
 
 func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	if cfg.AcceptBtnText == "" {
-		cfg.AcceptBtnText = "保存(&S)"
+		cfg.AcceptBtnText = "保存"
 	}
 	if cfg.CancelBtnText == "" {
-		cfg.CancelBtnText = "取消(&C)"
+		cfg.CancelBtnText = "取消"
 	}
 
 	hActive := win.GetForegroundWindow()
@@ -36,6 +37,18 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	var acceptPB, cancelPB *walk.PushButton
 	var isAccepted bool
 	var processErr error
+
+	doAccept := func() {
+		if cfg.OnAccept != nil {
+			ok, err := cfg.OnAccept()
+			if !ok {
+				return
+			}
+			processErr = err
+		}
+		isAccepted = true
+		dlg.Accept()
+	}
 
 	layoutChildren := append(cfg.Widgets,
 		VSpacer{},
@@ -47,9 +60,7 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 					AssignTo: &acceptPB,
 					Text:     cfg.AcceptBtnText,
 					MinSize:  Size{Width: 80, Height: 26},
-					OnClicked: func() {
-						dlg.Accept()
-					},
+					OnClicked: doAccept,
 				},
 				PushButton{
 					AssignTo: &cancelPB,
@@ -64,58 +75,64 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	)
 
 	err := Dialog{
-		AssignTo: &dlg,
-		Title:    cfg.Title,
-		MinSize:  Size{Width: cfg.Width, Height: cfg.MinHeight},
-		Layout:   VBox{Margins: Margins{Left: 18, Top: 15, Right: 18, Bottom: 15}, Spacing: 12},
-		Children: layoutChildren,
+		AssignTo:      &dlg,
+		Title:         cfg.Title,
+		MinSize:       Size{Width: cfg.Width, Height: cfg.MinHeight},
+		Layout:        VBox{Margins: Margins{Left: 18, Top: 15, Right: 18, Bottom: 15}, Spacing: 12},
+		DefaultButton: &acceptPB,
+		CancelButton:  &cancelPB,
+		Children:      layoutChildren,
 	}.Create(owner)
 
 	if err != nil {
 		return EditorResult{Accepted: false, Error: err}
 	}
 
-	_ = dlg.SetCancelButton(cancelPB)
-
-	textEdits := findTextEdits(dlg)
-
-	updateDefaultButton := func() {
-		for _, te := range textEdits {
-			if te.Focused() {
-				_ = dlg.SetDefaultButton(nil)
-				return
-			}
-		}
-		_ = dlg.SetDefaultButton(acceptPB)
+	if cfg.AssignTo != nil {
+		*cfg.AssignTo = dlg
 	}
-
-	if len(textEdits) == 0 {
-		_ = dlg.SetDefaultButton(acceptPB)
-	} else {
-		for _, te := range textEdits {
-			curTE := te
-			curTE.FocusedChanged().Attach(updateDefaultButton)
-			curTE.KeyDown().Attach(func(key walk.Key) {
-				if (key == walk.KeyReturn || key == walk.Key('S')) && walk.ModifiersDown() == walk.ModControl {
-					dlg.Accept()
-				}
-			})
-		}
-	}
-
 	if cfg.OnReady != nil {
 		cfg.OnReady(dlg)
 	}
 
 	defer dlg.Dispose()
 
-	dlg.Starting().Attach(func() {
-		lockWindowSize(dlg.Handle())
-		centerDialog(dlg, owner, hActive)
-	})
+	var bindEnterKey func(container walk.Container)
+	bindEnterKey = func(container walk.Container) {
+		if container == nil || container.Children() == nil {
+			return
+		}
+		children := container.Children()
+		for i := 0; i < children.Len(); i++ {
+			w := children.At(i)
+			
+			if le, ok := w.(*walk.LineEdit); ok {
+				le.KeyPress().Attach(func(key walk.Key) {
+					if key == walk.KeyReturn {
+						doAccept()
+					}
+				})
+			} else if ne, ok := w.(*walk.NumberEdit); ok {
+				ne.KeyPress().Attach(func(key walk.Key) {
+					if key == walk.KeyReturn {
+						doAccept()
+					}
+				})
+			}
+			
+			if c, ok := w.(walk.Container); ok {
+				bindEnterKey(c)
+			}
+		}
+	}
 
-	dlg.Activating().Attach(func() {
-		updateDefaultButton()
+	dlg.Starting().Attach(func() {
+		hwnd := dlg.Handle()
+		lockWindowSize(hwnd)
+		win.SetWindowLong(hwnd, win.GWL_EXSTYLE, win.GetWindowLong(hwnd, win.GWL_EXSTYLE)|win.WS_EX_APPWINDOW)
+		centerDialog(dlg, owner, hActive)
+		
+		bindEnterKey(dlg)
 	})
 
 	dlg.SizeChanged().Attach(func() {
@@ -123,40 +140,13 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	})
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-		if reason == walk.CloseReasonUnknown && dlg.Result() == walk.DlgCmdOK {
-			if cfg.OnAccept != nil {
-				ok, err := cfg.OnAccept()
-				if !ok {
-					*canceled = true
-					return
-				}
-				processErr = err
-			}
-			isAccepted = true
+		if cfg.AssignTo != nil {
+			*cfg.AssignTo = nil
 		}
-
-		if !*canceled {
-			restoreFocus(owner, hActive)
-		}
+		restoreFocus(owner, hActive)
 	})
 
 	dlg.Run()
 
 	return EditorResult{Accepted: isAccepted, Error: processErr}
-}
-
-func findTextEdits(container walk.Container) []*walk.TextEdit {
-	if container == nil || container.Children() == nil {
-		return nil
-	}
-	var list []*walk.TextEdit
-	for i := 0; i < container.Children().Len(); i++ {
-		child := container.Children().At(i)
-		if te, ok := child.(*walk.TextEdit); ok {
-			list = append(list, te)
-		} else if c, ok := child.(walk.Container); ok {
-			list = append(list, findTextEdits(c)...)
-		}
-	}
-	return list
 }
