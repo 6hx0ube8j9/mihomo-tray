@@ -12,7 +12,7 @@ import (
 )
 
 func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, defaultOnline, defaultSysBrowser bool, defaultRemoteURL string) (string, string, bool, bool, string, bool) {
-	if e.dialogMgr == nil {
+	if e.modalMgr == nil {
 		return "", "", false, false, "", false
 	}
 
@@ -20,12 +20,12 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 	var finalOnline, finalSysBrowser bool
 	var isAccepted bool
 
-	e.dialogMgr.RunOnUI(func() {
+	e.RunOnUI(func() {
 		key := "editor_controller"
-		if !e.dialogMgr.TryAcquire(key) {
+		if !e.modalMgr.TryAcquire(key) {
 			return
 		}
-		defer e.dialogMgr.Release(key)
+		defer e.modalMgr.Release(key)
 
 		var addrEdit, secretEdit, remoteURLEdit *walk.LineEdit
 		var onlineCheck, sysBrowserCheck *walk.CheckBox
@@ -55,7 +55,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 			AcceptBtnText: "确定",
 			OnReady: func(dlg *walk.Dialog) {
 				currentDlg = dlg
-				e.dialogMgr.Register(key, dlg)
+				e.modalMgr.RegisterHWND(key, dlg.Handle())
 			},
 			Widgets: []Widget{
 				Composite{
