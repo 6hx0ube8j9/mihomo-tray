@@ -37,15 +37,24 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	var acceptPB, cancelPB *walk.PushButton
 	var isAccepted bool
 	var processErr error
+	var isProcessing bool
 
 	doAccept := func() {
+		if isProcessing {
+			return
+		}
+		isProcessing = true
+		
+		defer func() { isProcessing = false }()
+
 		if cfg.OnAccept != nil {
 			ok, err := cfg.OnAccept()
 			if !ok {
-				return
+				return 
 			}
 			processErr = err
 		}
+		
 		isAccepted = true
 		dlg.Accept()
 	}
@@ -97,42 +106,11 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 
 	defer dlg.Dispose()
 
-	var bindEnterKey func(container walk.Container)
-	bindEnterKey = func(container walk.Container) {
-		if container == nil || container.Children() == nil {
-			return
-		}
-		children := container.Children()
-		for i := 0; i < children.Len(); i++ {
-			w := children.At(i)
-			
-			if le, ok := w.(*walk.LineEdit); ok {
-				le.KeyPress().Attach(func(key walk.Key) {
-					if key == walk.KeyReturn {
-						doAccept()
-					}
-				})
-			} else if ne, ok := w.(*walk.NumberEdit); ok {
-				ne.KeyPress().Attach(func(key walk.Key) {
-					if key == walk.KeyReturn {
-						doAccept()
-					}
-				})
-			}
-			
-			if c, ok := w.(walk.Container); ok {
-				bindEnterKey(c)
-			}
-		}
-	}
-
 	dlg.Starting().Attach(func() {
 		hwnd := dlg.Handle()
 		lockWindowSize(hwnd)
 		win.SetWindowLong(hwnd, win.GWL_EXSTYLE, win.GetWindowLong(hwnd, win.GWL_EXSTYLE)|win.WS_EX_APPWINDOW)
 		centerDialog(dlg, owner, hActive)
-		
-		bindEnterKey(dlg)
 	})
 
 	dlg.SizeChanged().Attach(func() {
