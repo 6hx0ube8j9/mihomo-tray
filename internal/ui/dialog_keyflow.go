@@ -10,6 +10,8 @@ import (
 	"github.com/tailscale/win"
 )
 
+const bmClick = 0x00F5 // Win32 BM_CLICK 消息
+
 var (
 	kfOnce       sync.Once
 	kfCallback   uintptr
@@ -33,7 +35,6 @@ func ensureKeyFlowCallback() {
 	})
 }
 
-// keyFlowMessageProc intercepts raw key messages before IsDialogMessage processing.
 func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 	if nCode >= 0 && wParam == pmRemove {
 		kfStackMu.Lock()
@@ -63,7 +64,7 @@ func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 
 					switch {
 					case hFocus == ctx.acceptHWND:
-						ctx.dlg.Accept()
+						win.SendMessage(ctx.acceptHWND, bmClick, 0, 0)
 						pMsg.Message = win.WM_NULL
 						return 0
 
@@ -77,14 +78,14 @@ func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 							if hFocus == hwnd {
 								if ctx.isTextEdit[i] {
 									if isCtrl {
-										ctx.dlg.Accept()
+										win.SendMessage(ctx.acceptHWND, bmClick, 0, 0)
 										pMsg.Message = win.WM_NULL
 										return 0
 									}
 									break
 								} else {
 									if isCtrl {
-										ctx.dlg.Accept()
+										win.SendMessage(ctx.acceptHWND, bmClick, 0, 0)
 										pMsg.Message = win.WM_NULL
 										return 0
 									}
@@ -108,7 +109,7 @@ func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 
 				case 'S':
 					if isCtrl {
-						ctx.dlg.Accept()
+						win.SendMessage(ctx.acceptHWND, bmClick, 0, 0)
 						pMsg.Message = win.WM_NULL
 						return 0
 					}
