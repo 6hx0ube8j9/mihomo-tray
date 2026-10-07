@@ -88,11 +88,11 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 
 	dlg.Starting().Attach(func() {
 		lockWindowSize(dlg.Handle())
-		centerDialog(dlg, owner, hActive)
+		centerDialog(dlg, owner)
 	})
 
 	dlg.SizeChanged().Attach(func() {
-		centerDialog(dlg, owner, hActive)
+		centerDialog(dlg, owner)
 	})
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
