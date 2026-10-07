@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"reflect"
 	"runtime"
 	"sync"
 	"syscall"
@@ -12,8 +11,9 @@ import (
 )
 
 type cbtHookContext struct {
-	hHook      uintptr
-	targetHWND win.HWND
+	hHook       uintptr
+	targetHWND  win.HWND
+	onActivated func(hwnd win.HWND)
 }
 
 var (
@@ -39,6 +39,10 @@ func cbtHookProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 		x, y := calcCenteredPos(ctx.targetHWND, msgBoxHwnd)
 		win.SetWindowPos(msgBoxHwnd, 0, x, y, 0, 0, win.SWP_NOSIZE|win.SWP_NOZORDER|win.SWP_NOACTIVATE)
 
+		if ctx.onActivated != nil {
+			ctx.onActivated(msgBoxHwnd)
+		}
+
 		if ctx.hHook != 0 {
 			procUnhookWindowsHookEx.Call(ctx.hHook)
 			ctx.hHook = 0
@@ -53,31 +57,21 @@ func cbtHookProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 	return ret
 }
 
-func ShowConfirm(target any, title, message string) bool {
-	res := show(target, title, message, walk.MsgBoxYesNo|walk.MsgBoxIconQuestion)
-	return res == win.IDYES
-}
-
-func ShowError(target any, title string, errOrMsg any) {
-	show(target, title, toMessage(errOrMsg), walk.MsgBoxOK|walk.MsgBoxIconError)
-}
-
-func ShowWarning(target any, title, message string) {
-	show(target, title, message, walk.MsgBoxOK|walk.MsgBoxIconWarning)
-}
-
-func ShowInfo(target any, title, message string) {
-	show(target, title, message, walk.MsgBoxOK|walk.MsgBoxIconInformation)
-}
-
-func show(target any, title, message string, style walk.MsgBoxStyle) int {
+func ShowNativeMsgBox(owner walk.Form, title, message string, style walk.MsgBoxStyle, onActivated func(hwnd win.HWND)) int {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-	
+
 	tid := win.GetCurrentThreadId()
 
-	targetHWND, ownerForm := resolveTarget(target)
-	ctx := &cbtHookContext{targetHWND: targetHWND}
+	var targetHWND win.HWND
+	if owner != nil && owner.Visible() && !win.IsIconic(owner.Handle()) {
+		targetHWND = owner.Handle()
+	}
+
+	ctx := &cbtHookContext{
+		targetHWND:  targetHWND,
+		onActivated: onActivated,
+	}
 
 	cbtHookMu.Lock()
 	cbtHookMap[tid] = ctx
@@ -97,40 +91,4 @@ func show(target any, title, message string, style walk.MsgBoxStyle) int {
 		}
 	}()
 
-	formattedMsg := message 
-	
-	return walk.MsgBox(ownerForm, title, formattedMsg, style)
-}
-
-func resolveTarget(target any) (win.HWND, walk.Form) {
-	if target == nil {
-		return 0, nil
-	}
-	val := reflect.ValueOf(target)
-	if val.Kind() == reflect.Ptr && val.IsNil() {
-		return 0, nil
-	}
-	switch t := target.(type) {
-	case walk.Form:
-		return t.Handle(), t
-	case walk.Widget:
-		return t.Handle(), t.Form()
-	case interface{ Handle() win.HWND }:
-		return t.Handle(), nil
-	}
-	return 0, nil
-}
-
-func toMessage(v any) string {
-	switch val := v.(type) {
-	case error:
-		if val != nil {
-			return val.Error()
-		}
-		return "未知错误"
-	case string:
-		return val
-	default:
-		return fmt.Sprintf("%v", val)
-	}
-}
+	return walk.MsgBox(owner, title, message, style)
