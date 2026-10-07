@@ -148,7 +148,7 @@ func focusFirstInput(inputs []walk.Widget) {
 func SetupDialogKeyFlow(dlg *walk.Dialog, acceptPB, cancelPB *walk.PushButton) func() {
 	ensureKeyFlowCallback()
 
-	inputs := CollectInputs(dlg)
+	inputs := collectInputs(dlg)
 	var inputHWNDs []win.HWND
 	var isTextEdit []bool
 
