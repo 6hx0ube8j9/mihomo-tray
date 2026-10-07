@@ -14,6 +14,7 @@ const (
 	bmClick         = 0x00F5 // Win32 BM_CLICK 
 	bmSetStyle      = 0x00F4 // Win32 BM_SETSTYLE 
 	bsDefPushButton = 0x0001 // Win32 BS_DEFPUSHBUTTON 
+	wsExControlParent = 0x00010000 // WS_EX_CONTROLPARENT
 )
 
 var (
@@ -159,6 +160,7 @@ func focusFirstInput(inputs []walk.Widget) {
 
 func SetupDialogKeyFlow(dlg *walk.Dialog, acceptPB, cancelPB *walk.PushButton) func() {
 	ensureKeyFlowCallback()
+	normalizeWindowHierarchy(dlg)
 
 	inputs := collectInputs(dlg)
 	var inputHWNDs []win.HWND
@@ -220,5 +222,31 @@ func SetupDialogKeyFlow(dlg *walk.Dialog, acceptPB, cancelPB *walk.PushButton) f
 		kfStackMu.Unlock()
 
 		runtime.UnlockOSThread()
+	}
+}
+
+func normalizeWindowHierarchy(container walk.Container) {
+	if container == nil || container.Children() == nil {
+		return
+	}
+
+	children := container.Children()
+	count := children.Len()
+
+	for i := 0; i < count; i++ {
+		child := children.At(i)
+		hwnd := child.Handle()
+
+		if _, ok := child.(walk.Container); ok {
+			exStyle := win.GetWindowLong(hwnd, win.GWL_EXSTYLE)
+			if exStyle&wsExControlParent == 0 {
+				win.SetWindowLong(hwnd, win.GWL_EXSTYLE, exStyle|wsExControlParent)
+			}
+			if c, ok := child.(walk.Container); ok {
+				normalizeWindowHierarchy(c)
+			}
+		}
+
+		win.SetWindowPos(hwnd, win.HWND_BOTTOM, 0, 0, 0, 0, win.SWP_NOMOVE|win.SWP_NOSIZE)
 	}
 }
