@@ -3,7 +3,6 @@ package ui
 import (
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
-	"github.com/tailscale/win"
 	"mihomo-tray/internal/domain"
 )
 
@@ -24,7 +23,7 @@ func NewDashboard(e *Engine) *Dashboard {
 }
 
 func (d *Dashboard) Show() {
-	d.engine.app.Synchronize(func() {
+	d.engine.RunOnUI(func() {
 		if d.window == nil {
 			d.createWindow()
 			if d.window == nil {
@@ -32,15 +31,11 @@ func (d *Dashboard) Show() {
 			}
 		}
 
-		hwnd := d.window.Handle()
-		if win.IsIconic(hwnd) {
-			win.ShowWindow(hwnd, win.SW_RESTORE)
-		}
 		if !d.window.Visible() {
 			d.window.Show()
 		}
-		win.SetForegroundWindow(hwnd)
-		d.window.SetFocus()
+
+		ActivateWindow(d.window.Handle())
 	})
 }
 
@@ -88,7 +83,7 @@ func (d *Dashboard) Dispose() {
 		return
 	}
 
-	d.engine.app.Synchronize(func() {
+	d.engine.RunOnUI(func() {
 		if d.window != nil {
 			if d.closePatch != nil {
 				d.closePatch.Remove(d.window)
