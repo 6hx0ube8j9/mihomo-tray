@@ -10,19 +10,19 @@ import (
 )
 
 func (e *Engine) ShowPortEditor(defaultMixed, defaultSocks, defaultHttp int) (int, int, int, bool) {
-	if e.dialogMgr == nil {
+	if e.modalMgr == nil {
 		return 0, 0, 0, false
 	}
 
 	var finalMixed, finalSocks, finalHttp int
 	var isAccepted bool
 
-	e.dialogMgr.RunOnUI(func() {
+	e.RunOnUI(func() {
 		key := "editor_port"
-		if !e.dialogMgr.TryAcquire(key) {
+		if !e.modalMgr.TryAcquire(key) {
 			return
 		}
-		defer e.dialogMgr.Release(key)
+		defer e.modalMgr.Release(key)
 
 		var mixedEdit, socksEdit, httpEdit *walk.LineEdit
 		var currentDlg *walk.Dialog
@@ -37,7 +37,7 @@ func (e *Engine) ShowPortEditor(defaultMixed, defaultSocks, defaultHttp int) (in
 			MinHeight: 140,
 			OnReady: func(dlg *walk.Dialog) {
 				currentDlg = dlg
-				e.dialogMgr.Register(key, dlg)
+				e.modalMgr.RegisterHWND(key, dlg.Handle())
 			},
 			Widgets: []Widget{
 				Composite{
