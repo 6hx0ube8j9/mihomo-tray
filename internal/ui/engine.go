@@ -56,7 +56,7 @@ func (e *Engine) Run() error {
 		return fmt.Errorf("主控窗口创建失败: %w", err)
 	}
 
-	e.dialogMgr = NewDialogManager(e.app, e.mw)
+	e.dialogMgr = NewDialogManager(e.mw)
 
 	e.Tray = NewTray(e)
 	e.Dashboard = NewDashboard(e)
@@ -75,15 +75,38 @@ func (e *Engine) Run() error {
 	return nil
 }
 
+func (e *Engine) RunOnUI(fn func()) {
+	if e.app == nil {
+		return
+	}
+	if e.mw != nil && e.mw.Handle() != 0 && win.GetCurrentThreadId() == win.GetWindowThreadProcessId(e.mw.Handle(), nil) {
+		fn()
+		return
+	}
+
+	done := make(chan struct{})
+	e.app.Synchronize(func() {
+		defer close(done)
+		fn()
+	})
+
+	select {
+	case <-done:
+	case <-e.ctx.Done():
+	}
+}
+
 func (e *Engine) listenState() {
 	for {
 		select {
 		case <-e.ctx.Done():
-			e.app.Synchronize(func() {
-				if e.mw != nil {
-					e.mw.Close()
-				}
-			})
+			if e.app != nil {
+				e.app.Synchronize(func() {
+					if e.mw != nil {
+						e.mw.Close()
+					}
+				})
+			}
 			return
 		case <-e.stateNotifyCh:
 			if e.getState == nil || e.app == nil {
@@ -118,8 +141,8 @@ func (e *Engine) Exit() {
 }
 
 func (e *Engine) ShowProfileManager(state domain.UIState) {
-	if e.Dashboard != nil && e.app != nil {
-		e.app.Synchronize(func() {
+	if e.Dashboard != nil {
+		e.RunOnUI(func() {
 			e.Dashboard.ForceInjectData(state)
 			e.Dashboard.Show()
 		})
@@ -130,7 +153,7 @@ func (e *Engine) ShowError(title, message string) {
 	if e.dialogMgr == nil {
 		return
 	}
-	e.dialogMgr.RunOnUI(func() {
+	e.RunOnUI(func() {
 		key := "error|" + title + "|" + message
 		if !e.dialogMgr.TryAcquire(key) {
 			return
@@ -144,7 +167,7 @@ func (e *Engine) ShowInfo(title, message string) {
 	if e.dialogMgr == nil {
 		return
 	}
-	e.dialogMgr.RunOnUI(func() {
+	e.RunOnUI(func() {
 		key := "info|" + title + "|" + message
 		if !e.dialogMgr.TryAcquire(key) {
 			return
@@ -159,7 +182,7 @@ func (e *Engine) ShowConfirm(title, message string) bool {
 		return false
 	}
 	var result bool
-	e.dialogMgr.RunOnUI(func() {
+	e.RunOnUI(func() {
 		key := "confirm|" + title + "|" + message
 		if !e.dialogMgr.TryAcquire(key) {
 			return
@@ -171,20 +194,17 @@ func (e *Engine) ShowConfirm(title, message string) bool {
 }
 
 func (e *Engine) OpenYAMLFileDialog() (string, bool) {
-	if e.dialogMgr == nil {
-		return "", false
-	}
 	var path string
 	var ok bool
-	e.dialogMgr.RunOnUI(func() {
+	e.RunOnUI(func() {
 		path, ok = RunOpenYAMLFileDialog(e.activeOwner())
 	})
 	return path, ok
 }
 
 func (e *Engine) ShowNotification(title, message string) {
-	if e.Tray != nil && e.app != nil {
-		e.app.Synchronize(func() {
+	if e.Tray != nil {
+		e.RunOnUI(func() {
 			e.Tray.ShowNotification(title, message)
 		})
 	}
