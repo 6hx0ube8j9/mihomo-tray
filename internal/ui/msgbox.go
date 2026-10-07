@@ -64,8 +64,14 @@ func ShowNativeMsgBox(owner walk.Form, title, message string, style walk.MsgBoxS
 	tid := win.GetCurrentThreadId()
 
 	var targetHWND win.HWND
+	var effectiveOwner walk.Form
+
 	if owner != nil && owner.Visible() && !win.IsIconic(owner.Handle()) {
-		targetHWND = owner.Handle()
+		hActive := win.GetForegroundWindow()
+		if hActive == owner.Handle() || win.IsChild(owner.Handle(), hActive) {
+			targetHWND = owner.Handle()
+			effectiveOwner = owner
+		}
 	}
 
 	ctx := &cbtHookContext{
@@ -91,7 +97,7 @@ func ShowNativeMsgBox(owner walk.Form, title, message string, style walk.MsgBoxS
 		}
 	}()
 
-	return walk.MsgBox(owner, title, message, style)
+	return walk.MsgBox(effectiveOwner, title, message, style)
 }
 
 func RunErrorDialog(owner walk.Form, title string, errOrMsg any) {
@@ -99,8 +105,8 @@ func RunErrorDialog(owner walk.Form, title string, errOrMsg any) {
 }
 
 func RunConfirmDialog(owner walk.Form, title, message string) bool {
-	res := ShowNativeMsgBox(owner, title, message, walk.MsgBoxYesNo|walk.MsgBoxIconQuestion, nil)
-	return res == win.IDYES
+	res := ShowNativeMsgBox(owner, title, message, walk.MsgBoxOKCancel|walk.MsgBoxIconQuestion, nil)
+	return res == win.IDOK
 }
 
 func toMessage(v any) string {
