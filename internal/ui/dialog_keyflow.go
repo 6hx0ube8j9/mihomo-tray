@@ -23,6 +23,7 @@ type keyFlowContext struct {
 	acceptHWND win.HWND
 	cancelHWND win.HWND
 	inputHWNDs []win.HWND
+	inputs     []walk.Widget
 	isTextEdit []bool
 }
 
@@ -34,11 +35,11 @@ func ensureKeyFlowCallback() {
 
 // keyFlowMessageProc intercepts raw key messages before IsDialogMessage processing.
 func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
-	if nCode >= 0 {
+	if nCode >= 0 && wParam == pmRemove {
 		kfStackMu.Lock()
 		var ctx *keyFlowContext
 		if len(kfStack) > 0 {
-			ctx = kfStack[len(kfStack)-1] // Always route to top active dialog
+			ctx = kfStack[len(kfStack)-1]
 		}
 		kfStackMu.Unlock()
 
@@ -55,6 +56,11 @@ func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 					return 0
 
 				case win.VK_RETURN:
+					if (pMsg.LParam & (1 << 30)) != 0 {
+						pMsg.Message = win.WM_NULL
+						return 0
+					}
+
 					switch {
 					case hFocus == ctx.acceptHWND:
 						ctx.dlg.Accept()
@@ -70,7 +76,6 @@ func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 						for i, hwnd := range ctx.inputHWNDs {
 							if hFocus == hwnd {
 								if ctx.isTextEdit[i] {
-									// TextEdit: Ctrl+Enter saves; plain Enter inserts newline
 									if isCtrl {
 										ctx.dlg.Accept()
 										pMsg.Message = win.WM_NULL
@@ -78,14 +83,19 @@ func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 									}
 									break
 								} else {
-									// LineEdit: Ctrl+Enter saves; plain Enter shifts focus to next input
 									if isCtrl {
 										ctx.dlg.Accept()
 										pMsg.Message = win.WM_NULL
 										return 0
 									}
-									if i+1 < len(ctx.inputHWNDs) {
-										win.SetFocus(ctx.inputHWNDs[i+1])
+
+									if i+1 < len(ctx.inputs) {
+										next := ctx.inputs[i+1]
+										next.SetFocus()
+										if nextLE, ok := next.(*walk.LineEdit); ok {
+											l := len([]rune(nextLE.Text()))
+											nextLE.SetTextSelection(l, l)
+										}
 									} else {
 										win.SetFocus(ctx.acceptHWND)
 									}
@@ -97,7 +107,6 @@ func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 					}
 
 				case 'S':
-					// Ctrl+S: shortcut to save anywhere in the dialog
 					if isCtrl {
 						ctx.dlg.Accept()
 						pMsg.Message = win.WM_NULL
@@ -112,7 +121,6 @@ func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 	return ret
 }
 
-// CollectInputs recursively traverses the container to find all LineEdit and TextEdit controls.
 func collectInputs(container walk.Container) []walk.Widget {
 	if container == nil || container.Children() == nil {
 		return nil
@@ -130,7 +138,6 @@ func collectInputs(container walk.Container) []walk.Widget {
 	return list
 }
 
-// FocusFirstInput focuses the first editable input and positions the caret at the end.
 func focusFirstInput(inputs []walk.Widget) {
 	for _, in := range inputs {
 		if in.Visible() && in.Enabled() {
@@ -144,7 +151,6 @@ func focusFirstInput(inputs []walk.Widget) {
 	}
 }
 
-// SetupDialogKeyFlow sets up input traversal, auto-wrap styles, initial focus, and keyboard routing.
 func SetupDialogKeyFlow(dlg *walk.Dialog, acceptPB, cancelPB *walk.PushButton) func() {
 	ensureKeyFlowCallback()
 
@@ -167,8 +173,10 @@ func SetupDialogKeyFlow(dlg *walk.Dialog, acceptPB, cancelPB *walk.PushButton) f
 		}
 	}
 
-	dlg.Activating().Attach(func() {
-		focusFirstInput(inputs)
+	dlg.Starting().Attach(func() {
+		dlg.Synchronize(func() {
+			focusFirstInput(inputs)
+		})
 	})
 
 	ctx := &keyFlowContext{
@@ -176,6 +184,7 @@ func SetupDialogKeyFlow(dlg *walk.Dialog, acceptPB, cancelPB *walk.PushButton) f
 		acceptHWND: acceptPB.Handle(),
 		cancelHWND: cancelPB.Handle(),
 		inputHWNDs: inputHWNDs,
+		inputs:     inputs,
 		isTextEdit: isTextEdit,
 	}
 
