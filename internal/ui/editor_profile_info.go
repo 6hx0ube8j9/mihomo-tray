@@ -11,7 +11,7 @@ import (
 )
 
 func (e *Engine) ShowProfileInfoEditor(title, defaultName, defaultUrl string, defaultInterval int, isRemote bool) (string, string, int, bool) {
-	if e.dialogMgr == nil {
+	if e.modalMgr == nil {
 		return "", "", 0, false
 	}
 
@@ -19,12 +19,12 @@ func (e *Engine) ShowProfileInfoEditor(title, defaultName, defaultUrl string, de
 	var finalInterval int
 	var isAccepted bool
 
-	e.dialogMgr.RunOnUI(func() {
+	e.RunOnUI(func() {
 		key := "editor_profile_info"
-		if !e.dialogMgr.TryAcquire(key) {
+		if !e.modalMgr.TryAcquire(key) {
 			return
 		}
-		defer e.dialogMgr.Release(key)
+		defer e.modalMgr.Release(key)
 
 		var nameEdit, urlEdit *walk.LineEdit
 		var intervalEdit *walk.NumberEdit
@@ -41,7 +41,7 @@ func (e *Engine) ShowProfileInfoEditor(title, defaultName, defaultUrl string, de
 			AcceptBtnText: "确定",
 			OnReady: func(dlg *walk.Dialog) {
 				currentDlg = dlg
-				e.dialogMgr.Register(key, dlg)
+				e.modalMgr.RegisterHWND(key, dlg.Handle())
 			},
 			Widgets: []Widget{
 				Composite{
