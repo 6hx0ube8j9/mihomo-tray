@@ -8,7 +8,6 @@ import (
 	"github.com/tailscale/win"
 )
 
-
 func calcCenteredPos(targetHWND, popupHWND win.HWND) (x, y int32) {
 	var popRect win.RECT
 	win.GetWindowRect(popupHWND, &popRect)
@@ -99,4 +98,14 @@ func lockWindowSize(hwnd win.HWND) {
 	style &^= win.WS_THICKFRAME | win.WS_MAXIMIZEBOX
 	win.SetWindowLong(hwnd, win.GWL_STYLE, style)
 	win.SetWindowPos(hwnd, 0, 0, 0, 0, 0, win.SWP_NOMOVE|win.SWP_NOSIZE|win.SWP_NOZORDER|win.SWP_FRAMECHANGED)
+}
+
+func restoreFocus(parent walk.Form, hActive win.HWND) {
+	if parent != nil && parent.Visible() && !win.IsIconic(parent.Handle()) {
+		win.SetForegroundWindow(parent.Handle())
+		win.SetFocus(parent.Handle())
+	} else if hActive != 0 && win.IsWindowVisible(hActive) && !win.IsIconic(hActive) {
+		win.SetForegroundWindow(hActive)
+		win.SetFocus(hActive)
+	}
 }
