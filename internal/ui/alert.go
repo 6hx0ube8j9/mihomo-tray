@@ -70,14 +70,14 @@ func runBaseDialog(owner walk.Form, title, message string, icon *walk.Icon, beep
 
 	dlg.Starting().Attach(func() {
 		lockWindowSize(dlg.Handle())
-		centerDialog(dlg, parent, hActive)
+		centerDialog(dlg, owner)
 		if beep != 0 {
 			win.MessageBeep(beep)
 		}
 	})
 
 	dlg.SizeChanged().Attach(func() {
-		centerDialog(dlg, parent, hActive)
+		centerDialog(dlg, owner)
 	})
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
