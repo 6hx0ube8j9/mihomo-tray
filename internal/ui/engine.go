@@ -150,10 +150,12 @@ func (e *Engine) ShowProfileManager(state domain.UIState) {
 }
 
 func (e *Engine) ShowError(title, message string) {
-	if e.modalMgr == nil {
+	if e.app == nil || e.mw == nil || e.modalMgr == nil {
+		slog.Error("UI未就绪，错误已丢弃", "title", title, "message", message)
 		return
 	}
-	e.RunOnUI(func() {
+
+	go e.RunOnUI(func() {
 		key := "error|" + title + "|" + message
 		if !e.modalMgr.TryAcquire(key) {
 			return
@@ -167,10 +169,11 @@ func (e *Engine) ShowError(title, message string) {
 }
 
 func (e *Engine) ShowInfo(title, message string) {
-	if e.modalMgr == nil {
+	if e.app == nil || e.mw == nil || e.modalMgr == nil {
 		return
 	}
-	e.RunOnUI(func() {
+
+	go e.RunOnUI(func() {
 		key := "info|" + title + "|" + message
 		if !e.modalMgr.TryAcquire(key) {
 			return
