@@ -7,6 +7,7 @@ const (
 	whCBT        = 5
 	hcbtActivate = 5
 	esWantReturn = 0x1000
+	pmRemove     = 1 
 )
 
 var (
