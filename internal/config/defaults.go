@@ -13,73 +13,36 @@ import (
 func applyDefaults(cfg *domain.TrayConfig) bool {
 	isTainted := false
 
-	if cfg.General.Autostart == nil {
-		t := domain.DefaultAutostart
-		cfg.General.Autostart = &t
-		isTainted = true
-	}
-	if cfg.General.SystemBrowser == nil {
-		t := domain.DefaultSystemBrowser
-		cfg.General.SystemBrowser = &t
-		isTainted = true
-	}
-	if cfg.General.RemoteWebUI == nil {
-		t := domain.DefaultRemoteWebUI
-		cfg.General.RemoteWebUI = &t
-		isTainted = true
-	}
+	setIfNil(&cfg.General.Autostart, domain.DefaultAutostart, &isTainted)
+	setIfNil(&cfg.General.SystemBrowser, domain.DefaultSystemBrowser, &isTainted)
+	setIfNil(&cfg.General.RemoteWebUI, domain.DefaultRemoteWebUI, &isTainted)
+	setIfNil(&cfg.General.SystemProxy, domain.DefaultSystemProxy, &isTainted)
+	setIfEmpty(&cfg.General.TrayLogLevel, domain.DefaultTrayLogLevel, &isTainted)
+
 	if cfg.General.RemoteWebUIURL == nil || *cfg.General.RemoteWebUIURL == "" {
-		s := domain.DefaultRemoteWebUIURL
-		cfg.General.RemoteWebUIURL = &s
-		isTainted = true
-	}
-	if cfg.General.SystemProxy == nil {
-		t := domain.DefaultSystemProxy
-		cfg.General.SystemProxy = &t
-		isTainted = true
-	}
-	if cfg.General.TrayLogLevel == "" {
-		cfg.General.TrayLogLevel = domain.DefaultTrayLogLevel
+		url := domain.DefaultRemoteWebUIURL
+		cfg.General.RemoteWebUIURL = &url
 		isTainted = true
 	}
 
-	if cfg.Config.MixedPort == nil {
-		v := domain.DefaultMixedPort
-		cfg.Config.MixedPort = &v
-		isTainted = true
-	}
-	if cfg.Config.Port == nil {
-		v := domain.DefaultPort
-		cfg.Config.Port = &v
-		isTainted = true
-	}
-	if cfg.Config.SocksPort == nil {
-		v := domain.DefaultSocksPort
-		cfg.Config.SocksPort = &v
-		isTainted = true
-	}
+	setIfNil(&cfg.Config.MixedPort, domain.DefaultMixedPort, &isTainted)
+	setIfNil(&cfg.Config.Port, domain.DefaultPort, &isTainted)
+	setIfNil(&cfg.Config.SocksPort, domain.DefaultSocksPort, &isTainted)
+	setIfNil(&cfg.Config.AllowLan, domain.DefaultAllowLan, &isTainted)
+	setIfNil(&cfg.Config.UnifiedDelay, domain.DefaultUnifiedDelay, &isTainted)
 
-	if cfg.Config.Mode == "" {
-		cfg.Config.Mode = domain.DefaultMode
-		isTainted = true
-	}
-	if cfg.Config.LogLevel == "" {
-		cfg.Config.LogLevel = domain.DefaultLogLevel
-		isTainted = true
-	}
-	if cfg.Config.AllowLan == nil {
-		t := domain.DefaultAllowLan
-		cfg.Config.AllowLan = &t
-		isTainted = true
-	}
-	if cfg.Config.UnifiedDelay == nil {
-		t := domain.DefaultUnifiedDelay
-		cfg.Config.UnifiedDelay = &t
-		isTainted = true
-	}
+	setIfEmpty(&cfg.Config.Mode, domain.DefaultMode, &isTainted)
+	setIfEmpty(&cfg.Config.LogLevel, domain.DefaultLogLevel, &isTainted)
+	setIfEmpty(&cfg.Config.ExternalController, domain.DefaultExternalController, &isTainted)
+	setIfEmpty(&cfg.Config.ExternalUI, domain.DefaultExternalUI, &isTainted)
+	setIfEmpty(&cfg.Config.ExternalUIName, domain.DefaultExternalUIName, &isTainted)
 
-	if cfg.Config.ExternalController == "" {
-		cfg.Config.ExternalController = domain.DefaultExternalController
+	setIfNil(&cfg.Config.ExternalUIURL, domain.DefaultExternalUIURL, &isTainted)
+
+	cfg.Config.ExternalControllerPipe = domain.IPCNamedPipe
+	setIfNil(&cfg.Config.ExternalControllerCors.AllowPrivateNetwork, domain.DefaultAllowPrivateNetwork, &isTainted)
+	if cfg.Config.ExternalControllerCors.AllowOrigins == nil {
+		cfg.Config.ExternalControllerCors.AllowOrigins = domain.DefaultAllowOrigins
 		isTainted = true
 	}
 
@@ -92,34 +55,6 @@ func applyDefaults(cfg *domain.TrayConfig) bool {
 		cfg.Config.Secret = &s
 		isTainted = true
 		slog.Warn("安全拦截：已阻止外网无密码监听，系统强制生成随机访问密码")
-	}
-
-	if cfg.Config.ExternalUIURL == nil {
-		s := domain.DefaultExternalUIURL
-		cfg.Config.ExternalUIURL = &s
-		isTainted = true
-	}
-
-	if cfg.Config.ExternalUI == "" {
-		cfg.Config.ExternalUI = domain.DefaultExternalUI
-		isTainted = true
-	}
-
-	if cfg.Config.ExternalUIName == "" {
-		cfg.Config.ExternalUIName = domain.DefaultExternalUIName
-		isTainted = true
-	}
-
-	cfg.Config.ExternalControllerPipe = domain.IPCNamedPipe
-
-	if cfg.Config.ExternalControllerCors.AllowOrigins == nil {
-		cfg.Config.ExternalControllerCors.AllowOrigins = domain.DefaultAllowOrigins
-		isTainted = true
-	}
-	if cfg.Config.ExternalControllerCors.AllowPrivateNetwork == nil {
-		t := domain.DefaultAllowPrivateNetwork
-		cfg.Config.ExternalControllerCors.AllowPrivateNetwork = &t
-		isTainted = true
 	}
 
 	var validItems []domain.ProfileItem
@@ -135,10 +70,26 @@ func applyDefaults(cfg *domain.TrayConfig) bool {
 		}
 	}
 	cfg.Profiles.Items = validItems
+
 	if !activeFound && cfg.Profiles.Active != "" {
 		cfg.Profiles.Active = ""
 		isTainted = true
 	}
 
 	return isTainted
+}
+
+func setIfNil[T any](ptr **T, def T, tainted *bool) {
+	if *ptr == nil {
+		val := def
+		*ptr = &val
+		*tainted = true
+	}
+}
+
+func setIfEmpty(val *string, def string, tainted *bool) {
+	if *val == "" {
+		*val = def
+		*tainted = true
+	}
 }
