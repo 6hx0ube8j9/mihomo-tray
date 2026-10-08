@@ -12,13 +12,13 @@ type TrayConfig struct {
 }
 
 type GeneralConfig struct {
-	Autostart      *bool  `json:"autostart"`
-	RunAsAdmin     bool   `json:"run_as_admin"`
-	SystemBrowser  *bool  `json:"system_browser"`
-	RemoteWebUI    *bool  `json:"remote_webui"` 
+	Autostart      *bool   `json:"autostart"`
+	RunAsAdmin     bool    `json:"run_as_admin"`
+	SystemBrowser  *bool   `json:"system_browser"`
+	RemoteWebUI    *bool   `json:"remote_webui"`
 	RemoteWebUIURL *string `json:"remote_webui_url"`
-	TrayLogLevel   string `json:"tray_log_level"`
-	SystemProxy    *bool  `json:"system_proxy"`
+	TrayLogLevel   string  `json:"tray_log_level"`
+	SystemProxy    *bool   `json:"system_proxy"`
 }
 
 type KernelConfig struct {
@@ -32,8 +32,8 @@ type KernelConfig struct {
 	UnifiedDelay *bool  `json:"unified-delay"`
 
 	ExternalController string  `json:"external-controller"`
-	Secret             *string `json:"secret"`           
-	ExternalUI         string  `json:"external-ui"` 
+	Secret             *string `json:"secret"`
+	ExternalUI         string  `json:"external-ui"`
 	ExternalUIURL      *string `json:"external-ui-url"`
 	ExternalUIName     string  `json:"external-ui-name"`
 
@@ -78,19 +78,35 @@ type FetchResult struct {
 	Expire   int64
 }
 
+func TruncateMiddle(name string) string {
+	r := []rune(name)
+	if len(r) <= 14 {
+		return name
+	}
+	return string(r[:8]) + "..." + string(r[len(r)-6:])
+}
+
 func (p *ProfileItem) FormatLastUpdateText() string {
 	if p.LastUpdate == 0 {
 		return "从未更新"
 	}
 	diff := time.Since(time.Unix(p.LastUpdate, 0))
-	if diff.Hours() > 24 { return fmt.Sprintf("%d 天前", int(diff.Hours()/24)) }
-	if diff.Hours() > 1 { return fmt.Sprintf("%d 小时前", int(diff.Hours())) }
-	if diff.Minutes() > 1 { return fmt.Sprintf("%d 分钟前", int(diff.Minutes())) }
+	if diff.Hours() > 24 {
+		return fmt.Sprintf("%d 天前", int(diff.Hours()/24))
+	}
+	if diff.Hours() > 1 {
+		return fmt.Sprintf("%d 小时前", int(diff.Hours()))
+	}
+	if diff.Minutes() > 1 {
+		return fmt.Sprintf("%d 分钟前", int(diff.Minutes()))
+	}
 	return "刚刚"
 }
 
 func (p *ProfileItem) IsUpdateDue() bool {
-	if p.URL == "" || p.Interval <= 0 { return false }
+	if p.URL == "" || p.Interval <= 0 {
+		return false
+	}
 	targetDuration := time.Duration(p.Interval) * 24 * time.Hour
 	return time.Since(time.Unix(p.LastUpdate, 0)) >= targetDuration
 }
