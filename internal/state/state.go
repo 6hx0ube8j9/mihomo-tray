@@ -40,6 +40,12 @@ func NewRuntimeState() *RuntimeState {
 	return rs
 }
 
+func (s *RuntimeState) IsActionBusy() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.currentAction != ActionNone
+}
+
 // ---------------- 核心排他动作状态机 ----------------
 
 func (r *RuntimeState) TryBeginAction(action KernelAction) bool {
