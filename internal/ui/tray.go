@@ -245,7 +245,7 @@ func (t *Tray) rebuildProfilesMenu(state domain.UIState) {
 
 func (t *Tray) ShowNotification(title, message string) {
 	if t.ni != nil {
-		t.engine.RunOnUI(func() { _ = t.ni.ShowInfo(title, message) })
+		_ = t.ni.ShowInfo(title, message)
 	}
 }
 
