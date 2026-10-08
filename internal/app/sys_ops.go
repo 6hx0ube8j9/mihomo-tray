@@ -2,9 +2,9 @@ package app
 
 import (
 	"fmt"
-	"path/filepath"
 	"log/slog"
-	
+	"path/filepath"
+
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/sys"
 )
@@ -13,13 +13,13 @@ func (a *Application) ElevatePrivilege(rollback func()) (restarted bool) {
 	if sys.IsAdmin() {
 		return false
 	}
-	slog.Debug("操作受限，正在拉起 UAC 申请提权")
+	slog.Debug("当前权限不足，正在请求管理员权限")
 	err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--restarting")
 	if err == nil {
-		slog.Info("高权限实例已唤起，当前受限实例准备退出")
+		slog.Info("已成功拉起管理员权限进程，当前进程即将退出")
 		return true
 	}
-	slog.Warn("UAC 提权被取消或失败，回滚操作状态")
+	slog.Warn("管理员提权请求被取消或失败，已回滚相关设置")
 	if rollback != nil {
 		rollback()
 	}
@@ -33,12 +33,12 @@ func (a *Application) CheckAndReconcilePrivileges(isStartup bool) {
 
 	if needsAdmin && !sys.IsAdmin() {
 		if isStartup {
-			slog.Warn("系统正以普通用户权限启动，高级网络功能已被暂时停用")
+			slog.Warn("当前以普通用户权限运行，已暂时停用需要管理员权限的功能")
 			a.revertPrivilegedConfig()
 			return
 		}
 		if restarted := a.ElevatePrivilege(a.revertPrivilegedConfig); restarted {
-			a.State.ForceExitPhase() 
+			a.State.ForceExitPhase()
 		}
 	}
 }
@@ -57,7 +57,7 @@ func (a *Application) ToggleAutoStart(enable bool) (restarted bool) {
 		b := enable
 		c.General.Autostart = &b
 	})
-	
+
 	restarted = a.ElevatePrivilege(func() {
 		a.Cfg.Update(func(c *domain.TrayConfig) {
 			b := !enable
@@ -92,9 +92,9 @@ func (a *Application) OpenConfigFile(targetRelPath string) error {
 		targetRelPath = a.Cfg.GetActivePath()
 	}
 	if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
-		return fmt.Errorf("配置文件已损坏或丢失，无法打开。\n\n%w", err)
+		return fmt.Errorf("配置文件不存在或已损坏: %w", err)
 	}
-	absPath := filepath.Join(a.Cfg.BaseDir(), filepath.FromSlash(targetRelPath))
+	absPath := a.Cfg.GetProfileAbsPath(targetRelPath)
 	_ = sys.ExecuteSystemCommand(absPath)
 	return nil
 }
@@ -102,7 +102,7 @@ func (a *Application) OpenConfigFile(targetRelPath string) error {
 func (a *Application) EditCurrentConfig() error {
 	targetRelPath := a.Cfg.GetActivePath()
 	if targetRelPath == "" {
-		return fmt.Errorf("当前系统处于空转状态，没有正在运行的配置")
+		return fmt.Errorf("当前未选择任何运行配置")
 	}
 	return a.OpenConfigFile(targetRelPath)
 }
