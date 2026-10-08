@@ -25,12 +25,15 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 		dec := yaml.NewDecoder(bytes.NewReader(sourceYAML))
 		if err := dec.Decode(&root); err != nil {
 			if !errors.Is(err, io.EOF) {
-				return nil, err 
+				return nil, fmt.Errorf("YAML 语法解析错误: %w", err)
 			}
 		} else {
 			var extra yaml.Node
-			if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
-				return nil, errors.New("文件格式异常或缩进错误")
+			err := dec.Decode(&extra)
+			if err == nil {
+				return nil, errors.New("配置文件包含多文档定义 (检测到额外的 '---' 分隔，请保持单个文档格式)")
+			} else if !errors.Is(err, io.EOF) {
+				return nil, fmt.Errorf("YAML 结构解析错误: %w", err)
 			}
 		}
 	}
@@ -40,11 +43,11 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 	}
 	rootMap := root.Content[0]
 	if rootMap.Kind != yaml.MappingNode {
-		return nil, errors.New("配置文件整体结构不正确")
+		return nil, errors.New("配置文件根节点必须是键值映射格式 (Mapping)")
 	}
 
 	if len(rootMap.Content) > 0 && rootMap.Content[0].Column != 1 {
-		return nil, fmt.Errorf("配置文件首行不能有空格 (第 %d 列多出空格)", rootMap.Content[0].Column)
+		return nil, fmt.Errorf("配置文件首行缩进错误 (第 %d 列存在多余空格)", rootMap.Content[0].Column)
 	}
 
 	deleteKeys(rootMap, "redir-port", "tproxy-port")
@@ -62,11 +65,19 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 		}
 		topNodes = append(topNodes, k, &newVal)
 	}
-	
-	if cfg.Config.Mode != "" { putTop("mode", cfg.Config.Mode) }
-	if cfg.Config.LogLevel != "" { putTop("log-level", cfg.Config.LogLevel) }
-	if cfg.Config.AllowLan != nil { putTop("allow-lan", *cfg.Config.AllowLan) }
-	if cfg.Config.UnifiedDelay != nil { putTop("unified-delay", *cfg.Config.UnifiedDelay) }
+
+	if cfg.Config.Mode != "" {
+		putTop("mode", cfg.Config.Mode)
+	}
+	if cfg.Config.LogLevel != "" {
+		putTop("log-level", cfg.Config.LogLevel)
+	}
+	if cfg.Config.AllowLan != nil {
+		putTop("allow-lan", *cfg.Config.AllowLan)
+	}
+	if cfg.Config.UnifiedDelay != nil {
+		putTop("unified-delay", *cfg.Config.UnifiedDelay)
+	}
 
 	if cfg.Config.MixedPort != nil && *cfg.Config.MixedPort > 0 {
 		putTop("mixed-port", *cfg.Config.MixedPort)
@@ -86,10 +97,18 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 		deleteKeys(rootMap, "socks-port")
 	}
 
-	if cfg.Config.ExternalController != "" { putTop("external-controller", cfg.Config.ExternalController) }
-	if cfg.Config.ExternalControllerPipe != "" { putTop("external-controller-pipe", cfg.Config.ExternalControllerPipe) }
-	if cfg.Config.Secret != nil { putTop("secret", *cfg.Config.Secret) }
-	if cfg.Config.ExternalUI != "" { putTop("external-ui", cfg.Config.ExternalUI) }
+	if cfg.Config.ExternalController != "" {
+		putTop("external-controller", cfg.Config.ExternalController)
+	}
+	if cfg.Config.ExternalControllerPipe != "" {
+		putTop("external-controller-pipe", cfg.Config.ExternalControllerPipe)
+	}
+	if cfg.Config.Secret != nil {
+		putTop("secret", *cfg.Config.Secret)
+	}
+	if cfg.Config.ExternalUI != "" {
+		putTop("external-ui", cfg.Config.ExternalUI)
+	}
 
 	if cfg.Config.ExternalUIURL != nil && *cfg.Config.ExternalUIURL != "" {
 		putTop("external-ui-url", *cfg.Config.ExternalUIURL)
@@ -97,7 +116,9 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 		deleteKeys(rootMap, "external-ui-url")
 	}
 
-	if cfg.Config.ExternalUIName != "" { putTop("external-ui-name", cfg.Config.ExternalUIName) }
+	if cfg.Config.ExternalUIName != "" {
+		putTop("external-ui-name", cfg.Config.ExternalUIName)
+	}
 
 	putTop("external-controller-cors", buildCORSNode(cfg.Config.ExternalControllerCors.AllowPrivateNetwork, cfg.Config.ExternalControllerCors.AllowOrigins))
 	tunDevice, tunTopNodes := patchTunNode(rootMap, cfg.Config.Tun.Enable)
@@ -169,8 +190,6 @@ func patchTunNode(rootMap *yaml.Node, enable bool) (tunDevice string, extraTop [
 
 	return "", []*yaml.Node{tunK, tunV}
 }
-
-// ---------------- AST ----------------
 
 func clearComments(node *yaml.Node) {
 	if node == nil {
