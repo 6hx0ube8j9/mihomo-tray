@@ -62,19 +62,12 @@ func (d *Dashboard) createWindow() {
 	}
 }
 
-func (d *Dashboard) BackgroundUpdate(state domain.UIState) {
+func (d *Dashboard) UpdateState(state domain.UIState) {
 	d.lastState = state
 	if d.window == nil || !d.window.Visible() {
 		return
 	}
 	d.ProfileView.RefreshData(state)
-}
-
-func (d *Dashboard) ForceInjectData(state domain.UIState) {
-	d.lastState = state
-	if d.window != nil {
-		d.ProfileView.RefreshData(state)
-	}
 }
 
 func (d *Dashboard) Dispose() {
