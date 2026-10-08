@@ -124,7 +124,7 @@ func (e *Engine) listenState() {
 			}
 
 			state := e.getState()
-			e.app.Synchronize(func() {
+			e.RunOnUI(func() {
 				if e.Tray != nil {
 					e.Tray.UpdateState(state)
 				}
