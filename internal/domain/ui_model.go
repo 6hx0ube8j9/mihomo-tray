@@ -1,7 +1,9 @@
 package domain
 
+type IconState int
+
 const (
-	IconStop = iota
+	IconStop IconState = iota
 	IconError
 	IconTun
 	IconProxy
@@ -13,41 +15,48 @@ type UICommand struct {
 	Payload string
 }
 
-// ================= UI Protocol =================
+// ================= UI Action Protocol =================
 const (
+	// 配置管理操作
 	ActionOpenProfileManager  = "OpenProfileManager"
 	ActionRequestAddLocal     = "RequestAddLocalProfile"
 	ActionRequestAddRemote    = "RequestAddRemoteProfile"
-	ActionEditProfileInfo     = "ActionEditProfileInfo"
-	ActionAddLocalProfile     = "AddLocalProfile"
-	ActionAddRemoteProfile    = "AddRemoteProfile"
+	ActionEditProfileInfo     = "EditProfileInfo"
 	ActionSetProfileInterval  = "SetProfileInterval"
 	ActionUpdateRemoteProfile = "UpdateRemoteProfile"
 	ActionSwitchProfile       = "SwitchProfile"
 	ActionRemoveProfile       = "RemoveProfile"
 	ActionMoveProfileUp       = "MoveProfileUp"
 	ActionMoveProfileDown     = "MoveProfileDown"
-	ActionToggleAutoStart     = "ToggleAutoStart"
-	ActionToggleRunAsAdmin    = "ToggleRunAsAdmin"
-	ActionToggleTun           = "ToggleTun"
-	ActionToggleProxy         = "ToggleProxy"
-	ActionSwitchMode          = "SwitchMode"
-	ActionForceSyncAPI        = "ForceSyncAPI"
-	ActionOpenWebUI           = "OpenWebUI"
-	ActionOpenBaseDir         = "OpenBaseDir"
-	ActionReloadConfig        = "ReloadConfig"
-	ActionRestartKernel       = "RestartKernel"
 	ActionOpenConfigFile      = "OpenConfigFile"
-	ActionExitApp             = "ExitApp"
-	ActionToggleSystemBrowser = "ToggleSystemBrowser"
-	ActionToggleRemoteWebUI   = "ToggleRemoteWebUI"  
 	ActionEditCurrentConfig   = "EditCurrentConfig"
+
+	// 弹窗编辑器请求
+	ActionRequestEditPort       = "RequestEditPort"
+	ActionRequestEditController = "RequestEditController"
+
+	// 内核网络与模式控制
+	ActionToggleTun      = "ToggleTun"
+	ActionToggleProxy    = "ToggleProxy"
+	ActionSwitchMode     = "SwitchMode"
+	ActionToggleAllowLan = "ToggleAllowLan"
+	ActionForceSyncAPI   = "ForceSyncAPI"
+
+	// 系统与生命周期
+	ActionOpenBaseDir      = "OpenBaseDir"
+	ActionOpenAppConfig    = "OpenAppConfig"
+	ActionToggleAutoStart  = "ToggleAutoStart"
+	ActionToggleRunAsAdmin = "ToggleRunAsAdmin"
+	ActionReloadConfig     = "ReloadConfig"
+	ActionRestartKernel    = "RestartKernel"
+	ActionExitApp          = "ExitApp"
+
+	// Web 面板偏好
+	ActionToggleSystemBrowser = "ToggleSystemBrowser"
+	ActionToggleRemoteWebUI   = "ToggleRemoteWebUI"
+	ActionOpenWebUI           = "OpenWebUI"
 	ActionCopyWebUIPassword   = "CopyWebUIPassword"
 	ActionClearWebUICache     = "ClearWebUICache"
-	ActionToggleAllowLan      = "ToggleAllowLan"
-	ActionOpenAppConfig       = "OpenAppConfig"
-	ActionRequestEditPort     = "RequestEditPort"
-	ActionRequestEditController = "RequestEditController"
 )
 
 type UIProfileItem struct {
@@ -60,7 +69,7 @@ type UIProfileItem struct {
 }
 
 type UIState struct {
-	IconState        int
+	IconState        IconState
 	IsTun            bool
 	IsProxy          bool
 	Mode             string
@@ -68,7 +77,7 @@ type UIState struct {
 	IsAdmin          bool
 	RunAsAdmin       bool
 	UseSystemBrowser bool
-	RemoteWebUI      bool  
+	RemoteWebUI      bool
 	AllowLan         bool
 	ProfileItems     []UIProfileItem
 	CanAddProfile    bool
