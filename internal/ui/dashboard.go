@@ -28,12 +28,13 @@ func (d *Dashboard) Show() {
 		if d.window == nil {
 			return
 		}
+	} else if !d.window.Visible() {
+		d.ProfileView.RefreshData(d.lastState)
 	}
 
 	if !d.window.Visible() {
 		d.window.Show()
 	}
-
 	ActivateWindow(d.window.Handle())
 }
 
