@@ -2,13 +2,13 @@ package config
 
 import (
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/fs"
 )
 
 var ErrProfileLimitExceeded = fmt.Errorf("配置数量已达上限 (%d 个)。", domain.MaxProfileCount)
@@ -56,16 +56,12 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 		}
 	}
 
-	profilesDirAbs := filepath.Join(m.baseDir, ProfilesDir)
-	if err := os.MkdirAll(profilesDirAbs, 0755); err != nil {
-		return "", false, fmt.Errorf("无法创建配置存放目录，请检查系统权限: %w", err)
-	}
-
+	profilesDirAbs := m.ProfilesDirAbs()
 	baseName := strings.TrimSuffix(filepath.Base(absSrc), filepath.Ext(absSrc))
 	finalRelPath := resolveUniqueProfileRelPath(profilesDirAbs, baseName)
 	dstAbs := filepath.Join(m.baseDir, filepath.FromSlash(finalRelPath))
 
-	if err := copyFileWithLimit(absSrc, dstAbs, domain.MaxProfileBytes); err != nil {
+	if err := fs.CopyFileWithLimit(absSrc, dstAbs, domain.MaxProfileBytes); err != nil {
 		return "", false, fmt.Errorf("文件导入受阻。\n\n%w", err)
 	}
 
@@ -123,6 +119,17 @@ func (m *Manager) GetProfiles() []domain.ProfileItem {
 	res := make([]domain.ProfileItem, len(m.data.Profiles.Items))
 	copy(res, m.data.Profiles.Items)
 	return res
+}
+
+func (m *Manager) GetProfileByPath(relPath string) (domain.ProfileItem, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, p := range m.data.Profiles.Items {
+		if p.Path == relPath {
+			return p, true
+		}
+	}
+	return domain.ProfileItem{}, false
 }
 
 func (m *Manager) SetActiveProfile(relPath string) {
@@ -213,59 +220,4 @@ func resolveUniqueProfileRelPath(profilesDirAbs, baseName string) string {
 		candidate = fmt.Sprintf("%s_%d", baseName, i)
 	}
 	return filepath.ToSlash(filepath.Join(ProfilesDir, candidate+".yaml"))
-}
-
-func copyFileWithLimit(srcPath, dstPath string, maxBytes int64) error {
-	fi, err := os.Stat(srcPath)
-	if err != nil {
-		return fmt.Errorf("源文件已被删除或无读取权限: %w", err)
-	}
-	if fi.Size() == 0 {
-		return fmt.Errorf("源文件内容为空，已拒绝拷贝")
-	}
-
-	srcFile, err := os.Open(srcPath)
-	if err != nil {
-		return fmt.Errorf("无法打开源文件: %w", err)
-	}
-	defer srcFile.Close()
-
-	targetDir := filepath.Dir(dstPath)
-	_ = os.MkdirAll(targetDir, 0755)
-
-	tmpFile, err := os.CreateTemp(targetDir, "profile.*.tmp")
-	if err != nil {
-		return fmt.Errorf("无法在系统目录创建缓存文件: %w", err)
-	}
-	tmpName := tmpFile.Name()
-
-	cleaned := false
-	defer func() {
-		if !cleaned {
-			_ = tmpFile.Close()
-			_ = os.Remove(tmpName)
-		}
-	}()
-
-	if _, err := io.Copy(tmpFile, io.LimitReader(srcFile, maxBytes)); err != nil {
-		return fmt.Errorf("数据传输过程中发生异常: %w", err)
-	}
-
-	var extra [1]byte
-	if n, _ := srcFile.Read(extra[:]); n > 0 {
-		return fmt.Errorf("配置文件体积超出上限 (最大允许 %d MB)", maxBytes/(1024*1024))
-	}
-
-	if err := tmpFile.Sync(); err != nil {
-		return fmt.Errorf("文件落盘失败: %w", err)
-	}
-	if err := tmpFile.Close(); err != nil {
-		return fmt.Errorf("文件系统占有释放失败: %w", err)
-	}
-	cleaned = true
-
-	if err := os.Rename(tmpName, dstPath); err != nil {
-		return fmt.Errorf("最终配置文件生成失败: %w", err)
-	}
-	return nil
 }
