@@ -19,24 +19,36 @@ func applyDefaults(cfg *domain.TrayConfig) bool {
 	setIfNil(&cfg.General.SystemProxy, domain.DefaultSystemProxy, &isTainted)
 	setIfEmpty(&cfg.General.TrayLogLevel, domain.DefaultTrayLogLevel, &isTainted)
 
-	if cfg.General.RemoteWebUIURL == nil || *cfg.General.RemoteWebUIURL == "" {
+	if cfg.General.RemoteWebUIURL == nil || !netutil.IsValidHTTPURL(*cfg.General.RemoteWebUIURL) {
 		url := domain.DefaultRemoteWebUIURL
 		cfg.General.RemoteWebUIURL = &url
 		isTainted = true
 	}
 
-	setIfNil(&cfg.Config.MixedPort, domain.DefaultMixedPort, &isTainted)
-	setIfNil(&cfg.Config.Port, domain.DefaultPort, &isTainted)
-	setIfNil(&cfg.Config.SocksPort, domain.DefaultSocksPort, &isTainted)
+	sanitizePort(&cfg.Config.MixedPort, domain.DefaultMixedPort, &isTainted)
+	sanitizePort(&cfg.Config.Port, domain.DefaultPort, &isTainted)
+	sanitizePort(&cfg.Config.SocksPort, domain.DefaultSocksPort, &isTainted)
+
 	setIfNil(&cfg.Config.AllowLan, domain.DefaultAllowLan, &isTainted)
 	setIfNil(&cfg.Config.UnifiedDelay, domain.DefaultUnifiedDelay, &isTainted)
 
-	setIfEmpty(&cfg.Config.Mode, domain.DefaultMode, &isTainted)
-	setIfEmpty(&cfg.Config.LogLevel, domain.DefaultLogLevel, &isTainted)
-	setIfEmpty(&cfg.Config.ExternalController, domain.DefaultExternalController, &isTainted)
+	if !isValidMode(cfg.Config.Mode) {
+		cfg.Config.Mode = domain.DefaultMode
+		isTainted = true
+	}
+	if !isValidLogLevel(cfg.Config.LogLevel) {
+		cfg.Config.LogLevel = domain.DefaultLogLevel
+		isTainted = true
+	}
+
+	if !netutil.IsValidHostPort(cfg.Config.ExternalController) {
+		slog.Warn("检测到非法的 ExternalController 监听地址，已自动恢复默认值", "invalid", cfg.Config.ExternalController)
+		cfg.Config.ExternalController = domain.DefaultExternalController
+		isTainted = true
+	}
+
 	setIfEmpty(&cfg.Config.ExternalUI, domain.DefaultExternalUI, &isTainted)
 	setIfEmpty(&cfg.Config.ExternalUIName, domain.DefaultExternalUIName, &isTainted)
-
 	setIfNil(&cfg.Config.ExternalUIURL, domain.DefaultExternalUIURL, &isTainted)
 
 	cfg.Config.ExternalControllerPipe = domain.IPCNamedPipe
@@ -77,6 +89,40 @@ func applyDefaults(cfg *domain.TrayConfig) bool {
 	}
 
 	return isTainted
+}
+
+func sanitizePort(portPtr **int, defPort int, tainted *bool) {
+	if *portPtr == nil {
+		p := defPort
+		*portPtr = &p
+		*tainted = true
+		return
+	}
+	val := **portPtr
+	if !netutil.IsValidPort(val) {
+		slog.Warn("端口配置超出合法范围 (0-65535)，已恢复为默认端口", "invalid", val, "default", defPort)
+		p := defPort
+		*portPtr = &p
+		*tainted = true
+	}
+}
+
+func isValidMode(mode string) bool {
+	switch strings.ToLower(mode) {
+	case "rule", "global", "direct":
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidLogLevel(level string) bool {
+	switch strings.ToLower(level) {
+	case "debug", "info", "warning", "error", "silent":
+		return true
+	default:
+		return false
+	}
 }
 
 func setIfNil[T any](ptr **T, def T, tainted *bool) {
