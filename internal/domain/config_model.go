@@ -110,3 +110,17 @@ func (p *ProfileItem) IsUpdateDue() bool {
 	targetDuration := time.Duration(p.Interval) * 24 * time.Hour
 	return time.Since(time.Unix(p.LastUpdate, 0)) >= targetDuration
 }
+
+// IsValidSecret reports whether s contains only printable ASCII characters without spaces (33-126).
+func IsValidSecret(s string) bool {
+	if s == "" {
+		return true
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c < 33 || c > 126 {
+			return false
+		}
+	}
+	return true
+}
