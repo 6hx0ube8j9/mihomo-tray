@@ -23,8 +23,8 @@ type Manager struct {
 	exePath string
 	isAdmin bool
 
-	mu   sync.RWMutex // 仅保护内存数据 m.data
-	ioMu sync.Mutex   // 保证落盘严格串行
+	mu   sync.RWMutex
+	ioMu sync.Mutex
 
 	data domain.TrayConfig
 }
@@ -139,9 +139,9 @@ func (m *Manager) GetEffectiveSecret(s *string) string {
 }
 
 func (m *Manager) FlushInitialState() {
-	m.Update(func(cfg *domain.TrayConfig) {
-	})
+	m.Update(func(cfg *domain.TrayConfig) {})
 }
 
-func (m *Manager) BaseDir() string { return m.baseDir }
-func (m *Manager) ExePath() string { return m.exePath }
+func (m *Manager) BaseDir() string        { return m.baseDir }
+func (m *Manager) ExePath() string        { return m.exePath }
+func (m *Manager) ProfilesDirAbs() string { return filepath.Join(m.baseDir, ProfilesDir) }
