@@ -104,16 +104,11 @@ func (a *Application) SwitchProfile(ctx context.Context, targetPath string) erro
 		}
 	}
 
-	deployRes, err := a.prepareAndValidateConfig(target)
-	if err != nil {
-		return err
-	}
-
 	a.Cfg.SetActiveProfile(target)
 
-	a.executeKernelTransition(ctx, func(c context.Context) error {
-		return a.apiHotReloadCommand(c, deployRes.RuntimeAbs)
-	}, "切换配置")
+	if err := a.applyActiveConfig(ctx, "切换配置"); err != nil {
+		return err
+	}
 
 	a.restartWebUIIfOpen()
 	return nil
