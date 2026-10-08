@@ -148,6 +148,15 @@ func (a *Application) eventLoop(ctx context.Context) {
 
 	lastUserAction := time.Now()
 
+	tryPollAPI := func() {
+		if a.State.GetPhase() == domain.PhaseRunning && !a.State.IsConfigSyncing() && !a.State.IsReloading() {
+			if a.pollKernelAPI(ctx) {
+				slog.Debug("内核状态发生变更，更新 UI 视图")
+				a.pushUIState()
+			}
+		}
+	}
+
 	adjustPollInterval := func() {
 		isUserActive := time.Since(lastUserAction) < pollIdleThreshold
 		isWebActive := a.WebUI.IsActive()
@@ -158,17 +167,13 @@ func (a *Application) eventLoop(ctx context.Context) {
 		}
 
 		if targetInterval != currentInterval {
+			wasIdle := (currentInterval == pollIdleInterval)
 			currentInterval = targetInterval
 			ticker.Reset(currentInterval)
 			slog.Debug("调整内核状态轮询频率", "interval", currentInterval)
-		}
-	}
 
-	tryPollAPI := func() {
-		if a.State.GetPhase() == domain.PhaseRunning && !a.State.IsConfigSyncing() && !a.State.IsReloading() {
-			if a.pollKernelAPI(ctx) {
-				slog.Debug("内核状态发生变更，更新 UI 视图")
-				a.pushUIState()
+			if wasIdle && targetInterval == pollActiveInterval {
+				tryPollAPI()
 			}
 		}
 	}
