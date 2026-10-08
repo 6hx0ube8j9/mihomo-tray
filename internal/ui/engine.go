@@ -129,7 +129,7 @@ func (e *Engine) listenState() {
 					e.Tray.UpdateState(state)
 				}
 				if e.Dashboard != nil {
-					e.Dashboard.BackgroundUpdate(state)
+					e.Dashboard.UpdateState(state)
 				}
 			})
 		}
