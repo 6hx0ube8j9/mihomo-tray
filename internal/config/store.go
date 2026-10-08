@@ -1,131 +1,160 @@
 package config
 
 import (
-	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
+	"sync"
 	"time"
 
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/fs"
 )
 
-const RemoteFetchTimeout = 90 * time.Second
+type Manager struct {
+	baseDir string
+	exePath string
+	isAdmin bool
 
-func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPort string) (*domain.FetchResult, error) {
-	subURL = strings.TrimSpace(subURL)
-	slog.Info("开始拉取订阅", "url", subURL)
+	mu   sync.RWMutex 
+	ioMu sync.Mutex 
 
-	transport := &http.Transport{Proxy: http.ProxyFromEnvironment}
-
-	if proxyPort != "" {
-		if u, err := url.Parse("http://127.0.0.1:" + proxyPort); err == nil {
-			transport.Proxy = http.ProxyURL(u)
-		}
-	}
-
-	client := &http.Client{
-		Timeout:   RemoteFetchTimeout,
-		Transport: transport,
-	}
-
-	var resp *http.Response
-	var reqErr error
-	maxRetries := 3
-
-	for i := 0; i < maxRetries; i++ {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-
-		req, err := http.NewRequestWithContext(ctx, "GET", subURL, nil)
-		if err != nil {
-			return nil, fmt.Errorf("无效的订阅链接格式: %w", err)
-		}
-
-		req.Header.Set("User-Agent", domain.DefaultUserAgent)
-		req.Header.Set("Accept", "application/yaml, text/yaml, text/plain, */*")
-		req.Header.Set("Connection", "keep-alive")
-
-		resp, reqErr = client.Do(req)
-
-		if reqErr == nil && resp.StatusCode < 500 {
-			break
-		}
-
-		if i < maxRetries-1 {
-			if resp != nil && resp.Body != nil {
-				_ = resp.Body.Close()
-			}
-			slog.Warn("网络不稳定，准备进行自动重试", "url", subURL, "retry", i+1, "err", reqErr)
-			time.Sleep(1500 * time.Millisecond)
-		}
-	}
-
-	if reqErr != nil {
-		return nil, fmt.Errorf("无法连接至订阅服务器 (已重试%d次)。请检查网络状态或代理设置。\n\n%w", maxRetries, reqErr)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("服务器拒绝提供配置，HTTP 状态码: %d", resp.StatusCode)
-	}
-
-	contentType := strings.ToLower(resp.Header.Get("Content-Type"))
-	if strings.Contains(contentType, "text/html") {
-		return nil, fmt.Errorf("目标链接无效或提供的内容非代理配置 (服务器返回了网页内容)")
-	}
-
-	tmpName, err := fs.SaveTempWithLimit(m.ProfilesDirAbs(), "sub_*.tmp", resp.Body, domain.MaxProfileBytes)
-	if err != nil {
-		return nil, fmt.Errorf("订阅内容写入本地失败: %w", err)
-	}
-
-	res := &domain.FetchResult{TempPath: tmpName}
-
-	if userInfo := resp.Header.Get("subscription-userinfo"); userInfo != "" {
-		parts := strings.Split(userInfo, ";")
-		for _, part := range parts {
-			kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
-			if len(kv) == 2 {
-				val, _ := strconv.ParseInt(kv[1], 10, 64)
-				switch strings.ToLower(kv[0]) {
-				case "upload":
-					res.Upload = val
-				case "download":
-					res.Download = val
-				case "total":
-					res.Total = val
-				case "expire":
-					res.Expire = val
-				}
-			}
-		}
-	}
-
-	return res, nil
+	data domain.TrayConfig
 }
 
-func (m *Manager) CommitRemoteProfile(tempPath string, targetRelPath string, item domain.ProfileItem) error {
-	if _, exists := m.GetProfileByPath(item.Path); !exists {
-		if err := m.CheckProfileLimit(); err != nil {
-			_ = os.Remove(tempPath)
-			return err
+func NewManager(baseDir, exePath string, isAdmin bool) *Manager {
+	return &Manager{
+		baseDir: baseDir,
+		exePath: exePath,
+		isAdmin: isAdmin,
+	}
+}
+
+func (m *Manager) LoadAndInitMemory() {
+	cfgPath := filepath.Join(m.baseDir, domain.TrayConfigName)
+	isTainted := false
+
+	m.mu.Lock()
+	if f, err := os.Open(cfgPath); err == nil {
+		if err := json.NewDecoder(f).Decode(&m.data); err != nil {
+			slog.Warn("主配置文件解析失败，已自动备份并重置为默认设置", "path", cfgPath, "err", err)
+			_ = f.Close()
+
+			corruptPath := cfgPath + fmt.Sprintf(".%d.err", time.Now().Unix())
+			_ = os.Rename(cfgPath, corruptPath)
+
+			isTainted = true
+		} else {
+			_ = f.Close()
 		}
+	} else {
+		slog.Debug("主配置文件不存在，正在初始化默认设置", "path", cfgPath)
+		isTainted = true
 	}
 
-	targetAbs := filepath.Join(m.baseDir, filepath.FromSlash(targetRelPath))
-	if err := fs.ReplaceAtomic(tempPath, targetAbs); err != nil {
-		_ = os.Remove(tempPath)
-		return fmt.Errorf("配置落盘受阻，文件可能被系统占用。\n\n%w", err)
+	if applyDefaults(&m.data) || isTainted {
+		m.mu.Unlock()
+		m.FlushInitialState()
+		return
+	}
+	m.mu.Unlock()
+}
+
+func (m *Manager) ReloadFromDisk() error {
+	jsonPath := filepath.Join(m.baseDir, domain.TrayConfigName)
+	content, err := os.ReadFile(jsonPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			slog.Warn("主配置文件丢失，已从内存数据自动恢复")
+			m.FlushInitialState()
+			return nil
+		}
+		return err
 	}
 
-	m.UpsertProfile(item)
+	var newCfg domain.TrayConfig
+	if err := json.Unmarshal(content, &newCfg); err != nil {
+		m.FlushInitialState()
+		return fmt.Errorf("主配置文件格式已损坏，重载请求已拦截，系统恢复为上一次的有效配置。\n\n%w", err)
+	}
+
+	isTainted := applyDefaults(&newCfg)
+
+	m.mu.Lock()
+	m.data = newCfg
+	m.mu.Unlock()
+
+	if isTainted {
+		m.FlushInitialState()
+	}
+
 	return nil
+}
+
+func (m *Manager) GetConfig() domain.TrayConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.data
+}
+
+func (m *Manager) Update(updater func(cfg *domain.TrayConfig)) {
+	m.ioMu.Lock()
+	defer m.ioMu.Unlock()
+
+	m.mu.Lock()
+	updater(&m.data)
+	snapshotBytes, err := json.MarshalIndent(m.data, "", "  ")
+	m.mu.Unlock()
+
+	if err != nil {
+		slog.Error("配置序列化失败", "err", err)
+		return
+	}
+
+	cfgPath := filepath.Join(m.baseDir, domain.TrayConfigName)
+	if err := fs.WriteAtomic(cfgPath, snapshotBytes); err != nil {
+		slog.Error("配置原子落盘失败", "err", err)
+	}
+}
+
+func (m *Manager) GetEffectivePort(p *int, defaultPort int) int {
+	if p == nil {
+		return defaultPort
+	}
+	return *p
+}
+
+func (m *Manager) GetEffectiveMixedPort() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.GetEffectivePort(m.data.Config.MixedPort, domain.DefaultMixedPort)
+}
+
+func (m *Manager) GetEffectiveMixedPortStr() string {
+	return strconv.Itoa(m.GetEffectiveMixedPort())
+}
+
+func (m *Manager) GetEffectiveSecret(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func (m *Manager) FlushInitialState() {
+	m.Update(func(cfg *domain.TrayConfig) {})
+}
+
+func (m *Manager) BaseDir() string        { return m.baseDir }
+func (m *Manager) ExePath() string        { return m.exePath }
+func (m *Manager) ProfilesDirAbs() string { return filepath.Join(m.baseDir, domain.ProfilesDir) }
+
+func (m *Manager) GetProfileAbsPath(relPath string) string {
+	if relPath == "" {
+		return ""
+	}
+	return filepath.Join(m.baseDir, filepath.FromSlash(relPath))
 }
