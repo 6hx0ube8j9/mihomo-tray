@@ -34,6 +34,7 @@ func (a *Application) OpenWebUI() error {
 
 	go a.WebUI.Launch(wcfg, a.webuiEventCh)
 	return nil
+	a.ForceSyncAPI()
 }
 
 func (a *Application) CopyWebUIPassword() error {
