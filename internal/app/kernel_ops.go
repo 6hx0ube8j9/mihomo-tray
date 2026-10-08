@@ -36,6 +36,29 @@ func (a *Application) apiHotReloadCommand(ctx context.Context, runtimeAbs string
 	return nil
 }
 
+// apiSoftRestartCommand sends POST /restart to trigger native kernel process restart.
+// Kept for fast in-place kernel restart without daemon intervention.
+func (a *Application) apiSoftRestartCommand(ctx context.Context) error {
+	cmdCtx, cmdCancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cmdCancel()
+
+	if err := a.API.RestartKernel(cmdCtx); err != nil {
+		return fmt.Errorf("向内核发送重启指令失败: %w", err)
+	}
+
+	waitCtx, waitCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer waitCancel()
+
+	if err := a.API.WaitForReady(waitCtx); err != nil {
+		return fmt.Errorf("内核重启就绪超时: %w", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+	a.syncAllConfig(ctx)
+	a.ForceSyncAPI()
+	return nil
+}
+
 func (a *Application) applyActiveConfig(ctx context.Context, actionDesc string) error {
 	target := a.Cfg.GetActivePath()
 	if target != "" {
@@ -99,7 +122,7 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 		a.ForcePushUIState()
 	}()
 
-	slog.Info("开始执行内核物理重启")
+	slog.Info("开始执行内核重启")
 	a.CheckAndReconcilePrivileges(false)
 	target := a.Cfg.GetActivePath()
 
