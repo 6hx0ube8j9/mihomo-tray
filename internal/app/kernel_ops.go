@@ -42,6 +42,7 @@ func (a *Application) executePhysicalRestart(cfg domain.TrayConfig) {
 	a.Kernel.HaltDaemon()
 	a.Kernel.WakeDaemon()
 	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
+	a.ForceSyncAPI()
 }
 
 func (a *Application) apiHotReloadCommand(ctx context.Context, runtimeAbs string) error {
@@ -54,8 +55,8 @@ func (a *Application) apiHotReloadCommand(ctx context.Context, runtimeAbs string
 	}
 
 	time.Sleep(200 * time.Millisecond)
-	a.syncAllConfig(ctx)
 	a.ForceSyncAPI()
+	a.syncAllConfig(ctx)
 	return nil
 }
 
@@ -67,6 +68,10 @@ func (a *Application) apiSoftRestartCommand(ctx context.Context) error {
 		return fmt.Errorf("向内核发送指令失败: %w", err)
 	}
 
+	a.ForceSyncAPI()
+
+	time.Sleep(300 * time.Millisecond)
+
 	waitCtx, waitCancel := context.WithTimeout(ctx, 3*time.Second)
 	defer waitCancel()
 
@@ -76,7 +81,6 @@ func (a *Application) apiSoftRestartCommand(ctx context.Context) error {
 
 	time.Sleep(200 * time.Millisecond)
 	a.syncAllConfig(ctx)
-	a.ForceSyncAPI()
 	return nil
 }
 
@@ -114,6 +118,9 @@ func (a *Application) ReloadConfig(ctx context.Context) error {
 		return fmt.Errorf("应用基础配置文件解析失败。\n\n%w", err)
 	}
 
+	cfg := a.Cfg.GetConfig()
+	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
+
 	a.CheckAndReconcilePrivileges(false)
 
 	if err := a.applyActiveConfig(ctx, "手动热重载"); err != nil {
@@ -137,6 +144,10 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 	if err := a.Cfg.ReloadFromDisk(); err != nil {
 		return fmt.Errorf("应用基础配置文件存在格式错误。\n\n%w", err)
 	}
+	
+	cfg := a.Cfg.GetConfig()
+	a.State.UpdateWebUISnapshot(cfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(cfg.Config.Secret), cfg.Config.ExternalUIName)
+	a.ForcePushUIState()
 
 	a.CheckAndReconcilePrivileges(false)
 	target := a.Cfg.GetActivePath()
