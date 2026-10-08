@@ -157,7 +157,7 @@ func main() {
 		})
 	}
 
-	needsAdminStartup := cfgAutostart || cfg.General.RunAsAdmin || cfg.Config.Tun.Enable
+	needsAdminStartup := cfgAutostart || cfg.General.RunAsAdmin
 
 	if !admin && !isAutostart {
 		if needsAdminStartup {
