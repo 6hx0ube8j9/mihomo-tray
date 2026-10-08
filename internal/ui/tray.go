@@ -112,9 +112,10 @@ func (t *Tray) UpdateState(state domain.UIState) {
 
 	t.latestState = state
 
-	if state.IconState != t.lastIconId && state.IconState >= 0 && state.IconState < len(t.icons) && t.icons[state.IconState] != nil {
-		t.ni.SetIcon(t.icons[state.IconState])
-		t.lastIconId = state.IconState
+    iconIdx := int(state.IconState)
+	if iconIdx != t.lastIconId && iconIdx >= 0 && iconIdx < len(t.icons) && t.icons[iconIdx] != nil {
+		t.ni.SetIcon(t.icons[iconIdx])
+		t.lastIconId = iconIdx
 	}
 
 	if !t.isBuilt {
