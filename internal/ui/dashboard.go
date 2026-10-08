@@ -23,20 +23,18 @@ func NewDashboard(e *Engine) *Dashboard {
 }
 
 func (d *Dashboard) Show() {
-	d.engine.RunOnUI(func() {
+	if d.window == nil {
+		d.createWindow()
 		if d.window == nil {
-			d.createWindow()
-			if d.window == nil {
-				return
-			}
+			return
 		}
+	}
 
-		if !d.window.Visible() {
-			d.window.Show()
-		}
+	if !d.window.Visible() {
+		d.window.Show()
+	}
 
-		ActivateWindow(d.window.Handle())
-	})
+	ActivateWindow(d.window.Handle())
 }
 
 func (d *Dashboard) createWindow() {
@@ -82,15 +80,10 @@ func (d *Dashboard) Dispose() {
 	if d.window == nil {
 		return
 	}
-
-	d.engine.RunOnUI(func() {
-		if d.window != nil {
-			if d.closePatch != nil {
-				d.closePatch.Remove(d.window)
-				d.closePatch = nil
-			}
-			d.window.Dispose()
-			d.window = nil
-		}
-	})
+	if d.closePatch != nil {
+		d.closePatch.Remove(d.window)
+		d.closePatch = nil
+	}
+	d.window.Dispose()
+	d.window = nil
 }
