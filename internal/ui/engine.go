@@ -154,7 +154,7 @@ func (e *Engine) Exit() {
 func (e *Engine) ShowProfileManager(state domain.UIState) {
 	if e.Dashboard != nil {
 		e.RunOnUI(func() {
-			e.Dashboard.ForceInjectData(state)
+			e.Dashboard.UpdateState(state)
 			e.Dashboard.Show()
 		})
 	}
