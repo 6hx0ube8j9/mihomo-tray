@@ -40,16 +40,14 @@ func WriteAtomic(targetPath string, content []byte) error {
 }
 
 func ReplaceAtomic(sourcePath, targetPath string) error {
-	var lastErr error
-	for i := 0; i < 3; i++ {
-		err := os.Rename(sourcePath, targetPath)
-		if err == nil {
-			return nil
-		}
-		lastErr = err
-
-		_ = os.Remove(targetPath)
-		time.Sleep(10 * time.Millisecond)
-	}
-	return fmt.Errorf("原子替换文件失败 (已重试 3 次): %w", lastErr)
+    var lastErr error
+    for i := 0; i < 3; i++ {
+        err := os.Rename(sourcePath, targetPath)
+        if err == nil {
+            return nil
+        }
+        lastErr = err
+        time.Sleep(20 * time.Millisecond)
+    }
+    return fmt.Errorf("原子替换文件失败 (已重试 3 次): %w", lastErr)
 }
