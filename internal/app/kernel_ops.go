@@ -148,15 +148,23 @@ func (a *Application) prepareAndValidateConfig(targetRelPath string) (*core.Depl
 	deployRes, err := core.DeployRuntimeConfig(cfg, targetRelPath, a.Cfg.BaseDir())
 	if err != nil {
 		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("运行配置落盘失败 [%s]:\n%v", targetRelPath, err))
-		return nil, fmt.Errorf("运行配置文件装配失败: %w", err)
+		return nil, fmt.Errorf("装配运行配置失败: %w", err)
+	}
+
+	if deployRes.IsUnchanged && a.runtimeValidated {
+		slog.Debug("运行配置未发生变动，跳过沙盒校验")
+		a.State.SetActualTunDevice(deployRes.TunDevice)
+		return deployRes, nil
 	}
 
 	kernelPath := core.GetKernelPath(a.Cfg.BaseDir())
 	if err := core.ValidateConfig(kernelPath, a.Cfg.BaseDir(), deployRes.RuntimeAbs); err != nil {
+		a.runtimeValidated = false
 		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("内核校验配置文件失败 [%s]:\n%v", filepath.Base(targetRelPath), err))
 		return nil, fmt.Errorf("内核不支持当前配置格式: %w", err)
 	}
 
+	a.runtimeValidated = true
 	a.State.SetActualTunDevice(deployRes.TunDevice)
 	return deployRes, nil
 }
