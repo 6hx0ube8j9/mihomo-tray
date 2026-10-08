@@ -18,7 +18,7 @@ var (
 
 func IsSystemShuttingDown() bool {
 	const SM_SHUTTINGDOWN = 0x2000
-	r, _, _ := procGetSystemMetricsProcess.Call(SM_SHUTTINGDOWN)
+	r, _, _ := procGetSystemMetrics.Call(SM_SHUTTINGDOWN)
 	return r != 0
 }
 
