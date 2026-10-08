@@ -247,6 +247,31 @@ func (a *Application) fetchAndCommitRemoteProfile(ctx context.Context, targetRel
 		return fmt.Errorf("订阅文件格式校验失败，已取消保存: %w", err)
 	}
 
+	isActive := (targetRelPath == a.Cfg.GetActivePath())
+	if isActive {
+		tempContent, err := os.ReadFile(res.TempPath)
+		if err != nil {
+			return fmt.Errorf("读取临时订阅文件失败: %w", err)
+		}
+
+		composeRes, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), tempContent)
+		if err != nil {
+			return fmt.Errorf("订阅配置装配测试失败: %w", err)
+		}
+
+		testConfigPath := filepath.Join(a.Cfg.BaseDir(), "config.test.tmp")
+		if err := os.WriteFile(testConfigPath, composeRes.YAML, 0644); err != nil {
+			return fmt.Errorf("生成测试配置文件失败: %w", err)
+		}
+		defer os.Remove(testConfigPath)
+
+		kernelPath := core.GetKernelPath(a.Cfg.BaseDir())
+		if err := core.ValidateConfig(kernelPath, a.Cfg.BaseDir(), testConfigPath); err != nil {
+			a.Kernel.WriteCoreLog("PROFILE_UPDATE", fmt.Sprintf("活跃订阅更新预检失败，放弃覆盖本地文件 [%s]:\n%v", filepath.Base(targetRelPath), err))
+			return fmt.Errorf("远程订阅存在内核不支持的配置规则，已自动保留原版本: %w", err)
+		}
+	}
+
 	item.Upload = res.Upload
 	item.Download = res.Download
 	item.Total = res.Total
