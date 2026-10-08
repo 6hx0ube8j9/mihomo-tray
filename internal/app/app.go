@@ -14,6 +14,12 @@ import (
 	"mihomo-tray/internal/webui"
 )
 
+const (
+	pollActiveInterval = 3 * time.Second  // 活跃轮询间隔
+	pollIdleInterval   = 8 * time.Second  // 待机轮询间隔
+	pollIdleThreshold  = 30 * time.Second // 静置判定超时
+)
+
 type Application struct {
 	Cfg    *config.Manager
 	State  *state.RuntimeState
@@ -29,26 +35,26 @@ type Application struct {
 
 	UICommandCh  chan domain.UICommand
 	webuiEventCh chan webui.Event
-	
+
 	UIStateNotifyCh chan struct{}
-    
+
 	lastUIState  domain.UIState
 	uiStateMutex sync.RWMutex
 }
 
 func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	return &Application{
-		Cfg:           cm,
-		State:         st,
-		Kernel:        core.NewKernelManager(cm, st),
-		API:           core.NewAPIClient(st),
-		WebUI:         webui.NewManager(),
-		kernelEventCh: make(chan domain.KernelEvent, 10),
-		tunEventCh:    make(chan struct{}, 1),
-		proxyStatusCh: make(chan sys.ProxyStatus, 5),
-		apiPollCh:     make(chan struct{}, 1),
-		UICommandCh:   make(chan domain.UICommand, 10),
-		webuiEventCh:  make(chan webui.Event, 1),
+		Cfg:             cm,
+		State:           st,
+		Kernel:          core.NewKernelManager(cm, st),
+		API:             core.NewAPIClient(st),
+		WebUI:           webui.NewManager(),
+		kernelEventCh:   make(chan domain.KernelEvent, 10),
+		tunEventCh:      make(chan struct{}, 1),
+		proxyStatusCh:   make(chan sys.ProxyStatus, 5),
+		apiPollCh:       make(chan struct{}, 1),
+		UICommandCh:     make(chan domain.UICommand, 10),
+		webuiEventCh:    make(chan webui.Event, 1),
 		UIStateNotifyCh: make(chan struct{}, 1),
 	}
 }
@@ -58,39 +64,37 @@ func (a *Application) SetUIPort(ui UIPort) {
 }
 
 func (a *Application) Bootstrap(ctx context.Context) {
-	slog.Debug("初始化核心服务")
+	slog.Debug("正在初始化核心服务")
 
 	activePath := a.Cfg.GetActivePath()
 
 	if activePath != "" {
 		if err := a.Cfg.ValidatePhysicalFile(activePath); err != nil {
 			if p, ok := a.Cfg.GetProfileByPath(activePath); ok && p.URL != "" {
-				slog.Info("订阅丢失，尝试静默拉取", "path", activePath)
-				
-				fetchErr := a.fetchAndCommitRemoteProfile(context.Background(), activePath, p.URL, &p)
-				success := (fetchErr == nil)
+				slog.Info("活跃配置文件不存在，尝试自动拉取远程订阅", "path", activePath)
 
-				if !success {
-					slog.Warn("静默拉取失败，进入空转", "err", fetchErr)
+				fetchErr := a.fetchAndCommitRemoteProfile(context.Background(), activePath, p.URL, &p)
+				if fetchErr != nil {
+					slog.Warn("自动拉取订阅失败，取消配置激活", "err", fetchErr)
 					a.Cfg.SetActiveProfile("")
 					activePath = ""
 				} else {
-					slog.Info("静默拉取成功，底稿恢复")
+					slog.Info("自动拉取订阅成功，配置已恢复")
 				}
 			} else {
-				slog.Warn("活跃配置丢失，进入空转")
+				slog.Warn("活跃配置文件不存在，取消配置激活")
 				a.Cfg.SetActiveProfile("")
 				activePath = ""
 			}
 		}
 	}
-	
+
 	a.CheckAndReconcilePrivileges(true)
 	a.SyncRuntimeConfig()
 
 	initialCfg := a.Cfg.GetConfig()
 	a.State.UpdateWebUISnapshot(initialCfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(initialCfg.Config.Secret), initialCfg.Config.ExternalUIName)
-	
+
 	if a.Cfg.GetConfig().Config.Tun.Enable {
 		a.State.SetTunRequestedTime(time.Now())
 	}
@@ -98,7 +102,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	a.syncSystemProxy()
 	a.pushUIState()
 
-	slog.Debug("启动系统事件监听")
+	slog.Debug("启动系统事件监听服务")
 	a.Kernel.SetPreStartHook(a.SyncRuntimeConfig)
 	go a.Kernel.RunDaemon(ctx, a.kernelEventCh)
 	go sys.WatchNetworkInterfaces(ctx, a.tunEventCh)
@@ -107,7 +111,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 }
 
 func (a *Application) SafeShutdown(cancel context.CancelFunc) {
-	slog.Info("执行安全退出序列")
+	slog.Info("开始执行退出流程")
 	a.State.ForceExitPhase()
 
 	slog.Debug("清理 Web 面板资源")
@@ -117,33 +121,53 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 		cancel()
 	}
 
-	slog.Debug("发送内核停止指令")
+	slog.Debug("停止内核进程")
 	a.Kernel.KillCurrent()
 
 	if *a.Cfg.GetConfig().General.SystemProxy {
 		slog.Debug("关闭系统代理")
 		if err := sys.SetSystemProxy(false, ""); err != nil {
-			slog.Warn("关闭系统代理受阻（忽略）", "err", err)
+			slog.Warn("关闭系统代理失败 (已忽略)", "err", err)
 		}
 	}
 
 	slog.Debug("释放内核资源")
 	a.Kernel.Close()
-	slog.Info("后台服务已停止")
+	slog.Info("后台服务已完全停止")
 }
 
 func (a *Application) eventLoop(ctx context.Context) {
 	slog.Debug("进入主事件循环")
-	ticker := time.NewTicker(3 * time.Second)
+
+	currentInterval := pollActiveInterval
+	ticker := time.NewTicker(currentInterval)
 	defer ticker.Stop()
 
 	subTicker := time.NewTicker(10 * time.Minute)
 	defer subTicker.Stop()
 
+	lastUserAction := time.Now()
+
+	adjustPollInterval := func() {
+		isUserActive := time.Since(lastUserAction) < pollIdleThreshold
+		isWebActive := a.WebUI.IsActive()
+
+		targetInterval := pollIdleInterval
+		if isUserActive || isWebActive {
+			targetInterval = pollActiveInterval
+		}
+
+		if targetInterval != currentInterval {
+			currentInterval = targetInterval
+			ticker.Reset(currentInterval)
+			slog.Debug("调整内核状态轮询频率", "interval", currentInterval)
+		}
+	}
+
 	tryPollAPI := func() {
 		if a.State.GetPhase() == domain.PhaseRunning && !a.State.IsConfigSyncing() && !a.State.IsReloading() {
 			if a.pollKernelAPI(ctx) {
-				slog.Debug("内核 API 状态变更，触发 UI 刷新")
+				slog.Debug("内核状态发生变更，更新 UI 视图")
 				a.pushUIState()
 			}
 		}
@@ -153,14 +177,17 @@ func (a *Application) eventLoop(ctx context.Context) {
 		select {
 		case event := <-a.webuiEventCh:
 			if event == webui.EventError {
-				slog.Warn("WebUI 服务运行异常")
+				slog.Warn("Web 面板服务运行异常")
 			}
+
 		case <-ctx.Done():
 			slog.Debug("退出主事件循环")
 			return
 
 		case cmd := <-a.UICommandCh:
-			slog.Debug("收到 UI 指令", "action", cmd.Action, "payload", cmd.Payload)
+			slog.Debug("收到界面指令", "action", cmd.Action, "payload", cmd.Payload)
+			lastUserAction = time.Now()
+			adjustPollInterval()
 			a.handleUICommand(ctx, cmd)
 
 		case event := <-a.kernelEventCh:
@@ -182,16 +209,16 @@ func (a *Application) eventLoop(ctx context.Context) {
 					err := a.API.WaitForReady(waitCtx)
 
 					if a.State.IsExiting() || ctx.Err() != nil || a.State.GetProbeGen() != gen {
-						slog.Debug("内核就绪探测已被新的操作打断，当前探测销毁", "gen", gen)
+						slog.Debug("内核就绪探测已被后续操作打断，取消本次探测", "gen", gen)
 						return
 					}
 
 					if err == nil {
-						slog.Info("内核 API 已就绪，资产加载完成")
+						slog.Info("内核 API 已就绪")
 						a.State.SetPhase(domain.PhaseRunning)
 						a.ForceSyncAPI()
 					} else {
-						slog.Error("内核无响应时间过长，守护进程已主动挂起", "timeout", core.KernelReadyTimeout, "err", err)
+						slog.Error("内核 API 就绪超时，停止内核进程", "timeout", core.KernelReadyTimeout, "err", err)
 						a.Kernel.HaltDaemon()
 						a.State.SetPhase(domain.PhaseInitializing)
 					}
@@ -201,9 +228,9 @@ func (a *Application) eventLoop(ctx context.Context) {
 				a.State.AdvanceProbeGen()
 
 				if a.State.IsRestarting() {
-					slog.Info("内核已停止，等待重启")
+					slog.Info("内核已停止，正在等待重新启动")
 				} else {
-					slog.Warn("内核异常退出")
+					slog.Warn("内核进程异常退出")
 				}
 				a.State.SetPhase(domain.PhaseInitializing)
 			}
@@ -216,15 +243,18 @@ func (a *Application) eventLoop(ctx context.Context) {
 			a.handleProxyStatusChange(ctx, status)
 
 		case <-ticker.C:
+			adjustPollInterval()
 			tryPollAPI()
 
 		case <-a.apiPollCh:
+			lastUserAction = time.Now()
+			adjustPollInterval()
 			tryPollAPI()
 
 		case <-subTicker.C:
 			for _, p := range a.Cfg.GetProfiles() {
 				if p.IsUpdateDue() {
-					slog.Debug("触发后台自动更新任务", "name", p.Name)
+					slog.Debug("触发后台自动更新订阅", "name", p.Name)
 					go a.UpdateRemoteProfile(ctx, p.Path, false)
 				}
 			}
