@@ -94,16 +94,13 @@ func main() {
 		if hM != 0 {
 			_ = windows.CloseHandle(hM)
 		}
-		
+
 		eName, _ := windows.UTF16PtrFromString(ShowUIEvent)
 		hEvent, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName)
 		if err == nil && hEvent != 0 {
-			
 			sys.GrantForegroundPrivilege()
-		
 			_ = windows.SetEvent(hEvent)
 			_ = windows.CloseHandle(hEvent)
-			
 			time.Sleep(50 * time.Millisecond)
 		}
 		return
@@ -136,19 +133,19 @@ func main() {
 	if osTaskExists {
 		if isMine {
 			if !cfgAutostart {
-				slog.Info("自启配置为禁用，清除系统残留任务")
+				slog.Info("开机自启已禁用，清除系统残留任务")
 				sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, false)
 				finalAutostart = false
 			}
 		} else {
 			if cfgAutostart {
-				slog.Warn("计划任务指向其他路径，跳过同步")
+				slog.Warn("计划任务指向其他路径，跳过自动同步")
 				finalAutostart = false
 			}
 		}
 	} else {
 		if cfgAutostart {
-			slog.Info("自启配置为启用，重新注册系统计划任务")
+			slog.Info("开机自启已启用，注册系统计划任务")
 			sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
 		}
 	}
@@ -160,13 +157,14 @@ func main() {
 		})
 	}
 
-	isRunAsAdminConfig := cfg.General.RunAsAdmin
+	needsAdminStartup := cfgAutostart || cfg.General.RunAsAdmin || cfg.Config.Tun.Enable
+
 	if !admin && !isAutostart {
-		if cfgAutostart || isRunAsAdminConfig {
-			slog.Info("准备提权环境")
+		if needsAdminStartup {
+			slog.Info("检测到高级网络特性需要管理员权限，准备启动提权")
 
 			if cfgAutostart && osTaskExists && isMine {
-				slog.Debug("尝试计划任务静默提权")
+				slog.Debug("尝试通过计划任务静默提权")
 				schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
 				cmd := exec.Command(schtasksPath, "/Run", "/TN", domain.AppTaskName)
 				cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
@@ -178,7 +176,7 @@ func main() {
 					}
 					os.Exit(0)
 				} else {
-					slog.Warn("静默唤起失败，回退 UAC", "err", err)
+					slog.Warn("静默唤起失败，回退至标准 UAC", "err", err)
 				}
 			}
 
@@ -190,7 +188,7 @@ func main() {
 				}
 				os.Exit(0)
 			} else if err == nil {
-				slog.Info("UAC 提权成功，当前实例退出")
+				slog.Info("UAC 提权成功，当前受限实例退出")
 				if hM != 0 {
 					windows.CloseHandle(hM)
 				}
@@ -227,7 +225,7 @@ func main() {
 		defer signal.Stop(sigCh)
 		select {
 		case sig := <-sigCh:
-			slog.Info("收到系统停止信号", "signal", sig)
+			slog.Info("收到系统终止信号", "signal", sig)
 			cancel()
 		case <-ctx.Done():
 			return
@@ -243,16 +241,15 @@ func main() {
 					return
 				}
 				slog.Info("捕获唤醒信号")
-				
 				application.UICommandCh <- domain.UICommand{Action: domain.ActionOpenWebUI}
 			}
 		}()
 	}
 
-	slog.Debug("准备启动后端服务")
+	slog.Debug("启动后台服务")
 	go func() {
 		<-uiEngine.ReadyCh
-		slog.Debug("UI 引擎已完全就绪，开始执行后端 Bootstrap")
+		slog.Debug("UI 引擎已就绪，开始执行 Bootstrap")
 		application.Bootstrap(ctx)
 	}()
 
@@ -269,5 +266,5 @@ func main() {
 
 	runtimeState.ForceExitPhase()
 	application.SafeShutdown(cancel)
-	slog.Info("程序退出完毕")
+	slog.Info("程序已安全退出")
 }
