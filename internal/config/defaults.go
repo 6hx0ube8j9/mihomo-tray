@@ -60,7 +60,7 @@ func applyDefaults(cfg *domain.TrayConfig) bool {
 	var validItems []domain.ProfileItem
 	activeFound := false
 	for _, item := range cfg.Profiles.Items {
-		if filepath.Dir(filepath.ToSlash(item.Path)) != ProfilesDir {
+		if filepath.Dir(filepath.ToSlash(item.Path)) != domain.ProfilesDir {
 			isTainted = true
 			continue
 		}
