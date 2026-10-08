@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	MaxLogFileSize = 25 * 1024 // 核心日志最大体积
-	LogRetainSize  = 5 * 1024  // 触发轮转后保留的最新日志体积
+	MaxLogFileSize = 25 * 1024 // 核心日志最大体积 (25KB)
+	LogRetainSize  = 5 * 1024  // 保留历史日志体积 (5KB)
 )
 
 type TailBuffer struct {
@@ -24,17 +24,21 @@ type TailBuffer struct {
 }
 
 func NewTailBuffer(maxSize int) *TailBuffer {
-	return &TailBuffer{max: maxSize}
+	return &TailBuffer{
+		buf: make([]byte, 0, maxSize),
+		max: maxSize,
+	}
 }
 
 func (t *TailBuffer) Write(p []byte) (int, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
 	t.buf = append(t.buf, p...)
 	if len(t.buf) > t.max {
-		newBuf := make([]byte, t.max)
-		copy(newBuf, t.buf[len(t.buf)-t.max:])
-		t.buf = newBuf
+		overflow := len(t.buf) - t.max
+		copy(t.buf, t.buf[overflow:])
+		t.buf = t.buf[:t.max]
 	}
 	return len(p), nil
 }
@@ -74,11 +78,11 @@ func (l *CoreLogger) WriteLog(errType, rawMsg string) {
 
 	logPath := filepath.Join(l.logDir, "core.log")
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	finalLog := fmt.Sprintf("[%s] [%s]\n%s\n----------------------------------------\n", timestamp, errType, cleanedMsg)
+	entry := fmt.Sprintf("[%s] [%s]\n%s\n----------------------------------------\n", timestamp, errType, cleanedMsg)
 
 	fi, err := os.Stat(logPath)
-	if err == nil && fi.Size()+int64(len(finalLog)) > MaxLogFileSize {
-		l.rotateLocked(logPath, finalLog, timestamp, fi.Size())
+	if err == nil && fi.Size()+int64(len(entry)) > MaxLogFileSize {
+		l.rotateLocked(logPath, entry, timestamp, fi.Size())
 		return
 	}
 
@@ -87,30 +91,26 @@ func (l *CoreLogger) WriteLog(errType, rawMsg string) {
 		return
 	}
 	defer f.Close()
-	_, _ = f.WriteString(finalLog)
+	_, _ = f.WriteString(entry)
 }
 
-func (l *CoreLogger) rotateLocked(logPath, finalLog, timestamp string, currSize int64) {
+func (l *CoreLogger) rotateLocked(logPath, newEntry, timestamp string, currSize int64) {
 	var keepData []byte
-	f, err := os.Open(logPath)
-	if err == nil {
-		func() {
-			defer f.Close()
-			offset := currSize - LogRetainSize
-			if offset < 0 {
-				offset = 0
-			}
-			keepData = make([]byte, currSize-offset)
-			_, _ = f.ReadAt(keepData, offset)
-		}()
-
+	content, err := os.ReadFile(logPath)
+	if err == nil && len(content) > 0 {
+		offset := int(currSize) - LogRetainSize
+		if offset < 0 {
+			offset = 0
+		}
+		keepData = content[offset:]
 		if idx := bytes.IndexByte(keepData, '\n'); idx != -1 {
 			keepData = keepData[idx+1:]
 		}
 	}
 
-	notice := fmt.Sprintf("[%s] --- 历史日志已被自动清理 ---\n...\n", timestamp)
-	combined := append(append([]byte(notice), keepData...), []byte(finalLog)...)
+	notice := fmt.Sprintf("[%s] --- 历史日志已自动清理 ---\n...\n", timestamp)
+	combined := append([]byte(notice), keepData...)
+	combined = append(combined, []byte(newEntry)...)
 
 	_ = fs.WriteAtomic(logPath, combined)
 }
