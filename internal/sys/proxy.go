@@ -13,11 +13,8 @@ import (
 )
 
 var (
-	modWininet            = windows.NewLazySystemDLL("wininet.dll")
 	procInternetSetOption = modWininet.NewProc("InternetSetOptionW")
-
-	modRasapi32        = windows.NewLazySystemDLL("rasapi32.dll")
-	procRasEnumEntries = modRasapi32.NewProc("RasEnumEntriesW")
+	procRasEnumEntries    = modRasapi32.NewProc("RasEnumEntriesW")
 )
 
 const (
