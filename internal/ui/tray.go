@@ -112,7 +112,7 @@ func (t *Tray) UpdateState(state domain.UIState) {
 
 	t.latestState = state
 
-    iconIdx := int(state.IconState)
+	iconIdx := int(state.IconState)
 	if iconIdx != t.lastIconId && iconIdx >= 0 && iconIdx < len(t.icons) && t.icons[iconIdx] != nil {
 		t.ni.SetIcon(t.icons[iconIdx])
 		t.lastIconId = iconIdx
@@ -132,18 +132,18 @@ func (t *Tray) UpdateState(state domain.UIState) {
 
 	t.safelySetChecked(t.actAutoStart, state.AutoStart)
 	t.safelySetChecked(t.actRunAdmin, state.RunAsAdmin || state.AutoStart)
-	t.actRunAdmin.SetEnabled(!state.AutoStart)
+	t.safelySetEnabled(t.actRunAdmin, !state.AutoStart)
 	t.safelySetChecked(t.actSysBrowser, state.UseSystemBrowser)
 	t.safelySetChecked(t.actRemoteWebUI, state.RemoteWebUI)
 	t.safelySetChecked(t.actAllowLan, state.AllowLan)
 
 	if stateChanged {
-		t.actModeMenu.SetText(fmt.Sprintf("路由模式: %s", getModeName(state.Mode)))
+		t.safelySetText(t.actModeMenu, fmt.Sprintf("路由模式: %s", getModeName(state.Mode)))
 		adminText := "运行权限：普通用户"
 		if state.IsAdmin {
 			adminText = "运行权限：管理员"
 		}
-		t.actAdminMenu.SetText(adminText)
+		t.safelySetText(t.actAdminMenu, adminText)
 	}
 
 	fp := generateProfileFingerprint(state.ProfileItems)
@@ -163,6 +163,18 @@ func (t *Tray) UpdateState(state domain.UIState) {
 func (t *Tray) safelySetChecked(act *walk.Action, checked bool) {
 	if act != nil && act.Checked() != checked {
 		act.SetChecked(checked)
+	}
+}
+
+func (t *Tray) safelySetEnabled(act *walk.Action, enabled bool) {
+	if act != nil && act.Enabled() != enabled {
+		act.SetEnabled(enabled)
+	}
+}
+
+func (t *Tray) safelySetText(act *walk.Action, text string) {
+	if act != nil && act.Text() != text {
+		act.SetText(text)
 	}
 }
 
