@@ -124,26 +124,26 @@ func (t *Tray) UpdateState(state domain.UIState) {
 		stateChanged = true
 	}
 
-	t.safelySetChecked(t.actProxy, state.IsProxy)
-	t.safelySetChecked(t.actTun, state.IsTun)
-	t.safelySetChecked(t.actModeRule, state.Mode == "rule")
-	t.safelySetChecked(t.actModeDirect, state.Mode == "direct")
-	t.safelySetChecked(t.actModeGlobal, state.Mode == "global")
+	safelySetChecked(t.actProxy, state.IsProxy)
+	safelySetChecked(t.actTun, state.IsTun)
+	safelySetChecked(t.actModeRule, state.Mode == "rule")
+	safelySetChecked(t.actModeDirect, state.Mode == "direct")
+	safelySetChecked(t.actModeGlobal, state.Mode == "global")
 
-	t.safelySetChecked(t.actAutoStart, state.AutoStart)
-	t.safelySetChecked(t.actRunAdmin, state.RunAsAdmin || state.AutoStart)
-	t.safelySetEnabled(t.actRunAdmin, !state.AutoStart)
-	t.safelySetChecked(t.actSysBrowser, state.UseSystemBrowser)
-	t.safelySetChecked(t.actRemoteWebUI, state.RemoteWebUI)
-	t.safelySetChecked(t.actAllowLan, state.AllowLan)
+	safelySetChecked(t.actAutoStart, state.AutoStart)
+	safelySetChecked(t.actRunAdmin, state.RunAsAdmin || state.AutoStart)
+	safelySetEnabled(t.actRunAdmin, !state.AutoStart)
+	safelySetChecked(t.actSysBrowser, state.UseSystemBrowser)
+	safelySetChecked(t.actRemoteWebUI, state.RemoteWebUI)
+	safelySetChecked(t.actAllowLan, state.AllowLan)
 
 	if stateChanged {
-		t.safelySetText(t.actModeMenu, fmt.Sprintf("路由模式: %s", getModeName(state.Mode)))
+		safelySetText(t.actModeMenu, fmt.Sprintf("路由模式: %s", getModeName(state.Mode)))
 		adminText := "运行权限：普通用户"
 		if state.IsAdmin {
 			adminText = "运行权限：管理员"
 		}
-		t.safelySetText(t.actAdminMenu, adminText)
+		safelySetText(t.actAdminMenu, adminText)
 	}
 
 	fp := generateProfileFingerprint(state.ProfileItems)
@@ -154,27 +154,9 @@ func (t *Tray) UpdateState(state domain.UIState) {
 		actions := t.menuSwitchProfile.Actions()
 		for i, item := range state.ProfileItems {
 			if i < actions.Len() {
-				t.safelySetChecked(actions.At(i), item.IsActive)
+				safelySetChecked(actions.At(i), item.IsActive)
 			}
 		}
-	}
-}
-
-func (t *Tray) safelySetChecked(act *walk.Action, checked bool) {
-	if act != nil && act.Checked() != checked {
-		act.SetChecked(checked)
-	}
-}
-
-func (t *Tray) safelySetEnabled(act *walk.Action, enabled bool) {
-	if act != nil && act.Enabled() != enabled {
-		act.SetEnabled(enabled)
-	}
-}
-
-func (t *Tray) safelySetText(act *walk.Action, text string) {
-	if act != nil && act.Text() != text {
-		act.SetText(text)
 	}
 }
 
