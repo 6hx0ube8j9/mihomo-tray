@@ -15,7 +15,7 @@ var (
 )
 
 func IsValidPort(port int) bool {
-	return port >= 1 && port <= 65535
+	return port >= 0 && port <= 65535
 }
 
 func ParseAndValidatePort(portStr string) (int, error) {
@@ -42,8 +42,11 @@ func IsValidHostPort(addr string) bool {
 	if err != nil {
 		return false
 	}
-	_, err = ParseAndValidatePort(portStr)
-	return err == nil
+	port, err := ParseAndValidatePort(portStr)
+	if err != nil || port == 0 {
+		return false
+	}
+	return true
 }
 
 func IsPublicAddress(addr string) bool {
