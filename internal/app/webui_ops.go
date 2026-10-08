@@ -32,9 +32,9 @@ func (a *Application) OpenWebUI() error {
 		RemoteWebUIURL:     *cfg.General.RemoteWebUIURL,
 	}
 
+	a.ForceSyncAPI()
 	go a.WebUI.Launch(wcfg, a.webuiEventCh)
 	return nil
-	a.ForceSyncAPI()
 }
 
 func (a *Application) CopyWebUIPassword() error {
