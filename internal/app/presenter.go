@@ -1,14 +1,13 @@
 package app
 
 import (
-	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/sys"
 )
 
 func (a *Application) calculateUIState() domain.UIState {
 	cfg := a.Cfg.GetConfig()
-	
+
 	s := domain.UIState{
 		IsTun:            cfg.Config.Tun.Enable,
 		IsProxy:          *cfg.General.SystemProxy,
@@ -20,25 +19,19 @@ func (a *Application) calculateUIState() domain.UIState {
 		AllowLan:         *cfg.Config.AllowLan,
 		IsAdmin:          sys.IsAdmin(),
 
-		MixedPort: a.Cfg.GetEffectivePort(cfg.Config.MixedPort, domain.DefaultMixedPort),
+		MixedPort: a.Cfg.GetEffectiveMixedPort(),
 		SocksPort: a.Cfg.GetEffectivePort(cfg.Config.SocksPort, domain.DefaultSocksPort),
 		HttpPort:  a.Cfg.GetEffectivePort(cfg.Config.Port, domain.DefaultPort),
 	}
-	
+
 	activePath := a.Cfg.GetActivePath()
 	profiles := a.Cfg.GetProfiles()
 	s.CanAddProfile = len(profiles) < domain.MaxProfileCount
 
-	seenPaths := make(map[string]bool)
-
+	s.ProfileItems = make([]domain.UIProfileItem, 0, len(profiles))
 	for _, p := range profiles {
-		if seenPaths[p.Path] {
-			continue
-		}
-		seenPaths[p.Path] = true
-
 		item := domain.UIProfileItem{
-			Name:       config.TruncateMiddle(p.Name),
+			Name:       domain.TruncateMiddle(p.Name),
 			Path:       p.Path,
 			IsActive:   p.Path == activePath && activePath != "",
 			IsRemote:   p.URL != "",
@@ -48,7 +41,7 @@ func (a *Application) calculateUIState() domain.UIState {
 		if item.IsRemote {
 			item.LastUpdate = p.FormatLastUpdateText()
 		}
-			
+
 		s.ProfileItems = append(s.ProfileItems, item)
 	}
 
@@ -142,7 +135,7 @@ func (a *Application) ForcePushUIState() {
 func (a *Application) GetUIStateSnapshot() domain.UIState {
 	a.uiStateMutex.RLock()
 	defer a.uiStateMutex.RUnlock()
-	
+
 	stateSnapshot := a.lastUIState
 	items := make([]domain.UIProfileItem, len(a.lastUIState.ProfileItems))
 	copy(items, a.lastUIState.ProfileItems)
