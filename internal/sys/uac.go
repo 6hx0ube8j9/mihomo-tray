@@ -20,8 +20,7 @@ const (
 )
 
 var (
-	modUser32UAC    = windows.NewLazySystemDLL("user32.dll")
-	procMessageBoxW = modUser32UAC.NewProc("MessageBoxW")
+	procMessageBoxW = modUser32.NewProc("MessageBoxW")
 )
 
 func ShowElevationPrompt(title, message string) bool {
