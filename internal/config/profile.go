@@ -30,14 +30,6 @@ func IsInAppTree(appDir, targetPath string) (string, bool) {
 	return filepath.ToSlash(rel), true
 }
 
-func TruncateMiddle(name string) string {
-	r := []rune(name)
-	if len(r) <= 14 {
-		return name
-	}
-	return string(r[:8]) + "..." + string(r[len(r)-6:])
-}
-
 func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) {
 	if err := m.CheckProfileLimit(); err != nil {
 		return "", false, err
@@ -51,7 +43,7 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 	}
 
 	if relPath, isTree := IsInAppTree(m.baseDir, absSrc); isTree {
-		if filepath.Dir(filepath.ToSlash(relPath)) == ProfilesDir {
+		if filepath.Dir(filepath.ToSlash(relPath)) == domain.ProfilesDir {
 			return relPath, false, nil
 		}
 	}
@@ -59,7 +51,7 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 	profilesDirAbs := m.ProfilesDirAbs()
 	baseName := strings.TrimSuffix(filepath.Base(absSrc), filepath.Ext(absSrc))
 	finalRelPath := resolveUniqueProfileRelPath(profilesDirAbs, baseName)
-	dstAbs := filepath.Join(m.baseDir, filepath.FromSlash(finalRelPath))
+	dstAbs := m.GetProfileAbsPath(finalRelPath)
 
 	if err := fs.CopyFileWithLimit(absSrc, dstAbs, domain.MaxProfileBytes); err != nil {
 		return "", false, fmt.Errorf("文件导入受阻。\n\n%w", err)
@@ -104,7 +96,7 @@ func (m *Manager) GetActivePathAbs() string {
 	if m.data.Profiles.Active == "" {
 		return ""
 	}
-	return filepath.Join(m.baseDir, filepath.FromSlash(m.data.Profiles.Active))
+	return m.GetProfileAbsPath(m.data.Profiles.Active)
 }
 
 func (m *Manager) GetActivePath() string {
@@ -158,6 +150,22 @@ func (m *Manager) RemoveProfile(relPath string) {
 	})
 }
 
+func (m *Manager) DeleteProfile(relPath string) error {
+	if relPath == "" {
+		return nil
+	}
+
+	absPath := m.GetProfileAbsPath(relPath)
+	var removeErr error
+	if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
+		removeErr = err
+		slog.Warn("清理本地物理配置文件受阻", "path", absPath, "err", err)
+	}
+
+	m.RemoveProfile(relPath)
+	return removeErr
+}
+
 func (m *Manager) MoveProfile(relPath string, offset int) bool {
 	m.mu.RLock()
 	canMove := false
@@ -196,7 +204,7 @@ func (m *Manager) ValidatePhysicalFile(relPath string) error {
 	if relPath == "" {
 		return fmt.Errorf("未指定配置文件路径")
 	}
-	absPath := filepath.Join(m.baseDir, filepath.FromSlash(relPath))
+	absPath := m.GetProfileAbsPath(relPath)
 	fi, err := os.Stat(absPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -219,5 +227,5 @@ func resolveUniqueProfileRelPath(profilesDirAbs, baseName string) string {
 		}
 		candidate = fmt.Sprintf("%s_%d", baseName, i)
 	}
-	return filepath.ToSlash(filepath.Join(ProfilesDir, candidate+".yaml"))
+	return filepath.ToSlash(filepath.Join(domain.ProfilesDir, candidate+".yaml"))
 }
