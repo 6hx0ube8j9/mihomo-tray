@@ -130,6 +130,8 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 					return showError("地址格式错误。")
 				case netutil.IsPublicAddress(addr) && secret == "":
 					return showError("当前地址支持外网访问，密钥不能为空。")
+				case secret != "" && !domain.IsValidSecret(secret):
+					return showError("密钥包含非法字符，仅支持英文字母、数字及常用符号。")
 				case !netutil.IsValidHTTPURL(rURL):
 					return showError("地址格式错误，请输入有效的 HTTP/HTTPS 链接。")
 				}
