@@ -3,17 +3,15 @@ package config
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/fs"
 )
 
 const RemoteFetchTimeout = 90 * time.Second
@@ -82,34 +80,9 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 		return nil, fmt.Errorf("目标链接无效或提供的内容非代理配置 (服务器返回了网页内容)")
 	}
 
-	profilesDirAbs := filepath.Join(m.baseDir, ProfilesDir)
-	_ = os.MkdirAll(profilesDirAbs, 0755)
-
-	tmpFile, err := os.CreateTemp(profilesDirAbs, "sub_*.tmp")
+	tmpName, err := fs.SaveTempWithLimit(m.ProfilesDirAbs(), "sub_*.tmp", resp.Body, domain.MaxProfileBytes)
 	if err != nil {
-		return nil, fmt.Errorf("系统缓存文件创建失败，请检查磁盘权限: %w", err)
-	}
-	tmpName := tmpFile.Name()
-
-	limitReader := io.LimitReader(resp.Body, domain.MaxProfileBytes)
-	_, copyErr := io.Copy(tmpFile, limitReader)
-
-	var extra [1]byte
-	if n, _ := resp.Body.Read(extra[:]); n > 0 {
-		_ = tmpFile.Close()
-		_ = os.Remove(tmpName)
-		return nil, fmt.Errorf("订阅文件体积超出上限 (最大允许 %d MB)", domain.MaxProfileBytes/(1024*1024))
-	}
-
-	if copyErr == nil {
-		_ = tmpFile.Sync()
-	}
-	
-	tmpFile.Close()
-
-	if copyErr != nil {
-		_ = os.Remove(tmpName)
-		return nil, fmt.Errorf("订阅内容写入本地失败: %w", copyErr)
+		return nil, fmt.Errorf("订阅内容写入本地失败: %w", err)
 	}
 
 	res := &domain.FetchResult{TempPath: tmpName}
@@ -138,24 +111,17 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 }
 
 func (m *Manager) CommitRemoteProfile(tempPath string, targetRelPath string, item domain.ProfileItem) error {
-	targetAbs := filepath.Join(m.baseDir, filepath.FromSlash(targetRelPath))
-	if err := os.Rename(tempPath, targetAbs); err != nil {
+	if _, exists := m.GetProfileByPath(item.Path); !exists {
+		if err := m.CheckProfileLimit(); err != nil {
+			return err
+		}
+	}
+
+	targetAbs := m.GetProfileAbsPath(targetRelPath)
+	if err := fs.ReplaceAtomic(tempPath, targetAbs); err != nil {
 		return fmt.Errorf("配置落盘受阻，文件可能被系统占用。\n\n%w", err)
 	}
 
 	m.UpsertProfile(item)
-	
 	return nil
-}
-
-func (m *Manager) GetProfileByPath(relPath string) (domain.ProfileItem, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	
-	for _, p := range m.data.Profiles.Items {
-		if p.Path == relPath {
-			return p, true
-		}
-	}
-	return domain.ProfileItem{}, false
 }
