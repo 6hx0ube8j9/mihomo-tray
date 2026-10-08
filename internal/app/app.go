@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	pollActiveInterval = 3 * time.Second  // 活跃轮询间隔
-	pollIdleInterval   = 8 * time.Second  // 待机轮询间隔
-	pollIdleThreshold  = 30 * time.Second // 静置判定超时
+	pollActiveInterval = 3 * time.Second  // 活跃状态轮询间隔
+	pollIdleInterval   = 8 * time.Second  // 待机静置轮询间隔
+	pollIdleThreshold  = 30 * time.Second // 静置判定超时时长
 )
 
 type Application struct {
@@ -91,9 +91,6 @@ func (a *Application) Bootstrap(ctx context.Context) {
 
 	a.CheckAndReconcilePrivileges(true)
 	a.SyncRuntimeConfig()
-
-	initialCfg := a.Cfg.GetConfig()
-	a.State.UpdateWebUISnapshot(initialCfg.Config.ExternalController, a.Cfg.GetEffectiveSecret(initialCfg.Config.Secret), initialCfg.Config.ExternalUIName)
 
 	if a.Cfg.GetConfig().Config.Tun.Enable {
 		a.State.SetTunRequestedTime(time.Now())
