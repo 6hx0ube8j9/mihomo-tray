@@ -31,11 +31,11 @@ func (a *Application) calculateUIState() domain.UIState {
 	s.ProfileItems = make([]domain.UIProfileItem, 0, len(profiles))
 	for _, p := range profiles {
 		item := domain.UIProfileItem{
-			Name:       domain.TruncateMiddle(p.Name),
-			Path:       p.Path,
-			IsActive:   p.Path == activePath && activePath != "",
-			IsRemote:   p.URL != "",
-			Interval:   p.Interval,
+			Name:     domain.TruncateMiddle(p.Name),
+			Path:     p.Path,
+			IsActive: p.Path == activePath && activePath != "",
+			IsRemote: p.URL != "",
+			Interval: p.Interval,
 		}
 
 		if item.IsRemote {
@@ -45,9 +45,16 @@ func (a *Application) calculateUIState() domain.UIState {
 		s.ProfileItems = append(s.ProfileItems, item)
 	}
 
-	if a.State.IsExiting() || a.State.IsRestarting() || a.State.GetPhase() != domain.PhaseRunning {
+	if a.State.IsExiting() {
 		s.IconState = domain.IconStop
 		return s
+	}
+
+	if !a.State.IsActionBusy() {
+		if a.State.IsRestarting() || a.State.GetPhase() != domain.PhaseRunning {
+			s.IconState = domain.IconStop
+			return s
+		}
 	}
 
 	if !s.IsTun {
@@ -68,7 +75,7 @@ func (a *Application) calculateUIState() domain.UIState {
 }
 
 func (a *Application) pushUIState() {
-	if a.State.IsExiting() {
+	if a.State.IsExiting() || a.State.IsActionBusy() {
 		return
 	}
 
