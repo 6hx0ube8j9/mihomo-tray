@@ -108,10 +108,21 @@ func (e *Engine) listenState() {
 				})
 			}
 			return
+
 		case <-e.stateNotifyCh:
+			drained := false
+			for !drained {
+				select {
+				case <-e.stateNotifyCh:
+				default:
+					drained = true
+				}
+			}
+
 			if e.getState == nil || e.app == nil {
 				continue
 			}
+
 			state := e.getState()
 			e.app.Synchronize(func() {
 				if e.Tray != nil {
