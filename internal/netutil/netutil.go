@@ -14,6 +14,10 @@ var (
 	ErrOutOfRange  = errors.New("port out of range")
 )
 
+func IsValidPort(port int) bool {
+	return port >= 1 && port <= 65535
+}
+
 func ParseAndValidatePort(portStr string) (int, error) {
 	portStr = strings.TrimSpace(portStr)
 	if portStr == "" {
@@ -23,7 +27,7 @@ func ParseAndValidatePort(portStr string) (int, error) {
 	if err != nil {
 		return 0, ErrInvalidType
 	}
-	if port < 0 || port > 65535 {
+	if !IsValidPort(port) {
 		return 0, ErrOutOfRange
 	}
 	return port, nil
