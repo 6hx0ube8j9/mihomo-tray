@@ -21,6 +21,7 @@ const (
 type RuntimeState struct {
 	phase atomic.Int32
 
+	// 核心互斥动作状态机
 	currentAction atomic.Int32
 
 	tunAlive    atomic.Bool
@@ -31,11 +32,6 @@ type RuntimeState struct {
 	probeGen       atomic.Uint64
 	tunDevName     atomic.Value
 	profileLocks   sync.Map
-
-	snapshotMu    sync.RWMutex
-	activeAPIAddr string
-	activeSecret  string
-	activeUIName  string
 }
 
 func NewRuntimeState() *RuntimeState {
@@ -71,22 +67,6 @@ func (r *RuntimeState) SetConfigSyncing(enable bool) {
 	} else {
 		r.currentAction.CompareAndSwap(int32(ActionSyncAPI), int32(ActionNone))
 	}
-}
-
-// ---------------- Web 控制面板快照 ----------------
-
-func (r *RuntimeState) UpdateWebUISnapshot(addr, secret, uiName string) {
-	r.snapshotMu.Lock()
-	defer r.snapshotMu.Unlock()
-	r.activeAPIAddr = addr
-	r.activeSecret = secret
-	r.activeUIName = uiName
-}
-
-func (r *RuntimeState) GetWebUISnapshot() (string, string, string) {
-	r.snapshotMu.RLock()
-	defer r.snapshotMu.RUnlock()
-	return r.activeAPIAddr, r.activeSecret, r.activeUIName
 }
 
 // ---------------- 订阅单项并发锁 ----------------
