@@ -13,23 +13,23 @@ import (
 
 func (a *Application) OpenWebUI() error {
 	if a.State.GetPhase() != domain.PhaseRunning {
-		return fmt.Errorf("内核服务尚未启动完成，请稍候重试")
+		return fmt.Errorf("内核尚未就绪，请稍候重试")
 	}
 
+	addr, secret, online, sysBrowser, remoteURL := a.GetControllerConfigSnapshot()
 	cfg := a.Cfg.GetConfig()
-	apiAddr, secret, uiName := a.State.GetWebUISnapshot()
 
-	slog.Info("正在打开 Web 面板", "system_browser", *cfg.General.SystemBrowser, "remote_webui", *cfg.General.RemoteWebUI)
+	slog.Info("正在打开 Web 面板", "addr", addr, "system_browser", sysBrowser, "remote_webui", online)
 
 	wcfg := webui.Config{
-		APIAddr:            apiAddr,
+		APIAddr:            addr,
 		Secret:             secret,
 		ProxyPort:          a.Cfg.GetEffectiveMixedPortStr(),
 		BaseDir:            a.Cfg.BaseDir(),
-		UIName:             uiName,
-		ForceSystemBrowser: *cfg.General.SystemBrowser,
-		RemoteWebUI:        *cfg.General.RemoteWebUI,
-		RemoteWebUIURL:     *cfg.General.RemoteWebUIURL,
+		UIName:             cfg.Config.ExternalUIName,
+		ForceSystemBrowser: sysBrowser,
+		RemoteWebUI:        online,
+		RemoteWebUIURL:     remoteURL,
 	}
 
 	a.ForceSyncAPI()
@@ -38,7 +38,7 @@ func (a *Application) OpenWebUI() error {
 }
 
 func (a *Application) CopyWebUIPassword() error {
-	_, secret, _ := a.State.GetWebUISnapshot()
+	_, secret, _, _, _ := a.GetControllerConfigSnapshot()
 	if secret == "" {
 		return fmt.Errorf("当前面板未设置访问密码")
 	}
