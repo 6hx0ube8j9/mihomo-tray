@@ -11,12 +11,9 @@ import (
 )
 
 var (
-	modKernel32Proc             = windows.NewLazySystemDLL("kernel32.dll")
-	modUser32Process            = windows.NewLazySystemDLL("user32.dll")
-	procAttachConsole           = modKernel32Proc.NewProc("AttachConsole")
-	procFreeConsole             = modKernel32Proc.NewProc("FreeConsole")
-	procSetConsoleCtrlHandler   = modKernel32Proc.NewProc("SetConsoleCtrlHandler")
-	procGetSystemMetricsProcess = modUser32Process.NewProc("GetSystemMetrics")
+	procAttachConsole         = modKernel32.NewProc("AttachConsole")
+	procFreeConsole           = modKernel32.NewProc("FreeConsole")
+	procSetConsoleCtrlHandler = modKernel32.NewProc("SetConsoleCtrlHandler")
 )
 
 func IsSystemShuttingDown() bool {
