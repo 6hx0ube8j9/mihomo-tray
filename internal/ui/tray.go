@@ -264,11 +264,16 @@ func (t *Tray) Dispose() {
 }
 
 func getModeName(mode string) string {
-	modeNames := map[string]string{"rule": "规则", "direct": "直连", "global": "全局"}
-	if name := modeNames[mode]; name != "" {
-		return name
-	}
-	return "未知"
+    switch mode {
+    case "rule":
+        return "规则"
+    case "direct":
+        return "直连"
+    case "global":
+        return "全局"
+    default:
+        return "未知"
+    }
 }
 
 func generateProfileFingerprint(items []domain.UIProfileItem) string {
