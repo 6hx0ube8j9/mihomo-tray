@@ -90,3 +90,23 @@ func restoreFocus(parent walk.Form, hActive win.HWND) {
 		win.SetFocus(hActive)
 	}
 }
+
+
+// Idempotent action helpers to prevent redundant Win32 redraws.
+func safelySetChecked(act *walk.Action, checked bool) {
+	if act != nil && act.Checked() != checked {
+		act.SetChecked(checked)
+	}
+}
+
+func safelySetEnabled(act *walk.Action, enabled bool) {
+	if act != nil && act.Enabled() != enabled {
+		act.SetEnabled(enabled)
+	}
+}
+
+func safelySetText(act *walk.Action, text string) {
+	if act != nil && act.Text() != text {
+		act.SetText(text)
+	}
+}
