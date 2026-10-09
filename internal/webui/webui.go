@@ -188,6 +188,11 @@ func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, browserTag, fin
 
 func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, mainPid uint32, eventCh chan<- Event) bool {
 	realBrowserPid := mainPid
+
+	filterFn := func(title string) bool {
+		return !isStandardBrowserWindow(title)
+	}
+
 	for i := 0; i < 30; i++ {
 		time.Sleep(100 * time.Millisecond)
 
@@ -199,7 +204,7 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 		}
 
 		liveTargetID, liveTitle, isLive := GetWebUITarget(debugPort)
-		
+
 		titleToSearch := liveTitle
 		if titleToSearch == "" {
 			titleToSearch = targetTitle
@@ -207,13 +212,13 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 
 		if isLive {
 			_ = ActivateTarget(debugPort, liveTargetID)
-			if sys.FindAndFocusAppWindow(titleToSearch, appHostPort, realBrowserPid, nil) {
+			if sys.FindAndFocusAppWindow(titleToSearch, appHostPort, realBrowserPid, filterFn) {
 				slog.Info("WebUI 窗口捕获成功")
 				emitEvent(eventCh, EventReady)
 				return true
 			}
 		} else if titleToSearch != "" {
-			if sys.FindAndFocusAppWindow(titleToSearch, appHostPort, realBrowserPid, nil) {
+			if sys.FindAndFocusAppWindow(titleToSearch, appHostPort, realBrowserPid, filterFn) {
 				slog.Info("WebUI 窗口捕获成功(备用路径)")
 				emitEvent(eventCh, EventReady)
 				return true
