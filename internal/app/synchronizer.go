@@ -34,18 +34,18 @@ func (a *Application) reconcileTunState(kernelTunEnabled bool) bool {
 
 	if wantTun && kernelTunEnabled && a.State.IsTunAlive() && a.isTunInGracePeriod() {
 		a.State.SetTunRequestedTime(time.Time{})
-		slog.Debug("TUN 网卡接口就绪，解除启动保护状态")
+		slog.Debug("TUN 网卡就绪")
 	}
 
 	if kernelTunEnabled != wantTun {
 		if wantTun && !kernelTunEnabled && a.isTunInGracePeriod() {
 			if time.Since(a.State.GetTunRequestedTime()) < TunInitGracePeriod {
-				slog.Debug("TUN 接口处于启动保护期，暂缓状态同步")
+				slog.Debug("TUN 处于保护期，跳过同步")
 				return false
 			}
 		}
 
-		slog.Warn("TUN 运行状态与配置不一致，正在同步更新", "expected", wantTun, "actual", kernelTunEnabled)
+		slog.Info("同步 TUN 状态", "expected", wantTun, "actual", kernelTunEnabled)
 		a.Cfg.Update(func(c *domain.TrayConfig) {
 			c.Config.Tun.Enable = kernelTunEnabled
 		})
@@ -59,11 +59,7 @@ func (a *Application) syncSystemProxy() {
 	enable := *cfg.General.SystemProxy
 	port := a.Cfg.GetEffectiveMixedPortStr()
 
-	if enable {
-		slog.Debug("设置系统代理", "enabled", true, "port", port)
-	} else {
-		slog.Debug("停用系统代理")
-	}
+	slog.Debug("更新系统代理", "enabled", enable, "port", port)
 
 	if err := sys.SetSystemProxy(enable, port); err != nil {
 		slog.Error("设置系统代理失败", "err", err)
@@ -83,7 +79,7 @@ func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.Pr
 	if expectedProxy {
 		if status.Enabled {
 			if status.Server != "" && !strings.EqualFold(status.Server, expectedServer) {
-				slog.Warn("检测到系统代理被外部修改，已自动停用本地系统代理设置", "external_server", status.Server)
+				slog.Warn("系统代理被外部修改，停用本地代理", "server", status.Server)
 				a.Cfg.Update(func(c *domain.TrayConfig) {
 					b := false
 					c.General.SystemProxy = &b
@@ -123,13 +119,11 @@ func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.Pr
 			})
 			a.pushUIState()
 		}()
-		return
 	}
 }
 
 func (a *Application) handleTunChange(ctx context.Context) {
 	if a.State.IsExiting() || a.State.IsConfigSyncing() || a.State.IsRestarting() || a.State.IsReloading() {
-		slog.Debug("当前正在执行核心操作，暂缓处理网络接口变动")
 		return
 	}
 
@@ -150,7 +144,6 @@ func (a *Application) handleTunChange(ctx context.Context) {
 					return
 				case <-time.After(300 * time.Millisecond):
 				}
-
 				a.ForceSyncAPI()
 			}
 		}()
@@ -208,7 +201,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 	cfg := a.Cfg.GetConfig()
 
 	if resp.Mode != "" && resp.Mode != cfg.Config.Mode {
-		slog.Info("内核路由模式已更新", "from", cfg.Config.Mode, "to", resp.Mode)
+		slog.Info("内核路由模式更新", "from", cfg.Config.Mode, "to", resp.Mode)
 		a.Cfg.Update(func(c *domain.TrayConfig) {
 			c.Config.Mode = resp.Mode
 		})
@@ -217,7 +210,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 
 	expectedAllowLan := *cfg.Config.AllowLan
 	if resp.AllowLan != expectedAllowLan {
-		slog.Info("内核局域网共享设置已更新", "from", expectedAllowLan, "to", resp.AllowLan)
+		slog.Info("内核局域网共享更新", "from", expectedAllowLan, "to", resp.AllowLan)
 		a.Cfg.Update(func(c *domain.TrayConfig) {
 			b := resp.AllowLan
 			c.Config.AllowLan = &b
@@ -234,7 +227,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 	}
 
 	if cfg.Config.UnifiedDelay != nil && resp.UnifiedDelay != *cfg.Config.UnifiedDelay {
-		slog.Debug("同步内核统一延迟设置", "unified_delay", resp.UnifiedDelay)
+		slog.Debug("同步内核统一延迟", "unified_delay", resp.UnifiedDelay)
 		a.Cfg.Update(func(c *domain.TrayConfig) {
 			b := resp.UnifiedDelay
 			c.Config.UnifiedDelay = &b
@@ -243,7 +236,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 	}
 
 	if resp.MixedPort != 0 && (cfg.Config.MixedPort == nil || *cfg.Config.MixedPort != resp.MixedPort) {
-		slog.Warn("检测到内核混合端口发生变动，同步本地配置", "port", resp.MixedPort)
+		slog.Info("内核混合端口变更", "port", resp.MixedPort)
 		a.Cfg.Update(func(c *domain.TrayConfig) {
 			p := resp.MixedPort
 			c.Config.MixedPort = &p
@@ -276,7 +269,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 
 	wantTun := a.Cfg.GetConfig().Config.Tun.Enable
 	if changed && wantTun && !realAlive && !a.isTunInGracePeriod() {
-		slog.Warn("TUN 虚拟网卡未正常运行", "device", currentActual)
+		slog.Warn("TUN 网卡未就绪", "device", currentActual)
 	}
 
 	return changed
