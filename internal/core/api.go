@@ -55,7 +55,7 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 	if payload != nil {
 		byteData, err := json.Marshal(payload)
 		if err != nil {
-			return nil, fmt.Errorf("请求数据序列化失败: %w", err)
+			return nil, fmt.Errorf("json marshal: %w", err)
 		}
 		bodyReader = bytes.NewReader(byteData)
 	} else if method == http.MethodPut || method == http.MethodPost || method == http.MethodPatch {
@@ -64,7 +64,7 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 
 	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
 	if err != nil {
-		return nil, fmt.Errorf("构造内部请求失败: %w", err)
+		return nil, fmt.Errorf("new request: %w", err)
 	}
 
 	if bodyReader != nil {
@@ -77,7 +77,7 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("内核通信受阻: %w", err)
+		return nil, fmt.Errorf("ipc request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -86,18 +86,21 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("内核拒绝处理指令 (状态码: %d)", resp.StatusCode)
+		return nil, fmt.Errorf("http status %d", resp.StatusCode)
 	}
 
 	limitReader := io.LimitReader(resp.Body, MaxAPIResponseSize)
 	body, err := io.ReadAll(limitReader)
 	if err != nil {
-		return nil, fmt.Errorf("读取内核响应数据失败: %w", err)
+		return nil, fmt.Errorf("read response: %w", err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errMsg := strings.TrimSpace(string(body))
-		return nil, fmt.Errorf("内核返回错误指令 [%d]: %s", resp.StatusCode, errMsg)
+		if errMsg != "" {
+			return nil, fmt.Errorf("[%d] %s", resp.StatusCode, errMsg)
+		}
+		return nil, fmt.Errorf("http status %d", resp.StatusCode)
 	}
 
 	return body, nil
@@ -137,7 +140,7 @@ func (c *APIClient) WaitForReady(ctx context.Context) error {
 			reqCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
 			_, err := c.DoRequest(reqCtx, "GET", "/version", nil)
 			cancel()
-			
+
 			if err == nil {
 				return nil
 			}
@@ -161,7 +164,7 @@ func (c *APIClient) GetKernelStatus(ctx context.Context) (*domain.KernelStatus, 
 
 	var status domain.KernelStatus
 	if err := json.Unmarshal(body, &status); err != nil {
-		return nil, fmt.Errorf("内核状态数据解析失败: %w", err)
+		return nil, fmt.Errorf("json unmarshal: %w", err)
 	}
 	return &status, nil
 }
