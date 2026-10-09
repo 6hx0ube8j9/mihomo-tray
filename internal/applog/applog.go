@@ -102,7 +102,6 @@ func Init(baseDir string) *RollingLogWriter {
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 			if a.Key == slog.TimeKey {
 				t := a.Value.Time()
-				// 统一为标准时间戳格式
 				a.Value = slog.StringValue(t.Format(domain.TimeFormatLog))
 			}
 			return a
