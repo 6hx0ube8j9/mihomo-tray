@@ -13,6 +13,13 @@ import (
 	"mihomo-tray/internal/state"
 )
 
+const (
+	apiReloadTimeout         = 3 * time.Second
+	apiReloadSettleDelay     = 200 * time.Millisecond
+	webuiRestorePollInterval = 200 * time.Millisecond
+	webuiRestoreMaxRetries   = 60
+)
+
 func (a *Application) executePhysicalRestart(cfg domain.TrayConfig) {
 	if cfg.Config.Tun.Enable {
 		a.State.SetTunRequestedTime(time.Now())
@@ -23,18 +30,21 @@ func (a *Application) executePhysicalRestart(cfg domain.TrayConfig) {
 }
 
 func (a *Application) apiHotReloadCommand(ctx context.Context, runtimeAbs string) error {
-	reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, apiReloadTimeout)
 	defer cancel()
 
-	payload := map[string]interface{}{"path": filepath.ToSlash(runtimeAbs)}
-	if err := a.API.ForceReloadKernel(reqCtx, payload); err != nil {
+	if err := a.API.ForceReloadKernel(reqCtx, runtimeAbs); err != nil {
 		return err
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(apiReloadSettleDelay)
 	a.syncAllConfig(ctx)
 	a.ForceSyncAPI()
 	return nil
+}
+
+func (a *Application) applyActiveConfig(ctx context.Context, actionDesc string) error {
+	return a.DeployAndApplyConfig(ctx, a.Cfg.GetActivePath(), actionDesc)
 }
 
 func (a *Application) DeployAndApplyConfig(ctx context.Context, targetRelPath, actionDesc string) error {
@@ -79,8 +89,7 @@ func (a *Application) ReloadConfig(ctx context.Context) error {
 
 	a.CheckAndReconcilePrivileges(false)
 
-	target := a.Cfg.GetActivePath()
-	if err := a.DeployAndApplyConfig(ctx, target, "配置重载"); err != nil {
+	if err := a.applyActiveConfig(ctx, "配置重载"); err != nil {
 		return err
 	}
 
@@ -100,8 +109,7 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 	slog.Info("开始重启内核")
 	a.CheckAndReconcilePrivileges(false)
 
-	target := a.Cfg.GetActivePath()
-	if err := a.DeployAndApplyConfig(ctx, target, "重启内核"); err != nil {
+	if err := a.applyActiveConfig(ctx, "重启内核"); err != nil {
 		return err
 	}
 
@@ -136,7 +144,7 @@ func (a *Application) restartWebUIIfOpen() {
 
 	if wasOpen {
 		go func() {
-			for i := 0; i < 60; i++ {
+			for i := 0; i < webuiRestoreMaxRetries; i++ {
 				if a.State.IsExiting() {
 					return
 				}
@@ -144,7 +152,7 @@ func (a *Application) restartWebUIIfOpen() {
 					a.UICommandCh <- domain.UICommand{Action: domain.ActionOpenWebUI}
 					return
 				}
-				time.Sleep(200 * time.Millisecond)
+				time.Sleep(webuiRestorePollInterval)
 			}
 			slog.Warn("等待内核就绪超时，未恢复 Web 面板")
 		}()
