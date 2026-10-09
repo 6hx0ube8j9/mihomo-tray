@@ -40,7 +40,9 @@ jobs:
             Write-Error "Manifest file not found at cmd/mihomo-tray/winres/assembly.xml"
             exit 1
           }
-          go run github.com/tc-hib/go-winres@latest make --arch ${{ matrix.goarch }} --in cmd/mihomo-tray/winres --out cmd/mihomo-tray
+
+          cd cmd/mihomo-tray
+          go run github.com/tc-hib/go-winres@latest make --arch ${{ matrix.goarch }}
 
       - name: Build EXE
         shell: pwsh
