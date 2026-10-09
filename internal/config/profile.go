@@ -11,7 +11,26 @@ import (
 	"mihomo-tray/internal/fs"
 )
 
+const profileFileExt = ".yaml"
+
 var ErrProfileLimitExceeded = fmt.Errorf("配置数量已达上限 (%d 个)。", domain.MaxProfileCount)
+var ErrProfileNameConflict = errors.New("配置名称已存在")
+
+func (m *Manager) AllocateRemoteProfilePath(rawName string) (displayName string, relPath string, err error) {
+	if strings.TrimSpace(rawName) == "" {
+		rawName = fmt.Sprintf("%d", time.Now().Unix())
+	}
+	safeName := strings.ReplaceAll(rawName, "/", "_")
+	safeName = strings.ReplaceAll(safeName, "\\", "_")
+
+	fileName := safeName + profileFileExt
+	targetRelPath := filepath.ToSlash(filepath.Join(domain.ProfilesDir, fileName))
+
+	if _, exists := m.GetProfileByPath(targetRelPath); exists {
+		return "", "", ErrProfileNameConflict
+	}
+	return safeName, targetRelPath, nil
+}
 
 func (m *Manager) CheckProfileLimit() error {
 	m.mu.RLock()
