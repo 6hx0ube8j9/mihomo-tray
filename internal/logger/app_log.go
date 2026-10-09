@@ -8,11 +8,11 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-const MaxAppLogSize = 1024 * 1024 // 1 MB
+const MaxAppLogSize = 1024 * 1024 // 1 MB 轮转上限
 
 var GlobalLogLevel = new(slog.LevelVar)
 
-func InitApp(baseDir string) *RollingLogWriter {
+func Init(baseDir string) *RollingLogWriter {
 	logPath := filepath.Join(baseDir, domain.LogsDir, domain.AppLogFile)
 	writer := NewRollingWriter(logPath, MaxAppLogSize)
 
@@ -35,6 +35,8 @@ func ParseLevel(s string) slog.Level {
 	switch {
 	case strings.HasPrefix(s, "debug"):
 		return slog.LevelDebug
+	case strings.HasPrefix(s, "info"):
+		return slog.LevelInfo
 	case strings.HasPrefix(s, "warn"):
 		return slog.LevelWarn
 	case strings.HasPrefix(s, "error"), strings.HasPrefix(s, "fatal"), strings.HasPrefix(s, "panic"):
@@ -42,7 +44,7 @@ func ParseLevel(s string) slog.Level {
 	case s == "silent":
 		return slog.Level(100)
 	default:
-		return slog.LevelInfo
+		return slog.LevelError
 	}
 }
 
