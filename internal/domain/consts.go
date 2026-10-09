@@ -32,6 +32,12 @@ const (
 	LogTagKernelTransition = "KERNEL_TRANSITION"
 )
 
+const (
+    LogsDir       = "logs"
+    AppLogFile    = "mihomo-tray.log"
+    CoreLogFile   = "core.log"
+)
+
 // ================= 网络与本地回环 =================
 const (
 	LocalhostIP                   = "127.0.0.1"
