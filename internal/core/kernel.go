@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -16,6 +15,7 @@ import (
 
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/logger"
 	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
 )
@@ -30,6 +30,38 @@ const (
 	QuickCrashThreshold = 5 * time.Second
 )
 
+type TailBuffer struct {
+	mu  sync.Mutex
+	buf []byte
+	max int
+}
+
+func NewTailBuffer(maxSize int) *TailBuffer {
+	return &TailBuffer{
+		buf: make([]byte, 0, maxSize),
+		max: maxSize,
+	}
+}
+
+func (t *TailBuffer) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.buf = append(t.buf, p...)
+	if len(t.buf) > t.max {
+		overflow := len(t.buf) - t.max
+		copy(t.buf, t.buf[overflow:])
+		t.buf = t.buf[:t.max]
+	}
+	return len(p), nil
+}
+
+func (t *TailBuffer) String() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return string(t.buf)
+}
+
 func GetKernelPath(baseDir string) string {
 	return filepath.Join(baseDir, domain.KernelExeName)
 }
@@ -37,7 +69,7 @@ func GetKernelPath(baseDir string) string {
 type KernelManager struct {
 	cfg          *config.Manager
 	st           *state.RuntimeState
-	logger       *CoreLogger
+	logger       *logger.CoreLogger
 	hJob         windows.Handle
 	currentPid   uint32
 	activeProc   *os.Process
@@ -58,7 +90,7 @@ func NewKernelManager(cfg *config.Manager, st *state.RuntimeState) *KernelManage
 	km := &KernelManager{
 		cfg:    cfg,
 		st:     st,
-		logger: NewCoreLogger(cfg.BaseDir()),
+		logger: logger.NewCoreLogger(cfg.BaseDir()),
 		wakeCh: make(chan struct{}, 1),
 	}
 	km.hJob, _ = sys.CreateKillOnCloseJob()
@@ -69,6 +101,9 @@ func (km *KernelManager) Close() {
 	if km.hJob != 0 {
 		windows.CloseHandle(km.hJob)
 		km.hJob = 0
+	}
+	if km.logger != nil {
+		_ = km.logger.Close()
 	}
 }
 
@@ -154,21 +189,15 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 		startTime := time.Now()
 
 		if err := cmd.Start(); err != nil {
-			km.logger.WriteLog("DAEMON", fmt.Sprintf("进程启动失败: %v", err))
+			km.logger.WriteLog(domain.LogTagKernelTransition, err.Error())
 
 			if firstCrashTime.IsZero() {
 				firstCrashTime = time.Now()
 			}
 			quickCrashCount++
 
-			if quickCrashCount >= MaxQuickCrashes {
-				slog.Error("内核启动失败次数过多，守护进程已挂起保护")
-				km.HaltDaemon()
-				continue
-			}
-
-			if time.Since(firstCrashTime) >= MaxCrashWindow {
-				slog.Error("内核持续启动失败，守护进程已挂起保护")
+			if quickCrashCount >= MaxQuickCrashes || time.Since(firstCrashTime) >= MaxCrashWindow {
+				slog.Error("内核启动失败次数超限，守护进程已挂起保护")
 				km.HaltDaemon()
 				continue
 			}
@@ -239,13 +268,17 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 			shouldLog := runDuration < QuickCrashThreshold || isConfigFatal
 
 			if shouldLog {
-				km.logger.WriteLog("PROCESS", fmt.Sprintf("异常退出 | 状态码: %v | 日志:\n%s", waitErr, rawErr))
+				logContent := rawErr
+				if logContent == "" {
+					logContent = waitErr.Error()
+				}
+				km.logger.WriteLog(domain.LogTagKernelTransition, logContent)
 			}
 
 			if isConfigFatal {
-				slog.Error("配置存在无法运行的致命错误，内核进程已挂起")
+				slog.Error("配置存在致命错误，内核守护进程已挂起")
 				km.HaltDaemon()
-				
+
 				select {
 				case eventCh <- domain.EventKernelExit:
 				default:
@@ -280,21 +313,15 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 				quickCrashCount++
 			}
 
-			if quickCrashCount >= MaxQuickCrashes {
-				slog.Error("内核异常退出次数超限，进程已挂起保护")
-				km.HaltDaemon()
-				continue
-			}
-
-			if time.Since(firstCrashTime) >= MaxCrashWindow {
-				slog.Error("内核持续处于不稳定状态，进程已挂起保护")
+			if quickCrashCount >= MaxQuickCrashes || time.Since(firstCrashTime) >= MaxCrashWindow {
+				slog.Error("内核异常退出超限，守护进程已挂起保护")
 				km.HaltDaemon()
 				continue
 			}
 
 			crashCount++
 			if crashCount >= CoolDownCrashCount {
-				slog.Warn("内核退出过于频繁，进入冷却等待状态", "cooldown", CoolDownDuration)
+				slog.Warn("内核退出频繁，进入冷却等待", "cooldown", CoolDownDuration)
 				currentDelay = CoolDownDuration
 				crashCount = 0
 			} else {
@@ -342,7 +369,7 @@ func (km *KernelManager) KillCurrent() {
 		sys.HardKill(pid)
 		sys.KillOtherProcessesByName(domain.KernelExeName, 0)
 	}
-	
+
 	if err := sys.SendCtrlBreak(pid); err != nil {
 		forceKill()
 	} else {
