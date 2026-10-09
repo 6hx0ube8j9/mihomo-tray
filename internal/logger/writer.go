@@ -18,6 +18,8 @@ type RollingLogWriter struct {
 }
 
 func NewRollingWriter(logPath string, maxSize int64) *RollingLogWriter {
+	_ = os.MkdirAll(filepath.Dir(logPath), 0755)
+
 	return &RollingLogWriter{
 		logPath: logPath,
 		bakPath: logPath + ".bak",
@@ -26,8 +28,6 @@ func NewRollingWriter(logPath string, maxSize int64) *RollingLogWriter {
 }
 
 func (w *RollingLogWriter) open() {
-	_ = os.MkdirAll(filepath.Dir(w.logPath), 0755)
-
 	fi, err := os.Stat(w.logPath)
 	if err == nil {
 		w.currSize = fi.Size()
@@ -76,6 +76,15 @@ func (w *RollingLogWriter) Write(p []byte) (n int, err error) {
 		w.currSize += int64(n)
 	}
 	return n, err
+}
+
+func (w *RollingLogWriter) Sync() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.file != nil {
+		return w.file.Sync()
+	}
+	return nil
 }
 
 func (w *RollingLogWriter) Close() error {
