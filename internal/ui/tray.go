@@ -126,9 +126,10 @@ func (t *Tray) UpdateState(state domain.UIState) {
 
 	safelySetChecked(t.actProxy, state.IsProxy)
 	safelySetChecked(t.actTun, state.IsTun)
-	safelySetChecked(t.actModeRule, state.Mode == "rule")
-	safelySetChecked(t.actModeDirect, state.Mode == "direct")
-	safelySetChecked(t.actModeGlobal, state.Mode == "global")
+
+    safelySetChecked(t.actModeRule, state.Mode == domain.ModeRule)
+    safelySetChecked(t.actModeDirect, state.Mode == domain.ModeDirect)
+    safelySetChecked(t.actModeGlobal, state.Mode == domain.ModeGlobal)	
 
 	safelySetChecked(t.actAutoStart, state.AutoStart)
 	safelySetChecked(t.actRunAdmin, state.RunAsAdmin || state.AutoStart)
@@ -172,10 +173,10 @@ func (t *Tray) buildMenuSkeleton() {
 
 	modeMenu, modeMenuAction := t.addSubMenu(fmt.Sprintf("路由模式: %s", getModeName(t.latestState.Mode)))
 	t.actModeMenu = modeMenuAction
-	t.actModeRule = t.addCheckableSubAction(modeMenu, "规则", t.latestState.Mode == "rule", func() { t.engine.SendCommand(domain.ActionSwitchMode, "rule") })
-	t.actModeDirect = t.addCheckableSubAction(modeMenu, "直连", t.latestState.Mode == "direct", func() { t.engine.SendCommand(domain.ActionSwitchMode, "direct") })
-	t.actModeGlobal = t.addCheckableSubAction(modeMenu, "全局", t.latestState.Mode == "global", func() { t.engine.SendCommand(domain.ActionSwitchMode, "global") })
-
+    t.actModeRule = t.addCheckableSubAction(modeMenu, "规则", t.latestState.Mode == domain.ModeRule, func() { t.engine.SendCommand(domain.ActionSwitchMode, domain.ModeRule) })
+    t.actModeDirect = t.addCheckableSubAction(modeMenu, "直连", t.latestState.Mode == domain.ModeDirect, func() { t.engine.SendCommand(domain.ActionSwitchMode, domain.ModeDirect) })
+    t.actModeGlobal = t.addCheckableSubAction(modeMenu, "全局", t.latestState.Mode == domain.ModeGlobal, func() { t.engine.SendCommand(domain.ActionSwitchMode, domain.ModeGlobal) })
+	
 	t.addSeparator()
 
 	t.menuSwitchProfile, _ = t.addSubMenu("切换配置文件")
@@ -193,7 +194,7 @@ func (t *Tray) buildMenuSkeleton() {
 	t.actRunAdmin = t.addCheckableSubAction(adminMenu, "始终以管理员身份运行", t.latestState.RunAsAdmin || t.latestState.AutoStart, func() { t.engine.SendCommand(domain.ActionToggleRunAsAdmin, fmt.Sprintf("%t", !t.latestState.RunAsAdmin)) })
 
 	moreMenu, _ := t.addSubMenu("更多设置")
-	t.addActionTo(moreMenu, "打开应用配置 (mihomo-tray.json)", func() { t.engine.SendCommand(domain.ActionOpenAppConfig, "") })
+	t.addActionTo(moreMenu, fmt.Sprintf("打开应用配置 (%s)", domain.TrayConfigName), func() { t.engine.SendCommand(domain.ActionOpenAppConfig, "") })
 	t.addActionTo(moreMenu, "-", nil)
 	t.addActionTo(moreMenu, "复制 Web 访问密码", func() { t.engine.SendCommand(domain.ActionCopyWebUIPassword, "") })
 	t.addActionTo(moreMenu, "清理 Web 面板缓存", func() {
@@ -264,16 +265,16 @@ func (t *Tray) Dispose() {
 }
 
 func getModeName(mode string) string {
-    switch mode {
-    case "rule":
-        return "规则"
-    case "direct":
-        return "直连"
-    case "global":
-        return "全局"
-    default:
-        return "未知"
-    }
+	switch mode {
+	case domain.ModeRule:
+		return "规则"
+	case domain.ModeDirect:
+		return "直连"
+	case domain.ModeGlobal:
+		return "全局"
+	default:
+		return "未知"
+	}
 }
 
 func generateProfileFingerprint(items []domain.UIProfileItem) string {
