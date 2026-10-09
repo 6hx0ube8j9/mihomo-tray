@@ -6,18 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
-)
-
-const (
-	apiReloadTimeout         = 3 * time.Second
-	apiReloadSettleDelay     = 200 * time.Millisecond
-	webuiRestorePollInterval = 200 * time.Millisecond
-	webuiRestoreMaxRetries   = 60
 )
 
 func (a *Application) executePhysicalRestart(cfg domain.TrayConfig) {
@@ -30,14 +24,14 @@ func (a *Application) executePhysicalRestart(cfg domain.TrayConfig) {
 }
 
 func (a *Application) apiHotReloadCommand(ctx context.Context, runtimeAbs string) error {
-	reqCtx, cancel := context.WithTimeout(ctx, apiReloadTimeout)
+	reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	if err := a.API.ForceReloadKernel(reqCtx, runtimeAbs); err != nil {
 		return err
 	}
 
-	time.Sleep(apiReloadSettleDelay)
+	time.Sleep(200 * time.Millisecond)
 	a.syncAllConfig(ctx)
 	a.ForceSyncAPI()
 	return nil
@@ -48,11 +42,28 @@ func (a *Application) applyActiveConfig(ctx context.Context, actionDesc string) 
 }
 
 func (a *Application) DeployAndApplyConfig(ctx context.Context, targetRelPath, actionDesc string) error {
+	if targetRelPath != "" {
+		if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
+			return err
+		}
+	}
+
 	cfg := a.Cfg.GetConfig()
 	deployRes, err := core.DeployRuntimeConfig(cfg, targetRelPath, a.Cfg.BaseDir())
 	if err != nil {
-		a.Kernel.WriteCoreLog(domain.LogTagConfig, fmt.Sprintf("%s 失败 [%s]: %v", actionDesc, filepath.Base(targetRelPath), err))
-		return errors.New("配置格式错误")
+		profileName := filepath.Base(targetRelPath)
+		if profileName == "." || profileName == "" {
+			profileName = "空配置"
+		}
+
+		slog.Error("配置装配或预检失败", "action", actionDesc, "profile", profileName, "err", err)
+		a.Kernel.WriteCoreLog(domain.LogTagConfig, fmt.Sprintf("%s 失败 [%s]:\n%v", actionDesc, profileName, err))
+
+		cleanErr := err.Error()
+		cleanErr = strings.TrimPrefix(cleanErr, "compose: ")
+		cleanErr = strings.TrimPrefix(cleanErr, "validate: ")
+
+		return fmt.Errorf("配置校验未通过 (%s):\n\n%s", profileName, cleanErr)
 	}
 
 	a.State.SetActualTunDevice(deployRes.TunDevice)
@@ -65,8 +76,8 @@ func (a *Application) DeployAndApplyConfig(ctx context.Context, targetRelPath, a
 			slog.Info("配置热重载成功")
 			return nil
 		}
-		slog.Warn("API 重载失败，回退为重启核心")
-		a.Kernel.WriteCoreLog(domain.LogTagKernelTransition, fmt.Sprintf("%s: 重载失败，切换重启核心", actionDesc))
+		slog.Warn("API 热重载失败，退化为物理重启")
+		a.Kernel.WriteCoreLog(domain.LogTagKernelTransition, fmt.Sprintf("%s: 热重载失败，切换冷启动", actionDesc))
 	}
 
 	a.executePhysicalRestart(cfg)
@@ -144,7 +155,7 @@ func (a *Application) restartWebUIIfOpen() {
 
 	if wasOpen {
 		go func() {
-			for i := 0; i < webuiRestoreMaxRetries; i++ {
+			for i := 0; i < 60; i++ {
 				if a.State.IsExiting() {
 					return
 				}
@@ -152,7 +163,7 @@ func (a *Application) restartWebUIIfOpen() {
 					a.UICommandCh <- domain.UICommand{Action: domain.ActionOpenWebUI}
 					return
 				}
-				time.Sleep(webuiRestorePollInterval)
+				time.Sleep(200 * time.Millisecond)
 			}
 			slog.Warn("等待内核就绪超时，未恢复 Web 面板")
 		}()
