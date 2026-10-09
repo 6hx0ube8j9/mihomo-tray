@@ -51,7 +51,12 @@ func (a *Application) CopyWebUIPassword() error {
 }
 
 func (a *Application) ClearWebUICache() error {
-	if err := a.WebUI.ClearCache(a.Cfg.BaseDir()); err != nil {
+	if a.WebUI.IsActive() {
+		return errors.New("Web 面板运行中，请先关闭面板")
+	}
+
+	cacheDir := filepath.Join(a.Cfg.BaseDir(), domain.WebCacheDir)
+	if err := os.RemoveAll(cacheDir); err != nil {
 		return fmt.Errorf("清理缓存失败: %w", err)
 	}
 	return nil
