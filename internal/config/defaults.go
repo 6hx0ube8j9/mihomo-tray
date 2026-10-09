@@ -17,7 +17,11 @@ func applyDefaults(cfg *domain.TrayConfig) bool {
 	setIfNil(&cfg.General.SystemBrowser, domain.DefaultSystemBrowser, &isTainted)
 	setIfNil(&cfg.General.RemoteWebUI, domain.DefaultRemoteWebUI, &isTainted)
 	setIfNil(&cfg.General.SystemProxy, domain.DefaultSystemProxy, &isTainted)
-	setIfEmpty(&cfg.General.TrayLogLevel, domain.DefaultTrayLogLevel, &isTainted)
+
+	if !isValidTrayLogLevel(cfg.General.TrayLogLevel) {
+		cfg.General.TrayLogLevel = domain.DefaultTrayLogLevel
+		isTainted = true
+	}
 
 	if cfg.General.RemoteWebUIURL == nil || !netutil.IsValidHTTPURL(*cfg.General.RemoteWebUIURL) {
 		url := domain.DefaultRemoteWebUIURL
@@ -36,7 +40,13 @@ func applyDefaults(cfg *domain.TrayConfig) bool {
 		cfg.Config.Mode = domain.DefaultMode
 		isTainted = true
 	}
-	if !isValidLogLevel(cfg.Config.LogLevel) {
+
+	if normalizedLevel, ok := normalizeKernelLogLevel(cfg.Config.LogLevel); ok {
+		if cfg.Config.LogLevel != normalizedLevel {
+			cfg.Config.LogLevel = normalizedLevel
+			isTainted = true
+		}
+	} else {
 		cfg.Config.LogLevel = domain.DefaultLogLevel
 		isTainted = true
 	}
@@ -51,7 +61,11 @@ func applyDefaults(cfg *domain.TrayConfig) bool {
 	setIfEmpty(&cfg.Config.ExternalUIName, domain.DefaultExternalUIName, &isTainted)
 	setIfNil(&cfg.Config.ExternalUIURL, domain.DefaultExternalUIURL, &isTainted)
 
-	cfg.Config.ExternalControllerPipe = domain.IPCNamedPipe
+	if cfg.Config.ExternalControllerPipe != domain.IPCNamedPipe {
+		cfg.Config.ExternalControllerPipe = domain.IPCNamedPipe
+		isTainted = true
+	}
+
 	setIfNil(&cfg.Config.ExternalControllerCors.AllowPrivateNetwork, domain.DefaultAllowPrivateNetwork, &isTainted)
 	if cfg.Config.ExternalControllerCors.AllowOrigins == nil {
 		cfg.Config.ExternalControllerCors.AllowOrigins = domain.DefaultAllowOrigins
@@ -116,12 +130,23 @@ func isValidMode(mode string) bool {
 	}
 }
 
-func isValidLogLevel(level string) bool {
+func isValidTrayLogLevel(level string) bool {
 	switch strings.ToLower(level) {
-	case "debug", "info", "warning", "error", "silent":
+	case "debug", "info", "warn", "warning", "error", "silent":
 		return true
 	default:
 		return false
+	}
+}
+
+func normalizeKernelLogLevel(level string) (string, bool) {
+	switch strings.ToLower(level) {
+	case "debug", "info", "error", "silent":
+		return strings.ToLower(level), true
+	case "warn", "warning":
+		return "warning", true
+	default:
+		return "", false
 	}
 }
 
