@@ -20,8 +20,11 @@ const (
 	ModeGlobal = "global"
 )
 
-// ================= 时间与展示格式 =================
+// ================= 日志文件与时间格式 =================
 const (
+	LogsDir       = "logs"
+	AppLogFile    = "mihomo-tray.log"
+	CoreLogFile   = "core.log"
 	TimeFormatLog = "2006-01-02 15:04:05"
 )
 
@@ -30,12 +33,6 @@ const (
 	LogTagConfig           = "CONFIG"
 	LogTagProfileUpdate    = "PROFILE_UPDATE"
 	LogTagKernelTransition = "KERNEL_TRANSITION"
-)
-
-const (
-    LogsDir       = "logs"
-    AppLogFile    = "mihomo-tray.log"
-    CoreLogFile   = "core.log"
 )
 
 // ================= 网络与本地回环 =================
