@@ -6,6 +6,9 @@ on:
   #     - main
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -26,11 +29,6 @@ jobs:
           go-version-file: 'go.mod'
           cache: true
 
-      - name: Install dependencies
-        shell: pwsh
-        run: |
-          go mod download
-
       - name: Generate Windows Resources
         shell: pwsh
         run: |
@@ -50,11 +48,11 @@ jobs:
           $env:CGO_ENABLED="0"
           $env:GOARCH="${{ matrix.goarch }}"
           go env GOOS GOARCH CGO_ENABLED
-          New-Item -ItemType Directory -Force -Path "release/mihomo-tray"
-          go build -mod=readonly -ldflags="-s -w -H=windowsgui" -o "release/mihomo-tray/mihomo-tray.exe" ./cmd/mihomo-tray
+          New-Item -ItemType Directory -Force -Path "release"
+          go build -mod=readonly -ldflags="-s -w -H=windowsgui" -o "release/mihomo-tray.exe" ./cmd/mihomo-tray
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: mihomo-tray-${{ matrix.goarch }}
-          path: release/
+          path: release/mihomo-tray.exe
