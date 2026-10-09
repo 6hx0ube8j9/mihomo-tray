@@ -87,20 +87,22 @@ func TruncateMiddle(name string) string {
 }
 
 func (p *ProfileItem) FormatLastUpdateText() string {
-	if p.LastUpdate == 0 {
+	if p.LastUpdate <= 0 {
 		return "从未更新"
 	}
+
 	diff := time.Since(time.Unix(p.LastUpdate, 0))
-	if diff.Hours() > 24 {
-		return fmt.Sprintf("%d 天前", int(diff.Hours()/24))
+	if diff < time.Minute {
+		return "刚刚"
 	}
-	if diff.Hours() > 1 {
-		return fmt.Sprintf("%d 小时前", int(diff.Hours()))
+
+	if days := int(diff / (24 * time.Hour)); days >= 1 {
+		return fmt.Sprintf("%d 天前", days)
 	}
-	if diff.Minutes() > 1 {
-		return fmt.Sprintf("%d 分钟前", int(diff.Minutes()))
+	if hours := int(diff / time.Hour); hours >= 1 {
+		return fmt.Sprintf("%d 小时前", hours)
 	}
-	return "刚刚"
+	return fmt.Sprintf("%d 分钟前", int(diff/time.Minute))
 }
 
 func (p *ProfileItem) IsUpdateDue() bool {
