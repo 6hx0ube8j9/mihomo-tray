@@ -1,14 +1,41 @@
 package domain
 
-// ================= 文件与组件名称 =================
+// ================= 文件与目录名称 =================
 const (
-	KernelExeName     = "mihomo.exe"
-	RuntimeConfigName = "config.yaml"
-	TrayConfigName    = "mihomo-tray.json"
-	ProfilesDir       = "profiles"
+	KernelExeName      = "mihomo.exe"
+	RuntimeConfigName  = "config.yaml"
+	TrayConfigName     = "mihomo-tray.json"
+	TestConfigFileName = "config.test.tmp"
+	ProfilesDir        = "profiles"
+	WebCacheDir        = "webcache"
 
 	// IPCNamedPipe Windows 本地命名管道
 	IPCNamedPipe = `\\.\pipe\mihomo-tray-ipc`
+)
+
+// ================= 路由模式 =================
+const (
+	ModeRule   = "rule"
+	ModeDirect = "direct"
+	ModeGlobal = "global"
+)
+
+// ================= 时间与展示格式 =================
+const (
+	TimeFormatMinute = "2006-01-02 15:04"
+)
+
+// ================= 内核日志分类标签 =================
+const (
+	LogTagConfig           = "CONFIG"
+	LogTagProfileUpdate    = "PROFILE_UPDATE"
+	LogTagKernelTransition = "KERNEL_TRANSITION"
+)
+
+// ================= 网络与本地回环 =================
+const (
+	LocalhostIP                   = "127.0.0.1"
+	DefaultExternalControllerPort = "9090"
 )
 
 // ================= 状态与事件 =================
@@ -32,7 +59,7 @@ const (
 // ================= 默认配置策略 =================
 const (
 	// 字符串策略默认值
-	DefaultMode         = "rule"
+	DefaultMode         = ModeRule
 	DefaultLogLevel     = "info"
 	DefaultTrayLogLevel = "info"
 
@@ -55,10 +82,10 @@ const (
 	DefaultExternalUIName     = "default"
 
 	// 托盘偏好默认值
-	DefaultAutostart     = false
-	DefaultSystemProxy   = false
-	DefaultSystemBrowser = false
-	DefaultRemoteWebUI   = false
+	DefaultAutostart      = false
+	DefaultSystemProxy    = false
+	DefaultSystemBrowser  = false
+	DefaultRemoteWebUI    = false
 	DefaultRemoteWebUIURL = "https://board.zash.run.place"
 
 	// 订阅与业务限制
