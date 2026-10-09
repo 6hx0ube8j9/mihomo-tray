@@ -71,13 +71,9 @@ func (c *APIClient) UpdatePorts(ctx context.Context, mixed, socks, httpPort int)
 }
 
 func (c *APIClient) UpdateTun(ctx context.Context, enable bool, device string) error {
-	tunPayload := map[string]any{
-		apiKeyTunEnable: enable,
-	}
-	if device != "" {
-		tunPayload[apiKeyTunDevice] = device
-	}
-	return c.SyncConfigToKernel(ctx, map[string]any{apiKeyTun: tunPayload})
+	return c.SyncConfigToKernel(ctx, map[string]any{
+		apiKeyTun: buildTunPayload(enable, device),
+	})
 }
 
 func (c *APIClient) UpdateMode(ctx context.Context, mode string) error {
@@ -89,12 +85,8 @@ func (c *APIClient) UpdateAllowLan(ctx context.Context, enable bool) error {
 }
 
 func (c *APIClient) SyncAllRuntime(ctx context.Context, mode string, allowLan bool, tunEnable bool, tunDevice string) error {
-	tunPayload := map[string]any{apiKeyTunEnable: tunEnable}
-	if tunDevice != "" {
-		tunPayload[apiKeyTunDevice] = tunDevice
-	}
 	payload := map[string]any{
-		apiKeyTun:      tunPayload,
+		apiKeyTun:      buildTunPayload(tunEnable, tunDevice),
 		apiKeyMode:     mode,
 		apiKeyAllowLan: allowLan,
 	}
@@ -225,4 +217,14 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 	}
 
 	return body, nil
+}
+
+func buildTunPayload(enable bool, device string) map[string]any {
+	payload := map[string]any{
+		apiKeyTunEnable: enable,
+	}
+	if device != "" {
+		payload[apiKeyTunDevice] = device
+	}
+	return payload
 }
