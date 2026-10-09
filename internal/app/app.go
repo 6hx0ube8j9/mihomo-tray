@@ -40,7 +40,6 @@ type Application struct {
 
 	lastUIState      domain.UIState
 	uiStateMutex     sync.RWMutex
-	runtimeValidated bool
 }
 
 func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
