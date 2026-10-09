@@ -106,16 +106,15 @@ func main() {
 		return
 	}
 
-	logWriter := applog.Init(baseDir)
-	if logWriter != nil {
-		defer logWriter.Close()
-	}
+    logWriter := logger.InitApp(baseDir)
+    if logWriter != nil {
+        defer logWriter.Close()
+    }
 
 	admin := sys.IsAdmin()
 	cfgMgr := config.NewManager(baseDir, exePath, admin)
 	cfgMgr.LoadAndInitMemory()
-
-	applog.SyncLogLevel(cfgMgr.GetConfig().General.TrayLogLevel)
+	logger.SyncLogLevel(cfgMgr.GetConfig().General.TrayLogLevel)
 
 	slog.Info("程序启动", "pid", os.Getpid(), "dir", baseDir, "admin", admin)
 
