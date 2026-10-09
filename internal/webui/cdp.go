@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"mihomo-tray/internal/netutil"
+	"mihomo-tray/internal/domain"
 )
 
 const (
