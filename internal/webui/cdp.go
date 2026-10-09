@@ -14,7 +14,7 @@ import (
 const (
 	fallbackDebugPort1 = "52819"
 	fallbackDebugPort2 = "52820"
-	cdpHost            = "127.0.0.1"
+	cdpHost            = domain.LocalhostIP
 )
 
 var cdpClient = &http.Client{
