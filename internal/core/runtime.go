@@ -30,14 +30,14 @@ func DeployRuntimeConfig(cfg domain.TrayConfig, relPath string, baseDir string) 
 
 	res, err := ComposeRuntimeYAML(cfg, sourceBytes)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("compose yaml: %w", err)
 	}
 
 	runtimeAbs := filepath.Join(baseDir, domain.RuntimeConfigName)
 
 	if existingContent, err := os.ReadFile(runtimeAbs); err == nil {
 		if bytes.Equal(bytes.TrimSpace(existingContent), bytes.TrimSpace(res.YAML)) {
-			slog.Debug("运行配置内容一致，跳过写入")
+			slog.Debug("配置内容无变动，跳过校验与落盘")
 			return &DeployResult{
 				RuntimeAbs:  runtimeAbs,
 				TunDevice:   res.TunDevice,
@@ -46,8 +46,19 @@ func DeployRuntimeConfig(cfg domain.TrayConfig, relPath string, baseDir string) 
 		}
 	}
 
+	testConfigAbs := filepath.Join(baseDir, domain.TestConfigFileName)
+	if err := os.WriteFile(testConfigAbs, res.YAML, 0644); err != nil {
+		return nil, fmt.Errorf("write test config: %w", err)
+	}
+	defer os.Remove(testConfigAbs)
+
+	kernelPath := GetKernelPath(baseDir)
+	if err := ValidateConfig(kernelPath, baseDir, testConfigAbs); err != nil {
+		return nil, fmt.Errorf("validate config: %w", err)
+	}
+
 	if err := fs.WriteAtomic(runtimeAbs, res.YAML); err != nil {
-		return nil, fmt.Errorf("write file: %w", err)
+		return nil, fmt.Errorf("write runtime config: %w", err)
 	}
 
 	slog.Debug("运行配置已更新落盘", "target", domain.RuntimeConfigName)
