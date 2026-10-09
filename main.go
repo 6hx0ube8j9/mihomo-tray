@@ -106,7 +106,7 @@ func main() {
 		return
 	}
 
-    logWriter := logger.InitApp(baseDir)
+    logWriter := logger.Init(baseDir)
     if logWriter != nil {
         defer logWriter.Close()
     }
