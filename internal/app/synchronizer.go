@@ -156,18 +156,13 @@ func (a *Application) syncAllConfig(ctx context.Context) {
 		return
 	}
 	cfg := a.Cfg.GetConfig()
-	tunPayload := map[string]interface{}{"enable": cfg.Config.Tun.Enable}
-
-	if dev := a.State.GetActualTunDevice(); dev != "" {
-		tunPayload["device"] = dev
-	}
-
-	payload := map[string]interface{}{
-		"tun":       tunPayload,
-		"mode":      cfg.Config.Mode,
-		"allow-lan": *cfg.Config.AllowLan,
-	}
-	_ = a.API.SyncConfigToKernel(ctx, payload)
+	_ = a.API.SyncAllRuntime(
+		ctx,
+		cfg.Config.Mode,
+		*cfg.Config.AllowLan,
+		cfg.Config.Tun.Enable,
+		a.State.GetActualTunDevice(),
+	)
 }
 
 func (a *Application) pollKernelAPI(ctx context.Context) bool {
