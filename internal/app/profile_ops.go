@@ -51,15 +51,9 @@ func (a *Application) AddRemoteProfile(ctx context.Context, rawName, url string,
 		return errors.New("订阅链接为空")
 	}
 
-	if rawName == "" {
-		rawName = fmt.Sprintf("%d", time.Now().Unix())
-	}
-	safeName := strings.ReplaceAll(rawName, "/", "_")
-	fileName := fmt.Sprintf("%s.yaml", safeName)
-	targetRelPath := filepath.ToSlash(filepath.Join(domain.ProfilesDir, fileName))
-
-	if _, exists := a.Cfg.GetProfileByPath(targetRelPath); exists {
-		return errors.New("配置名称已存在")
+	safeName, targetRelPath, err := a.Cfg.AllocateRemoteProfilePath(rawName)
+	if err != nil {
+		return err
 	}
 
 	newItem := domain.ProfileItem{
