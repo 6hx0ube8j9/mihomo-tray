@@ -65,8 +65,8 @@ func (a *Application) DeployAndApplyConfig(ctx context.Context, targetRelPath, a
 			slog.Info("配置热重载成功")
 			return nil
 		}
-		slog.Warn("API 热重载失败，退化为物理重启")
-		a.Kernel.WriteCoreLog(domain.LogTagKernelTransition, fmt.Sprintf("%s: 热重载失败，切换冷启动", actionDesc))
+		slog.Warn("API 重载失败，回退为重启核心")
+		a.Kernel.WriteCoreLog(domain.LogTagKernelTransition, fmt.Sprintf("%s: 重载失败，切换重启核心", actionDesc))
 	}
 
 	a.executePhysicalRestart(cfg)
