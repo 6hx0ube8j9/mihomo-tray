@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,13 +14,13 @@ import (
 
 func (a *Application) OpenWebUI() error {
 	if a.State.GetPhase() != domain.PhaseRunning {
-		return fmt.Errorf("内核尚未就绪，请稍候重试")
+		return errors.New("内核尚未就绪")
 	}
 
 	addr, secret, online, sysBrowser, remoteURL := a.GetControllerConfigSnapshot()
 	cfg := a.Cfg.GetConfig()
 
-	slog.Info("正在打开 Web 面板", "addr", addr, "system_browser", sysBrowser, "remote_webui", online)
+	slog.Info("启动 Web 面板", "addr", addr, "sys_browser", sysBrowser, "remote", online)
 
 	wcfg := webui.Config{
 		APIAddr:            addr,
@@ -40,23 +41,23 @@ func (a *Application) OpenWebUI() error {
 func (a *Application) CopyWebUIPassword() error {
 	_, secret, _, _, _ := a.GetControllerConfigSnapshot()
 	if secret == "" {
-		return fmt.Errorf("当前面板未设置访问密码")
+		return errors.New("未设置访问密码")
 	}
 
 	if err := sys.WriteToClipboard(secret); err != nil {
-		return fmt.Errorf("写入系统剪贴板失败: %w", err)
+		return fmt.Errorf("写入剪贴板失败: %w", err)
 	}
 	return nil
 }
 
 func (a *Application) ClearWebUICache() error {
 	if a.WebUI.IsActive() {
-		return fmt.Errorf("Web 面板正在运行中，请先关闭面板后再清理缓存")
+		return errors.New("Web 面板运行中，请先关闭面板")
 	}
 
 	cacheDir := filepath.Join(a.Cfg.BaseDir(), domain.WebCacheDir)
 	if err := os.RemoveAll(cacheDir); err != nil {
-		return fmt.Errorf("清理缓存目录失败，文件可能正被占用: %w", err)
+		return fmt.Errorf("清理缓存失败: %w", err)
 	}
 	return nil
 }
