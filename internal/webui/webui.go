@@ -224,7 +224,7 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 }
 
 func buildBrowserArgs(cfg Config, browserTag, finalURL, debugPort string) []string {
-	userDataDir := filepath.Join(cfg.BaseDir, "webcache", browserTag)
+	userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, browserTag)
 	_ = os.MkdirAll(userDataDir, 0755)
 	winW, winH, winX, winY := sys.GetIdealWindowBounds()
 
