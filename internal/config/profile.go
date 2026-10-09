@@ -1,11 +1,13 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/fs"
@@ -240,11 +242,11 @@ func (m *Manager) ValidatePhysicalFile(relPath string) error {
 func resolveUniqueProfileRelPath(profilesDirAbs, baseName string) string {
 	candidate := baseName
 	for i := 1; ; i++ {
-		target := filepath.Join(profilesDirAbs, candidate+".yaml")
+		target := filepath.Join(profilesDirAbs, candidate+profileFileExt)
 		if _, err := os.Stat(target); os.IsNotExist(err) {
 			break
 		}
 		candidate = fmt.Sprintf("%s_%d", baseName, i)
 	}
-	return filepath.ToSlash(filepath.Join(domain.ProfilesDir, candidate+".yaml"))
+	return filepath.ToSlash(filepath.Join(domain.ProfilesDir, candidate+profileFileExt))
 }
