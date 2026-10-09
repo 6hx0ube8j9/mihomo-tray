@@ -11,8 +11,13 @@ import (
 )
 
 const (
-	TunInitGracePeriod = 20 * time.Second
-	TunLostAlarmDelay  = 6 * time.Second
+	TunInitGracePeriod      = 20 * time.Second
+	TunLostAlarmDelay       = 6 * time.Second
+	tunProbeBurstInterval   = 300 * time.Millisecond
+	tunProbeBurstTimes      = 3
+	proxyRepairMaxAttempts  = 10
+	proxyRepairPollInterval = 1000 * time.Millisecond
+	kernelAPIPollTimeout    = 1500 * time.Millisecond
 )
 
 func (a *Application) getActualTunDevice() string {
@@ -72,54 +77,64 @@ func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.Pr
 	}
 
 	cfg := a.Cfg.GetConfig()
-	expectedProxy := *cfg.General.SystemProxy
-	expectedPort := a.Cfg.GetEffectiveMixedPortStr()
-	expectedServer := "127.0.0.1:" + expectedPort
-
-	if expectedProxy {
-		if status.Enabled {
-			if status.Server != "" && !strings.EqualFold(status.Server, expectedServer) {
-				slog.Warn("系统代理被外部修改，停用本地代理", "server", status.Server)
-				a.Cfg.Update(func(c *domain.TrayConfig) {
-					b := false
-					c.General.SystemProxy = &b
-				})
-				a.pushUIState()
-			}
-			return
-		}
-
-		if !a.State.TryAcquireProxyRepair() {
-			return
-		}
-
-		go func() {
-			defer a.State.ReleaseProxyRepair()
-
-			for i := 1; i <= 10; i++ {
-				if a.State.IsExiting() || ctx.Err() != nil || !*a.Cfg.GetConfig().General.SystemProxy {
-					return
-				}
-				a.syncSystemProxy()
-
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(1000 * time.Millisecond):
-				}
-
-				cur, err := sys.GetProxyStatus()
-				if err == nil && cur.Enabled && strings.EqualFold(cur.Server, expectedServer) {
-					return
-				}
-			}
-			a.Cfg.Update(func(c *domain.TrayConfig) {
-				b := false
-				c.General.SystemProxy = &b
-			})
-			a.pushUIState()
-		}()
+	if !*cfg.General.SystemProxy {
+		return
 	}
+
+	expectedPort := a.Cfg.GetEffectiveMixedPortStr()
+	expectedServer := domain.LocalhostIP + ":" + expectedPort
+
+	if status.Enabled {
+		if status.Server != "" && !strings.EqualFold(status.Server, expectedServer) {
+			slog.Warn("系统代理被外部修改，停用本地代理", "server", status.Server, "expected", expectedServer)
+			a.disableSystemProxySetting()
+		}
+		return
+	}
+
+	if !a.State.TryAcquireProxyRepair() {
+		return
+	}
+
+	go a.repairProxyLoop(ctx, expectedPort, expectedServer)
+}
+
+func (a *Application) repairProxyLoop(ctx context.Context, port, expectedServer string) {
+	defer a.State.ReleaseProxyRepair()
+
+	for i := 1; i <= proxyRepairMaxAttempts; i++ {
+		if a.State.IsExiting() || ctx.Err() != nil || !*a.Cfg.GetConfig().General.SystemProxy {
+			return
+		}
+
+		a.syncSystemProxy()
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(proxyRepairPollInterval):
+		}
+
+		cur, err := sys.GetProxyStatus()
+		if err == nil && cur.Enabled && strings.EqualFold(cur.Server, expectedServer) {
+			slog.Debug("系统代理自愈成功", "attempt", i)
+			return
+		}
+	}
+
+	slog.Warn("系统代理持续被外部篡改，已自动关闭托盘代理开关")
+	a.disableSystemProxySetting()
+}
+
+func (a *Application) disableSystemProxySetting() {
+	if a.State.IsExiting() {
+		return
+	}
+	a.Cfg.Update(func(c *domain.TrayConfig) {
+		b := false
+		c.General.SystemProxy = &b
+	})
+	a.pushUIState()
 }
 
 func (a *Application) handleTunChange(ctx context.Context) {
@@ -138,11 +153,11 @@ func (a *Application) handleTunChange(ctx context.Context) {
 		}
 
 		go func() {
-			for i := 0; i < 3; i++ {
+			for i := 0; i < tunProbeBurstTimes; i++ {
 				select {
 				case <-ctx.Done():
 					return
-				case <-time.After(300 * time.Millisecond):
+				case <-time.After(tunProbeBurstInterval):
 				}
 				a.ForceSyncAPI()
 			}
@@ -170,7 +185,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		return false
 	}
 
-	queryCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	queryCtx, cancel := context.WithTimeout(ctx, kernelAPIPollTimeout)
 	defer cancel()
 
 	resp, err := a.API.GetKernelStatus(queryCtx)
