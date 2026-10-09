@@ -242,31 +242,19 @@ func (a *Application) fetchAndCommitRemoteProfile(ctx context.Context, targetRel
 	}
 	defer os.Remove(res.TempPath)
 
-	if err := a.validateProfileSource(res.TempPath); err != nil {
-		return fmt.Errorf("订阅格式校验失败: %w", err)
+	tempBytes, err := os.ReadFile(res.TempPath)
+	if err != nil || len(tempBytes) == 0 {
+		return errors.New("订阅文件内容为空")
 	}
 
 	if targetRelPath == a.Cfg.GetActivePath() {
-		tempContent, err := os.ReadFile(res.TempPath)
-		if err != nil {
-			return fmt.Errorf("读取订阅临时文件失败: %w", err)
+		if _, err := core.ValidateRuntimeYAML(a.Cfg.GetConfig(), tempBytes, a.Cfg.BaseDir()); err != nil {
+			a.Kernel.WriteCoreLog(domain.LogTagProfileUpdate, fmt.Sprintf("活跃订阅预检失败 [%s]: %v", filepath.Base(targetRelPath), err))
+			return errors.New("订阅配置校验失败，已保留原版本")
 		}
-
-		composeRes, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), tempContent)
-		if err != nil {
-			return fmt.Errorf("配置生成测试失败: %w", err)
-		}
-
-		testConfigPath := filepath.Join(a.Cfg.BaseDir(), domain.TestConfigFileName)
-		if err := os.WriteFile(testConfigPath, composeRes.YAML, 0644); err != nil {
-			return fmt.Errorf("生成预检配置失败: %w", err)
-		}
-		defer os.Remove(testConfigPath)
-
-		kernelPath := core.GetKernelPath(a.Cfg.BaseDir())
-		if err := core.ValidateConfig(kernelPath, a.Cfg.BaseDir(), testConfigPath); err != nil {
-			a.Kernel.WriteCoreLog(domain.LogTagProfileUpdate, fmt.Sprintf("预检失败 [%s]: %v", filepath.Base(targetRelPath), err))
-			return fmt.Errorf("配置规则校验失败: %w", err)
+	} else {
+		if _, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), tempBytes); err != nil {
+			return errors.New("订阅配置语法错误")
 		}
 	}
 
