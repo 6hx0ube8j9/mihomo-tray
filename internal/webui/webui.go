@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"mihomo-tray/internal/sys"
+	"mihomo-tray/internal/domain"
 )
 
 type Event int
