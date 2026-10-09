@@ -82,7 +82,7 @@ func (a *Application) applyActiveConfig(ctx context.Context, actionDesc string) 
 			return nil
 		}
 		slog.Warn("API 热重载失败，退化为物理进程重启")
-		a.Kernel.WriteCoreLog("KERNEL_TRANSITION", fmt.Sprintf("%s 热重载失败，执行冷启动", actionDesc))
+		a.Kernel.WriteCoreLog(domain.LogTagKernelTransition, fmt.Sprintf("%s 热重载失败，执行冷启动", actionDesc))
 	}
 
 	a.executePhysicalRestart(a.Cfg.GetConfig())
@@ -147,7 +147,7 @@ func (a *Application) prepareAndValidateConfig(targetRelPath string) (*core.Depl
 	cfg := a.Cfg.GetConfig()
 	deployRes, err := core.DeployRuntimeConfig(cfg, targetRelPath, a.Cfg.BaseDir())
 	if err != nil {
-		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("运行配置落盘失败 [%s]:\n%v", targetRelPath, err))
+		a.Kernel.WriteCoreLog(domain.LogTagConfig, fmt.Sprintf("装配运行配置失败 [%s]:\n%v", targetRelPath, err))
 		return nil, fmt.Errorf("装配运行配置失败: %w", err)
 	}
 
@@ -160,7 +160,7 @@ func (a *Application) prepareAndValidateConfig(targetRelPath string) (*core.Depl
 	kernelPath := core.GetKernelPath(a.Cfg.BaseDir())
 	if err := core.ValidateConfig(kernelPath, a.Cfg.BaseDir(), deployRes.RuntimeAbs); err != nil {
 		a.runtimeValidated = false
-		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("内核校验配置文件失败 [%s]:\n%v", filepath.Base(targetRelPath), err))
+		a.Kernel.WriteCoreLog(domain.LogTagConfig, fmt.Sprintf("内核校验配置文件失败 [%s]:\n%v", filepath.Base(targetRelPath), err))
 		return nil, fmt.Errorf("内核不支持当前配置格式: %w", err)
 	}
 
