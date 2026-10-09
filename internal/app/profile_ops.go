@@ -15,6 +15,74 @@ import (
 	"mihomo-tray/internal/state"
 )
 
+// ==================== 一、 配置切换与激活事务 ====================
+
+// SwitchProfile 以原子事务方式切换当前激活的配置，包含物理校验、内核沙盒预检与失败回滚
+func (a *Application) SwitchProfile(ctx context.Context, targetPath string) error {
+	currentActive := a.Cfg.GetActivePath()
+	if targetPath != "" && targetPath == currentActive {
+		a.ForcePushUIState()
+		return nil
+	}
+
+	if !a.State.TryBeginAction(state.ActionSwitchProfile) {
+		a.ForcePushUIState()
+		return fmt.Errorf("系统正在执行其他任务，请稍后重试")
+	}
+	defer func() {
+		a.State.EndAction()
+		a.ForcePushUIState()
+	}()
+
+	target := targetPath
+	if target == "" {
+		target = currentActive
+	}
+
+	// 1. 第一阶段：沙盒预检与物理校验 (零副作用拦截，确保当前配置不受影响)
+	if target != "" {
+		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
+			return fmt.Errorf("目标配置文件无效: %w", err)
+		}
+		if err := a.validateProfileWithKernel(target); err != nil {
+			return err
+		}
+	}
+
+	// 2. 第二阶段：内核预检通过后，持久化激活项并应用
+	oldActive := currentActive
+	a.Cfg.SetActiveProfile(target)
+
+	if err := a.applyActiveConfig(ctx, "切换配置"); err != nil {
+		// 3. 第三阶段：异常自动回滚兜底 (防止内核与磁盘状态分裂)
+		slog.Error("应用新配置失败，正在自动回滚原配置", "failedTarget", target, "rollbackTo", oldActive, "err", err)
+		a.Cfg.SetActiveProfile(oldActive)
+		_ = a.applyActiveConfig(context.Background(), "回滚原配置")
+		return fmt.Errorf("内核加载新配置失败，系统已自动保留原配置运行:\n\n%w", err)
+	}
+
+	a.restartWebUIIfOpen()
+	return nil
+}
+
+func (a *Application) onProfileImported(ctx context.Context, newProfilePath string) {
+	if len(a.Cfg.GetProfiles()) == 1 {
+		slog.Info("首个配置导入成功，已自动设为当前配置并启动", "path", newProfilePath)
+		a.Cfg.SetActiveProfile(newProfilePath)
+		a.ForcePushUIState()
+
+		if err := a.applyActiveConfig(ctx, "自动激活首次导入的配置"); err != nil {
+			slog.Warn("首次激活配置启动失败", "err", err)
+		}
+
+		a.restartWebUIIfOpen()
+	} else {
+		a.ForcePushUIState()
+	}
+}
+
+// ==================== 二、 配置生命周期管理 (CRUD) ====================
+
 func (a *Application) ImportLocalProfile(ctx context.Context, sourcePath string) error {
 	if sourcePath == "" {
 		return nil
@@ -78,79 +146,18 @@ func (a *Application) AddRemoteProfile(ctx context.Context, rawName, url string,
 	return nil
 }
 
-func (a *Application) SwitchProfile(ctx context.Context, targetPath string) error {
-	currentActive := a.Cfg.GetActivePath()
-	if targetPath != "" && targetPath == currentActive {
-		a.ForcePushUIState()
+func (a *Application) EditLocalProfile(ctx context.Context, targetPath, newName string) error {
+	p, ok := a.Cfg.GetProfileByPath(targetPath)
+	if !ok {
+		return fmt.Errorf("找不到指定的配置文件")
+	}
+	if p.Name == newName {
 		return nil
 	}
 
-	if !a.State.TryBeginAction(state.ActionSwitchProfile) {
-		a.ForcePushUIState()
-		return fmt.Errorf("系统正在执行其他任务，请稍后重试")
-	}
-	defer func() {
-		a.State.EndAction()
-		a.ForcePushUIState()
-	}()
-
-	target := targetPath
-	if target == "" {
-		target = currentActive
-	}
-
-	if target != "" {
-		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
-			return fmt.Errorf("目标配置文件无效: %w", err)
-		}
-		if err := a.validateProfileWithKernel(target); err != nil {
-			return err
-		}
-	}
-
-	oldActive := currentActive
-	a.Cfg.SetActiveProfile(target)
-
-	if err := a.applyActiveConfig(ctx, "切换配置"); err != nil {
-		slog.Error("应用新配置失败，正在自动回滚原配置", "failedTarget", target, "rollbackTo", oldActive, "err", err)
-		a.Cfg.SetActiveProfile(oldActive)
-		_ = a.applyActiveConfig(context.Background(), "回滚原配置")
-		return fmt.Errorf("内核加载新配置失败，系统已自动保留原配置运行:\n\n%w", err)
-	}
-
-	a.restartWebUIIfOpen()
-	return nil
-}
-
-func (a *Application) validateProfileWithKernel(targetRelPath string) error {
-	if targetRelPath == "" {
-		return nil
-	}
-
-	absPath := a.Cfg.GetProfileAbsPath(targetRelPath)
-	content, err := os.ReadFile(absPath)
-	if err != nil {
-		return fmt.Errorf("读取配置文件失败: %w", err)
-	}
-
-	composeRes, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), content)
-	if err != nil {
-		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("配置合成语法校验失败 [%s]:\n%v", filepath.Base(targetRelPath), err))
-		return fmt.Errorf("配置文件语法或规则存在错误: %w", err)
-	}
-
-	testConfigPath := filepath.Join(a.Cfg.BaseDir(), "config.test.tmp")
-	if err := os.WriteFile(testConfigPath, composeRes.YAML, 0644); err != nil {
-		return fmt.Errorf("生成测试配置文件失败: %w", err)
-	}
-	defer os.Remove(testConfigPath)
-
-	kernelPath := core.GetKernelPath(a.Cfg.BaseDir())
-	if err := core.ValidateConfig(kernelPath, a.Cfg.BaseDir(), testConfigPath); err != nil {
-		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("内核校验配置文件失败 [%s]:\n%v", filepath.Base(targetRelPath), err))
-		return fmt.Errorf("内核拒绝加载该配置 (配置项不受支持或格式异常):\n\n%w", err)
-	}
-
+	p.Name = newName
+	a.Cfg.UpsertProfile(p)
+	a.ForcePushUIState()
 	return nil
 }
 
@@ -190,21 +197,6 @@ func (a *Application) EditRemoteProfile(ctx context.Context, oldPath, newName, n
 	return nil
 }
 
-func (a *Application) EditLocalProfile(ctx context.Context, targetPath, newName string) error {
-	p, ok := a.Cfg.GetProfileByPath(targetPath)
-	if !ok {
-		return fmt.Errorf("找不到指定的配置文件")
-	}
-	if p.Name == newName {
-		return nil
-	}
-
-	p.Name = newName
-	a.Cfg.UpsertProfile(p)
-	a.ForcePushUIState()
-	return nil
-}
-
 func (a *Application) DeleteProfile(targetPath string) error {
 	isActive := targetPath == a.Cfg.GetActivePath()
 
@@ -223,6 +215,8 @@ func (a *Application) DeleteProfile(targetPath string) error {
 	a.ForcePushUIState()
 	return nil
 }
+
+// ==================== 三、 远程订阅拉取与同步 ====================
 
 func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath string, isManual bool) error {
 	if !a.State.TryAcquireProfileLock(targetRelPath) {
@@ -267,13 +261,6 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 	return nil
 }
 
-func (a *Application) getActiveProxyPort() string {
-	if a.State.GetPhase() == domain.PhaseRunning && !a.Kernel.IsPaused() {
-		return a.Cfg.GetEffectiveMixedPortStr()
-	}
-	return ""
-}
-
 func (a *Application) fetchAndCommitRemoteProfile(ctx context.Context, targetRelPath, url string, item *domain.ProfileItem) error {
 	proxyPort := a.getActiveProxyPort()
 
@@ -287,27 +274,15 @@ func (a *Application) fetchAndCommitRemoteProfile(ctx context.Context, targetRel
 		return fmt.Errorf("订阅文件格式校验失败，已取消保存: %w", err)
 	}
 
-	isActive := (targetRelPath == a.Cfg.GetActivePath())
-	if isActive {
+	// 若更新的是当前正在运行的配置，必须先进行内核沙盒预检，预检通过才允许覆盖落盘
+	if targetRelPath == a.Cfg.GetActivePath() {
 		tempContent, err := os.ReadFile(res.TempPath)
 		if err != nil {
 			return fmt.Errorf("读取临时订阅文件失败: %w", err)
 		}
 
-		composeRes, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), tempContent)
-		if err != nil {
-			return fmt.Errorf("订阅配置装配测试失败: %w", err)
-		}
-
-		testConfigPath := filepath.Join(a.Cfg.BaseDir(), "config.test.tmp")
-		if err := os.WriteFile(testConfigPath, composeRes.YAML, 0644); err != nil {
-			return fmt.Errorf("生成测试配置文件失败: %w", err)
-		}
-		defer os.Remove(testConfigPath)
-
-		kernelPath := core.GetKernelPath(a.Cfg.BaseDir())
-		if err := core.ValidateConfig(kernelPath, a.Cfg.BaseDir(), testConfigPath); err != nil {
-			a.Kernel.WriteCoreLog("PROFILE_UPDATE", fmt.Sprintf("活跃订阅更新预检失败，放弃覆盖本地文件 [%s]:\n%v", filepath.Base(targetRelPath), err))
+		if err := a.testRuntimeConfigContent(tempContent, filepath.Base(targetRelPath)); err != nil {
+			a.Kernel.WriteCoreLog(domain.LogTagProfileUpdate, fmt.Sprintf("活跃订阅更新预检失败，放弃覆盖本地文件 [%s]:\n%v", filepath.Base(targetRelPath), err))
 			return fmt.Errorf("远程订阅存在内核不支持的配置规则，已自动保留原版本: %w", err)
 		}
 	}
@@ -319,6 +294,52 @@ func (a *Application) fetchAndCommitRemoteProfile(ctx context.Context, targetRel
 	item.LastUpdate = time.Now().Unix()
 
 	return a.Cfg.CommitRemoteProfile(res.TempPath, targetRelPath, *item)
+}
+
+func (a *Application) getActiveProxyPort() string {
+	if a.State.GetPhase() == domain.PhaseRunning && !a.Kernel.IsPaused() {
+		return a.Cfg.GetEffectiveMixedPortStr()
+	}
+	return ""
+}
+
+// ==================== 四、 沙盒预检与配置校验 ====================
+
+func (a *Application) validateProfileWithKernel(targetRelPath string) error {
+	if targetRelPath == "" {
+		return nil
+	}
+
+	absPath := a.Cfg.GetProfileAbsPath(targetRelPath)
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return fmt.Errorf("读取配置文件失败: %w", err)
+	}
+
+	return a.testRuntimeConfigContent(content, filepath.Base(targetRelPath))
+}
+
+// testRuntimeConfigContent 统一合成运行配置并在沙盒临时文件中执行内核级校验
+func (a *Application) testRuntimeConfigContent(content []byte, logTag string) error {
+	composeRes, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), content)
+	if err != nil {
+		a.Kernel.WriteCoreLog(domain.LogTagConfig, fmt.Sprintf("配置合成语法校验失败 [%s]:\n%v", logTag, err))
+		return fmt.Errorf("配置文件语法或规则存在错误: %w", err)
+	}
+
+	testConfigPath := filepath.Join(a.Cfg.BaseDir(), domain.TestConfigFileName)
+	if err := os.WriteFile(testConfigPath, composeRes.YAML, 0644); err != nil {
+		return fmt.Errorf("生成测试配置文件失败: %w", err)
+	}
+	defer os.Remove(testConfigPath)
+
+	kernelPath := core.GetKernelPath(a.Cfg.BaseDir())
+	if err := core.ValidateConfig(kernelPath, a.Cfg.BaseDir(), testConfigPath); err != nil {
+		a.Kernel.WriteCoreLog(domain.LogTagConfig, fmt.Sprintf("内核校验配置文件失败 [%s]:\n%v", logTag, err))
+		return fmt.Errorf("内核拒绝加载该配置 (配置项不受支持或格式异常):\n\n%w", err)
+	}
+
+	return nil
 }
 
 func (a *Application) validateProfileSource(sourcePath string) error {
@@ -347,28 +368,14 @@ func (a *Application) validateProfileSource(sourcePath string) error {
 	}
 
 	if _, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), content); err != nil {
-		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("配置文件语法校验失败 [%s]:\n%v", filepath.Base(sourcePath), err))
+		a.Kernel.WriteCoreLog(domain.LogTagConfig, fmt.Sprintf("配置文件语法校验失败 [%s]:\n%v", filepath.Base(sourcePath), err))
 		return fmt.Errorf("配置文件存在语法或规则错误: %w", err)
 	}
 
 	return nil
 }
 
-func (a *Application) onProfileImported(ctx context.Context, newProfilePath string) {
-	if len(a.Cfg.GetProfiles()) == 1 {
-		slog.Info("首个配置导入成功，已自动设为当前配置并启动", "path", newProfilePath)
-		a.Cfg.SetActiveProfile(newProfilePath)
-		a.ForcePushUIState()
-
-		if err := a.applyActiveConfig(ctx, "自动激活首次导入的配置"); err != nil {
-			slog.Warn("首次激活配置启动失败", "err", err)
-		}
-
-		a.restartWebUIIfOpen()
-	} else {
-		a.ForcePushUIState()
-	}
-}
+// ==================== 五、 视图查询与排序辅助 ====================
 
 func (a *Application) GetProfileInfo(path string) (domain.ProfileItem, bool) {
 	return a.Cfg.GetProfileByPath(path)
