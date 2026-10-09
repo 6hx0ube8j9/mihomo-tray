@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/fs"
 )
 
@@ -56,7 +57,7 @@ type CoreLogger struct {
 }
 
 func NewCoreLogger(baseDir string) *CoreLogger {
-	logDir := filepath.Join(baseDir, "logs")
+	logDir := filepath.Join(baseDir, domain.LogsDir)
 	_ = os.MkdirAll(logDir, 0755)
 	return &CoreLogger{logDir: logDir}
 }
@@ -76,8 +77,8 @@ func (l *CoreLogger) WriteLog(errType, rawMsg string) {
 	}
 	l.lastError = cleanedMsg
 
-	logPath := filepath.Join(l.logDir, "core.log")
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	logPath := filepath.Join(l.logDir, domain.CoreLogFile)
+	timestamp := time.Now().Format(domain.TimeFormatLog)
 	entry := fmt.Sprintf("[%s] [%s]\n%s\n----------------------------------------\n", timestamp, errType, cleanedMsg)
 
 	fi, err := os.Stat(logPath)
