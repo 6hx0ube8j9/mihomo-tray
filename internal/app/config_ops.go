@@ -10,6 +10,8 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
+const apiSyncTimeout = 2 * time.Second
+
 func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted bool, err error) {
 	originalTun := a.Cfg.GetConfig().Config.Tun.Enable
 	if originalTun == enable {
@@ -43,15 +45,10 @@ func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted boo
 	defer a.ForceSyncAPI()
 	defer a.State.SetConfigSyncing(false)
 
-	tunPayload := map[string]interface{}{"enable": enable}
-	if dev := a.State.GetActualTunDevice(); dev != "" {
-		tunPayload["device"] = dev
-	}
-
-	reqCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, apiSyncTimeout)
 	defer cancel()
 
-	if syncErr := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"tun": tunPayload}); syncErr != nil {
+	if syncErr := a.API.UpdateTun(reqCtx, enable, a.State.GetActualTunDevice()); syncErr != nil {
 		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = originalTun })
 		if enable {
 			a.State.SetTunRequestedTime(time.Time{})
@@ -88,10 +85,10 @@ func (a *Application) SwitchMode(ctx context.Context, mode string) error {
 	defer a.ForceSyncAPI()
 	defer a.State.SetConfigSyncing(false)
 
-	reqCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, apiSyncTimeout)
 	defer cancel()
 
-	if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"mode": mode}); err != nil {
+	if err := a.API.UpdateMode(reqCtx, mode); err != nil {
 		return fmt.Errorf("切换模式失败: %w", err)
 	}
 
@@ -112,10 +109,10 @@ func (a *Application) ToggleAllowLan(ctx context.Context, enable bool) error {
 	defer a.ForceSyncAPI()
 	defer a.State.SetConfigSyncing(false)
 
-	reqCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, apiSyncTimeout)
 	defer cancel()
 
-	if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"allow-lan": enable}); err != nil {
+	if err := a.API.UpdateAllowLan(reqCtx, enable); err != nil {
 		return fmt.Errorf("设置局域网共享失败: %w", err)
 	}
 
@@ -191,11 +188,10 @@ func (a *Application) ApplyPortConfig(ctx context.Context, mixed, socks, httpPor
 		defer a.ForceSyncAPI()
 		defer a.State.SetConfigSyncing(false)
 
-		reqCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		reqCtx, cancel := context.WithTimeout(ctx, apiSyncTimeout)
 		defer cancel()
-		payload := map[string]interface{}{"mixed-port": mixed, "socks-port": socks, "port": httpPort}
 
-		if err := a.API.SyncConfigToKernel(reqCtx, payload); err != nil {
+		if err := a.API.UpdatePorts(reqCtx, mixed, socks, httpPort); err != nil {
 			if ctx.Err() == nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
 				return fmt.Errorf("端口同步失败: %w", err)
 			}
