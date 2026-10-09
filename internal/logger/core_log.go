@@ -26,6 +26,14 @@ func NewCoreLogger(baseDir string) *CoreLogger {
 }
 
 func (l *CoreLogger) WriteLog(errType, rawMsg string) {
+	if OnlyLogErrors {
+		if !isErrorLevel(rawMsg) {
+			return
+		}
+	} else if !l.isLoggable(rawMsg) {
+		return
+	}
+
 	cleanedMsg := rawMsg
 	if idx := strings.Index(rawMsg, "level="); idx != -1 {
 		cleanedMsg = rawMsg[idx:]
@@ -44,6 +52,7 @@ func (l *CoreLogger) WriteLog(errType, rawMsg string) {
 	entry := fmt.Sprintf("[%s] [%s]\n%s\n----------------------------------------\n", timestamp, errType, cleanedMsg)
 
 	_, _ = l.writer.Write([]byte(entry))
+	_ = l.writer.Sync()
 }
 
 func (l *CoreLogger) Close() error {
