@@ -51,8 +51,7 @@ func (a *Application) CopyWebUIPassword() error {
 
 func (a *Application) ClearWebUICache() error {
 	if a.WebUI.IsActive() {
-		a.WebUI.Cleanup()
-		time.Sleep(150 * time.Millisecond)
+		return fmt.Errorf("Web 面板正在运行中，请先关闭面板后再清理缓存")
 	}
 
 	cacheDir := filepath.Join(a.Cfg.BaseDir(), domain.WebCacheDir)
