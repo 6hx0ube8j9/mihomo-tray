@@ -36,7 +36,7 @@ func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted boo
 		if enable {
 			a.State.SetTunRequestedTime(time.Time{})
 		}
-		return false, fmt.Errorf("内核尚未就绪，无法应用 TUN 设置")
+		return false, errors.New("内核尚未就绪")
 	}
 
 	a.State.SetConfigSyncing(true)
@@ -59,9 +59,9 @@ func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted boo
 
 		if ctx.Err() == nil {
 			if errors.Is(syncErr, context.DeadlineExceeded) || errors.Is(syncErr, context.Canceled) {
-				return false, fmt.Errorf("与内核通信超时，操作已取消")
+				return false, errors.New("与内核通信超时")
 			}
-			return false, fmt.Errorf("内核拒绝加载 TUN 设置，请检查虚拟网卡驱动: %w", syncErr)
+			return false, fmt.Errorf("TUN 设置失败: %w", syncErr)
 		}
 	}
 	return false, nil
@@ -77,7 +77,7 @@ func (a *Application) ToggleProxy(enable bool) {
 
 func (a *Application) SwitchMode(ctx context.Context, mode string) error {
 	if a.State.GetPhase() != domain.PhaseRunning {
-		return fmt.Errorf("内核尚未就绪，无法切换路由模式")
+		return errors.New("内核尚未就绪")
 	}
 
 	if mode == a.Cfg.GetConfig().Config.Mode {
@@ -92,7 +92,7 @@ func (a *Application) SwitchMode(ctx context.Context, mode string) error {
 	defer cancel()
 
 	if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"mode": mode}); err != nil {
-		return fmt.Errorf("同步路由模式至内核失败: %w", err)
+		return fmt.Errorf("切换模式失败: %w", err)
 	}
 
 	a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Mode = mode })
@@ -101,7 +101,7 @@ func (a *Application) SwitchMode(ctx context.Context, mode string) error {
 
 func (a *Application) ToggleAllowLan(ctx context.Context, enable bool) error {
 	if a.State.GetPhase() != domain.PhaseRunning {
-		return fmt.Errorf("内核尚未就绪，无法更改局域网设置")
+		return errors.New("内核尚未就绪")
 	}
 
 	if enable == *a.Cfg.GetConfig().Config.AllowLan {
@@ -116,7 +116,7 @@ func (a *Application) ToggleAllowLan(ctx context.Context, enable bool) error {
 	defer cancel()
 
 	if err := a.API.SyncConfigToKernel(reqCtx, map[string]interface{}{"allow-lan": enable}); err != nil {
-		return fmt.Errorf("同步局域网设置至内核失败: %w", err)
+		return fmt.Errorf("设置局域网共享失败: %w", err)
 	}
 
 	a.Cfg.Update(func(c *domain.TrayConfig) {
@@ -197,7 +197,7 @@ func (a *Application) ApplyPortConfig(ctx context.Context, mixed, socks, httpPor
 
 		if err := a.API.SyncConfigToKernel(reqCtx, payload); err != nil {
 			if ctx.Err() == nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
-				return fmt.Errorf("端口配置已保存，但动态同步至内核失败，将在下次重启时生效: %w", err)
+				return fmt.Errorf("端口同步失败: %w", err)
 			}
 		}
 	}
@@ -227,9 +227,9 @@ func (a *Application) ApplyControllerConfig(addr, secret string, online, sysBrow
 	a.pushUIState()
 
 	if coreChanged {
-		slog.Info("Web 面板鉴权参数已变更，触发内核物理重启以绑定新地址与密码")
+		slog.Info("面板参数变更，重启内核")
 		if err := a.RestartKernel(context.Background()); err != nil {
-			return fmt.Errorf("参数已保存，但内核重启失败: %w", err)
+			return fmt.Errorf("内核重启失败: %w", err)
 		}
 	}
 	return nil
