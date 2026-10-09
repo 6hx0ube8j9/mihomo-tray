@@ -8,11 +8,11 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-const MaxAppLogSize = 1024 * 1024 // 1 MB 轮转上限
+const MaxAppLogSize = 1024 * 1024 // 1 MB
 
 var GlobalLogLevel = new(slog.LevelVar)
 
-func Init(baseDir string) *RollingLogWriter {
+func InitApp(baseDir string) *RollingLogWriter {
 	logPath := filepath.Join(baseDir, domain.LogsDir, domain.AppLogFile)
 	writer := NewRollingWriter(logPath, MaxAppLogSize)
 
@@ -26,24 +26,26 @@ func Init(baseDir string) *RollingLogWriter {
 			return a
 		},
 	}
-	logger := slog.New(slog.NewTextHandler(writer, opts))
-	slog.SetDefault(logger)
+	slog.SetDefault(slog.New(slog.NewTextHandler(writer, opts)))
 	return writer
 }
 
-func SyncLogLevel(levelStr string) {
-	switch strings.ToLower(levelStr) {
-	case "silent":
-		GlobalLogLevel.Set(slog.Level(100))
-	case "debug":
-		GlobalLogLevel.Set(slog.LevelDebug)
-	case "info":
-		GlobalLogLevel.Set(slog.LevelInfo)
-	case "warn":
-		GlobalLogLevel.Set(slog.LevelWarn)
-	case "error":
-		GlobalLogLevel.Set(slog.LevelError)
+func ParseLevel(s string) slog.Level {
+	s = strings.ToLower(strings.TrimSpace(s))
+	switch {
+	case strings.HasPrefix(s, "debug"):
+		return slog.LevelDebug
+	case strings.HasPrefix(s, "warn"):
+		return slog.LevelWarn
+	case strings.HasPrefix(s, "error"), strings.HasPrefix(s, "fatal"), strings.HasPrefix(s, "panic"):
+		return slog.LevelError
+	case s == "silent":
+		return slog.Level(100)
 	default:
-		GlobalLogLevel.Set(slog.LevelError)
+		return slog.LevelInfo
 	}
+}
+
+func SyncLogLevel(levelStr string) {
+	GlobalLogLevel.Set(ParseLevel(levelStr))
 }
