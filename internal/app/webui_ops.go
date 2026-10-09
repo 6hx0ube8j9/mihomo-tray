@@ -50,6 +50,11 @@ func (a *Application) CopyWebUIPassword() error {
 }
 
 func (a *Application) ClearWebUICache() error {
+	if a.WebUI.IsActive() {
+		a.WebUI.Cleanup()
+		time.Sleep(150 * time.Millisecond)
+	}
+
 	cacheDir := filepath.Join(a.Cfg.BaseDir(), "webcache")
 	if err := os.RemoveAll(cacheDir); err != nil {
 		return fmt.Errorf("清理缓存目录失败，文件可能正被占用: %w", err)
