@@ -1,6 +1,8 @@
 package webui
 
 import (
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -11,8 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"mihomo-tray/internal/sys"
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/sys"
 )
 
 type Event int
@@ -111,6 +113,18 @@ func (m *Manager) Cleanup() {
 func (m *Manager) IsActive() bool {
 	hwnd := sys.GetCachedWebUIHwnd()
 	return hwnd != 0 && sys.IsWindowVisible(hwnd)
+}
+
+func (m *Manager) ClearCache(baseDir string) error {
+	if m.IsActive() {
+		return errors.New("Web 面板运行中，请先关闭面板")
+	}
+
+	cacheDir := filepath.Join(baseDir, domain.WebCacheDir)
+	if err := os.RemoveAll(cacheDir); err != nil {
+		return fmt.Errorf("remove webcache: %w", err)
+	}
+	return nil
 }
 
 func (m *Manager) openSystemBrowser(finalURL string, eventCh chan<- Event) {
