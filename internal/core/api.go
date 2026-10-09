@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,7 +19,23 @@ import (
 	"mihomo-tray/internal/state"
 )
 
-const MaxAPIResponseSize = 5 * 1024 * 1024
+const (
+	MaxAPIResponseSize = 5 * 1024 * 1024
+	pipeDialTimeout    = 2 * time.Second
+	pollReadyInterval  = 200 * time.Millisecond
+)
+
+const (
+	apiKeyMixedPort = "mixed-port"
+	apiKeySocksPort = "socks-port"
+	apiKeyPort      = "port"
+	apiKeyMode      = "mode"
+	apiKeyAllowLan  = "allow-lan"
+	apiKeyTun       = "tun"
+	apiKeyTunEnable = "enable"
+	apiKeyTunDevice = "device"
+	apiKeyPath      = "path"
+)
 
 type APIClient struct {
 	st         *state.RuntimeState
@@ -32,7 +49,7 @@ func NewAPIClient(st *state.RuntimeState) *APIClient {
 			Transport: &http.Transport{
 				Proxy: nil,
 				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-					timeout := 2 * time.Second
+					timeout := pipeDialTimeout
 					return winio.DialPipe(domain.IPCNamedPipe, &timeout)
 				},
 				MaxIdleConns:          100,
@@ -44,7 +61,111 @@ func NewAPIClient(st *state.RuntimeState) *APIClient {
 	}
 }
 
-func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload interface{}) ([]byte, error) {
+func (c *APIClient) UpdatePorts(ctx context.Context, mixed, socks, httpPort int) error {
+	payload := map[string]any{
+		apiKeyMixedPort: mixed,
+		apiKeySocksPort: socks,
+		apiKeyPort:      httpPort,
+	}
+	return c.SyncConfigToKernel(ctx, payload)
+}
+
+func (c *APIClient) UpdateTun(ctx context.Context, enable bool, device string) error {
+	tunPayload := map[string]any{
+		apiKeyTunEnable: enable,
+	}
+	if device != "" {
+		tunPayload[apiKeyTunDevice] = device
+	}
+	return c.SyncConfigToKernel(ctx, map[string]any{apiKeyTun: tunPayload})
+}
+
+func (c *APIClient) UpdateMode(ctx context.Context, mode string) error {
+	return c.SyncConfigToKernel(ctx, map[string]any{apiKeyMode: mode})
+}
+
+func (c *APIClient) UpdateAllowLan(ctx context.Context, enable bool) error {
+	return c.SyncConfigToKernel(ctx, map[string]any{apiKeyAllowLan: enable})
+}
+
+func (c *APIClient) SyncAllRuntime(ctx context.Context, mode string, allowLan bool, tunEnable bool, tunDevice string) error {
+	tunPayload := map[string]any{apiKeyTunEnable: tunEnable}
+	if tunDevice != "" {
+		tunPayload[apiKeyTunDevice] = tunDevice
+	}
+	payload := map[string]any{
+		apiKeyTun:      tunPayload,
+		apiKeyMode:     mode,
+		apiKeyAllowLan: allowLan,
+	}
+	return c.SyncConfigToKernel(ctx, payload)
+}
+
+func (c *APIClient) ForceReloadKernel(ctx context.Context, runtimeAbs string) error {
+	if c.st.IsExiting() {
+		return context.Canceled
+	}
+	payload := map[string]any{apiKeyPath: filepath.ToSlash(runtimeAbs)}
+	_, err := c.DoRequest(ctx, http.MethodPut, "/configs?force=true", payload)
+	return err
+}
+
+func (c *APIClient) RestartKernel(ctx context.Context) error {
+	if c.st.IsExiting() {
+		return context.Canceled
+	}
+	_, err := c.DoRequest(ctx, http.MethodPost, "/restart", nil)
+	if err == nil {
+		c.httpClient.CloseIdleConnections()
+	}
+	return err
+}
+
+func (c *APIClient) WaitForReady(ctx context.Context) error {
+	ticker := time.NewTicker(pollReadyInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if c.st.IsExiting() {
+				return context.Canceled
+			}
+			reqCtx, cancel := context.WithTimeout(ctx, pollReadyInterval)
+			_, err := c.DoRequest(reqCtx, "GET", "/version", nil)
+			cancel()
+
+			if err == nil {
+				return nil
+			}
+		}
+	}
+}
+
+func (c *APIClient) SyncConfigToKernel(ctx context.Context, payload map[string]any) error {
+	if c.st.IsExiting() {
+		return context.Canceled
+	}
+	_, err := c.DoRequest(ctx, http.MethodPatch, "/configs", payload)
+	return err
+}
+
+func (c *APIClient) GetKernelStatus(ctx context.Context) (*domain.KernelStatus, error) {
+	body, err := c.DoRequest(ctx, "GET", "/configs", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var status domain.KernelStatus
+	if err := json.Unmarshal(body, &status); err != nil {
+		return nil, fmt.Errorf("json unmarshal: %w", err)
+	}
+	return &status, nil
+}
+
+func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload any) ([]byte, error) {
 	if c.st.IsExiting() {
 		return nil, context.Canceled
 	}
@@ -104,67 +225,4 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 	}
 
 	return body, nil
-}
-
-func (c *APIClient) ForceReloadKernel(ctx context.Context, payload map[string]interface{}) error {
-	if c.st.IsExiting() {
-		return context.Canceled
-	}
-	_, err := c.DoRequest(ctx, http.MethodPut, "/configs?force=true", payload)
-	return err
-}
-
-func (c *APIClient) RestartKernel(ctx context.Context) error {
-	if c.st.IsExiting() {
-		return context.Canceled
-	}
-	_, err := c.DoRequest(ctx, http.MethodPost, "/restart", nil)
-	if err == nil {
-		c.httpClient.CloseIdleConnections()
-	}
-	return err
-}
-
-func (c *APIClient) WaitForReady(ctx context.Context) error {
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if c.st.IsExiting() {
-				return context.Canceled
-			}
-			reqCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
-			_, err := c.DoRequest(reqCtx, "GET", "/version", nil)
-			cancel()
-
-			if err == nil {
-				return nil
-			}
-		}
-	}
-}
-
-func (c *APIClient) SyncConfigToKernel(ctx context.Context, payload map[string]interface{}) error {
-	if c.st.IsExiting() {
-		return context.Canceled
-	}
-	_, err := c.DoRequest(ctx, http.MethodPatch, "/configs", payload)
-	return err
-}
-
-func (c *APIClient) GetKernelStatus(ctx context.Context) (*domain.KernelStatus, error) {
-	body, err := c.DoRequest(ctx, "GET", "/configs", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var status domain.KernelStatus
-	if err := json.Unmarshal(body, &status); err != nil {
-		return nil, fmt.Errorf("json unmarshal: %w", err)
-	}
-	return &status, nil
 }
