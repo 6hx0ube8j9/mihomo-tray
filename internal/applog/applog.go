@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/fs"
 )
 
@@ -89,10 +90,10 @@ func (w *RollingLogWriter) Close() error {
 }
 
 func Init(baseDir string) *RollingLogWriter {
-	logDir := filepath.Join(baseDir, "logs")
+	logDir := filepath.Join(baseDir, domain.LogsDir)
 	writer := &RollingLogWriter{
-		logPath: filepath.Join(logDir, "mihomo-tray.log"),
-		bakPath: filepath.Join(logDir, "mihomo-tray.log.bak"),
+		logPath: filepath.Join(logDir, domain.AppLogFile),
+		bakPath: filepath.Join(logDir, domain.AppLogFile+".bak"),
 	}
 
 	GlobalLogLevel.Set(slog.LevelError)
@@ -101,7 +102,8 @@ func Init(baseDir string) *RollingLogWriter {
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 			if a.Key == slog.TimeKey {
 				t := a.Value.Time()
-				a.Value = slog.StringValue(t.Format("2006/01/02 15:04:05"))
+				// 统一为标准时间戳格式
+				a.Value = slog.StringValue(t.Format(domain.TimeFormatLog))
 			}
 			return a
 		},
