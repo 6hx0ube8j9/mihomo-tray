@@ -80,7 +80,8 @@ func (a *Application) AddRemoteProfile(ctx context.Context, rawName, url string,
 }
 
 func (a *Application) SwitchProfile(ctx context.Context, targetPath string) error {
-	if targetPath != "" && targetPath == a.Cfg.GetActivePath() {
+	oldActive := a.Cfg.GetActivePath()
+	if targetPath != "" && targetPath == oldActive {
 		a.ForcePushUIState()
 		return nil
 	}
@@ -96,7 +97,7 @@ func (a *Application) SwitchProfile(ctx context.Context, targetPath string) erro
 
 	target := targetPath
 	if target == "" {
-		target = a.Cfg.GetActivePath()
+		target = oldActive
 	}
 
 	if target != "" {
@@ -105,11 +106,11 @@ func (a *Application) SwitchProfile(ctx context.Context, targetPath string) erro
 		}
 	}
 
-	a.Cfg.SetActiveProfile(target)
-
-	if err := a.applyActiveConfig(ctx, "切换配置"); err != nil {
+	if err := a.DeployAndApplyConfig(ctx, target, "切换配置"); err != nil {
 		return err
 	}
+
+	a.Cfg.SetActiveProfile(target)
 
 	a.restartWebUIIfOpen()
 	return nil
