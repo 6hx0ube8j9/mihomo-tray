@@ -55,7 +55,7 @@ func (a *Application) ClearWebUICache() error {
 		time.Sleep(150 * time.Millisecond)
 	}
 
-	cacheDir := filepath.Join(a.Cfg.BaseDir(), "webcache")
+	cacheDir := filepath.Join(a.Cfg.BaseDir(), domain.WebCacheDir)
 	if err := os.RemoveAll(cacheDir); err != nil {
 		return fmt.Errorf("清理缓存目录失败，文件可能正被占用: %w", err)
 	}
