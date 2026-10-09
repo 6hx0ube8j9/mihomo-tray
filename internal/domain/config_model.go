@@ -91,28 +91,18 @@ func (p *ProfileItem) FormatLastUpdateText() string {
 		return "从未更新"
 	}
 
-	t := time.Unix(p.LastUpdate, 0).Local()
-	diff := time.Since(t)
-
+	diff := time.Since(time.Unix(p.LastUpdate, 0))
 	if diff < time.Minute {
 		return "刚刚"
 	}
 
-	if diff < 24*time.Hour {
-		if hours := int(diff / time.Hour); hours >= 1 {
-			return fmt.Sprintf("%d 小时前", hours)
-		}
-		return fmt.Sprintf("%d 分钟前", int(diff/time.Minute))
-	}
-
-	if days := int(diff / (24 * time.Hour)); days <= 3 {
+	if days := int(diff / (24 * time.Hour)); days >= 1 {
 		return fmt.Sprintf("%d 天前", days)
 	}
-
-	if t.Year() != time.Now().Year() {
-		return t.Format(TimeFormatFull)
+	if hours := int(diff / time.Hour); hours >= 1 {
+		return fmt.Sprintf("%d 小时前", hours)
 	}
-	return t.Format(TimeFormatShort)
+	return fmt.Sprintf("%d 分钟前", int(diff/time.Minute))
 }
 
 func (p *ProfileItem) IsUpdateDue() bool {
