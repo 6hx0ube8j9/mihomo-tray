@@ -8,15 +8,10 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-// =====================================================================
-// 核心语法糖 (双轨日志与弹窗透传规范)
-// =====================================================================
-
 func (a *Application) asyncRun(title string, task func() error) {
 	go func() {
 		if err := task(); err != nil {
-			slog.Error("异步任务执行失败", "action", title, "err", err)
-			
+			slog.Error("任务执行失败", "action", title, "err", err)
 			if a.ui != nil {
 				a.ui.ShowError(title, err.Error())
 			}
@@ -26,10 +21,6 @@ func (a *Application) asyncRun(title string, task func() error) {
 
 func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand) {
 	switch cmd.Action {
-
-	// =====================================================================
-	// 1. 配置文件操作 (对接 profile_ops.go)
-	// =====================================================================
 	case domain.ActionOpenProfileManager:
 		if a.ui != nil {
 			a.ui.ShowProfileManager(a.GetUIStateSnapshot())
@@ -41,7 +32,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				if selectedPath, ok := a.ui.OpenYAMLFileDialog(); ok {
 					if err := a.ImportLocalProfile(ctx, selectedPath); err != nil {
 						slog.Error("导入本地配置失败", "path", selectedPath, "err", err)
-						a.ui.ShowError("导入配置失败", err.Error())
+						a.ui.ShowError("导入配置", err.Error())
 					}
 				}
 			}
@@ -54,13 +45,13 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				if ok {
 					if err := a.AddRemoteProfile(ctx, name, url, interval); err != nil {
 						slog.Error("添加订阅失败", "url", url, "err", err)
-						a.ui.ShowError("添加订阅失败", err.Error())
+						a.ui.ShowError("添加订阅", err.Error())
 					}
 				}
 			}
 		}()
 
-    case domain.ActionEditProfileInfo:
+	case domain.ActionEditProfileInfo:
 		if p, ok := a.GetProfileInfo(cmd.Payload); ok {
 			go func(profile domain.ProfileItem) {
 				if a.ui == nil {
@@ -72,7 +63,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				if !ok {
 					return
 				}
-				
+
 				var err error
 				if isRemote {
 					err = a.EditRemoteProfile(ctx, profile.Path, name, url, interval)
@@ -82,35 +73,35 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 				if err != nil {
 					slog.Error("保存配置信息失败", "path", profile.Path, "err", err)
-					a.ui.ShowError("保存失败", err.Error())
+					a.ui.ShowError("保存配置", err.Error())
 				}
 			}(p)
 		}
 
 	case domain.ActionUpdateRemoteProfile:
 		if p, ok := a.GetProfileInfo(cmd.Payload); ok {
-			a.asyncRun("拉取订阅失败", func() error { return a.UpdateRemoteProfile(ctx, p.Path, true) })
+			a.asyncRun("更新订阅", func() error { return a.UpdateRemoteProfile(ctx, p.Path, true) })
 		}
 
 	case domain.ActionSetProfileInterval:
 		a.SetProfileInterval(cmd.Payload)
 
 	case domain.ActionSwitchProfile:
-		a.asyncRun("切换配置失败", func() error { return a.SwitchProfile(ctx, cmd.Payload) })
+		a.asyncRun("切换配置", func() error { return a.SwitchProfile(ctx, cmd.Payload) })
 
 	case domain.ActionRemoveProfile:
 		targetPath := cmd.Payload
 		go func(path string) {
 			if a.ui != nil {
-				if !a.ui.ShowConfirm("确认删除配置", "删除后本地文件将被同步清理且无法恢复。\n\n是否继续？") {
+				if !a.ui.ShowConfirm("删除配置", "确认删除该配置文件？本地文件将被清理且不可恢复。") {
 					return
 				}
 			}
-			
+
 			if err := a.DeleteProfile(path); err != nil {
-				slog.Error("删除配置后重置状态失败", "err", err)
+				slog.Error("删除配置失败", "err", err)
 				if a.ui != nil {
-					a.ui.ShowError("删除后重置失败", err.Error())
+					a.ui.ShowError("删除配置", err.Error())
 				}
 			}
 		}(targetPath)
@@ -123,16 +114,13 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		a.MoveProfileDown(cmd.Payload)
 		a.pushUIState()
 
-	// =====================================================================
-	// 2. 内核动态参数配置 (对接 config_ops.go)
-	// =====================================================================
 	case domain.ActionRequestEditPort:
 		go func() {
 			if a.ui != nil {
 				cMixed, cSocks, cHttp := a.GetPortConfigSnapshot()
 				nMixed, nSocks, nHttp, ok := a.ui.ShowPortEditor(cMixed, cSocks, cHttp)
 				if ok {
-					a.asyncRun("端口设置失败", func() error {
+					a.asyncRun("端口设置", func() error {
 						return a.ApplyPortConfig(ctx, nMixed, nSocks, nHttp)
 					})
 				}
@@ -145,7 +133,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				cAddr, cSec, cOnline, cSys, cRemoteURL := a.GetControllerConfigSnapshot()
 				nAddr, nSec, nOnline, nSys, nRemoteURL, ok := a.ui.ShowControllerEditor(cAddr, cSec, cOnline, cSys, cRemoteURL)
 				if ok {
-					a.asyncRun("面板设置失败", func() error {
+					a.asyncRun("面板设置", func() error {
 						return a.ApplyControllerConfig(nAddr, nSec, nOnline, nSys, nRemoteURL)
 					})
 				}
@@ -153,7 +141,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		}()
 
 	case domain.ActionToggleTun:
-		a.asyncRun("TUN 状态切换失败", func() error {
+		a.asyncRun("TUN 模式", func() error {
 			restarted, err := a.ToggleTun(ctx, cmd.Payload == "true")
 			if err != nil {
 				return err
@@ -167,7 +155,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		})
 
 	case domain.ActionToggleProxy:
-		a.asyncRun("系统代理设置失败", func() error {
+		a.asyncRun("系统代理", func() error {
 			a.ToggleProxy(cmd.Payload == "true")
 			time.Sleep(100 * time.Millisecond)
 			a.ForcePushUIState()
@@ -175,7 +163,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		})
 
 	case domain.ActionSwitchMode:
-		a.asyncRun("路由模式切换失败", func() error {
+		a.asyncRun("路由模式", func() error {
 			if err := a.SwitchMode(ctx, cmd.Payload); err != nil {
 				return err
 			}
@@ -185,7 +173,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		})
 
 	case domain.ActionToggleAllowLan:
-		a.asyncRun("局域网代理设置失败", func() error {
+		a.asyncRun("局域网代理", func() error {
 			if err := a.ToggleAllowLan(ctx, cmd.Payload == "true"); err != nil {
 				return err
 			}
@@ -197,9 +185,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	case domain.ActionForceSyncAPI:
 		a.ForceSyncAPI()
 
-	// =====================================================================
-	// 3. 操作系统与生命周期控制 (对接 sys_ops.go & transaction.go)
-	// =====================================================================
 	case domain.ActionOpenBaseDir:
 		a.OpenBaseDir()
 
@@ -207,10 +192,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		a.OpenAppConfig()
 
 	case domain.ActionOpenConfigFile:
-		a.asyncRun("打开配置文件失败", func() error { return a.OpenConfigFile(cmd.Payload) })
+		a.asyncRun("打开配置", func() error { return a.OpenConfigFile(cmd.Payload) })
 
 	case domain.ActionEditCurrentConfig:
-		a.asyncRun("无法编辑配置", func() error { return a.EditCurrentConfig() })
+		a.asyncRun("编辑配置", func() error { return a.EditCurrentConfig() })
 
 	case domain.ActionToggleAutoStart:
 		restarted := a.ToggleAutoStart(cmd.Payload == "true")
@@ -227,20 +212,17 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		a.pushUIState()
 
 	case domain.ActionReloadConfig:
-		a.asyncRun("重载失败", func() error { return a.ReloadConfig(ctx) })
+		a.asyncRun("重载配置", func() error { return a.ReloadConfig(ctx) })
 
 	case domain.ActionRestartKernel:
-		a.asyncRun("重启失败", func() error { return a.RestartKernel(ctx) })
+		a.asyncRun("重启内核", func() error { return a.RestartKernel(ctx) })
 
 	case domain.ActionExitApp:
-		slog.Info("收到退出指令，准备安全销毁应用")
+		slog.Info("收到退出指令")
 		if a.ui != nil {
 			a.ui.Exit()
 		}
 
-	// =====================================================================
-	// 4. Web 面板与偏好设置 (对接 webui_ops.go & config_ops.go)
-	// =====================================================================
 	case domain.ActionToggleSystemBrowser:
 		a.ToggleSystemBrowser(cmd.Payload == "true")
 		a.pushUIState()
@@ -250,36 +232,36 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		a.pushUIState()
 
 	case domain.ActionOpenWebUI:
-		a.asyncRun("打开面板失败", func() error { return a.OpenWebUI() })
+		a.asyncRun("打开面板", func() error { return a.OpenWebUI() })
 
 	case domain.ActionCopyWebUIPassword:
 		if err := a.CopyWebUIPassword(); err != nil {
-			slog.Warn("尝试复制密码失败", "err", err)
+			slog.Warn("复制密码失败", "err", err)
 			if a.ui != nil {
-				a.ui.ShowError("复制失败", err.Error())
+				a.ui.ShowError("复制密码", err.Error())
 			}
 		} else {
 			if a.ui != nil {
-				a.ui.ShowNotification("复制成功", "访问密码已复制到剪贴板。")
+				a.ui.ShowNotification("复制成功", "密码已复制到剪贴板。")
 			}
 		}
 
 	case domain.ActionClearWebUICache:
 		go func() {
 			if a.ui != nil {
-				if !a.ui.ShowConfirm("清理确认", "这将清除面板的所有个性化设置（如主题、布局等）且不可恢复。\n\n是否继续？") {
+				if !a.ui.ShowConfirm("清理缓存", "将清除面板的本地设置与缓存，是否继续？") {
 					return
 				}
 			}
 			if err := a.ClearWebUICache(); err != nil {
-				slog.Error("清理 Web 面板缓存异常", "err", err)
+				slog.Error("清理缓存失败", "err", err)
 				if a.ui != nil {
-					a.ui.ShowError("清理失败", err.Error())
+					a.ui.ShowError("清理缓存", err.Error())
 				}
 			} else {
-				slog.Info("Web 面板缓存已手动清理")
+				slog.Info("Web 面板缓存已清理")
 				if a.ui != nil {
-					a.ui.ShowNotification("清理完成", "本地面板缓存已彻底清除。")
+					a.ui.ShowNotification("清理完成", "面板缓存已清除。")
 				}
 			}
 		}()
