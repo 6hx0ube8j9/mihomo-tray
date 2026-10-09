@@ -25,15 +25,15 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 		dec := yaml.NewDecoder(bytes.NewReader(sourceYAML))
 		if err := dec.Decode(&root); err != nil {
 			if !errors.Is(err, io.EOF) {
-				return nil, fmt.Errorf("YAML 语法解析错误: %w", err)
+				return nil, fmt.Errorf("yaml parse: %w", err)
 			}
 		} else {
 			var extra yaml.Node
 			err := dec.Decode(&extra)
 			if err == nil {
-				return nil, errors.New("配置文件包含多文档定义 (检测到额外的 '---' 分隔，请保持单个文档格式)")
+				return nil, errors.New("multiple YAML documents detected ('---')")
 			} else if !errors.Is(err, io.EOF) {
-				return nil, fmt.Errorf("YAML 结构解析错误: %w", err)
+				return nil, fmt.Errorf("yaml stream: %w", err)
 			}
 		}
 	}
@@ -43,11 +43,11 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 	}
 	rootMap := root.Content[0]
 	if rootMap.Kind != yaml.MappingNode {
-		return nil, errors.New("配置文件根节点必须是键值映射格式 (Mapping)")
+		return nil, errors.New("root node must be a mapping")
 	}
 
 	if len(rootMap.Content) > 0 && rootMap.Content[0].Column != 1 {
-		return nil, fmt.Errorf("配置文件首行缩进错误 (第 %d 列存在多余空格)", rootMap.Content[0].Column)
+		return nil, fmt.Errorf("invalid indentation at column %d", rootMap.Content[0].Column)
 	}
 
 	deleteKeys(rootMap, "redir-port", "tproxy-port")
@@ -131,7 +131,7 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 
 	outBytes, err := yaml.Marshal(&root)
 	if err != nil {
-		return nil, fmt.Errorf("运行配置序列化失败: %w", err)
+		return nil, fmt.Errorf("yaml marshal: %w", err)
 	}
 
 	return &ComposeResult{
