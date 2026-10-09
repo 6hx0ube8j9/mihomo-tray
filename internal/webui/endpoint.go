@@ -9,7 +9,7 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-const defaultWebUIHost = "127.0.0.1"
+const defaultWebUIHost = domain.LocalhostIP
 
 func parseAPIAddress(apiAddr string) (host string, port string, appHostPort string) {
 	cleanAddr := strings.TrimRight(apiAddr, "/")
@@ -25,7 +25,7 @@ func parseAPIAddress(apiAddr string) (host string, port string, appHostPort stri
 		_, defaultPort, _ := net.SplitHostPort(domain.DefaultExternalController)
 		port = defaultPort
 		if port == "" {
-			port = "9090"
+			port = domain.DefaultExternalControllerPort
 		}
 	}
 
