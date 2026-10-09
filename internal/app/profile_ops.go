@@ -79,7 +79,8 @@ func (a *Application) AddRemoteProfile(ctx context.Context, rawName, url string,
 }
 
 func (a *Application) SwitchProfile(ctx context.Context, targetPath string) error {
-	if targetPath != "" && targetPath == a.Cfg.GetActivePath() {
+	currentActive := a.Cfg.GetActivePath()
+	if targetPath != "" && targetPath == currentActive {
 		a.ForcePushUIState()
 		return nil
 	}
@@ -95,22 +96,61 @@ func (a *Application) SwitchProfile(ctx context.Context, targetPath string) erro
 
 	target := targetPath
 	if target == "" {
-		target = a.Cfg.GetActivePath()
+		target = currentActive
 	}
 
 	if target != "" {
 		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
 			return fmt.Errorf("目标配置文件无效: %w", err)
 		}
+		if err := a.validateProfileWithKernel(target); err != nil {
+			return err
+		}
 	}
 
+	oldActive := currentActive
 	a.Cfg.SetActiveProfile(target)
 
 	if err := a.applyActiveConfig(ctx, "切换配置"); err != nil {
-		return err
+		slog.Error("应用新配置失败，正在自动回滚原配置", "failedTarget", target, "rollbackTo", oldActive, "err", err)
+		a.Cfg.SetActiveProfile(oldActive)
+		_ = a.applyActiveConfig(context.Background(), "回滚原配置")
+		return fmt.Errorf("内核加载新配置失败，系统已自动保留原配置运行:\n\n%w", err)
 	}
 
 	a.restartWebUIIfOpen()
+	return nil
+}
+
+func (a *Application) validateProfileWithKernel(targetRelPath string) error {
+	if targetRelPath == "" {
+		return nil
+	}
+
+	absPath := a.Cfg.GetProfileAbsPath(targetRelPath)
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return fmt.Errorf("读取配置文件失败: %w", err)
+	}
+
+	composeRes, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), content)
+	if err != nil {
+		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("配置合成语法校验失败 [%s]:\n%v", filepath.Base(targetRelPath), err))
+		return fmt.Errorf("配置文件语法或规则存在错误: %w", err)
+	}
+
+	testConfigPath := filepath.Join(a.Cfg.BaseDir(), "config.test.tmp")
+	if err := os.WriteFile(testConfigPath, composeRes.YAML, 0644); err != nil {
+		return fmt.Errorf("生成测试配置文件失败: %w", err)
+	}
+	defer os.Remove(testConfigPath)
+
+	kernelPath := core.GetKernelPath(a.Cfg.BaseDir())
+	if err := core.ValidateConfig(kernelPath, a.Cfg.BaseDir(), testConfigPath); err != nil {
+		a.Kernel.WriteCoreLog("CONFIG", fmt.Sprintf("内核校验配置文件失败 [%s]:\n%v", filepath.Base(targetRelPath), err))
+		return fmt.Errorf("内核拒绝加载该配置 (配置项不受支持或格式异常):\n\n%w", err)
+	}
+
 	return nil
 }
 
