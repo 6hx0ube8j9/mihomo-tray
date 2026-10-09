@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os/exec"
 	"strings"
@@ -35,15 +36,15 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		return errors.New("无法读取校验输出: " + err.Error())
+		return fmt.Errorf("stdout pipe: %w", err)
 	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		return errors.New("无法读取校验错误: " + err.Error())
+		return fmt.Errorf("stderr pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
-		return errors.New("校验进程启动失败: " + err.Error())
+		return fmt.Errorf("start validator: %w", err)
 	}
 
 	resultCh := make(chan error, 1)
@@ -113,7 +114,7 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 			if errMsg != "" {
 				resultCh <- errors.New(errMsg)
 			} else {
-				resultCh <- errors.New("内核校验进程意外退出 (请检查配置格式或内核版本兼容性)")
+				resultCh <- fmt.Errorf("exit status: %w", err)
 			}
 		} else {
 			resultCh <- nil
@@ -123,7 +124,7 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 	var finalErr error
 	select {
 	case <-ctx.Done():
-		finalErr = errors.New("配置校验超时 (10秒)，内核无响应")
+		finalErr = errors.New("validation timeout (10s)")
 	case err := <-resultCh:
 		finalErr = err
 	}
@@ -150,7 +151,6 @@ func extractFatalError(line string) (string, bool) {
 	if cleanMsg != "" {
 		return cleanMsg, true
 	}
-	
 	return line, true
 }
 
@@ -162,9 +162,8 @@ func extractLogMsg(output string) string {
 				return msg
 			}
 		}
-		
 		msg, _, _ := strings.Cut(after, "\n")
-		msg = strings.TrimRight(msg, "\r") 
+		msg = strings.TrimRight(msg, "\r")
 		return strings.TrimSpace(msg)
 	}
 
