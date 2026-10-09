@@ -6,7 +6,7 @@
   },
   "RT_MANIFEST": {
     "#1": {
-      "0409": "runtime.manifest"
+      "0409": "assembly.xml"
     }
   },
   "RT_VERSION": {
