@@ -17,9 +17,9 @@ import (
 	"golang.org/x/sys/windows"
 
 	"mihomo-tray/internal/app"
-	"mihomo-tray/internal/applog"
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/logger"
 	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
 	"mihomo-tray/internal/ui"
