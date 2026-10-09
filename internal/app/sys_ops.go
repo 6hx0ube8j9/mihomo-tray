@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -13,13 +14,13 @@ func (a *Application) ElevatePrivilege(rollback func()) (restarted bool) {
 	if sys.IsAdmin() {
 		return false
 	}
-	slog.Debug("当前权限不足，正在请求管理员权限")
+	slog.Debug("请求管理员提权")
 	err := sys.RunAsAdmin(a.Cfg.ExePath(), a.Cfg.BaseDir(), "--restarting")
 	if err == nil {
-		slog.Info("已成功拉起管理员权限进程，当前进程即将退出")
+		slog.Info("提权进程已启动，当前进程即将退出")
 		return true
 	}
-	slog.Warn("管理员提权请求被取消或失败，已回滚相关设置")
+	slog.Warn("提权取消或失败，已回滚设置", "err", err)
 	if rollback != nil {
 		rollback()
 	}
@@ -33,7 +34,7 @@ func (a *Application) CheckAndReconcilePrivileges(isStartup bool) {
 
 	if needsAdmin && !sys.IsAdmin() {
 		if isStartup {
-			slog.Warn("当前以普通用户权限运行，已暂时停用需要管理员权限的功能")
+			slog.Warn("非管理员权限运行，停用特权项")
 			a.revertPrivilegedConfig()
 			return
 		}
@@ -92,7 +93,7 @@ func (a *Application) OpenConfigFile(targetRelPath string) error {
 		targetRelPath = a.Cfg.GetActivePath()
 	}
 	if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
-		return fmt.Errorf("配置文件不存在或已损坏: %w", err)
+		return fmt.Errorf("配置文件错误: %w", err)
 	}
 	absPath := a.Cfg.GetProfileAbsPath(targetRelPath)
 	_ = sys.ExecuteSystemCommand(absPath)
@@ -102,7 +103,7 @@ func (a *Application) OpenConfigFile(targetRelPath string) error {
 func (a *Application) EditCurrentConfig() error {
 	targetRelPath := a.Cfg.GetActivePath()
 	if targetRelPath == "" {
-		return fmt.Errorf("当前未选择任何运行配置")
+		return errors.New("未选择运行配置")
 	}
 	return a.OpenConfigFile(targetRelPath)
 }
