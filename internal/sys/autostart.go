@@ -158,3 +158,10 @@ func writeUTF16LE(filename string, s string) error {
 	}
 	return os.WriteFile(filename, b, 0600)
 }
+
+func RunScheduledTask(taskName string) error {
+	schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
+	cmd := exec.Command(schtasksPath, "/Run", "/TN", taskName)
+	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+	return cmd.Run()
+}
