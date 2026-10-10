@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"mihomo-tray/internal/sys"
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/sys"
 )
 
 type Event int
@@ -76,7 +76,7 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 	if m.tryAttachExistingTarget(safeDebugPort, appHostPort, eventCh) {
 		return
 	}
-    
+
 	browserPath, browserTag := DetectAvailableBrowser()
 	if browserPath == "" {
 		slog.Warn("未探测到受支持的浏览器，降级为默认浏览器打开")
@@ -177,8 +177,8 @@ func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, browserTag, fin
 	}
 
 	slog.Error("超时未能捕获浏览器窗口句柄")
-	
-	realPid := m.isolatedPid.Load() 
+
+	realPid := m.isolatedPid.Load()
 	if realPid != 0 && sys.IsPidRunning(realPid, "") {
 		slog.Warn("强制清理启动超时的失控浏览器进程", "PID", realPid)
 		sys.HardKill(realPid)
@@ -190,9 +190,7 @@ func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, browserTag, fin
 func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, mainPid uint32, eventCh chan<- Event) bool {
 	realBrowserPid := mainPid
 
-	filterFn := func(title string) bool {
-		return !isStandardBrowserWindow(title)
-	}
+	filterFn := isStandardBrowserWindow
 
 	for i := 0; i < 30; i++ {
 		time.Sleep(100 * time.Millisecond)
@@ -218,7 +216,7 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 				emitEvent(eventCh, EventReady)
 				return true
 			}
-		} else if titleToSearch != "" {
+		} else if titleToSearch != "" || realBrowserPid != 0 {
 			if sys.FindAndFocusAppWindow(titleToSearch, appHostPort, realBrowserPid, filterFn) {
 				slog.Info("WebUI 窗口捕获成功(备用路径)")
 				emitEvent(eventCh, EventReady)
