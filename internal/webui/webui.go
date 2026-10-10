@@ -224,7 +224,7 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 
 		if isLive || titleToSearch != "" || realBrowserPid != 0 {
 			if m.findAndFocusWebUI(titleToSearch, appHostPort, realBrowserPid) {
-				slog.Info("WebUI 窗口捕获成功(备用路径)")
+				slog.Info("WebUI 窗口捕获成功", "live", isLive)
 				emitEvent(eventCh, EventReady)
 				return true
 			}
