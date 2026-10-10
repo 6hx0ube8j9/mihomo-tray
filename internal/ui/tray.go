@@ -109,8 +109,9 @@ func (t *Tray) loadEmbeddedIcons() {
 		t.icons[id] = ico
 	}
 
-	if len(t.icons) > domain.IconStop && t.icons[domain.IconStop] != nil {
-		t.ni.SetIcon(t.icons[domain.IconStop])
+	idx := int(domain.IconStop)
+	if idx < len(t.icons) && t.icons[idx] != nil {
+		t.ni.SetIcon(t.icons[idx])
 	}
 }
 
