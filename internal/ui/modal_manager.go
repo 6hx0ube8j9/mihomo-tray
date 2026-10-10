@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"log/slog"
 	"sync"
 
 	"github.com/tailscale/win"
@@ -22,6 +23,7 @@ func (m *ModalManager) TryAcquire(key string) bool {
 	defer m.mu.Unlock()
 
 	if hwnd, exists := m.active[key]; exists {
+		slog.Debug("弹窗已存在，激活已有窗口", "key", key, "hwnd", hwnd)
 		ActivateWindow(hwnd)
 		return false
 	}
