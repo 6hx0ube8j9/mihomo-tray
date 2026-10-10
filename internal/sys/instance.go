@@ -10,6 +10,10 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+var (
+	procAllowSetForegroundWnd = modUser32.NewProc("AllowSetForegroundWindow")
+)
+
 type SingleInstanceGuard struct {
 	hMutex windows.Handle
 	hEvent windows.Handle
