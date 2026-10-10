@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"log/slog"
+
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
 	"mihomo-tray/internal/domain"
@@ -50,7 +52,7 @@ func (d *Dashboard) createWindow() {
 	}.Create()
 
 	if err != nil {
-		slog.Error("配置管理窗口创建失败", "err", err)
+		slog.Error("创建配置管理窗口失败", "err", err)
 		return
 	}
 
