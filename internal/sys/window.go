@@ -38,8 +38,6 @@ const (
 	SPI_GETWORKAREA = 0x0030
 	SM_CXSCREEN     = 0
 	SM_CYSCREEN     = 1
-	ASFW_ANY        = 0xFFFFFFFF
-
 	dpiAwarenessPerMonitorV2 = uintptr(0xFFFFFFFC) // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 (-4)
 )
 
