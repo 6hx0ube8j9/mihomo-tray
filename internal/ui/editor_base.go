@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"log/slog"
+
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
 	"github.com/tailscale/win"
@@ -49,27 +51,26 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 		dlg.Accept()
 	}
 
-	layoutChildren := append(cfg.Widgets,
+	btnSize := Size{Width: 80, Height: 26}
+	layoutChildren := make([]Widget, 0, len(cfg.Widgets)+2)
+	layoutChildren = append(layoutChildren, cfg.Widgets...)
+	layoutChildren = append(layoutChildren,
 		VSpacer{},
 		Composite{
 			Layout: HBox{MarginsZero: true, Spacing: 10},
 			Children: []Widget{
 				HSpacer{},
 				PushButton{
-					AssignTo: &acceptPB,
-					Text:     cfg.AcceptBtnText,
-					MinSize:  Size{Width: 80, Height: 26},
-					OnClicked: func() {
-						submit()
-					},
+					AssignTo:  &acceptPB,
+					Text:      cfg.AcceptBtnText,
+					MinSize:   btnSize,
+					OnClicked: submit,
 				},
 				PushButton{
-					AssignTo: &cancelPB,
-					Text:     cfg.CancelBtnText,
-					MinSize:  Size{Width: 80, Height: 26},
-					OnClicked: func() {
-						dlg.Cancel()
-					},
+					AssignTo:  &cancelPB,
+					Text:      cfg.CancelBtnText,
+					MinSize:   btnSize,
+					OnClicked: func() { dlg.Cancel() },
 				},
 			},
 		},
@@ -84,6 +85,7 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	}.Create(owner)
 
 	if err != nil {
+		slog.Error("模态编辑器窗口创建失败", "title", cfg.Title, "err", err)
 		return EditorResult{Accepted: false, Error: err}
 	}
 
