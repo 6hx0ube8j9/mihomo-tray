@@ -30,7 +30,6 @@ var (
 	procGetSystemMetrics      = modUser32.NewProc("GetSystemMetrics")
 	procSetForeground         = modUser32.NewProc("SetForegroundWindow")
 	procGetWindow             = modUser32.NewProc("GetWindow")
-	procAllowSetForegroundWnd = modUser32.NewProc("AllowSetForegroundWindow")
 )
 
 const (
