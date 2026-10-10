@@ -52,12 +52,20 @@ func main() {
 		defer logWriter.Close()
 	}
 
+	exitProcess := func(code int) {
+		guard.Close()
+		if logWriter != nil {
+			_ = logWriter.Close()
+		}
+		os.Exit(code)
+	}
+
 	admin := sys.IsAdmin()
 	cfgMgr := config.NewManager(baseDir, exePath, admin)
 	cfgMgr.LoadAndInitMemory()
 	logger.SyncLogLevel(cfgMgr.GetConfig().General.TrayLogLevel)
 
-	slog.Info("程序启动", "pid", os.Getpid(), "dir", baseDir, "admin", admin)
+	slog.Info("==================== 程序启动 ====================", "pid", os.Getpid(), "admin", admin, "dir", baseDir)
 
 	cfg := cfgMgr.GetConfig()
 
@@ -73,7 +81,7 @@ func main() {
 	if osTaskExists {
 		if isMine {
 			if !cfgAutostart {
-				slog.Info("开机自启已禁用，清除系统残留任务")
+				slog.Info("开机自启动已禁用，移除计划任务")
 				sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, false)
 				finalAutostart = false
 			}
@@ -85,7 +93,7 @@ func main() {
 		}
 	} else {
 		if cfgAutostart {
-			slog.Info("开机自启已启用，注册系统计划任务")
+			slog.Info("开机自启动已启用，注册计划任务")
 			sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
 		}
 	}
@@ -101,30 +109,27 @@ func main() {
 
 	if !admin && !isAutostart {
 		if needsAdminStartup {
-			slog.Info("检测到高级网络特性需要管理员权限，准备启动提权")
+			slog.Info("当前配置需要管理员权限，执行提权流程")
 
 			if cfgAutostart && osTaskExists && isMine {
 				slog.Debug("尝试通过计划任务静默提权")
 				if err := sys.RunScheduledTask(domain.AppTaskName); err == nil {
-					slog.Info("静默唤起成功，当前实例退出")
-					guard.Close()
-					os.Exit(0)
+					slog.Info("计划任务提权成功，当前实例退出")
+					exitProcess(0)
 				} else {
-					slog.Warn("静默唤起失败，回退至标准 UAC", "err", err)
+					slog.Warn("计划任务提权失败，回退至系统 UAC 弹窗", "err", err)
 				}
 			}
 
 			err := sys.RunAsAdmin(exePath, baseDir, "--restarting")
 			if sys.IsUserCancelled(err) {
-				slog.Info("用户取消提权，程序退出")
-				guard.Close()
-				os.Exit(0)
+				slog.Info("用户取消授权，程序退出")
+				exitProcess(0)
 			} else if err == nil {
-				slog.Info("UAC 提权成功，当前受限实例退出")
-				guard.Close()
-				os.Exit(0)
+				slog.Info("UAC 授权成功，受限实例退出")
+				exitProcess(0)
 			} else {
-				slog.Error("UAC 启动失败", "err", err)
+				slog.Error("UAC 提权启动失败", "err", err)
 			}
 		}
 	}
@@ -135,7 +140,7 @@ func main() {
 	runtimeState := state.NewRuntimeState()
 	application := app.NewApplication(cfgMgr, runtimeState)
 
-	slog.Debug("挂载 UI 引擎")
+	slog.Debug("初始化托盘引擎")
 	uiEngine := ui.NewEngine(ctx, cancel, application.UICommandCh, application.UIStateNotifyCh, application.GetUIStateSnapshot)
 	application.SetUIPort(uiEngine)
 
@@ -145,7 +150,7 @@ func main() {
 		defer signal.Stop(sigCh)
 		select {
 		case sig := <-sigCh:
-			slog.Info("收到系统终止信号", "signal", sig)
+			slog.Info("接收到系统终止信号", "signal", sig)
 			cancel()
 		case <-ctx.Done():
 			return
@@ -156,22 +161,22 @@ func main() {
 		application.UICommandCh <- domain.UICommand{Action: domain.ActionOpenWebUI}
 	})
 
-	slog.Debug("启动后台服务")
+	slog.Debug("启动后台业务服务")
 	go func() {
 		<-uiEngine.ReadyCh
-		slog.Debug("UI 引擎已就绪，开始执行 Bootstrap")
+		slog.Debug("托盘引擎已就绪，开始执行初始化流程")
 		application.Bootstrap(ctx)
 	}()
 
-	slog.Debug("进入主线程事件循环")
+	slog.Debug("启动托盘事件循环")
 	if err := uiEngine.Run(); err != nil {
-		slog.Error("UI 引擎启动失败", "err", err)
+		slog.Error("托盘引擎运行异常", "err", err)
 	}
 
-	slog.Debug("UI 循环终止，释放系统资源")
+	slog.Info("托盘事件循环结束，开始清理资源")
 	cancel()
 
 	runtimeState.ForceExitPhase()
 	application.SafeShutdown(cancel)
-	slog.Info("程序已安全退出")
+	slog.Info("应用已安全退出")
 }
