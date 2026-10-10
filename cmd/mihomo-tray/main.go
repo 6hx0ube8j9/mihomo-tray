@@ -2,19 +2,13 @@ package main
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
-	"time"
-	"unsafe"
-
-	"golang.org/x/sys/windows"
 
 	"mihomo-tray/internal/app"
 	"mihomo-tray/internal/config"
@@ -24,22 +18,6 @@ import (
 	"mihomo-tray/internal/sys"
 	"mihomo-tray/internal/ui"
 )
-
-const (
-	AppMutex    = "Local\\Mihomo_Tray_Mutex"
-	ShowUIEvent = "Local\\Mihomo_Tray_Mutex_ShowUI"
-)
-
-func getPermissiveSecAttr() *windows.SecurityAttributes {
-	sd, err := windows.SecurityDescriptorFromString("D:(A;;GA;;;WD)S:(ML;;NW;;;LW)")
-	if err != nil {
-		return nil
-	}
-	var sa windows.SecurityAttributes
-	sa.Length = uint32(unsafe.Sizeof(sa))
-	sa.SecurityDescriptor = sd
-	return &sa
-}
 
 func main() {
 	runtime.LockOSThread()
@@ -62,54 +40,17 @@ func main() {
 		}
 	}
 
-	sa := getPermissiveSecAttr()
-	mName, _ := windows.UTF16PtrFromString(AppMutex)
-
-	var hM windows.Handle
-	var isAlreadyExist bool
-
-	maxRetries := 1
-	if isRestarting {
-		maxRetries = 50
-	}
-
-	for i := 0; i < maxRetries; i++ {
-		hM, err = windows.CreateMutex(sa, false, mName)
-		isAlreadyExist = errors.Is(err, windows.ERROR_ALREADY_EXISTS) ||
-			errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
-			err == windows.ERROR_ALREADY_EXISTS ||
-			err == windows.ERROR_ACCESS_DENIED
-
-		if !isAlreadyExist {
-			break
-		}
-		if hM != 0 {
-			_ = windows.CloseHandle(hM)
-			hM = 0
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-
-	if isAlreadyExist {
-		if hM != 0 {
-			_ = windows.CloseHandle(hM)
-		}
-
-		eName, _ := windows.UTF16PtrFromString(ShowUIEvent)
-		hEvent, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName)
-		if err == nil && hEvent != 0 {
-			sys.GrantForegroundPrivilege()
-			_ = windows.SetEvent(hEvent)
-			_ = windows.CloseHandle(hEvent)
-			time.Sleep(50 * time.Millisecond)
-		}
+	guard, isOwner := sys.TryAcquireSingleInstance(domain.AppMutexName, domain.ShowUIEventName, isRestarting)
+	if !isOwner {
+		sys.NotifyExistingInstance(domain.ShowUIEventName)
 		return
 	}
+	defer guard.Close()
 
-    logWriter := logger.Init(baseDir)
-    if logWriter != nil {
-        defer logWriter.Close()
-    }
+	logWriter := logger.Init(baseDir)
+	if logWriter != nil {
+		defer logWriter.Close()
+	}
 
 	admin := sys.IsAdmin()
 	cfgMgr := config.NewManager(baseDir, exePath, admin)
@@ -164,15 +105,9 @@ func main() {
 
 			if cfgAutostart && osTaskExists && isMine {
 				slog.Debug("尝试通过计划任务静默提权")
-				schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
-				cmd := exec.Command(schtasksPath, "/Run", "/TN", domain.AppTaskName)
-				cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
-
-				if err := cmd.Run(); err == nil {
+				if err := sys.RunScheduledTask(domain.AppTaskName); err == nil {
 					slog.Info("静默唤起成功，当前实例退出")
-					if hM != 0 {
-						windows.CloseHandle(hM)
-					}
+					guard.Close()
 					os.Exit(0)
 				} else {
 					slog.Warn("静默唤起失败，回退至标准 UAC", "err", err)
@@ -182,30 +117,16 @@ func main() {
 			err := sys.RunAsAdmin(exePath, baseDir, "--restarting")
 			if sys.IsUserCancelled(err) {
 				slog.Info("用户取消提权，程序退出")
-				if hM != 0 {
-					windows.CloseHandle(hM)
-				}
+				guard.Close()
 				os.Exit(0)
 			} else if err == nil {
 				slog.Info("UAC 提权成功，当前受限实例退出")
-				if hM != 0 {
-					windows.CloseHandle(hM)
-				}
+				guard.Close()
 				os.Exit(0)
 			} else {
 				slog.Error("UAC 启动失败", "err", err)
 			}
 		}
-	}
-
-	if hM != 0 {
-		defer windows.CloseHandle(hM)
-	}
-
-	eName, _ := windows.UTF16PtrFromString(ShowUIEvent)
-	hShowUIEvent, _ := windows.CreateEvent(sa, 0, 0, eName)
-	if hShowUIEvent != 0 {
-		defer windows.CloseHandle(hShowUIEvent)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -231,19 +152,9 @@ func main() {
 		}
 	}()
 
-	if hShowUIEvent != 0 {
-		go func() {
-			slog.Debug("监听进程唤醒事件")
-			for {
-				s, _ := windows.WaitForSingleObject(hShowUIEvent, windows.INFINITE)
-				if s != windows.WAIT_OBJECT_0 || ctx.Err() != nil {
-					return
-				}
-				slog.Info("捕获唤醒信号")
-				application.UICommandCh <- domain.UICommand{Action: domain.ActionOpenWebUI}
-			}
-		}()
-	}
+	guard.ListenWakeEvent(ctx, func() {
+		application.UICommandCh <- domain.UICommand{Action: domain.ActionOpenWebUI}
+	})
 
 	slog.Debug("启动后台服务")
 	go func() {
@@ -259,9 +170,6 @@ func main() {
 
 	slog.Debug("UI 循环终止，释放系统资源")
 	cancel()
-	if hShowUIEvent != 0 {
-		_ = windows.SetEvent(hShowUIEvent)
-	}
 
 	runtimeState.ForceExitPhase()
 	application.SafeShutdown(cancel)
