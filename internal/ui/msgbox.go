@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"log/slog"
 	"runtime"
 	"sync"
 	"syscall"
@@ -89,7 +90,12 @@ func ShowNativeMsgBox(owner walk.Form, title, message string, style walk.MsgBoxS
 		cbtHookMu.Unlock()
 	}()
 
-	ctx.hHook, _, _ = procSetWindowsHookExW.Call(uintptr(whCBT), globalCallback, 0, uintptr(tid))
+	hHook, _, err := procSetWindowsHookExW.Call(uintptr(whCBT), globalCallback, 0, uintptr(tid))
+	if hHook == 0 {
+		slog.Warn("安装弹窗居中钩子失败", "tid", tid, "err", err)
+	}
+	ctx.hHook = hHook
+
 	defer func() {
 		if ctx.hHook != 0 {
 			procUnhookWindowsHookEx.Call(ctx.hHook)
