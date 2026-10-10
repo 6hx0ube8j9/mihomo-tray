@@ -174,11 +174,3 @@ func GetProcessIdByPort(port string) uint32 {
 	}
 	return 0
 }
-
-// GrantForegroundPrivilege grants foreground activation rights to the background instance.
-// Called by the secondary instance in main.go before sending the wake-up event.
-// DO NOT DELETE: Removing this will trigger Windows focus stealing prevention, 
-// causing the WebUI window to lag for 0.5s and appear behind other windows.
-func GrantForegroundPrivilege() {
-	procAllowSetForegroundWnd.Call(ASFW_ANY)
-}
