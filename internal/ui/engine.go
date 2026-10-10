@@ -42,7 +42,7 @@ func NewEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- doma
 func (e *Engine) Run() error {
 	app, err := walk.InitApp()
 	if err != nil {
-		return fmt.Errorf("Walk 引擎初始化失败: %w", err)
+		return fmt.Errorf("初始化界面框架失败: %w", err)
 	}
 	e.app = app
 
@@ -53,21 +53,21 @@ func (e *Engine) Run() error {
 	}.Create()
 
 	if err != nil {
-		return fmt.Errorf("主控窗口创建失败: %w", err)
+		return fmt.Errorf("创建后台宿主窗口失败: %w", err)
 	}
 
 	e.modalMgr = NewModalManager()
-
 	e.Tray = NewTray(e)
 	e.Dashboard = NewDashboard(e)
 
 	go e.listenState()
 
-	slog.Debug("UI 引擎内存与句柄已分配完毕，释放启动屏障")
+	slog.Debug("UI 引擎已就绪")
 	close(e.ReadyCh)
 
 	app.Run()
 
+	slog.Debug("退出 UI 消息循环，清理资源")
 	e.Tray.Dispose()
 	e.Dashboard.Dispose()
 	e.mw.Dispose()
@@ -79,6 +79,7 @@ func (e *Engine) RunOnUI(fn func()) {
 	if e.app == nil {
 		return
 	}
+
 	if e.mw != nil && e.mw.Handle() != 0 && win.GetCurrentThreadId() == win.GetWindowThreadProcessId(e.mw.Handle(), nil) {
 		fn()
 		return
@@ -93,6 +94,7 @@ func (e *Engine) RunOnUI(fn func()) {
 	select {
 	case <-done:
 	case <-e.ctx.Done():
+		slog.Warn("UI 调度被取消，引擎已退出")
 	}
 }
 
@@ -137,15 +139,16 @@ func (e *Engine) listenState() {
 }
 
 func (e *Engine) SendCommand(action, payload string) {
-	slog.Debug("UI 指令发出", "action", action, "payload", payload)
+	slog.Debug("发出界面指令", "action", action, "payload", payload)
 	select {
 	case e.commandCh <- domain.UICommand{Action: action, Payload: payload}:
 	default:
-		slog.Warn("UI 指令管道阻塞，已丢弃", "action", action)
+		slog.Warn("指令通道已满，丢弃操作", "action", action)
 	}
 }
 
 func (e *Engine) Exit() {
+	slog.Debug("请求退出应用")
 	if e.cancel != nil {
 		e.cancel()
 	}
@@ -161,37 +164,28 @@ func (e *Engine) ShowProfileManager(state domain.UIState) {
 }
 
 func (e *Engine) ShowError(title, message string) {
-	if e.app == nil || e.mw == nil || e.modalMgr == nil {
-		slog.Error("UI未就绪，错误已丢弃", "title", title, "message", message)
-		return
-	}
-
-	go e.RunOnUI(func() {
-		key := "error|" + title + "|" + message
-		if !e.modalMgr.TryAcquire(key) {
-			return
-		}
-		defer e.modalMgr.Release(key)
-
-		ShowNativeMsgBox(e.activeOwner(), title, message, walk.MsgBoxOK|walk.MsgBoxIconError, func(hwnd win.HWND) {
-			e.modalMgr.RegisterHWND(key, hwnd)
-		})
-	})
+	slog.Error("弹出错误提示", "title", title, "message", message)
+	e.showModalAsync("error", title, message, walk.MsgBoxOK|walk.MsgBoxIconError)
 }
 
 func (e *Engine) ShowInfo(title, message string) {
+	e.showModalAsync("info", title, message, walk.MsgBoxOK|walk.MsgBoxIconInformation)
+}
+
+func (e *Engine) showModalAsync(prefix, title, message string, style walk.MsgBoxStyle) {
 	if e.app == nil || e.mw == nil || e.modalMgr == nil {
+		slog.Warn("UI 未就绪，无法显示提示框", "title", title, "message", message)
 		return
 	}
 
 	go e.RunOnUI(func() {
-		key := "info|" + title + "|" + message
+		key := prefix + "|" + title + "|" + message
 		if !e.modalMgr.TryAcquire(key) {
 			return
 		}
 		defer e.modalMgr.Release(key)
 
-		ShowNativeMsgBox(e.activeOwner(), title, message, walk.MsgBoxOK|walk.MsgBoxIconInformation, func(hwnd win.HWND) {
+		ShowNativeMsgBox(e.activeOwner(), title, message, style, func(hwnd win.HWND) {
 			e.modalMgr.RegisterHWND(key, hwnd)
 		})
 	})
@@ -201,6 +195,7 @@ func (e *Engine) ShowConfirm(title, message string) bool {
 	if e.modalMgr == nil {
 		return false
 	}
+
 	var result bool
 	e.RunOnUI(func() {
 		key := "confirm|" + title + "|" + message
