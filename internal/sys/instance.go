@@ -1,3 +1,7 @@
+// instance.go manages application single-instance enforcement, cross-integrity IPC
+// wake-up signaling, and foreground privilege delegation.
+// Primarily invoked by main.go during process bootstrapping and secondary instance dispatch.
+
 package sys
 
 import (
