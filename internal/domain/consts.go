@@ -11,6 +11,10 @@ const (
 
 	// IPCNamedPipe Windows 本地命名管道
 	IPCNamedPipe = `\\.\pipe\mihomo-tray-ipc`
+
+	// 单实例互斥体与跨权限唤醒事件名称
+	AppMutexName    = `Local\Mihomo_Tray_Mutex`
+	ShowUIEventName = `Local\Mihomo_Tray_Mutex_ShowUI`
 )
 
 // ================= 路由模式 =================
