@@ -50,6 +50,7 @@ func (d *Dashboard) createWindow() {
 	}.Create()
 
 	if err != nil {
+		slog.Error("配置管理窗口创建失败", "err", err)
 		return
 	}
 
