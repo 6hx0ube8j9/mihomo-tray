@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	bmClick         = 0x00F5 // Win32 BM_CLICK 
-	bmSetStyle      = 0x00F4 // Win32 BM_SETSTYLE 
-	bsDefPushButton = 0x0001 // Win32 BS_DEFPUSHBUTTON 
+	bmClick           = 0x00F5     // Win32 BM_CLICK
+	bmSetStyle        = 0x00F4     // Win32 BM_SETSTYLE
+	bsDefPushButton   = 0x0001     // Win32 BS_DEFPUSHBUTTON
 	wsExControlParent = 0x00010000 // WS_EX_CONTROLPARENT
 )
 
@@ -73,14 +73,14 @@ func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 						pMsg.Message = win.WM_NULL
 						return 0
 
-					case hFocus == ctx.cancelHWND:
+					case ctx.cancelHWND != 0 && hFocus == ctx.cancelHWND:
 						win.SendMessage(ctx.cancelHWND, bmClick, 0, 0)
 						pMsg.Message = win.WM_NULL
 						return 0
 
 					default:
 						for i, hwnd := range ctx.inputHWNDs {
-							if hFocus == hwnd {
+							if hFocus == hwnd || win.IsChild(hwnd, hFocus) {
 								if ctx.isTextEdit[i] {
 									if isCtrl {
 										win.SendMessage(ctx.acceptHWND, bmClick, 0, 0)
@@ -95,8 +95,16 @@ func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 										return 0
 									}
 
-									if i+1 < len(ctx.inputs) {
-										next := ctx.inputs[i+1]
+									var next walk.Widget
+									for j := i + 1; j < len(ctx.inputs); j++ {
+										candidate := ctx.inputs[j]
+										if candidate.Visible() && candidate.Enabled() {
+											next = candidate
+											break
+										}
+									}
+
+									if next != nil {
 										next.SetFocus()
 										if nextLE, ok := next.(*walk.LineEdit); ok {
 											l := len([]rune(nextLE.Text()))
@@ -136,7 +144,7 @@ func collectInputs(container walk.Container) []walk.Widget {
 	for i := 0; i < container.Children().Len(); i++ {
 		child := container.Children().At(i)
 		switch w := child.(type) {
-		case *walk.LineEdit, *walk.TextEdit:
+		case *walk.LineEdit, *walk.TextEdit, *walk.NumberEdit:
 			list = append(list, w)
 		case walk.Container:
 			list = append(list, collectInputs(w)...)
@@ -187,10 +195,15 @@ func SetupDialogKeyFlow(dlg *walk.Dialog, acceptPB, cancelPB *walk.PushButton) f
 		})
 	})
 
+	var cancelHWND win.HWND
+	if cancelPB != nil {
+		cancelHWND = cancelPB.Handle()
+	}
+
 	ctx := &keyFlowContext{
 		dlg:        dlg,
 		acceptHWND: acceptPB.Handle(),
-		cancelHWND: cancelPB.Handle(),
+		cancelHWND: cancelHWND,
 		inputHWNDs: inputHWNDs,
 		inputs:     inputs,
 		isTextEdit: isTextEdit,
