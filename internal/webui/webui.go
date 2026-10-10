@@ -2,6 +2,7 @@ package webui
 
 import (
 	"log/slog"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,12 +16,15 @@ import (
 	"mihomo-tray/internal/sys"
 )
 
+const (
+	browserDiskCacheBytes = "33554432"
+)
+
 type Event int
 
 const (
 	EventReady Event = iota
 	EventError
-	browserDiskCacheBytes = "33554432"
 )
 
 type Config struct {
@@ -37,6 +41,7 @@ type Config struct {
 type Manager struct {
 	debugPort   string
 	isolatedPid atomic.Uint32
+	hwnd        atomic.Uintptr
 	launchMu    sync.Mutex
 	stateMu     sync.Mutex
 }
@@ -89,7 +94,7 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 }
 
 func (m *Manager) Cleanup() {
-	sys.SetCachedWebUIHwnd(0)
+	m.hwnd.Store(0)
 
 	m.stateMu.Lock()
 	safeDebugPort := m.debugPort
@@ -110,7 +115,7 @@ func (m *Manager) Cleanup() {
 }
 
 func (m *Manager) IsActive() bool {
-	hwnd := sys.GetCachedWebUIHwnd()
+	hwnd := m.hwnd.Load()
 	return hwnd != 0 && sys.IsWindowVisible(hwnd)
 }
 
@@ -124,13 +129,13 @@ func (m *Manager) openSystemBrowser(finalURL string, eventCh chan<- Event) {
 }
 
 func (m *Manager) tryWakeCachedWindow(eventCh chan<- Event) bool {
-	if hwnd := sys.GetCachedWebUIHwnd(); hwnd != 0 {
+	if hwnd := m.hwnd.Load(); hwnd != 0 {
 		if sys.IsWindowVisible(hwnd) {
 			sys.FocusWindowSilky(hwnd)
 			emitEvent(eventCh, EventReady)
 			return true
 		}
-		sys.SetCachedWebUIHwnd(0)
+		m.hwnd.Store(0)
 	}
 	return false
 }
@@ -196,8 +201,6 @@ func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, browserTag, fin
 func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, mainPid uint32, eventCh chan<- Event) bool {
 	realBrowserPid := mainPid
 
-	filterFn := isStandardBrowserWindow
-
 	for i := 0; i < 30; i++ {
 		time.Sleep(100 * time.Millisecond)
 
@@ -217,13 +220,13 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 
 		if isLive {
 			_ = ActivateTarget(debugPort, liveTargetID)
-			if sys.FindAndFocusAppWindow(titleToSearch, appHostPort, realBrowserPid, filterFn) {
+			if m.findAndFocusWebUI(titleToSearch, appHostPort, realBrowserPid) {
 				slog.Info("WebUI 窗口捕获成功")
 				emitEvent(eventCh, EventReady)
 				return true
 			}
 		} else if titleToSearch != "" || realBrowserPid != 0 {
-			if sys.FindAndFocusAppWindow(titleToSearch, appHostPort, realBrowserPid, filterFn) {
+			if m.findAndFocusWebUI(titleToSearch, appHostPort, realBrowserPid) {
 				slog.Info("WebUI 窗口捕获成功(备用路径)")
 				emitEvent(eventCh, EventReady)
 				return true
@@ -259,8 +262,8 @@ func buildBrowserArgs(cfg Config, userDataDir, finalURL, debugPort string) []str
 
 	if p := strings.TrimSpace(cfg.ProxyPort); p != "" {
 		args = append(args,
-			"--proxy-server=" + net.JoinHostPort(domain.LocalhostIP, p),
-			"--proxy-bypass-list=" + domain.LocalhostIP + ";localhost;<local>",
+			"--proxy-server="+net.JoinHostPort("127.0.0.1", p),
+			"--proxy-bypass-list=127.0.0.1;localhost;<local>",
 		)
 	}
 	return args
