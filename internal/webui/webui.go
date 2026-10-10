@@ -20,6 +20,7 @@ type Event int
 const (
 	EventReady Event = iota
 	EventError
+	browserDiskCacheBytes = "33554432"
 )
 
 type Config struct {
@@ -160,7 +161,12 @@ func (m *Manager) tryAttachExistingTarget(debugPort, appHostPort string, eventCh
 func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, browserTag, finalURL, debugPort, appHostPort string, eventCh chan<- Event) {
 	slog.Info("启动独立浏览器进程运行 WebUI", "Browser", browserTag, "DebugPort", debugPort)
 
-	args := buildBrowserArgs(cfg, browserTag, finalURL, debugPort)
+	userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, browserTag)
+	if err := os.MkdirAll(userDataDir, 0755); err != nil {
+		slog.Warn("创建 WebCache 用户目录失败", "path", userDataDir, "err", err)
+	}
+
+	args := buildBrowserArgs(cfg, userDataDir, finalURL, debugPort)
 	cmd := exec.Command(browserPath, args...)
 	if err := cmd.Start(); err != nil {
 		slog.Error("创建浏览器进程失败", "err", err)
@@ -227,10 +233,8 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 	return false
 }
 
-func buildBrowserArgs(cfg Config, browserTag, finalURL, debugPort string) []string {
-	userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, browserTag)
-	_ = os.MkdirAll(userDataDir, 0755)
-	winW, winH, winX, winY := sys.GetIdealWindowBounds()
+func buildBrowserArgs(cfg Config, userDataDir, finalURL, debugPort string) []string {
+	winW, winH, winX, winY := calculateWindowBounds()
 
 	args := []string{
 		"--app=" + finalURL,
@@ -240,7 +244,8 @@ func buildBrowserArgs(cfg Config, browserTag, finalURL, debugPort string) []stri
 		"--window-position=" + strconv.Itoa(winX) + "," + strconv.Itoa(winY),
 		"--no-first-run", "--no-default-browser-check", "--disable-extensions",
 		"--disable-sync", "--disable-background-networking", "--disable-component-update",
-		"--disk-cache-size=33554432", "--hide-crash-restore-bubble",
+		"--disk-cache-size=" + browserDiskCacheBytes,
+		"--hide-crash-restore-bubble",
 		"--disable-background-timer-throttling", "--disable-client-side-phishing-detection",
 		"--disable-default-apps",
 
@@ -254,8 +259,8 @@ func buildBrowserArgs(cfg Config, browserTag, finalURL, debugPort string) []stri
 
 	if p := strings.TrimSpace(cfg.ProxyPort); p != "" {
 		args = append(args,
-			"--proxy-server=127.0.0.1:"+p,
-			"--proxy-bypass-list=127.0.0.1;localhost;<local>",
+			"--proxy-server=" + net.JoinHostPort(domain.LocalhostIP, p),
+			"--proxy-bypass-list=" + domain.LocalhostIP + ";localhost;<local>",
 		)
 	}
 	return args
