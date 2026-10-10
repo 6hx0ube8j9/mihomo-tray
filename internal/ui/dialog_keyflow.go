@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"log/slog"
 	"runtime"
 	"sync"
 	"syscall"
@@ -88,35 +89,36 @@ func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 										return 0
 									}
 									break
-								} else {
-									if isCtrl {
-										win.SendMessage(ctx.acceptHWND, bmClick, 0, 0)
-										pMsg.Message = win.WM_NULL
-										return 0
-									}
+								}
 
-									var next walk.Widget
-									for j := i + 1; j < len(ctx.inputs); j++ {
-										candidate := ctx.inputs[j]
-										if candidate.Visible() && candidate.Enabled() {
-											next = candidate
-											break
-										}
-									}
-
-									if next != nil {
-										next.SetFocus()
-										if nextLE, ok := next.(*walk.LineEdit); ok {
-											l := len([]rune(nextLE.Text()))
-											nextLE.SetTextSelection(0, l)
-										}
-									} else {
-										win.SetFocus(ctx.acceptHWND)
-										win.SendMessage(ctx.acceptHWND, bmSetStyle, uintptr(bsDefPushButton), 1)
-									}
+								if isCtrl {
+									win.SendMessage(ctx.acceptHWND, bmClick, 0, 0)
 									pMsg.Message = win.WM_NULL
 									return 0
 								}
+
+								var next walk.Widget
+								for j := i + 1; j < len(ctx.inputs); j++ {
+									candidate := ctx.inputs[j]
+									if candidate.Visible() && candidate.Enabled() {
+										next = candidate
+										break
+									}
+								}
+
+								if next != nil {
+									next.SetFocus()
+									if nextLE, ok := next.(*walk.LineEdit); ok {
+										l := len([]rune(nextLE.Text()))
+										nextLE.SetTextSelection(0, l)
+									}
+								} else {
+									win.SetFocus(ctx.acceptHWND)
+									win.SendMessage(ctx.acceptHWND, bmSetStyle, uintptr(bsDefPushButton), 1)
+								}
+
+								pMsg.Message = win.WM_NULL
+								return 0
 							}
 						}
 					}
@@ -214,8 +216,12 @@ func SetupDialogKeyFlow(dlg *walk.Dialog, acceptPB, cancelPB *walk.PushButton) f
 	kfStackMu.Lock()
 	if len(kfStack) == 0 {
 		tid := win.GetCurrentThreadId()
-		hHook, _, _ := procSetWindowsHookExW.Call(uintptr(whGetMessage), kfCallback, 0, uintptr(tid))
-		activeHookId = hHook
+		hHook, _, err := procSetWindowsHookExW.Call(uintptr(whGetMessage), kfCallback, 0, uintptr(tid))
+		if hHook == 0 {
+			slog.Warn("安装窗口按键监听钩子失败", "tid", tid, "err", err)
+		} else {
+			activeHookId = hHook
+		}
 	}
 	kfStack = append(kfStack, ctx)
 	kfStackMu.Unlock()
