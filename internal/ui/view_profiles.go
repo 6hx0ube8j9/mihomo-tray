@@ -213,14 +213,14 @@ func (v *ProfileView) updateActionState() {
 		canMoveDown = idx < len(v.model.Items)-1
 	}
 
-	v.actionSwitch.SetEnabled(canSwitch)
-	v.actionEditText.SetEnabled(hasSelection)
-	v.actionEditInfo.SetEnabled(hasSelection)
-	v.actionUpdate.SetEnabled(canUpdate)
-	v.actionDelete.SetEnabled(hasSelection)
+	safelySetEnabled(v.actionSwitch, canSwitch)
+	safelySetEnabled(v.actionEditText, hasSelection)
+	safelySetEnabled(v.actionEditInfo, hasSelection)
+	safelySetEnabled(v.actionUpdate, canUpdate)
+	safelySetEnabled(v.actionDelete, hasSelection)
+	safelySetEnabled(v.actionMoveUp, canMoveUp)
+	safelySetEnabled(v.actionMoveDown, canMoveDown)
 
-	v.actionMoveUp.SetEnabled(canMoveUp)
-	v.actionMoveDown.SetEnabled(canMoveDown)
 	if v.btnMoveUp != nil {
 		v.btnMoveUp.SetEnabled(canMoveUp)
 	}
