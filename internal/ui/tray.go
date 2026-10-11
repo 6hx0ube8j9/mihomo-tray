@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/tailscale/walk"
+	"github.com/tailscale/win"
 	"mihomo-tray/internal/domain"
 )
 
