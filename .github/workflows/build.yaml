@@ -27,31 +27,6 @@ jobs:
           go-version-file: 'go.mod'
           cache: true
 
-      - name: Convert PNG to ICO (Incremental)
-        shell: pwsh
-        run: |
-          $iconDir = "winres/icons"
-
-          if (Test-Path $iconDir) {
-              Get-ChildItem -Path $iconDir -Filter "*.png" | ForEach-Object {
-                  $pngPath = $_.FullName
-                  $icoPath = [System.IO.Path]::ChangeExtension($pngPath, ".ico")
-
-                  if (Test-Path $icoPath) {
-                      Write-Host ">> [Skip] $($_.BaseName).ico already exists."
-                  } else {
-                      Write-Host ">> [Convert] Generating $($_.BaseName).ico from $($_.Name)..."
-                      if ($_.BaseName -eq "app") {
-                          magick $pngPath -define icon:auto-resize=256,64,48,32,24,16 $icoPath
-                      } else {
-                          magick $pngPath -define icon:auto-resize=48,32,24,20,16 $icoPath
-                      }
-                  }
-              }
-          } else {
-              Write-Warning "Directory '$iconDir' not found."
-          }
-
       - name: Generate Windows Resources
         shell: pwsh
         run: |
