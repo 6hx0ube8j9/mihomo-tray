@@ -3,19 +3,19 @@
     "APP": {
       "0000": ["icons/app.ico"]
     },
-    "TRAY_DEFAULT": {
+    "ICON_DEFAULT": {
       "0000": ["icons/default.ico"]
     },
-    "TRAY_PROXY": {
+    "ICON_PROXY": {
       "0000": ["icons/proxy.ico"]
     },
-    "TRAY_TUN": {
+    "ICON_TUN": {
       "0000": ["icons/tun.ico"]
     },
-    "TRAY_ERROR": {
+    "ICON_ERROR": {
       "0000": ["icons/error.ico"]
     },
-    "TRAY_STOP": {
+    "ICON_STOP": {
       "0000": ["icons/stop.ico"]
     }
   },
