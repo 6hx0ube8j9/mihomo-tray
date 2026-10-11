@@ -1,0 +1,49 @@
+{
+  "RT_GROUP_ICON": {
+    "APP": {
+      "0000": ["icons/app.ico"]
+    },
+    "TRAY_DEFAULT": {
+      "0000": ["icons/default.ico"]
+    },
+    "TRAY_PROXY": {
+      "0000": ["icons/proxy.ico"]
+    },
+    "TRAY_TUN": {
+      "0000": ["icons/tun.ico"]
+    },
+    "TRAY_ERROR": {
+      "0000": ["icons/error.ico"]
+    },
+    "TRAY_STOP": {
+      "0000": ["icons/stop.ico"]
+    }
+  },
+  "RT_MANIFEST": {
+    "#1": {
+      "0409": "application.manifest"
+    }
+  },
+  "RT_VERSION": {
+    "#1": {
+      "0409": {
+        "fixed": {
+          "file_version": "1.0.0.0",
+          "product_version": "1.0.0.0"
+        },
+        "info": {
+          "0409": {
+            "CompanyName": "Contributors",
+            "FileDescription": "Mihomo Tray",
+            "FileVersion": "1.0.0.0",
+            "InternalName": "mihomo-tray",
+            "LegalCopyright": "Copyright (c) 2026 Contributors",
+            "OriginalFilename": "mihomo-tray.exe",
+            "ProductName": "Mihomo Tray",
+            "ProductVersion": "1.0.0.0"
+          }
+        }
+      }
+    }
+  }
+}
