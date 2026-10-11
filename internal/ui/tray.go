@@ -5,23 +5,16 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/tailscale/walk"
 	"mihomo-tray/internal/domain"
 )
 
-var trayIconResourceNames = []string{
-	domain.IconStop:    "ICON_STOP",
-	domain.IconError:   "ICON_ERROR",
-	domain.IconTun:     "ICON_TUN",
-	domain.IconProxy:   "ICON_PROXY",
-	domain.IconDefault: "ICON_DEFAULT",
-}
-
 type Tray struct {
 	engine     *Engine
 	ni         *walk.NotifyIcon
-	icons      []*walk.Icon
+	iconMgr    *IconManager
 	lastIconId int
 
 	isBuilt                bool
@@ -53,13 +46,18 @@ func NewTray(e *Engine) *Tray {
 	ni.SetToolTip("Mihomo Tray")
 
 	t := &Tray{
-		engine:     e,
-		ni:         ni,
-		lastIconId: -1,
+		engine:                 e,
+		ni:                     ni,
+		iconMgr:                NewIconManager(),
+		lastIconId:             int(domain.IconStop),
 		lastProfileFingerprint: "__INIT__",
 	}
 
-	t.loadResourceIcons()
+	if ico := t.iconMgr.GetIcon(t.lastIconId); ico != nil {
+		if err := t.ni.SetIcon(ico); err != nil {
+			slog.Warn("设置默认托盘图标失败", "err", err)
+		}
+	}
 
 	ni.MouseUp().Attach(func(x, y int, button walk.MouseButton) {
 		if button == walk.LeftButton {
@@ -67,36 +65,41 @@ func NewTray(e *Engine) *Tray {
 		}
 	})
 
+	t.startDpiWatcher()
+
 	return t
 }
 
-func (t *Tray) loadResourceIcons() {
-	t.icons = make([]*walk.Icon, len(trayIconResourceNames))
-
-	for id, resName := range trayIconResourceNames {
-		if resName == "" {
-			continue
+func (t *Tray) startDpiWatcher() {
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if t.ni == nil {
+				return
+			}
+			// 非 UI 协程仅比对数值，开销微乎其微
+			if t.iconMgr.GetCurrentSmallIconSize() != t.iconMgr.currentSize {
+				walk.App().Synchronize(func() {
+					if t.iconMgr.CheckDpiChanged() {
+						if ico := t.iconMgr.GetIcon(t.lastIconId); ico != nil {
+							if err := t.ni.SetIcon(ico); err != nil {
+								slog.Warn("DPI变更后更新托盘图标失败", "err", err)
+							}
+						}
+					}
+				})
+			}
 		}
-		ico, err := walk.NewIconFromResource(resName)
-		if err != nil {
-			slog.Error("从程序资源加载托盘图标失败", "resource", resName, "err", err)
-			continue
-		}
-		t.icons[id] = ico
-	}
-
-	idx := int(domain.IconStop)
-	if idx < len(t.icons) && t.icons[idx] != nil {
-		if err := t.ni.SetIcon(t.icons[idx]); err != nil {
-			slog.Warn("设置默认托盘图标失败", "err", err)
-		}
-	}
+	}()
 }
 
 func (t *Tray) UpdateState(state domain.UIState) {
 	if t.ni == nil {
 		return
 	}
+
+	dpiChanged := t.iconMgr.CheckDpiChanged()
 
 	stateChanged := t.latestState.Mode != state.Mode ||
 		t.latestState.IsAdmin != state.IsAdmin ||
@@ -105,9 +108,11 @@ func (t *Tray) UpdateState(state domain.UIState) {
 	t.latestState = state
 
 	iconIdx := int(state.IconState)
-	if iconIdx != t.lastIconId && iconIdx >= 0 && iconIdx < len(t.icons) && t.icons[iconIdx] != nil {
-		if err := t.ni.SetIcon(t.icons[iconIdx]); err != nil {
-			slog.Warn("切换托盘图标失败", "iconIdx", iconIdx, "err", err)
+	if (iconIdx != t.lastIconId || dpiChanged) && iconIdx >= 0 {
+		if ico := t.iconMgr.GetIcon(iconIdx); ico != nil {
+			if err := t.ni.SetIcon(ico); err != nil {
+				slog.Warn("切换托盘图标失败", "iconIdx", iconIdx, "err", err)
+			}
 		}
 		t.lastIconId = iconIdx
 	}
@@ -253,7 +258,7 @@ func (t *Tray) rebuildProfilesMenu(state domain.UIState) {
 		actions.Add(emptyAction)
 		return
 	}
-		
+
 	for _, item := range state.ProfileItems {
 		targetPath := item.Path
 		suffix := " (本地)"
@@ -279,10 +284,8 @@ func (t *Tray) Dispose() {
 	if t.ni != nil {
 		t.ni.Dispose()
 	}
-	for _, icon := range t.icons {
-		if icon != nil {
-			icon.Dispose()
-		}
+	if t.iconMgr != nil {
+		t.iconMgr.Dispose()
 	}
 }
 
