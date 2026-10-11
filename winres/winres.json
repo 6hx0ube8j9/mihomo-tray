@@ -21,7 +21,7 @@
   },
   "RT_MANIFEST": {
     "#1": {
-      "0409": "application.manifest"
+      "0409": "app.manifest"
     }
   },
   "RT_VERSION": {
