@@ -32,16 +32,19 @@ jobs:
       - name: Generate Windows Resources
         shell: pwsh
         run: |
-          if (!(Test-Path "cmd/mihomo-tray/winres/icon.ico")) {
-            Write-Error "Icon file not found at cmd/mihomo-tray/winres/icon.ico"
+          if (!(Test-Path "winres/winres.json")) {
+            Write-Error "Resource config not found at winres/winres.json"
             exit 1
           }
-          if (!(Test-Path "cmd/mihomo-tray/winres/assembly.xml")) {
-            Write-Error "Manifest file not found at cmd/mihomo-tray/winres/assembly.xml"
+          if (!(Test-Path "winres/icons/app.ico")) {
+            Write-Error "Icon file not found at winres/icons/app.ico"
+            exit 1
+          }
+          if (!(Test-Path "winres/application.manifest")) {
+            Write-Error "Manifest file not found at winres/app.manifest"
             exit 1
           }
 
-          cd cmd/mihomo-tray
           go run github.com/tc-hib/go-winres@latest make --arch ${{ matrix.goarch }}
 
       - name: Build EXE
@@ -51,7 +54,7 @@ jobs:
           $env:GOARCH="${{ matrix.goarch }}"
           go env GOOS GOARCH CGO_ENABLED
           New-Item -ItemType Directory -Force -Path "release"
-          go build -mod=readonly -ldflags="-s -w -H=windowsgui" -o "release/mihomo-tray.exe" ./cmd/mihomo-tray
+          go build -mod=readonly -ldflags="-s -w -H=windowsgui" -o "release/mihomo-tray.exe" .
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
