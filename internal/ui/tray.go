@@ -73,11 +73,17 @@ func NewTray(e *Engine) *Tray {
 func (t *Tray) loadResourceIcons() {
 	t.icons = make([]*walk.Icon, len(trayIconResourceNames))
 
+	size := int(win.GetSystemMetrics(win.SM_CXSMICON))
+	if size == 0 {
+		size = 16
+	}
+	iconSize := walk.Size{Width: size, Height: size}
+
 	for id, resName := range trayIconResourceNames {
 		if resName == "" {
 			continue
 		}
-		ico, err := walk.NewIconFromResource(resName)
+		ico, err := walk.NewIconFromResourceWithSize(resName, iconSize)
 		if err != nil {
 			slog.Error("从程序资源加载托盘图标失败", "resource", resName, "err", err)
 			continue
