@@ -4,7 +4,7 @@ import (
 	"log/slog"
 
 	"github.com/tailscale/walk"
-	"github.com/tailscale/walk/win"
+	"github.com/tailscale/win"
 	"mihomo-tray/internal/domain"
 )
 
