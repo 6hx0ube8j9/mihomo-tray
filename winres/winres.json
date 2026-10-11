@@ -1,22 +1,22 @@
 {
   "RT_GROUP_ICON": {
     "APP": {
-      "0000": ["icons/app.ico"]
+      "0000": "icons/app.ico"
     },
     "ICON_DEFAULT": {
-      "0000": ["icons/default.ico"]
+      "0000": "icons/default.ico"
     },
     "ICON_PROXY": {
-      "0000": ["icons/proxy.ico"]
+      "0000": "icons/proxy.ico"
     },
     "ICON_TUN": {
-      "0000": ["icons/tun.ico"]
+      "0000": "icons/tun.ico"
     },
     "ICON_ERROR": {
-      "0000": ["icons/error.ico"]
+      "0000": "icons/error.ico"
     },
     "ICON_STOP": {
-      "0000": ["icons/stop.ico"]
+      "0000": "icons/stop.ico"
     }
   },
   "RT_MANIFEST": {
