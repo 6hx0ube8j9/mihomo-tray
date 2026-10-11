@@ -1,11 +1,8 @@
 package ui
 
 import (
-	"embed"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -13,22 +10,18 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-//go:embed icons/*.ico
-var iconFs embed.FS
-
-var trayIconAssets = []string{
-	domain.IconStop:    "stop.ico",
-	domain.IconError:   "error.ico",
-	domain.IconTun:     "tun.ico",
-	domain.IconProxy:   "proxy.ico",
-	domain.IconDefault: "default.ico",
+var trayIconResourceNames = []string{
+	domain.IconStop:    "ICON_STOP",
+	domain.IconError:   "ICON_ERROR",
+	domain.IconTun:     "ICON_TUN",
+	domain.IconProxy:   "ICON_PROXY",
+	domain.IconDefault: "ICON_DEFAULT",
 }
 
 type Tray struct {
 	engine     *Engine
 	ni         *walk.NotifyIcon
 	icons      []*walk.Icon
-	iconDir    string
 	lastIconId int
 
 	isBuilt                bool
@@ -63,9 +56,10 @@ func NewTray(e *Engine) *Tray {
 		engine:     e,
 		ni:         ni,
 		lastIconId: -1,
+		lastProfileFingerprint: "__INIT__",
 	}
 
-	t.loadEmbeddedIcons()
+	t.loadResourceIcons()
 
 	ni.MouseUp().Attach(func(x, y int, button walk.MouseButton) {
 		if button == walk.LeftButton {
@@ -76,34 +70,16 @@ func NewTray(e *Engine) *Tray {
 	return t
 }
 
-func (t *Tray) loadEmbeddedIcons() {
-	t.icons = make([]*walk.Icon, len(trayIconAssets))
-	tmpDir, err := os.MkdirTemp("", "mihomo-tray-icons-*")
-	if err != nil {
-		slog.Error("创建托盘图标临时目录失败", "err", err)
-		return
-	}
-	t.iconDir = tmpDir
+func (t *Tray) loadResourceIcons() {
+	t.icons = make([]*walk.Icon, len(trayIconResourceNames))
 
-	for id, name := range trayIconAssets {
-		if name == "" {
+	for id, resName := range trayIconResourceNames {
+		if resName == "" {
 			continue
 		}
-		data, err := iconFs.ReadFile("icons/" + name)
+		ico, err := walk.NewIconFromResource(resName)
 		if err != nil {
-			slog.Error("读取内置图标失败", "name", name, "err", err)
-			continue
-		}
-
-		tmpPath := filepath.Join(tmpDir, name)
-		if err := os.WriteFile(tmpPath, data, 0644); err != nil {
-			slog.Error("写入图标缓存文件失败", "path", tmpPath, "err", err)
-			continue
-		}
-
-		ico, err := walk.NewIconFromFile(tmpPath)
-		if err != nil {
-			slog.Error("解析图标文件失败", "path", tmpPath, "err", err)
+			slog.Error("从程序资源加载托盘图标失败", "resource", resName, "err", err)
 			continue
 		}
 		t.icons[id] = ico
@@ -111,7 +87,9 @@ func (t *Tray) loadEmbeddedIcons() {
 
 	idx := int(domain.IconStop)
 	if idx < len(t.icons) && t.icons[idx] != nil {
-		t.ni.SetIcon(t.icons[idx])
+		if err := t.ni.SetIcon(t.icons[idx]); err != nil {
+			slog.Warn("设置默认托盘图标失败", "err", err)
+		}
 	}
 }
 
@@ -128,7 +106,9 @@ func (t *Tray) UpdateState(state domain.UIState) {
 
 	iconIdx := int(state.IconState)
 	if iconIdx != t.lastIconId && iconIdx >= 0 && iconIdx < len(t.icons) && t.icons[iconIdx] != nil {
-		t.ni.SetIcon(t.icons[iconIdx])
+		if err := t.ni.SetIcon(t.icons[iconIdx]); err != nil {
+			slog.Warn("切换托盘图标失败", "iconIdx", iconIdx, "err", err)
+		}
 		t.lastIconId = iconIdx
 	}
 
@@ -271,6 +251,15 @@ func (t *Tray) rebuildProfilesMenu(state domain.UIState) {
 		emptyAction.SetText("暂无配置")
 		emptyAction.SetEnabled(false)
 		actions.Add(emptyAction)
+
+		actions.Add(walk.NewSeparatorAction())
+
+		t.addActionTo(t.menuSwitchProfile, "导入本地配置", func() {
+			t.engine.SendCommand(domain.ActionRequestAddLocal, "")
+		})
+		t.addActionTo(t.menuSwitchProfile, "添加远程订阅", func() {
+			t.engine.SendCommand(domain.ActionRequestAddRemote, "")
+		})
 		return
 	}
 
@@ -302,11 +291,6 @@ func (t *Tray) Dispose() {
 	for _, icon := range t.icons {
 		if icon != nil {
 			icon.Dispose()
-		}
-	}
-	if t.iconDir != "" {
-		if err := os.RemoveAll(t.iconDir); err != nil {
-			slog.Warn("清理图标临时目录失败", "dir", t.iconDir, "err", err)
 		}
 	}
 }
