@@ -9,9 +9,6 @@ on:
 permissions:
   contents: read
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   build:
     runs-on: windows-2022
@@ -19,6 +16,7 @@ jobs:
       matrix:
         goarch:
           - amd64
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,26 +30,16 @@ jobs:
       - name: Generate Windows Resources
         shell: pwsh
         run: |
-          if (!(Test-Path "winres/winres.json")) {
-            Write-Error "Resource config not found at winres/winres.json"
-            exit 1
-          }
-          if (!(Test-Path "winres/icons/app.ico")) {
-            Write-Error "Icon file not found at winres/icons/app.ico"
-            exit 1
-          }
-          if (!(Test-Path "winres/app.manifest")) {
-            Write-Error "Manifest file not found at winres/app.manifest"
-            exit 1
-          }
-
-          go run github.com/tc-hib/go-winres@latest make --arch ${{ matrix.goarch }}
+          go install github.com/tc-hib/go-winres@v0.3.3
+          go-winres make --arch ${{ matrix.goarch }}
 
       - name: Build EXE
         shell: pwsh
+        env:
+          CGO_ENABLED: '0'
+          GOOS: 'windows'
+          GOARCH: ${{ matrix.goarch }}
         run: |
-          $env:CGO_ENABLED="0"
-          $env:GOARCH="${{ matrix.goarch }}"
           go env GOOS GOARCH CGO_ENABLED
           New-Item -ItemType Directory -Force -Path "release"
           go build -mod=readonly -ldflags="-s -w -H=windowsgui" -o "release/mihomo-tray.exe" .
@@ -61,3 +49,5 @@ jobs:
         with:
           name: mihomo-tray-${{ matrix.goarch }}
           path: release/mihomo-tray.exe
+          if-no-files-found: error
+          retention-days: 14
