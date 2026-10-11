@@ -251,18 +251,9 @@ func (t *Tray) rebuildProfilesMenu(state domain.UIState) {
 		emptyAction.SetText("暂无配置")
 		emptyAction.SetEnabled(false)
 		actions.Add(emptyAction)
-
-		actions.Add(walk.NewSeparatorAction())
-
-		t.addActionTo(t.menuSwitchProfile, "导入本地配置", func() {
-			t.engine.SendCommand(domain.ActionRequestAddLocal, "")
-		})
-		t.addActionTo(t.menuSwitchProfile, "添加远程订阅", func() {
-			t.engine.SendCommand(domain.ActionRequestAddRemote, "")
-		})
 		return
 	}
-
+		
 	for _, item := range state.ProfileItems {
 		targetPath := item.Path
 		suffix := " (本地)"
