@@ -12,10 +12,11 @@ import (
 )
 
 type Tray struct {
-	engine     *Engine
-	ni         *walk.NotifyIcon
-	iconMgr    *IconManager
-	lastIconId int
+	engine      *Engine
+	ni          *walk.NotifyIcon
+	iconMgr     *IconManager
+	lastIconId  int
+	stopWatcher chan struct{}
 
 	isBuilt                bool
 	latestState            domain.UIState
@@ -50,14 +51,11 @@ func NewTray(e *Engine) *Tray {
 		ni:                     ni,
 		iconMgr:                NewIconManager(),
 		lastIconId:             int(domain.IconStop),
+		stopWatcher:            make(chan struct{}),
 		lastProfileFingerprint: "__INIT__",
 	}
 
-	if ico := t.iconMgr.GetIcon(t.lastIconId); ico != nil {
-		if err := t.ni.SetIcon(ico); err != nil {
-			slog.Warn("设置默认托盘图标失败", "err", err)
-		}
-	}
+	t.applyCurrentIcon()
 
 	ni.MouseUp().Attach(func(x, y int, button walk.MouseButton) {
 		if button == walk.LeftButton {
@@ -66,29 +64,36 @@ func NewTray(e *Engine) *Tray {
 	})
 
 	t.startDpiWatcher()
-
 	return t
+}
+
+func (t *Tray) applyCurrentIcon() {
+	if t.ni == nil {
+		return
+	}
+	if ico := t.iconMgr.Get(t.lastIconId); ico != nil {
+		if err := t.ni.SetIcon(ico); err != nil {
+			slog.Warn("更新系统托盘图标失败", "iconId", t.lastIconId, "err", err)
+		}
+	}
 }
 
 func (t *Tray) startDpiWatcher() {
 	go func() {
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
-		for range ticker.C {
-			if t.ni == nil {
+		for {
+			select {
+			case <-t.stopWatcher:
 				return
-			}
-			// 非 UI 协程仅比对数值，开销微乎其微
-			if t.iconMgr.GetCurrentSmallIconSize() != t.iconMgr.currentSize {
-				walk.App().Synchronize(func() {
-					if t.iconMgr.CheckDpiChanged() {
-						if ico := t.iconMgr.GetIcon(t.lastIconId); ico != nil {
-							if err := t.ni.SetIcon(ico); err != nil {
-								slog.Warn("DPI变更后更新托盘图标失败", "err", err)
-							}
-						}
-					}
-				})
+			case <-ticker.C:
+				if t.iconMgr.HasDpiChanged() {
+					slog.Warn("检测到 DPI 物理尺寸变化，执行托盘重载")
+					walk.App().Synchronize(func() {
+						t.iconMgr.Reload()
+						t.applyCurrentIcon()
+					})
+				}
 			}
 		}
 	}()
@@ -99,8 +104,6 @@ func (t *Tray) UpdateState(state domain.UIState) {
 		return
 	}
 
-	dpiChanged := t.iconMgr.CheckDpiChanged()
-
 	stateChanged := t.latestState.Mode != state.Mode ||
 		t.latestState.IsAdmin != state.IsAdmin ||
 		t.latestState.AutoStart != state.AutoStart
@@ -108,13 +111,9 @@ func (t *Tray) UpdateState(state domain.UIState) {
 	t.latestState = state
 
 	iconIdx := int(state.IconState)
-	if (iconIdx != t.lastIconId || dpiChanged) && iconIdx >= 0 {
-		if ico := t.iconMgr.GetIcon(iconIdx); ico != nil {
-			if err := t.ni.SetIcon(ico); err != nil {
-				slog.Warn("切换托盘图标失败", "iconIdx", iconIdx, "err", err)
-			}
-		}
+	if iconIdx != t.lastIconId && iconIdx >= 0 {
 		t.lastIconId = iconIdx
+		t.applyCurrentIcon()
 	}
 
 	if !t.isBuilt {
@@ -157,6 +156,19 @@ func (t *Tray) UpdateState(state domain.UIState) {
 				safelySetChecked(actions.At(i), item.IsActive)
 			}
 		}
+	}
+}
+
+func (t *Tray) Dispose() {
+	if t.stopWatcher != nil {
+		close(t.stopWatcher)
+		t.stopWatcher = nil
+	}
+	if t.ni != nil {
+		t.ni.Dispose()
+	}
+	if t.iconMgr != nil {
+		t.iconMgr.Dispose()
 	}
 }
 
@@ -277,15 +289,6 @@ func (t *Tray) ShowNotification(title, message string) {
 	}
 	if err := t.ni.ShowInfo(title, message); err != nil {
 		slog.Warn("弹出系统托盘通知失败", "title", title, "err", err)
-	}
-}
-
-func (t *Tray) Dispose() {
-	if t.ni != nil {
-		t.ni.Dispose()
-	}
-	if t.iconMgr != nil {
-		t.iconMgr.Dispose()
 	}
 }
 
