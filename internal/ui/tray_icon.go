@@ -3,6 +3,7 @@ package ui
 import (
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -33,21 +34,23 @@ var (
 
 type TrayIconController struct {
 	ni          *walk.NotifyIcon
-	currentSize int
-	lastStateId int
+	currentSize atomic.Int32
+	lastStateId atomic.Int32
 	icons       map[int]*walk.Icon
 
-	stopOnce sync.Once
-	stopChan chan struct{}
+	isDisposed atomic.Bool
+	stopOnce   sync.Once
+	stopChan   chan struct{}
 }
 
 func NewTrayIconController(ni *walk.NotifyIcon) *TrayIconController {
 	c := &TrayIconController{
-		ni:          ni,
-		lastStateId: -1,
-		icons:       make(map[int]*walk.Icon),
-		stopChan:    make(chan struct{}),
+		ni:       ni,
+		icons:    make(map[int]*walk.Icon),
+		stopChan: make(chan struct{}),
 	}
+	c.lastStateId.Store(-1)
+	c.currentSize.Store(0)
 
 	c.startDpiWatcher()
 	return c
@@ -68,12 +71,15 @@ func CreateNotifyIcon() (*walk.NotifyIcon, error) {
 }
 
 func (c *TrayIconController) SetState(stateId int) {
-	if c.ni == nil {
+	if c.isDisposed.Load() || c.ni == nil {
 		return
 	}
 
 	targetSize := c.getSystemMetricSize()
-	if stateId == c.lastStateId && targetSize == c.currentSize {
+	currSize := int(c.currentSize.Load())
+	lastId := int(c.lastStateId.Load())
+
+	if stateId == lastId && targetSize == currSize {
 		return
 	}
 
@@ -87,7 +93,7 @@ func (c *TrayIconController) SetState(stateId int) {
 		return
 	}
 
-	c.lastStateId = stateId
+	c.lastStateId.Store(int32(stateId))
 }
 
 func (c *TrayIconController) getIcon(stateId, targetSize int) *walk.Icon {
@@ -95,9 +101,10 @@ func (c *TrayIconController) getIcon(stateId, targetSize int) *walk.Icon {
 		return nil
 	}
 
-	if targetSize != c.currentSize {
+	currSize := int(c.currentSize.Load())
+	if targetSize != currSize {
 		c.clearIconCache()
-		c.currentSize = targetSize
+		c.currentSize.Store(int32(targetSize))
 	}
 
 	if ico, ok := c.icons[stateId]; ok {
@@ -146,12 +153,15 @@ func (c *TrayIconController) startDpiWatcher() {
 			case <-c.stopChan:
 				return
 			case <-ticker.C:
-				if c.ni == nil {
+				if c.isDisposed.Load() {
 					return
 				}
-				if c.getSystemMetricSize() != c.currentSize {
+
+				if c.getSystemMetricSize() != int(c.currentSize.Load()) {
 					walk.App().Synchronize(func() {
-						c.SetState(c.lastStateId)
+						if !c.isDisposed.Load() {
+							c.SetState(int(c.lastStateId.Load()))
+						}
 					})
 				}
 			}
@@ -169,6 +179,7 @@ func (c *TrayIconController) clearIconCache() {
 }
 
 func (c *TrayIconController) Dispose() {
+	c.isDisposed.Store(true)
 	c.stopOnce.Do(func() {
 		close(c.stopChan)
 	})
