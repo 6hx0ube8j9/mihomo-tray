@@ -184,7 +184,7 @@ func (a *Application) ApplyPortConfig(ctx context.Context, mixed, socks, httpPor
 
 	a.pushUIState()
 
-	if *a.Cfg.GetConfig().General.SystemProxy {
+	if p := a.Cfg.GetConfig().General.SystemProxy; p != nil && *p {
 		a.syncSystemProxy()
 	}
 
