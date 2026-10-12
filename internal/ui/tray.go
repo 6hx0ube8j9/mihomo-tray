@@ -5,24 +5,32 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/tailscale/walk"
+	"github.com/tailscale/win"
 	"mihomo-tray/internal/domain"
 )
 
-var trayIconResourceNames = []string{
-	domain.IconStop:    "ICON_STOP",
-	domain.IconError:   "ICON_ERROR",
-	domain.IconTun:     "ICON_TUN",
-	domain.IconProxy:   "ICON_PROXY",
-	domain.IconDefault: "ICON_DEFAULT",
-}
+var (
+	trayClassName = syscall.StringToUTF16Ptr("Shell_TrayWnd")
+
+	trayIconResourceNames = []string{
+		domain.IconStop:    "ICON_STOP",
+		domain.IconError:   "ICON_ERROR",
+		domain.IconTun:     "ICON_TUN",
+		domain.IconProxy:   "ICON_PROXY",
+		domain.IconDefault: "ICON_DEFAULT",
+	}
+)
 
 type Tray struct {
 	engine     *Engine
 	ni         *walk.NotifyIcon
 	icons      []*walk.Icon
 	lastIconId int
+
+	currentIconSize int
 
 	latestState            domain.UIState
 	lastProfileFingerprint string
@@ -56,7 +64,16 @@ func NewTray(e *Engine) *Tray {
 		lastProfileFingerprint: "__INIT__",
 	}
 
-	t.loadResourceIcons()
+	targetSize := getTrayIconMetricSize()
+	t.reloadIconsForSize(targetSize)
+
+	defaultIdx := int(domain.IconStop)
+	if defaultIdx < len(t.icons) && t.icons[defaultIdx] != nil {
+		if err := t.ni.SetIcon(t.icons[defaultIdx]); err != nil {
+			slog.Warn("设置默认托盘图标失败", "err", err)
+		}
+		t.lastIconId = defaultIdx
+	}
 
 	t.buildMenuSkeleton()
 
@@ -71,28 +88,26 @@ func NewTray(e *Engine) *Tray {
 	return t
 }
 
-func (t *Tray) loadResourceIcons() {
+func (t *Tray) reloadIconsForSize(size int) {
+	for _, ico := range t.icons {
+		if ico != nil {
+			ico.Dispose()
+		}
+	}
 	t.icons = make([]*walk.Icon, len(trayIconResourceNames))
+	t.currentIconSize = size
 
+	walkSize := walk.Size{Width: size, Height: size}
 	for id, resName := range trayIconResourceNames {
 		if resName == "" {
 			continue
 		}
-
-		ico, err := walk.NewIconFromResource(resName)
+		ico, err := walk.NewIconFromResourceWithSize(resName, walkSize)
 		if err != nil {
-			slog.Error("从程序资源加载托盘图标失败", "resource", resName, "err", err)
+			slog.Error("加载指定尺寸托盘图标失败", "resource", resName, "size", size, "err", err)
 			continue
 		}
 		t.icons[id] = ico
-	}
-
-	defaultIdx := int(domain.IconStop)
-	if defaultIdx < len(t.icons) && t.icons[defaultIdx] != nil {
-		if err := t.ni.SetIcon(t.icons[defaultIdx]); err != nil {
-			slog.Warn("设置默认托盘图标失败", "err", err)
-		}
-		t.lastIconId = defaultIdx
 	}
 }
 
@@ -107,10 +122,16 @@ func (t *Tray) UpdateState(state domain.UIState) {
 
 	t.latestState = state
 
+	targetSize := getTrayIconMetricSize()
+	sizeChanged := targetSize != t.currentIconSize
+	if sizeChanged {
+		t.reloadIconsForSize(targetSize)
+	}
+
 	iconIdx := int(state.IconState)
-	if iconIdx != t.lastIconId && iconIdx >= 0 && iconIdx < len(t.icons) && t.icons[iconIdx] != nil {
+	if (iconIdx != t.lastIconId || sizeChanged) && iconIdx >= 0 && iconIdx < len(t.icons) && t.icons[iconIdx] != nil {
 		if err := t.ni.SetIcon(t.icons[iconIdx]); err != nil {
-			slog.Warn("切换托盘图标失败", "iconIdx", iconIdx, "err", err)
+			slog.Warn("切换托盘图标失败", "iconIdx", iconIdx, "size", targetSize, "err", err)
 		}
 		t.lastIconId = iconIdx
 	}
@@ -138,6 +159,7 @@ func (t *Tray) UpdateState(state domain.UIState) {
 		t.actAdminMenu.SetText(adminText)
 	}
 
+	// 5. 配置列表差异同步
 	fp := generateProfileFingerprint(state.ProfileItems)
 	if fp != t.lastProfileFingerprint {
 		t.rebuildProfilesMenu(state)
@@ -279,6 +301,23 @@ func (t *Tray) Dispose() {
 		}
 	}
 	t.icons = nil
+}
+
+func getTrayIconMetricSize() int {
+	hwnd := win.FindWindow(trayClassName, nil)
+	var dpi uint32 = 96
+	if hwnd != 0 {
+		dpi = win.GetDpiForWindow(hwnd)
+		if dpi == 0 {
+			dpi = 96
+		}
+	}
+
+	if size := int(win.GetSystemMetricsForDpi(win.SM_CXSMICON, dpi)); size > 0 {
+		return size
+	}
+
+	return walk.IntFrom96DPI(16, int(dpi))
 }
 
 func (t *Tray) toggle(action string, nextVal bool) {
