@@ -13,6 +13,8 @@ type Dashboard struct {
 	window      *walk.MainWindow
 	ProfileView *ProfileView
 	lastState   domain.UIState
+
+	closePatch *WindowHidePatch
 }
 
 func NewDashboard(e *Engine) *Dashboard {
@@ -57,18 +59,15 @@ func (d *Dashboard) createWindow() {
 	if tb := d.window.ToolBar(); tb != nil {
 		tb.Dispose()
 	}
-
-	d.window.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-		*canceled = true
-		d.window.Hide()
-	})
-
+	
+	d.closePatch = ApplyHideOnClosePatch(d.window)
 	centerWindow(d.window)
 
 	if len(d.lastState.ProfileItems) > 0 || d.lastState.MixedPort != 0 {
 		d.ProfileView.RefreshData(d.lastState)
 	}
 }
+
 func (d *Dashboard) UpdateState(state domain.UIState) {
 	d.lastState = state
 	if d.window == nil || !d.window.Visible() {
@@ -81,7 +80,10 @@ func (d *Dashboard) Dispose() {
 	if d.window == nil {
 		return
 	}
-
+	if d.closePatch != nil {
+		d.closePatch.Remove(d.window)
+		d.closePatch = nil
+	}
 	d.window.Dispose()
 	d.window = nil
 }
