@@ -80,6 +80,7 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 		AssignTo: &dlg,
 		Title:    cfg.Title,
 		MinSize:  Size{Width: cfg.Width, Height: cfg.MinHeight},
+		Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
 		Layout:   VBox{Margins: Margins{Left: 18, Top: 15, Right: 18, Bottom: 15}, Spacing: 12},
 		Children: layoutChildren,
 		FixedSize: true, 
