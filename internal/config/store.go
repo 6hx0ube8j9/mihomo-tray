@@ -19,8 +19,8 @@ type Manager struct {
 	exePath string
 	isAdmin bool
 
-	mu   sync.RWMutex 
-	ioMu sync.Mutex 
+	mu   sync.RWMutex
+	ioMu sync.Mutex
 
 	data domain.TrayConfig
 }
@@ -133,18 +133,15 @@ func (m *Manager) GetEffectiveMixedPort() int {
 	return m.GetEffectivePort(m.data.Config.MixedPort, domain.DefaultMixedPort)
 }
 
-func (m *Manager) GetEffectiveMixedPortStr() string {
-	return strconv.Itoa(m.GetEffectiveMixedPort())
-}
-
 func (m *Manager) GetEffectiveSystemProxyPort() (int, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	for _, port := range []*int{m.data.Config.MixedPort, m.data.Config.Port} {
-		if port != nil && *port > 0 {
-			return *port, true
-		}
+	if m.data.Config.MixedPort != nil && *m.data.Config.MixedPort > 0 {
+		return *m.data.Config.MixedPort, true
+	}
+	if m.data.Config.Port != nil && *m.data.Config.Port > 0 {
+		return *m.data.Config.Port, true
 	}
 	return 0, false
 }
@@ -155,6 +152,11 @@ func (m *Manager) GetEffectiveSystemProxyPortStr() (string, bool) {
 		return "", false
 	}
 	return strconv.Itoa(port), true
+}
+
+func (m *Manager) GetEffectiveLocalProxyPortStr() string {
+	portStr, _ := m.GetEffectiveSystemProxyPortStr()
+	return portStr
 }
 
 func (m *Manager) GetEffectiveSecret(s *string) string {
