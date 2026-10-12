@@ -124,13 +124,13 @@ func (t *Tray) buildMenuSkeleton() {
 
 	modeMenu, modeMenuAction := t.addSubMenu("路由模式")
 	t.actModeMenu = modeMenuAction
-	t.actModeRule = t.addCheckableSubAction(modeMenu, "规则", false, func() {
+	t.actModeRule = t.addRadioSubAction(modeMenu, "规则", false, func() {
 		t.engine.SendCommand(domain.ActionSwitchMode, domain.ModeRule)
 	})
-	t.actModeDirect = t.addCheckableSubAction(modeMenu, "直连", false, func() {
+	t.actModeDirect = t.addRadioSubAction(modeMenu, "直连", false, func() {
 		t.engine.SendCommand(domain.ActionSwitchMode, domain.ModeDirect)
 	})
-	t.actModeGlobal = t.addCheckableSubAction(modeMenu, "全局", false, func() {
+	t.actModeGlobal = t.addRadioSubAction(modeMenu, "全局", false, func() {
 		t.engine.SendCommand(domain.ActionSwitchMode, domain.ModeGlobal)
 	})
 
@@ -213,7 +213,7 @@ func (t *Tray) rebuildProfilesMenu(state domain.UIState) {
 		if item.IsRemote {
 			suffix = " (订阅)"
 		}
-		t.addCheckableSubAction(t.menuSwitchProfile, item.Name+suffix, item.IsActive, func() {
+		t.addRadioSubAction(t.menuSwitchProfile, item.Name+suffix, item.IsActive, func() {
 			t.engine.SendCommand(domain.ActionSwitchProfile, targetPath)
 		})
 	}
@@ -296,6 +296,14 @@ func (t *Tray) addCheckableAction(text string, checked bool, f func()) *walk.Act
 func (t *Tray) addCheckableSubAction(menu *walk.Menu, text string, checked bool, f func()) *walk.Action {
 	action := t.addActionTo(menu, text, f)
 	action.SetCheckable(true)
+	action.SetChecked(checked)
+	return action
+}
+
+func (t *Tray) addRadioSubAction(menu *walk.Menu, text string, checked bool, f func()) *walk.Action {
+	action := t.addActionTo(menu, text, f)
+	action.SetCheckable(true)
+	_ = action.SetExclusive(true)
 	action.SetChecked(checked)
 	return action
 }
