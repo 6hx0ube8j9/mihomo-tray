@@ -60,25 +60,35 @@ func (a *Application) reconcileTunState(kernelTunEnabled bool) bool {
 }
 
 func (a *Application) syncSystemProxy() {
-    cfg := a.Cfg.GetConfig()
-    if !*cfg.General.SystemProxy {
-        _ = sys.SetSystemProxy(false, "")
-        return
-    }
+	cfg := a.Cfg.GetConfig()
+	wantEnable := cfg.General.SystemProxy != nil && *cfg.General.SystemProxy
 
-    portStr, hasPort := a.Cfg.GetEffectiveSystemProxyPortStr()
-    if !hasPort {
-        slog.Warn("Mixed 与 HTTP 端口均未开启，强制关闭系统代理")
-        a.disableSystemProxySetting()
-        _ = sys.SetSystemProxy(false, "")
+	if !wantEnable {
+		if err := sys.SetSystemProxy(false, ""); err != nil {
+			slog.Error("关闭系统代理失败", "err", err)
+		}
+		return
+	}
 
-        if a.ui != nil {
-            a.ui.ShowNotification("系统代理", "系统代理已关闭，请检查代理端口。")
-        }
-        return
-    }
+	portStr, hasPort := a.Cfg.GetEffectiveSystemProxyPortStr()
+	if !hasPort {
+		slog.Warn("Mixed 与 HTTP 端口均未开启，强制关闭系统代理")
+		a.disableSystemProxySetting()
 
-    _ = sys.SetSystemProxy(true, portStr)
+		if err := sys.SetSystemProxy(false, ""); err != nil {
+			slog.Error("强制注销系统代理失败", "err", err)
+		}
+
+		if a.ui != nil {
+			a.ui.ShowNotification("系统代理", "系统代理已关闭，请检查代理端口。")
+		}
+		return
+	}
+
+	slog.Debug("更新系统代理", "enabled", true, "port", portStr)
+	if err := sys.SetSystemProxy(true, portStr); err != nil {
+		slog.Error("设置系统代理失败", "err", err)
+	}
 }
 
 func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.ProxyStatus) {
@@ -87,7 +97,7 @@ func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.Pr
 	}
 
 	cfg := a.Cfg.GetConfig()
-	if !*cfg.General.SystemProxy {
+	if cfg.General.SystemProxy == nil || !*cfg.General.SystemProxy {
 		return
 	}
 
