@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"context"
 	"log/slog"
 	"sync/atomic"
 	"syscall"
