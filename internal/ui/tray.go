@@ -25,12 +25,12 @@ var (
 )
 
 type Tray struct {
-	engine     *Engine
-	ni         *walk.NotifyIcon
-	icons      []*walk.Icon
-	lastIconId int
+	engine *Engine
+	ni     *walk.NotifyIcon
 
 	currentIconSize int
+	lastIconId      int
+	iconCache       map[int]*walk.Icon
 
 	latestState            domain.UIState
 	lastProfileFingerprint string
@@ -61,19 +61,11 @@ func NewTray(e *Engine) *Tray {
 		engine:                 e,
 		ni:                     ni,
 		lastIconId:             -1,
+		iconCache:              make(map[int]*walk.Icon),
 		lastProfileFingerprint: "__INIT__",
 	}
 
-	targetSize := getTrayIconMetricSize()
-	t.reloadIconsForSize(targetSize)
-
-	defaultIdx := int(domain.IconStop)
-	if defaultIdx < len(t.icons) && t.icons[defaultIdx] != nil {
-		if err := t.ni.SetIcon(t.icons[defaultIdx]); err != nil {
-			slog.Warn("设置默认托盘图标失败", "err", err)
-		}
-		t.lastIconId = defaultIdx
-	}
+	t.applyIcon(int(domain.IconStop))
 
 	t.buildMenuSkeleton()
 
@@ -88,29 +80,6 @@ func NewTray(e *Engine) *Tray {
 	return t
 }
 
-func (t *Tray) reloadIconsForSize(size int) {
-	for _, ico := range t.icons {
-		if ico != nil {
-			ico.Dispose()
-		}
-	}
-	t.icons = make([]*walk.Icon, len(trayIconResourceNames))
-	t.currentIconSize = size
-
-	walkSize := walk.Size{Width: size, Height: size}
-	for id, resName := range trayIconResourceNames {
-		if resName == "" {
-			continue
-		}
-		ico, err := walk.NewIconFromResourceWithSize(resName, walkSize)
-		if err != nil {
-			slog.Error("加载指定尺寸托盘图标失败", "resource", resName, "size", size, "err", err)
-			continue
-		}
-		t.icons[id] = ico
-	}
-}
-
 func (t *Tray) UpdateState(state domain.UIState) {
 	if t.ni == nil {
 		return
@@ -121,20 +90,7 @@ func (t *Tray) UpdateState(state domain.UIState) {
 		t.latestState.AutoStart != state.AutoStart
 
 	t.latestState = state
-
-	targetSize := getTrayIconMetricSize()
-	sizeChanged := targetSize != t.currentIconSize
-	if sizeChanged {
-		t.reloadIconsForSize(targetSize)
-	}
-
-	iconIdx := int(state.IconState)
-	if (iconIdx != t.lastIconId || sizeChanged) && iconIdx >= 0 && iconIdx < len(t.icons) && t.icons[iconIdx] != nil {
-		if err := t.ni.SetIcon(t.icons[iconIdx]); err != nil {
-			slog.Warn("切换托盘图标失败", "iconIdx", iconIdx, "size", targetSize, "err", err)
-		}
-		t.lastIconId = iconIdx
-	}
+	t.applyIcon(int(state.IconState))
 
 	t.actProxy.SetChecked(state.IsProxy)
 	t.actTun.SetChecked(state.IsTun)
@@ -159,7 +115,6 @@ func (t *Tray) UpdateState(state domain.UIState) {
 		t.actAdminMenu.SetText(adminText)
 	}
 
-	// 5. 配置列表差异同步
 	fp := generateProfileFingerprint(state.ProfileItems)
 	if fp != t.lastProfileFingerprint {
 		t.rebuildProfilesMenu(state)
@@ -172,6 +127,80 @@ func (t *Tray) UpdateState(state domain.UIState) {
 			}
 		}
 	}
+}
+
+func (t *Tray) applyIcon(stateId int) {
+	if stateId < 0 || stateId >= len(trayIconResourceNames) {
+		return
+	}
+
+	targetSize := getTrayIconMetricSize()
+	sizeChanged := targetSize != t.currentIconSize
+	idChanged := stateId != t.lastIconId
+
+	if !sizeChanged && !idChanged {
+		return
+	}
+
+	if sizeChanged {
+		t.disposeIcons()
+		t.currentIconSize = targetSize
+	}
+
+	ico, ok := t.iconCache[stateId]
+	if !ok {
+		resName := trayIconResourceNames[stateId]
+		if resName == "" {
+			return
+		}
+		var err error
+		ico, err = walk.NewIconFromResourceWithSize(resName, walk.Size{
+			Width:  targetSize,
+			Height: targetSize,
+		})
+		if err != nil {
+			slog.Error("从程序资源加载对应尺寸图标失败", "resource", resName, "size", targetSize, "err", err)
+			return
+		}
+		t.iconCache[stateId] = ico
+	}
+
+	if err := t.ni.SetIcon(ico); err != nil {
+		slog.Warn("更新托盘图标失败", "stateId", stateId, "size", targetSize, "err", err)
+		return
+	}
+
+	t.lastIconId = stateId
+}
+
+func (t *Tray) disposeIcons() {
+	for _, ico := range t.iconCache {
+		if ico != nil {
+			ico.Dispose()
+		}
+	}
+	t.iconCache = make(map[int]*walk.Icon)
+}
+
+func (t *Tray) Dispose() {
+	if t.ni != nil {
+		t.ni.Dispose()
+	}
+	t.disposeIcons()
+}
+
+func getTrayIconMetricSize() int {
+	hwnd := win.FindWindow(trayClassName, nil)
+	dpi := win.GetDpiForWindow(hwnd)
+	if dpi == 0 {
+		dpi = 96
+	}
+
+	if size := int(win.GetSystemMetricsForDpi(win.SM_CXSMICON, dpi)); size > 0 {
+		return size
+	}
+
+	return walk.IntFrom96DPI(16, int(dpi))
 }
 
 func (t *Tray) buildMenuSkeleton() {
@@ -289,35 +318,6 @@ func (t *Tray) ShowNotification(title, message string) {
 	if err := t.ni.ShowInfo(title, message); err != nil {
 		slog.Warn("弹出系统托盘通知失败", "title", title, "err", err)
 	}
-}
-
-func (t *Tray) Dispose() {
-	if t.ni != nil {
-		t.ni.Dispose()
-	}
-	for _, icon := range t.icons {
-		if icon != nil {
-			icon.Dispose()
-		}
-	}
-	t.icons = nil
-}
-
-func getTrayIconMetricSize() int {
-	hwnd := win.FindWindow(trayClassName, nil)
-	var dpi uint32 = 96
-	if hwnd != 0 {
-		dpi = win.GetDpiForWindow(hwnd)
-		if dpi == 0 {
-			dpi = 96
-		}
-	}
-
-	if size := int(win.GetSystemMetricsForDpi(win.SM_CXSMICON, dpi)); size > 0 {
-		return size
-	}
-
-	return walk.IntFrom96DPI(16, int(dpi))
 }
 
 func (t *Tray) toggle(action string, nextVal bool) {
