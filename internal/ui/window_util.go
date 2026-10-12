@@ -10,10 +10,19 @@ import (
 func ActivateWindow(hwnd win.HWND) {
 }
 
-// centerDialog 已空心化。
 func centerDialog(dlg *walk.Dialog, owner walk.Form) {
-}
+	if dlg == nil {
+		return
+	}
 
+	var targetHWND win.HWND
+	if owner != nil && owner.Visible() && !win.IsIconic(owner.Handle()) {
+		targetHWND = owner.Handle()
+	}
+
+	x, y := calcCenteredPos(targetHWND, dlg.Handle())
+	win.SetWindowPos(dlg.Handle(), win.HWND_TOP, x, y, 0, 0, win.SWP_NOSIZE)
+}
 
 func lockWindowSize(hwnd win.HWND) {
 }
