@@ -27,11 +27,13 @@ func calcCenteredPos(targetHWND, popupHWND win.HWND) (x, y int32) {
 	dlgH := popRect.Bottom - popRect.Top
 
 	if targetHWND != 0 && win.IsWindowVisible(targetHWND) && !win.IsIconic(targetHWND) {
-		var targetRect win.RECT
-		win.GetWindowRect(targetHWND, &targetRect)
+		var clientRect win.RECT
+		win.GetClientRect(targetHWND, &clientRect)
+		pt := win.POINT{X: 0, Y: 0}
+		win.ClientToScreen(targetHWND, &pt)
 
-		centerCX := targetRect.Left + (targetRect.Right-targetRect.Left)/2
-		centerCY := targetRect.Top + (targetRect.Bottom-targetRect.Top)/2
+		centerCX := pt.X + clientRect.Right/2
+		centerCY := pt.Y + clientRect.Bottom/2
 
 		return centerCX - dlgW/2, centerCY - dlgH/2
 	}
