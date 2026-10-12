@@ -52,10 +52,9 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	}
 
 	btnSize := Size{Width: 80, Height: 26}
-	layoutChildren := make([]Widget, 0, len(cfg.Widgets)+2)
+	layoutChildren := make([]Widget, 0, len(cfg.Widgets)+1)
 	layoutChildren = append(layoutChildren, cfg.Widgets...)
 	layoutChildren = append(layoutChildren,
-		VSpacer{},
 		Composite{
 			Layout: HBox{MarginsZero: true, Spacing: 10},
 			Children: []Widget{
@@ -77,11 +76,11 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	)
 
 	err := Dialog{
-		AssignTo: &dlg,
-		Title:    cfg.Title,
-		MinSize:  Size{Width: cfg.Width, Height: cfg.MinHeight},
-		Layout:   VBox{Margins: Margins{Left: 18, Top: 15, Right: 18, Bottom: 15}, Spacing: 12},
-		Children: layoutChildren,
+		AssignTo:  &dlg,
+		Title:     cfg.Title,
+		MinSize:   Size{Width: cfg.Width, Height: cfg.MinHeight},
+		Layout:    VBox{Margins: Margins{Left: 18, Top: 15, Right: 18, Bottom: 15}, Spacing: 12},
+		Children:  layoutChildren,
 		FixedSize: true,
 	}.Create(owner)
 
@@ -89,23 +88,18 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 		slog.Error("模态编辑器窗口创建失败", "title", cfg.Title, "err", err)
 		return EditorResult{Accepted: false, Error: err}
 	}
-	
-	if acceptPB != nil {
-		dlg.SetDefaultButton(acceptPB)
-	}
-	if cancelPB != nil {
-		dlg.SetCancelButton(cancelPB)
-	}
+
+	cleanupKeyFlow := SetupDialogKeyFlow(dlg, acceptPB, cancelPB)
+	defer func() {
+		cleanupKeyFlow()
+		dlg.Dispose()
+	}()
 
 	if cfg.OnReady != nil {
 		cfg.OnReady(dlg)
 	}
 
 	dlg.Starting().Attach(func() {
-		centerDialog(dlg, owner)
-	})
-
-	dlg.SizeChanged().Attach(func() {
 		centerDialog(dlg, owner)
 	})
 
