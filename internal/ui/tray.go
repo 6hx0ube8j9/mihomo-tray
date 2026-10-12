@@ -37,14 +37,26 @@ type Tray struct {
 	actAllowLan       *walk.Action
 }
 
+var trayGUID = windows.GUID{
+	Data1: 0x6a1b2c3d,
+	Data2: 0x4e5f,
+	Data3: 0x7a8b,
+	Data4: [8]byte{0x9c, 0x0d, 0x1e, 0x2f, 0x3a, 0x4b, 0x5c, 0x6d},
+}
+
 func NewTray(e *Engine) *Tray {
 	slog.Debug("[Tray] 开始初始化 NewTray")
 
-	ni, err := walk.NewNotifyIcon()
+	ni, err := walk.NewNotifyIconWithGUID(trayGUID)
 	if err != nil {
-		slog.Error("[Tray] 创建系统托盘图标失败", "err", err)
-		return nil
+		slog.Warn("[Tray] 带 GUID 初始化失败，回退至普通模式", "err", err)
+		ni, err = walk.NewNotifyIcon()
+		if err != nil {
+			slog.Error("[Tray] 创建系统托盘图标失败", "err", err)
+			return nil
+		}
 	}
+	
 	slog.Debug("[Tray] walk.NewNotifyIcon 句柄创建成功")
 
 	if err := ni.SetVisible(true); err != nil {
