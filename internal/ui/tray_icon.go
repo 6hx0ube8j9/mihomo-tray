@@ -17,61 +17,53 @@ var trayIconResourceNames = []string{
 }
 
 type IconManager struct {
-	icons       []*walk.Icon
 	currentSize int
+	currentId   int
+	currentIcon *walk.Icon
 }
 
 func NewIconManager() *IconManager {
-	mgr := &IconManager{}
-	mgr.Reload()
-	return mgr
-}
-
-func (m *IconManager) HasDpiChanged() bool {
-	return getSystemSmallIconSize() != m.currentSize
-}
-
-func (m *IconManager) Reload() {
-	newSize := getSystemSmallIconSize()
-	m.Dispose()
-
-	m.currentSize = newSize
-	m.icons = make([]*walk.Icon, len(trayIconResourceNames))
-	walkSize := walk.Size{Width: newSize, Height: newSize}
-
-	for id, resName := range trayIconResourceNames {
-		if resName == "" {
-			continue
-		}
-		ico, err := walk.NewIconFromResourceWithSize(resName, walkSize)
-		if err != nil {
-			slog.Error("加载托盘图标资源失败", "resource", resName, "size", newSize, "err", err)
-			continue
-		}
-		m.icons[id] = ico
+	return &IconManager{
+		currentId: -1,
 	}
 }
 
 func (m *IconManager) Get(stateId int) *walk.Icon {
-	if stateId >= 0 && stateId < len(m.icons) {
-		return m.icons[stateId]
+	if stateId < 0 || stateId >= len(trayIconResourceNames) {
+		return nil
 	}
-	return nil
+	resName := trayIconResourceNames[stateId]
+	if resName == "" {
+		return nil
+	}
+
+	targetSize := int(win.GetSystemMetrics(win.SM_CXSMICON))
+	if targetSize <= 0 {
+		targetSize = 16
+	}
+
+	if m.currentIcon != nil && m.currentId == stateId && m.currentSize == targetSize {
+		return m.currentIcon
+	}
+
+	m.Dispose()
+
+	walkSize := walk.Size{Width: targetSize, Height: targetSize}
+	ico, err := walk.NewIconFromResourceWithSize(resName, walkSize)
+	if err != nil {
+		slog.Error("加载托盘图标失败", "resource", resName, "size", targetSize, "err", err)
+		return nil
+	}
+
+	m.currentSize = targetSize
+	m.currentId = stateId
+	m.currentIcon = ico
+	return m.currentIcon
 }
 
 func (m *IconManager) Dispose() {
-	for _, ico := range m.icons {
-		if ico != nil {
-			ico.Dispose()
-		}
+	if m.currentIcon != nil {
+		m.currentIcon.Dispose()
+		m.currentIcon = nil
 	}
-	m.icons = nil
-}
-
-func getSystemSmallIconSize() int {
-	size := int(win.GetSystemMetrics(win.SM_CXSMICON))
-	if size <= 0 {
-		return 16
-	}
-	return size
 }
