@@ -128,7 +128,8 @@ func (a *Application) repairProxyLoop(ctx context.Context, port, expectedServer 
 	defer a.State.ReleaseProxyRepair()
 
 	for i := 1; i <= proxyRepairMaxAttempts; i++ {
-		if a.State.IsExiting() || ctx.Err() != nil || !*a.Cfg.GetConfig().General.SystemProxy {
+		cfg := a.Cfg.GetConfig()
+		if a.State.IsExiting() || ctx.Err() != nil || cfg.General.SystemProxy == nil || !*cfg.General.SystemProxy {
 			return
 		}
 
@@ -234,6 +235,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 	}
 
 	cfg := a.Cfg.GetConfig()
+	isProxyEnabled := cfg.General.SystemProxy != nil && *cfg.General.SystemProxy
 
 	if resp.Mode != "" && resp.Mode != cfg.Config.Mode {
 		slog.Info("内核路由模式更新", "from", cfg.Config.Mode, "to", resp.Mode)
@@ -276,17 +278,21 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 			p := resp.MixedPort
 			c.Config.MixedPort = &p
 		})
-		if *cfg.General.SystemProxy {
+		if isProxyEnabled {
 			a.syncSystemProxy()
 		}
 		changed = true
 	}
 
 	if resp.Port != 0 && (cfg.Config.Port == nil || *cfg.Config.Port != resp.Port) {
+		slog.Info("内核 HTTP 端口变更", "port", resp.Port)
 		a.Cfg.Update(func(c *domain.TrayConfig) {
 			p := resp.Port
 			c.Config.Port = &p
 		})
+		if isProxyEnabled && (cfg.Config.MixedPort == nil || *cfg.Config.MixedPort <= 0) {
+			a.syncSystemProxy()
+		}
 		changed = true
 	}
 
@@ -295,9 +301,6 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 			p := resp.SocksPort
 			c.Config.SocksPort = &p
 		})
-		if *cfg.General.SystemProxy && (cfg.Config.MixedPort == nil || *cfg.Config.MixedPort <= 0) {
-			a.syncSystemProxy()
-		}	
 		changed = true
 	}
 
