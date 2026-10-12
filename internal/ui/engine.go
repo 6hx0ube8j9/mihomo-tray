@@ -163,6 +163,35 @@ func (e *Engine) ShowProfileManager(state domain.UIState) {
 	}
 }
 
+func (e *Engine) RunModalEditor(key string, cfg EditorConfig) EditorResult {
+	if e.modalMgr == nil {
+		slog.Warn("ModalManager 未初始化，无法打开模态编辑器", "key", key)
+		return EditorResult{Accepted: false}
+	}
+
+	var res EditorResult
+
+	e.RunOnUI(func() {
+		if !e.modalMgr.TryAcquire(key) {
+			slog.Debug("模态窗口防抖拦截", "key", key)
+			return
+		}
+		defer e.modalMgr.Release(key)
+
+		originalOnReady := cfg.OnReady
+		cfg.OnReady = func(dlg *walk.Dialog) {
+			e.modalMgr.RegisterHWND(key, dlg.Handle())
+			if originalOnReady != nil {
+				originalOnReady(dlg)
+			}
+		}
+
+		res = RunEditor(e.activeOwner(), cfg)
+	})
+
+	return res
+}
+
 func (e *Engine) ShowError(title, message string) {
 	slog.Error("弹出错误提示", "title", title, "message", message)
 	e.showModalAsync("error", title, message, walk.MsgBoxOK|walk.MsgBoxIconError)
