@@ -52,9 +52,10 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	}
 
 	btnSize := Size{Width: 80, Height: 26}
-	layoutChildren := make([]Widget, 0, len(cfg.Widgets)+1)
+	layoutChildren := make([]Widget, 0, len(cfg.Widgets)+2)
 	layoutChildren = append(layoutChildren, cfg.Widgets...)
 	layoutChildren = append(layoutChildren,
+		VSpacer{},					
 		Composite{
 			Layout: HBox{MarginsZero: true, Spacing: 10},
 			Children: []Widget{
