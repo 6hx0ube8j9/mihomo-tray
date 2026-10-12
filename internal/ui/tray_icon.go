@@ -13,6 +13,12 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
+const (
+	baseDPI      = 96
+	baseIconSize = 16
+	dpiProbeInterval = 1500 * time.Millisecond
+)
+
 var trayGUID = windows.GUID{
 	Data1: 0x6a1b2c3d,
 	Data2: 0x4e5f,
@@ -133,19 +139,19 @@ func (c *TrayIconController) getSystemMetricSize() int {
 	hwnd := win.FindWindow(trayClassName, nil)
 	dpi := win.GetDpiForWindow(hwnd)
 	if dpi == 0 {
-		dpi = 96
+		dpi = baseDPI
 	}
 
 	if size := int(win.GetSystemMetricsForDpi(win.SM_CXSMICON, dpi)); size > 0 {
 		return size
 	}
 
-	return walk.IntFrom96DPI(16, int(dpi))
+	return walk.IntFrom96DPI(baseIconSize, int(dpi))
 }
 
 func (c *TrayIconController) startDpiWatcher() {
 	go func() {
-		ticker := time.NewTicker(1500 * time.Millisecond)
+		ticker := time.NewTicker(dpiProbeInterval)
 		defer ticker.Stop()
 
 		for {
