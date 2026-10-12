@@ -77,12 +77,12 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	)
 
 	err := Dialog{
-		AssignTo:  &dlg,
-		Title:     cfg.Title,
-		MinSize:   Size{Width: cfg.Width, Height: cfg.MinHeight},
-		Layout:    VBox{Margins: Margins{Left: 18, Top: 15, Right: 18, Bottom: 15}, Spacing: 12},
-		Children:  layoutChildren,
-		FixedSize: true,
+		AssignTo: &dlg,
+		Title:    cfg.Title,
+		MinSize:  Size{Width: cfg.Width, Height: cfg.MinHeight},
+		Layout:   VBox{Margins: Margins{Left: 18, Top: 15, Right: 18, Bottom: 15}, Spacing: 12},
+		Children: layoutChildren,
+		FixedSize: true, 
 	}.Create(owner)
 
 	if err != nil {
@@ -101,6 +101,12 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	}
 
 	dlg.Starting().Attach(func() {
+		dlg.Synchronize(func() {
+			centerDialog(dlg, owner)
+		})
+	})
+
+	dlg.SizeChanged().Attach(func() {
 		centerDialog(dlg, owner)
 	})
 
