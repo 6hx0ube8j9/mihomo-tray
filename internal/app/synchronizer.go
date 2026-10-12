@@ -272,7 +272,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		changed = true
 	}
 
-	if resp.MixedPort != 0 && (cfg.Config.MixedPort == nil || *cfg.Config.MixedPort != resp.MixedPort) {
+	if cfg.Config.MixedPort == nil || *cfg.Config.MixedPort != resp.MixedPort {
 		slog.Info("内核混合端口变更", "port", resp.MixedPort)
 		a.Cfg.Update(func(c *domain.TrayConfig) {
 			p := resp.MixedPort
@@ -284,7 +284,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		changed = true
 	}
 
-	if resp.Port != 0 && (cfg.Config.Port == nil || *cfg.Config.Port != resp.Port) {
+	if cfg.Config.Port == nil || *cfg.Config.Port != resp.Port {
 		slog.Info("内核 HTTP 端口变更", "port", resp.Port)
 		a.Cfg.Update(func(c *domain.TrayConfig) {
 			p := resp.Port
@@ -296,19 +296,21 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		changed = true
 	}
 
-	if resp.SocksPort != 0 && (cfg.Config.SocksPort == nil || *cfg.Config.SocksPort != resp.SocksPort) {
+	if cfg.Config.SocksPort == nil || *cfg.Config.SocksPort != resp.SocksPort {
+		slog.Info("内核 Socks 端口变更", "port", resp.SocksPort)
 		a.Cfg.Update(func(c *domain.TrayConfig) {
 			p := resp.SocksPort
 			c.Config.SocksPort = &p
 		})
 		changed = true
 	}
-
+	
 	if a.reconcileTunState(resp.Tun.Enable) {
 		changed = true
 	}
 
 	wantTun := a.Cfg.GetConfig().Config.Tun.Enable
+	
 	if changed && wantTun && !realAlive && !a.isTunInGracePeriod() {
 		slog.Warn("TUN 网卡未就绪", "device", currentActual)
 	}
