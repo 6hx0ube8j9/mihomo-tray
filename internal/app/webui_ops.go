@@ -25,7 +25,7 @@ func (a *Application) OpenWebUI() error {
 	wcfg := webui.Config{
 		APIAddr:            addr,
 		Secret:             secret,
-		ProxyPort:          a.Cfg.GetEffectiveMixedPortStr(),
+		ProxyPort:          a.Cfg.GetEffectiveLocalProxyPortStr(),
 		BaseDir:            a.Cfg.BaseDir(),
 		UIName:             cfg.Config.ExternalUIName,
 		ForceSystemBrowser: sysBrowser,
