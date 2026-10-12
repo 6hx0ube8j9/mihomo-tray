@@ -15,7 +15,6 @@ type Tray struct {
 	ni       *walk.NotifyIcon
 	iconCtrl *TrayIconController
 
-	isBuilt                bool
 	latestState            domain.UIState
 	lastProfileFingerprint string
 
@@ -44,10 +43,11 @@ func NewTray(e *Engine) *Tray {
 	t := &Tray{
 		engine:                 e,
 		ni:                     ni,
-		iconCtrl:               NewTrayIconController(e.ctx, ni),
+		iconCtrl:               NewTrayIconController(e, ni),
 		lastProfileFingerprint: "__INIT__",
 	}
 
+	t.buildMenuSkeleton()
 	t.iconCtrl.SetState(int(domain.IconStop))
 
 	ni.MouseUp().Attach(func(x, y int, button walk.MouseButton) {
@@ -62,11 +62,6 @@ func NewTray(e *Engine) *Tray {
 func (t *Tray) UpdateState(state domain.UIState) {
 	if t.ni == nil {
 		return
-	}
-
-	if !t.isBuilt {
-		t.buildMenuSkeleton()
-		t.isBuilt = true
 	}
 
 	stateChanged := t.latestState.Mode != state.Mode ||
