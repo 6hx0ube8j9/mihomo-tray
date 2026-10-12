@@ -320,21 +320,3 @@ func (t *Tray) addSeparator() {
 func (t *Tray) addSeparatorTo(menu *walk.Menu) {
 	menu.Actions().Add(walk.NewSeparatorAction())
 }
-
-func safelySetChecked(a *walk.Action, checked bool) {
-	if a != nil {
-		a.SetChecked(checked)
-	}
-}
-
-func safelySetEnabled(a *walk.Action, enabled bool) {
-	if a != nil {
-		a.SetEnabled(enabled)
-	}
-}
-
-func safelySetText(a *walk.Action, text string) {
-	if a != nil {
-		a.SetText(text)
-	}
-}
