@@ -1,8 +1,8 @@
 package ui
 
 import (
+	"context"
 	"log/slog"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -10,12 +10,13 @@ import (
 	"github.com/tailscale/walk"
 	"github.com/tailscale/win"
 	"golang.org/x/sys/windows"
+
 	"mihomo-tray/internal/domain"
 )
 
 const (
-	baseDPI      = 96
-	baseIconSize = 16
+	baseDPI          = 96
+	baseIconSize     = 16
 	dpiProbeInterval = 1500 * time.Millisecond
 )
 
@@ -44,16 +45,15 @@ type TrayIconController struct {
 	lastStateId atomic.Int32
 	icons       map[int]*walk.Icon
 
+	ctx        context.Context
 	isDisposed atomic.Bool
-	stopOnce   sync.Once
-	stopChan   chan struct{}
 }
 
-func NewTrayIconController(ni *walk.NotifyIcon) *TrayIconController {
+func NewTrayIconController(ctx context.Context, ni *walk.NotifyIcon) *TrayIconController {
 	c := &TrayIconController{
-		ni:       ni,
-		icons:    make(map[int]*walk.Icon),
-		stopChan: make(chan struct{}),
+		ni:    ni,
+		icons: make(map[int]*walk.Icon),
+		ctx:   ctx,
 	}
 	c.lastStateId.Store(-1)
 	c.currentSize.Store(0)
@@ -89,7 +89,7 @@ func (c *TrayIconController) SetState(stateId int) {
 		return
 	}
 
-	ico := c.getIcon(stateId, targetSize)
+	ico, sizeChanged := c.getIcon(stateId, targetSize, currSize)
 	if ico == nil {
 		return
 	}
@@ -100,39 +100,47 @@ func (c *TrayIconController) SetState(stateId int) {
 	}
 
 	c.lastStateId.Store(int32(stateId))
+
+	if sizeChanged {
+		c.currentSize.Store(int32(targetSize))
+		c.clearOldIcons(stateId)
+	}
 }
 
-func (c *TrayIconController) getIcon(stateId, targetSize int) *walk.Icon {
+func (c *TrayIconController) getIcon(stateId, targetSize, currSize int) (*walk.Icon, bool) {
 	if stateId < 0 || stateId >= len(trayIconResourceNames) {
-		return nil
+		return nil, false
 	}
 
-	currSize := int(c.currentSize.Load())
-	if targetSize != currSize {
-		c.clearIconCache()
-		c.currentSize.Store(int32(targetSize))
-	}
+	sizeChanged := targetSize != currSize
 
-	if ico, ok := c.icons[stateId]; ok {
-		return ico
+	if !sizeChanged {
+		if ico, ok := c.icons[stateId]; ok && ico != nil {
+			return ico, false
+		}
 	}
 
 	resName := trayIconResourceNames[stateId]
 	if resName == "" {
-		return nil
+		return nil, false
 	}
 
 	ico, err := walk.NewIconFromResourceWithSize(resName, walk.Size{
 		Width:  targetSize,
 		Height: targetSize,
 	})
-	if err != nil {
-		slog.Error("[TrayHost] 从资源提取图标帧失败", "resource", resName, "size", targetSize, "err", err)
-		return nil
+
+	if err != nil || ico == nil {
+		slog.Debug("[TrayHost] 提取精确尺寸图标帧失败，降级使用默认资源", "size", targetSize, "err", err)
+		ico, err = walk.NewIconFromResource(resName)
+		if err != nil || ico == nil {
+			slog.Error("[TrayHost] 降级提取系统图标严重失败", "resource", resName, "err", err)
+			return nil, false
+		}
 	}
 
 	c.icons[stateId] = ico
-	return ico
+	return ico, sizeChanged
 }
 
 func (c *TrayIconController) getSystemMetricSize() int {
@@ -156,7 +164,7 @@ func (c *TrayIconController) startDpiWatcher() {
 
 		for {
 			select {
-			case <-c.stopChan:
+			case <-c.ctx.Done():
 				return
 			case <-ticker.C:
 				if c.isDisposed.Load() {
@@ -175,20 +183,26 @@ func (c *TrayIconController) startDpiWatcher() {
 	}()
 }
 
-func (c *TrayIconController) clearIconCache() {
-	for _, ico := range c.icons {
+func (c *TrayIconController) clearOldIcons(keepStateId int) {
+	for id, ico := range c.icons {
+		if id != keepStateId && ico != nil {
+			ico.Dispose()
+			delete(c.icons, id)
+		}
+	}
+}
+
+func (c *TrayIconController) clearAllCache() {
+	for id, ico := range c.icons {
 		if ico != nil {
 			ico.Dispose()
 		}
+		delete(c.icons, id)
 	}
-	c.icons = make(map[int]*walk.Icon)
 }
 
 func (c *TrayIconController) Dispose() {
 	c.isDisposed.Store(true)
-	c.stopOnce.Do(func() {
-		close(c.stopChan)
-	})
-	c.clearIconCache()
+	c.clearAllCache()
 	c.ni = nil
 }
