@@ -44,7 +44,7 @@ func NewTray(e *Engine) *Tray {
 	t := &Tray{
 		engine:                 e,
 		ni:                     ni,
-		iconCtrl:               NewTrayIconController(ni),
+		iconCtrl:               NewTrayIconController(e.ctx, ni),
 		lastProfileFingerprint: "__INIT__",
 	}
 
@@ -234,13 +234,13 @@ func (t *Tray) ShowNotification(title, message string) {
 }
 
 func (t *Tray) Dispose() {
-	if t.iconCtrl != nil {
-		t.iconCtrl.Dispose()
-		t.iconCtrl = nil
-	}
 	if t.ni != nil {
 		t.ni.Dispose()
 		t.ni = nil
+	}
+	if t.iconCtrl != nil {
+		t.iconCtrl.Dispose()
+		t.iconCtrl = nil
 	}
 }
 
