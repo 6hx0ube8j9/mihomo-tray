@@ -45,15 +45,15 @@ type TrayIconController struct {
 	lastStateId atomic.Int32
 	icons       map[int]*walk.Icon
 
-	ctx        context.Context
+	engine     *Engine
 	isDisposed atomic.Bool
 }
 
-func NewTrayIconController(ctx context.Context, ni *walk.NotifyIcon) *TrayIconController {
+func NewTrayIconController(e *Engine, ni *walk.NotifyIcon) *TrayIconController {
 	c := &TrayIconController{
-		ni:    ni,
-		icons: make(map[int]*walk.Icon),
-		ctx:   ctx,
+		ni:     ni,
+		icons:  make(map[int]*walk.Icon),
+		engine: e,
 	}
 	c.lastStateId.Store(-1)
 	c.currentSize.Store(0)
@@ -164,7 +164,7 @@ func (c *TrayIconController) startDpiWatcher() {
 
 		for {
 			select {
-			case <-c.ctx.Done():
+			case <-c.engine.ctx.Done():
 				return
 			case <-ticker.C:
 				if c.isDisposed.Load() {
@@ -172,7 +172,7 @@ func (c *TrayIconController) startDpiWatcher() {
 				}
 
 				if c.getSystemMetricSize() != int(c.currentSize.Load()) {
-					walk.App().Synchronize(func() {
+					c.engine.RunOnUI(func() {
 						if !c.isDisposed.Load() {
 							c.SetState(int(c.lastStateId.Load()))
 						}
