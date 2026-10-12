@@ -56,10 +56,7 @@ func (d *Dashboard) createWindow() {
 		return
 	}
 
-	if tb := d.window.ToolBar(); tb != nil {
-		tb.Dispose()
-	}
-	
+	disableGhostToolbar(d.window)
 	d.closePatch = ApplyHideOnClosePatch(d.window)
 	centerWindow(d.window)
 
