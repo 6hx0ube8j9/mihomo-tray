@@ -1,7 +1,5 @@
-// Package ui provides window control and UI helper utilities, covering
-// parent-relative dialog centering, screen work area bounds clamping,
-// focus management, window style locking, and idempotent action updates.
-
+// Package ui provides window management helpers including dialog centering,
+// screen bounds clamping, style locking, and focus restoration.
 package ui
 
 import (
@@ -21,6 +19,7 @@ func ActivateWindow(hwnd win.HWND) {
 	win.SetForegroundWindow(hwnd)
 	win.SetFocus(hwnd)
 }
+
 
 func calcCenteredPos(targetHWND, popupHWND win.HWND) (x, y int32) {
 	var popRect win.RECT
@@ -87,7 +86,8 @@ func restoreFocus(parent walk.Form, hActive win.HWND) {
 	}
 }
 
-// Idempotent action helpers to prevent redundant Win32 redraws.
+
+// Idempotent action helpers that avoid redundant Win32 message broadcasts.
 func safelySetChecked(act *walk.Action, checked bool) {
 	if act != nil && act.Checked() != checked {
 		act.SetChecked(checked)
