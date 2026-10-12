@@ -5,19 +5,25 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/tailscale/walk"
 	"mihomo-tray/internal/domain"
 )
 
+var trayIconResourceNames = []string{
+	domain.IconStop:    "ICON_STOP",
+	domain.IconError:   "ICON_ERROR",
+	domain.IconTun:     "ICON_TUN",
+	domain.IconProxy:   "ICON_PROXY",
+	domain.IconDefault: "ICON_DEFAULT",
+}
+
 type Tray struct {
 	engine     *Engine
 	ni         *walk.NotifyIcon
-	iconMgr    *IconManager
+	icons      []*walk.Icon
 	lastIconId int
 
-	isBuilt                bool
 	latestState            domain.UIState
 	lastProfileFingerprint string
 
@@ -37,117 +43,61 @@ type Tray struct {
 }
 
 func NewTray(e *Engine) *Tray {
-	slog.Debug("[Tray] 开始初始化 NewTray")
-
 	ni, err := walk.NewNotifyIcon()
 	if err != nil {
-		slog.Error("[Tray] 创建系统托盘图标失败", "err", err)
+		slog.Error("创建系统托盘图标失败", "err", err)
 		return nil
-	}
-	slog.Debug("[Tray] walk.NewNotifyIcon 句柄创建成功")
-
-	if err := ni.SetVisible(true); err != nil {
-		slog.Warn("[Tray] 设置托盘可见性失败", "err", err)
-	}
-	if err := ni.SetToolTip("Mihomo Tray"); err != nil {
-		slog.Warn("[Tray] 设置 ToolTip 失败", "err", err)
 	}
 
 	t := &Tray{
 		engine:                 e,
 		ni:                     ni,
-		iconMgr:                NewIconManager(),
 		lastIconId:             -1,
 		lastProfileFingerprint: "__INIT__",
 	}
 
-	// 初始默认图标显示
-	slog.Debug("[Tray] 加载初始托盘图标 (IconStop)")
-	t.applyIcon(int(domain.IconStop))
+	t.loadResourceIcons()
 
+	t.buildMenuSkeleton()
+
+	ni.SetToolTip("Mihomo Tray")
 	ni.MouseUp().Attach(func(x, y int, button walk.MouseButton) {
-		slog.Debug("[Tray] 捕获鼠标点击事件", "button", button, "x", x, "y", y)
 		if button == walk.LeftButton {
-			slog.Debug("[Tray] 鼠标左键点击，触发校准图标并打开面板")
-			t.applyIcon(t.lastIconId)
 			t.engine.SendCommand(domain.ActionOpenWebUI, "")
 		}
 	})
 
-	// 启动后台 DPI 轮询监听
-	t.startDpiWatcher()
-
-	slog.Debug("[Tray] NewTray 初始化流程全部完成")
+	ni.SetVisible(true)
 	return t
 }
 
-func (t *Tray) applyIcon(iconId int) {
-	slog.Debug("[Tray] applyIcon 触发", "targetIconId", iconId, "lastIconId", t.lastIconId)
-	if t.ni == nil {
-		slog.Warn("[Tray] applyIcon 终止: t.ni 为 nil")
-		return
-	}
+func (t *Tray) loadResourceIcons() {
+	t.icons = make([]*walk.Icon, len(trayIconResourceNames))
 
-	ico := t.iconMgr.Get(iconId)
-	if ico == nil {
-		slog.Warn("[Tray] applyIcon 终止: 获取到的图标为 nil", "iconId", iconId)
-		return
-	}
-
-	if err := t.ni.SetIcon(ico); err != nil {
-		slog.Warn("[Tray] 调用 t.ni.SetIcon 失败", "iconId", iconId, "err", err)
-		return
-	}
-
-	t.lastIconId = iconId
-	slog.Debug("[Tray] t.ni.SetIcon 成功生效", "iconId", iconId, "size", t.iconMgr.CurrentSize())
-}
-
-func (t *Tray) startDpiWatcher() {
-	slog.Debug("[Tray] 启动 DPI 监控协程 (每 1.5 秒检查一次)")
-	go func() {
-		ticker := time.NewTicker(1500 * time.Millisecond)
-		defer ticker.Stop()
-
-		for range ticker.C {
-			if t.ni == nil {
-				slog.Debug("[Tray] 托盘已释放，退出 DPI 监控协程")
-				return
-			}
-
-			sysMetric := t.iconMgr.GetSystemMetricSize()
-			currSize := t.iconMgr.CurrentSize()
-
-			// 如果想降低刷屏频率，可保持只在不一致时输出；现在为了彻底排查，每拍都打印
-			slog.Debug("[Tray] [DPI-Watcher] 定时探针检查", "systemMetric", sysMetric, "managerCurrentSize", currSize)
-
-			if sysMetric > 0 && sysMetric != currSize {
-				slog.Warn("[Tray] [DPI-Watcher] 检测到缩放尺寸变动，准备切入 UI 线程热重载",
-					"oldSize", currSize,
-					"newSize", sysMetric,
-				)
-				walk.App().Synchronize(func() {
-					slog.Debug("[Tray] [UI-Thread] 同步执行 applyIcon 热刷新")
-					t.applyIcon(t.lastIconId)
-				})
-			}
+	for id, resName := range trayIconResourceNames {
+		if resName == "" {
+			continue
 		}
-	}()
+
+		ico, err := walk.NewIconFromResource(resName)
+		if err != nil {
+			slog.Error("从程序资源加载托盘图标失败", "resource", resName, "err", err)
+			continue
+		}
+		t.icons[id] = ico
+	}
+
+	defaultIdx := int(domain.IconStop)
+	if defaultIdx < len(t.icons) && t.icons[defaultIdx] != nil {
+		if err := t.ni.SetIcon(t.icons[defaultIdx]); err != nil {
+			slog.Warn("设置默认托盘图标失败", "err", err)
+		}
+		t.lastIconId = defaultIdx
+	}
 }
 
 func (t *Tray) UpdateState(state domain.UIState) {
-	slog.Debug("[Tray] UpdateState 收到状态推送",
-		"iconState", state.IconState,
-		"isProxy", state.IsProxy,
-		"isTun", state.IsTun,
-		"mode", state.Mode,
-		"isAdmin", state.IsAdmin,
-		"autoStart", state.AutoStart,
-		"profilesCount", len(state.ProfileItems),
-	)
-
 	if t.ni == nil {
-		slog.Warn("[Tray] UpdateState 终止: t.ni 为 nil")
 		return
 	}
 
@@ -157,79 +107,71 @@ func (t *Tray) UpdateState(state domain.UIState) {
 
 	t.latestState = state
 
-	// 业务图标状态流转
-	t.applyIcon(int(state.IconState))
-
-	if !t.isBuilt {
-		slog.Debug("[Tray] 首次进入 UpdateState，构建菜单骨架")
-		t.buildMenuSkeleton()
-		t.isBuilt = true
-		stateChanged = true
+	iconIdx := int(state.IconState)
+	if iconIdx != t.lastIconId && iconIdx >= 0 && iconIdx < len(t.icons) && t.icons[iconIdx] != nil {
+		if err := t.ni.SetIcon(t.icons[iconIdx]); err != nil {
+			slog.Warn("切换托盘图标失败", "iconIdx", iconIdx, "err", err)
+		}
+		t.lastIconId = iconIdx
 	}
 
-	safelySetChecked(t.actProxy, state.IsProxy)
-	safelySetChecked(t.actTun, state.IsTun)
+	t.actProxy.SetChecked(state.IsProxy)
+	t.actTun.SetChecked(state.IsTun)
 
-	safelySetChecked(t.actModeRule, state.Mode == domain.ModeRule)
-	safelySetChecked(t.actModeDirect, state.Mode == domain.ModeDirect)
-	safelySetChecked(t.actModeGlobal, state.Mode == domain.ModeGlobal)
+	t.actModeRule.SetChecked(state.Mode == domain.ModeRule)
+	t.actModeDirect.SetChecked(state.Mode == domain.ModeDirect)
+	t.actModeGlobal.SetChecked(state.Mode == domain.ModeGlobal)
 
-	safelySetChecked(t.actAutoStart, state.AutoStart)
-	safelySetChecked(t.actRunAdmin, state.RunAsAdmin || state.AutoStart)
-	safelySetEnabled(t.actRunAdmin, !state.AutoStart)
-	safelySetChecked(t.actSysBrowser, state.UseSystemBrowser)
-	safelySetChecked(t.actRemoteWebUI, state.RemoteWebUI)
-	safelySetChecked(t.actAllowLan, state.AllowLan)
+	t.actAutoStart.SetChecked(state.AutoStart)
+	t.actRunAdmin.SetChecked(state.RunAsAdmin || state.AutoStart)
+	t.actRunAdmin.SetEnabled(!state.AutoStart)
+	t.actSysBrowser.SetChecked(state.UseSystemBrowser)
+	t.actRemoteWebUI.SetChecked(state.RemoteWebUI)
+	t.actAllowLan.SetChecked(state.AllowLan)
 
 	if stateChanged {
-		slog.Debug("[Tray] 状态变更，刷新菜单文本", "mode", state.Mode, "isAdmin", state.IsAdmin)
-		safelySetText(t.actModeMenu, fmt.Sprintf("路由模式: %s", getModeName(state.Mode)))
+		t.actModeMenu.SetText(fmt.Sprintf("路由模式: %s", getModeName(state.Mode)))
 		adminText := "运行权限：普通用户"
 		if state.IsAdmin {
 			adminText = "运行权限：管理员"
 		}
-		safelySetText(t.actAdminMenu, adminText)
+		t.actAdminMenu.SetText(adminText)
 	}
 
 	fp := generateProfileFingerprint(state.ProfileItems)
 	if fp != t.lastProfileFingerprint {
-		slog.Debug("[Tray] 配置项指纹发生变化，重建配置菜单", "oldFp", t.lastProfileFingerprint, "newFp", fp)
 		t.rebuildProfilesMenu(state)
 		t.lastProfileFingerprint = fp
 	} else if t.menuSwitchProfile != nil && len(state.ProfileItems) > 0 {
 		actions := t.menuSwitchProfile.Actions()
 		for i, item := range state.ProfileItems {
 			if i < actions.Len() {
-				safelySetChecked(actions.At(i), item.IsActive)
+				actions.At(i).SetChecked(item.IsActive)
 			}
 		}
 	}
 }
 
 func (t *Tray) buildMenuSkeleton() {
-	slog.Debug("[Tray] 开始构建托盘菜单骨架")
-	actions := t.ni.ContextMenu().Actions()
-	actions.Clear()
-
 	t.addAction("进入 Web 面板", func() { t.engine.SendCommand(domain.ActionOpenWebUI, "") })
 	t.addSeparator()
 
-	t.actProxy = t.addCheckableAction("系统代理", t.latestState.IsProxy, func() {
+	t.actProxy = t.addCheckableAction("系统代理", false, func() {
 		t.toggle(domain.ActionToggleProxy, !t.latestState.IsProxy)
 	})
-	t.actTun = t.addCheckableAction("TUN 模式", t.latestState.IsTun, func() {
+	t.actTun = t.addCheckableAction("TUN 模式", false, func() {
 		t.toggle(domain.ActionToggleTun, !t.latestState.IsTun)
 	})
 
-	modeMenu, modeMenuAction := t.addSubMenu(fmt.Sprintf("路由模式: %s", getModeName(t.latestState.Mode)))
+	modeMenu, modeMenuAction := t.addSubMenu("路由模式: 规则")
 	t.actModeMenu = modeMenuAction
-	t.actModeRule = t.addCheckableSubAction(modeMenu, "规则", t.latestState.Mode == domain.ModeRule, func() {
+	t.actModeRule = t.addCheckableSubAction(modeMenu, "规则", true, func() {
 		t.engine.SendCommand(domain.ActionSwitchMode, domain.ModeRule)
 	})
-	t.actModeDirect = t.addCheckableSubAction(modeMenu, "直连", t.latestState.Mode == domain.ModeDirect, func() {
+	t.actModeDirect = t.addCheckableSubAction(modeMenu, "直连", false, func() {
 		t.engine.SendCommand(domain.ActionSwitchMode, domain.ModeDirect)
 	})
-	t.actModeGlobal = t.addCheckableSubAction(modeMenu, "全局", t.latestState.Mode == domain.ModeGlobal, func() {
+	t.actModeGlobal = t.addCheckableSubAction(modeMenu, "全局", false, func() {
 		t.engine.SendCommand(domain.ActionSwitchMode, domain.ModeGlobal)
 	})
 
@@ -245,10 +187,10 @@ func (t *Tray) buildMenuSkeleton() {
 
 	adminMenu, adminMenuAction := t.addSubMenu("运行权限")
 	t.actAdminMenu = adminMenuAction
-	t.actAutoStart = t.addCheckableSubAction(adminMenu, "开机自启（管理员）", t.latestState.AutoStart, func() {
+	t.actAutoStart = t.addCheckableSubAction(adminMenu, "开机自启（管理员）", false, func() {
 		t.toggle(domain.ActionToggleAutoStart, !t.latestState.AutoStart)
 	})
-	t.actRunAdmin = t.addCheckableSubAction(adminMenu, "始终以管理员身份运行", t.latestState.RunAsAdmin || t.latestState.AutoStart, func() {
+	t.actRunAdmin = t.addCheckableSubAction(adminMenu, "始终以管理员身份运行", false, func() {
 		t.toggle(domain.ActionToggleRunAsAdmin, !t.latestState.RunAsAdmin)
 	})
 
@@ -265,13 +207,13 @@ func (t *Tray) buildMenuSkeleton() {
 	})
 
 	t.addSeparatorTo(moreMenu)
-	t.actRemoteWebUI = t.addCheckableSubAction(moreMenu, "使用在线 Web 面板", t.latestState.RemoteWebUI, func() {
+	t.actRemoteWebUI = t.addCheckableSubAction(moreMenu, "使用在线 Web 面板", false, func() {
 		t.toggle(domain.ActionToggleRemoteWebUI, !t.latestState.RemoteWebUI)
 	})
-	t.actSysBrowser = t.addCheckableSubAction(moreMenu, "使用默认浏览器打开面板", t.latestState.UseSystemBrowser, func() {
+	t.actSysBrowser = t.addCheckableSubAction(moreMenu, "使用默认浏览器打开面板", false, func() {
 		t.toggle(domain.ActionToggleSystemBrowser, !t.latestState.UseSystemBrowser)
 	})
-	t.actAllowLan = t.addCheckableSubAction(moreMenu, "允许局域网代理", t.latestState.AllowLan, func() {
+	t.actAllowLan = t.addCheckableSubAction(moreMenu, "允许局域网代理", false, func() {
 		t.toggle(domain.ActionToggleAllowLan, !t.latestState.AllowLan)
 	})
 	t.addSeparatorTo(moreMenu)
@@ -286,7 +228,6 @@ func (t *Tray) buildMenuSkeleton() {
 	t.addAction("退出程序", func() {
 		t.engine.SendCommand(domain.ActionExitApp, "")
 	})
-	slog.Debug("[Tray] 托盘菜单骨架构建完毕")
 }
 
 func (t *Tray) rebuildProfilesMenu(state domain.UIState) {
@@ -329,15 +270,15 @@ func (t *Tray) ShowNotification(title, message string) {
 }
 
 func (t *Tray) Dispose() {
-	slog.Debug("[Tray] Dispose 释放托盘所有资源")
 	if t.ni != nil {
 		t.ni.Dispose()
-		t.ni = nil
 	}
-	if t.iconMgr != nil {
-		t.iconMgr.Dispose()
-		t.iconMgr = nil
+	for _, icon := range t.icons {
+		if icon != nil {
+			icon.Dispose()
+		}
 	}
+	t.icons = nil
 }
 
 func (t *Tray) toggle(action string, nextVal bool) {
