@@ -61,12 +61,27 @@ func (a *Application) reconcileTunState(kernelTunEnabled bool) bool {
 
 func (a *Application) syncSystemProxy() {
 	cfg := a.Cfg.GetConfig()
-	enable := *cfg.General.SystemProxy
-	port := a.Cfg.GetEffectiveMixedPortStr()
+	wantEnable := *cfg.General.SystemProxy
 
-	slog.Debug("更新系统代理", "enabled", enable, "port", port)
+	if !wantEnable {
+		_ = sys.SetSystemProxy(false, "")
+		return
+	}
 
-	if err := sys.SetSystemProxy(enable, port); err != nil {
+	portStr, hasPort := a.Cfg.GetEffectiveSystemProxyPortStr()
+	if !hasPort {
+		slog.Warn("未开启 Mixed 或 HTTP 监听端口，强制注销系统代理")
+		a.disableSystemProxySetting()
+		_ = sys.SetSystemProxy(false, "")
+
+		if a.ui != nil {
+			a.ui.ShowNotification("系统代理", "系统代理已关闭，请检查代理端口。")
+		}
+		return
+	}
+
+	slog.Debug("更新系统代理", "enabled", true, "port", portStr)
+	if err := sys.SetSystemProxy(true, portStr); err != nil {
 		slog.Error("设置系统代理失败", "err", err)
 	}
 }
@@ -81,7 +96,12 @@ func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.Pr
 		return
 	}
 
-	expectedPort := a.Cfg.GetEffectiveMixedPortStr()
+	expectedPort, ok := a.Cfg.GetEffectiveSystemProxyPortStr()
+	if !ok {
+		a.disableSystemProxySetting()
+		return
+	}
+
 	expectedServer := domain.LocalhostIP + ":" + expectedPort
 
 	if status.Enabled {
