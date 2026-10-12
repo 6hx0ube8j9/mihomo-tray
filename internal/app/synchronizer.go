@@ -290,6 +290,9 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 			p := resp.SocksPort
 			c.Config.SocksPort = &p
 		})
+		if *cfg.General.SystemProxy && (cfg.Config.MixedPort == nil || *cfg.Config.MixedPort <= 0) {
+			a.syncSystemProxy()
+		}	
 		changed = true
 	}
 
