@@ -8,6 +8,14 @@ import (
 )
 
 func ActivateWindow(hwnd win.HWND) {
+	if hwnd == 0 || !win.IsWindowVisible(hwnd) {
+		return
+	}
+	if win.IsIconic(hwnd) {
+		win.ShowWindow(hwnd, win.SW_RESTORE)
+	}
+	win.SetForegroundWindow(hwnd)
+	win.SetFocus(hwnd)
 }
 
 func centerDialog(dlg *walk.Dialog, owner walk.Form) {
@@ -29,8 +37,14 @@ func lockWindowSize(hwnd win.HWND) {
 
 
 func restoreFocus(parent walk.Form, hActive win.HWND) {
+	if parent != nil && parent.Visible() && !win.IsIconic(parent.Handle()) {
+		win.SetForegroundWindow(parent.Handle())
+		win.SetFocus(parent.Handle())
+	} else if hActive != 0 && win.IsWindowVisible(hActive) && !win.IsIconic(hActive) {
+		win.SetForegroundWindow(hActive)
+		win.SetFocus(hActive)
+	}
 }
-
 
 func calcCenteredPos(targetHWND, popupHWND win.HWND) (x, y int32) {
 	var popRect win.RECT
