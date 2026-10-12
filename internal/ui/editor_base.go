@@ -82,6 +82,9 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 		MinSize:  Size{Width: cfg.Width, Height: cfg.MinHeight},
 		Layout:   VBox{Margins: Margins{Left: 18, Top: 15, Right: 18, Bottom: 15}, Spacing: 12},
 		Children: layoutChildren,
+		DefaultButton: &acceptPB,
+		CancelButton:  &cancelPB,
+		FixedSize:     true, 
 	}.Create(owner)
 
 	if err != nil {
@@ -89,18 +92,11 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 		return EditorResult{Accepted: false, Error: err}
 	}
 
-	cleanupKeyFlow := SetupDialogKeyFlow(dlg, acceptPB, cancelPB)
-	defer func() {
-		cleanupKeyFlow()
-		dlg.Dispose()
-	}()
-
 	if cfg.OnReady != nil {
 		cfg.OnReady(dlg)
 	}
 
 	dlg.Starting().Attach(func() {
-		lockWindowSize(dlg.Handle())
 		centerDialog(dlg, owner)
 	})
 
@@ -109,7 +105,13 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	})
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-		restoreFocus(owner, hActive)
+		if owner != nil {
+			owner.SetVisible(true)
+			owner.SetForeground()
+		} else if hActive != 0 && win.IsWindowVisible(hActive) {
+			win.SetForegroundWindow(hActive)
+			win.SetFocus(hActive)
+		}
 	})
 
 	dlg.Run()
