@@ -5,18 +5,16 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/tailscale/walk"
 	"mihomo-tray/internal/domain"
 )
 
 type Tray struct {
-	engine      *Engine
-	ni          *walk.NotifyIcon
-	iconMgr     *IconManager
-	lastIconId  int
-	stopWatcher chan struct{}
+	engine     *Engine
+	ni         *walk.NotifyIcon
+	iconMgr    *IconManager
+	lastIconId int
 
 	isBuilt                bool
 	latestState            domain.UIState
@@ -50,12 +48,11 @@ func NewTray(e *Engine) *Tray {
 		engine:                 e,
 		ni:                     ni,
 		iconMgr:                NewIconManager(),
-		lastIconId:             int(domain.IconStop),
-		stopWatcher:            make(chan struct{}),
+		lastIconId:             -1,
 		lastProfileFingerprint: "__INIT__",
 	}
 
-	t.applyCurrentIcon()
+	t.applyIcon(int(domain.IconStop))
 
 	ni.MouseUp().Attach(func(x, y int, button walk.MouseButton) {
 		if button == walk.LeftButton {
@@ -63,40 +60,19 @@ func NewTray(e *Engine) *Tray {
 		}
 	})
 
-	t.startDpiWatcher()
 	return t
 }
 
-func (t *Tray) applyCurrentIcon() {
+func (t *Tray) applyIcon(iconId int) {
 	if t.ni == nil {
 		return
 	}
-	if ico := t.iconMgr.Get(t.lastIconId); ico != nil {
+	if ico := t.iconMgr.Get(iconId); ico != nil {
 		if err := t.ni.SetIcon(ico); err != nil {
-			slog.Warn("更新系统托盘图标失败", "iconId", t.lastIconId, "err", err)
+			slog.Warn("设置托盘图标失败", "iconId", iconId, "err", err)
 		}
+		t.lastIconId = iconId
 	}
-}
-
-func (t *Tray) startDpiWatcher() {
-	go func() {
-		ticker := time.NewTicker(1 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-t.stopWatcher:
-				return
-			case <-ticker.C:
-				if t.iconMgr.HasDpiChanged() {
-					slog.Warn("检测到 DPI 物理尺寸变化，执行托盘重载")
-					walk.App().Synchronize(func() {
-						t.iconMgr.Reload()
-						t.applyCurrentIcon()
-					})
-				}
-			}
-		}
-	}()
 }
 
 func (t *Tray) UpdateState(state domain.UIState) {
@@ -110,11 +86,7 @@ func (t *Tray) UpdateState(state domain.UIState) {
 
 	t.latestState = state
 
-	iconIdx := int(state.IconState)
-	if iconIdx != t.lastIconId && iconIdx >= 0 {
-		t.lastIconId = iconIdx
-		t.applyCurrentIcon()
-	}
+	t.applyIcon(int(state.IconState))
 
 	if !t.isBuilt {
 		t.buildMenuSkeleton()
@@ -156,19 +128,6 @@ func (t *Tray) UpdateState(state domain.UIState) {
 				safelySetChecked(actions.At(i), item.IsActive)
 			}
 		}
-	}
-}
-
-func (t *Tray) Dispose() {
-	if t.stopWatcher != nil {
-		close(t.stopWatcher)
-		t.stopWatcher = nil
-	}
-	if t.ni != nil {
-		t.ni.Dispose()
-	}
-	if t.iconMgr != nil {
-		t.iconMgr.Dispose()
 	}
 }
 
@@ -289,6 +248,15 @@ func (t *Tray) ShowNotification(title, message string) {
 	}
 	if err := t.ni.ShowInfo(title, message); err != nil {
 		slog.Warn("弹出系统托盘通知失败", "title", title, "err", err)
+	}
+}
+
+func (t *Tray) Dispose() {
+	if t.ni != nil {
+		t.ni.Dispose()
+	}
+	if t.iconMgr != nil {
+		t.iconMgr.Dispose()
 	}
 }
 
