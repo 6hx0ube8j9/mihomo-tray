@@ -165,6 +165,10 @@ func (a *Application) GetControllerConfigSnapshot() (addr, secret string, online
 }
 
 func (a *Application) ApplyPortConfig(ctx context.Context, mixed, socks, httpPort int) error {
+	if !netutil.IsValidPort(mixed) || !netutil.IsValidPort(socks) || !netutil.IsValidPort(httpPort) {
+		return errors.New("端口超出合法范围 (0-65535)")
+	}
+
 	cMixed, cSocks, cHttp := a.GetPortConfigSnapshot()
 	if mixed == cMixed && socks == cSocks && httpPort == cHttp {
 		return nil
