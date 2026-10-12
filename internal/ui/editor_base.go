@@ -105,13 +105,7 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	})
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-		if owner != nil {
-			owner.SetVisible(true)
-			owner.SetForeground()
-		} else if hActive != 0 && win.IsWindowVisible(hActive) {
-			win.SetForegroundWindow(hActive)
-			win.SetFocus(hActive)
-		}
+		restoreFocus(owner, hActive)
 	})
 
 	dlg.Run()
