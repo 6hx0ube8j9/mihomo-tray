@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/netutil"
 )
 
 const apiSyncTimeout = 2 * time.Second
