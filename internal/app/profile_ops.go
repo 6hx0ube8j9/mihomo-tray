@@ -222,7 +222,9 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 
 func (a *Application) getActiveProxyPort() string {
 	if a.State.GetPhase() == domain.PhaseRunning && !a.Kernel.IsPaused() {
-		return a.Cfg.GetEffectiveMixedPortStr()
+		if port, ok := a.Cfg.GetEffectiveSystemProxyPortStr(); ok {
+			return port
+		}
 	}
 	return ""
 }
