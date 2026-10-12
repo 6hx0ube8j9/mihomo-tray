@@ -8,15 +8,20 @@ import (
 )
 
 func ActivateWindow(hwnd win.HWND) {
-	if hwnd == 0 || !win.IsWindowVisible(hwnd) {
-		return
-	}
-	if win.IsIconic(hwnd) {
-		win.ShowWindow(hwnd, win.SW_RESTORE)
-	}
-	win.SetForegroundWindow(hwnd)
-	win.SetFocus(hwnd)
 }
+
+// centerDialog 已空心化。
+func centerDialog(dlg *walk.Dialog, owner walk.Form) {
+}
+
+
+func lockWindowSize(hwnd win.HWND) {
+}
+
+
+func restoreFocus(parent walk.Form, hActive win.HWND) {
+}
+
 
 func calcCenteredPos(targetHWND, popupHWND win.HWND) (x, y int32) {
 	var popRect win.RECT
@@ -59,38 +64,7 @@ func calcCenteredPos(targetHWND, popupHWND win.HWND) (x, y int32) {
 	return x, y
 }
 
-func centerDialog(dlg *walk.Dialog, owner walk.Form) {
-	if dlg == nil {
-		return
-	}
 
-	var targetHWND win.HWND
-	if owner != nil && owner.Visible() && !win.IsIconic(owner.Handle()) {
-		targetHWND = owner.Handle()
-	}
-
-	x, y := calcCenteredPos(targetHWND, dlg.Handle())
-	win.SetWindowPos(dlg.Handle(), win.HWND_TOP, x, y, 0, 0, win.SWP_NOSIZE)
-}
-
-func lockWindowSize(hwnd win.HWND) {
-	style := win.GetWindowLong(hwnd, win.GWL_STYLE)
-	style &^= win.WS_THICKFRAME | win.WS_MAXIMIZEBOX
-	win.SetWindowLong(hwnd, win.GWL_STYLE, style)
-	win.SetWindowPos(hwnd, 0, 0, 0, 0, 0, win.SWP_NOMOVE|win.SWP_NOSIZE|win.SWP_NOZORDER|win.SWP_FRAMECHANGED)
-}
-
-func restoreFocus(parent walk.Form, hActive win.HWND) {
-	if parent != nil && parent.Visible() && !win.IsIconic(parent.Handle()) {
-		win.SetForegroundWindow(parent.Handle())
-		win.SetFocus(parent.Handle())
-	} else if hActive != 0 && win.IsWindowVisible(hActive) && !win.IsIconic(hActive) {
-		win.SetForegroundWindow(hActive)
-		win.SetFocus(hActive)
-	}
-}
-
-// Idempotent action helpers to prevent redundant Win32 redraws.
 func safelySetChecked(act *walk.Action, checked bool) {
 	if act != nil && act.Checked() != checked {
 		act.SetChecked(checked)
