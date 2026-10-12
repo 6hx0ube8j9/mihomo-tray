@@ -6,7 +6,6 @@ import (
 
 	"github.com/tailscale/walk"
 	"github.com/tailscale/win"
-	"golang.org/x/sys/windows"
 	"mihomo-tray/internal/domain"
 )
 
