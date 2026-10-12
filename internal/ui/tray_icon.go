@@ -2,10 +2,18 @@ package ui
 
 import (
 	"log/slog"
+	"syscall"
+	"unsafe"
 
 	"github.com/tailscale/walk"
 	"github.com/tailscale/win"
 	"mihomo-tray/internal/domain"
+)
+
+var (
+	modUser32                 = syscall.NewLazyDLL("user32.dll")
+	procGetDpiForWindow       = modUser32.NewProc("GetDpiForWindow")
+	procGetSystemMetricsForDpi = modUser32.NewProc("GetSystemMetricsForDpi")
 )
 
 var trayIconResourceNames = []string{
@@ -32,14 +40,34 @@ func NewIconManager() *IconManager {
 	return mgr
 }
 
-// CurrentSize 返回当前已加载的图标物理像素
 func (m *IconManager) CurrentSize() int {
 	return m.currentSize
 }
 
-// GetSystemMetricSize 直接查询 Windows 当前系统小图标物理需求
+// GetSystemMetricSize 获取任务栏实时的物理像素需求（真正感知 Per-Monitor 缩放）
 func (m *IconManager) GetSystemMetricSize() int {
-	size := int(win.GetSystemMetrics(win.SM_CXSMICON))
+	// 1. 获取任务栏窗口句柄（任务栏由 Explorer 维护，缩放改变时其 DPI 瞬间更新）
+	trayClassName, _ := syscall.UTF16PtrFromString("Shell_TrayWnd")
+	hwndTaskbar := win.FindWindow(trayClassName, nil)
+
+	var dpi uint32 = 96
+	if hwndTaskbar != 0 && procGetDpiForWindow.Find() == nil {
+		ret, _, _ := procGetDpiForWindow.Call(uintptr(hwndTaskbar))
+		if ret > 0 {
+			dpi = uint32(ret)
+		}
+	}
+
+	// 2. 根据任务栏当前实际 DPI，计算小图标真实物理像素
+	if procGetSystemMetricsForDpi.Find() == nil {
+		ret, _, _ := procGetSystemMetricsForDpi.Call(uintptr(win.SM_CXSMICON), uintptr(dpi))
+		if ret > 0 {
+			return int(ret)
+		}
+	}
+
+	// 回退保底线性计算
+	size := int((16 * dpi) / 96)
 	if size <= 0 {
 		return 16
 	}
@@ -80,7 +108,6 @@ func (m *IconManager) Get(stateId int) *walk.Icon {
 		"newId", stateId,
 	)
 
-	// 释放旧 GDI 图标句柄
 	m.Dispose()
 
 	walkSize := walk.Size{Width: targetSize, Height: targetSize}
