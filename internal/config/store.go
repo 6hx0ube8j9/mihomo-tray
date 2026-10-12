@@ -137,6 +137,26 @@ func (m *Manager) GetEffectiveMixedPortStr() string {
 	return strconv.Itoa(m.GetEffectiveMixedPort())
 }
 
+func (m *Manager) GetEffectiveSystemProxyPort() (int, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, port := range []*int{m.data.Config.MixedPort, m.data.Config.Port} {
+		if port != nil && *port > 0 {
+			return *port, true
+		}
+	}
+	return 0, false
+}
+
+func (m *Manager) GetEffectiveSystemProxyPortStr() (string, bool) {
+	port, ok := m.GetEffectiveSystemProxyPort()
+	if !ok {
+		return "", false
+	}
+	return strconv.Itoa(port), true
+}
+
 func (m *Manager) GetEffectiveSecret(s *string) string {
 	if s == nil {
 		return ""
