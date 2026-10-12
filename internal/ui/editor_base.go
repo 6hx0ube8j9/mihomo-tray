@@ -82,14 +82,19 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 		MinSize:  Size{Width: cfg.Width, Height: cfg.MinHeight},
 		Layout:   VBox{Margins: Margins{Left: 18, Top: 15, Right: 18, Bottom: 15}, Spacing: 12},
 		Children: layoutChildren,
-		DefaultButton: &acceptPB,
-		CancelButton:  &cancelPB,
-		FixedSize:     true, 
+		FixedSize: true,
 	}.Create(owner)
 
 	if err != nil {
 		slog.Error("模态编辑器窗口创建失败", "title", cfg.Title, "err", err)
 		return EditorResult{Accepted: false, Error: err}
+	}
+	
+	if acceptPB != nil {
+		dlg.SetDefaultButton(acceptPB)
+	}
+	if cancelPB != nil {
+		dlg.SetCancelButton(cancelPB)
 	}
 
 	if cfg.OnReady != nil {
