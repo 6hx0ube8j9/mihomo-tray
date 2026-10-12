@@ -10,124 +10,90 @@ import (
 )
 
 var (
-	// 复用同包下 ui_winapi.go 已声明的 modUser32
-	procGetDpiForWindow        = modUser32.NewProc("GetDpiForWindow")
-	procGetSystemMetricsForDpi = modUser32.NewProc("GetSystemMetricsForDpi")
-
-	// 静态缓存任务栏窗口类名指针，避免每次定时器调用都进行 UTF-16 转换与内存分配
 	trayClassName = syscall.StringToUTF16Ptr("Shell_TrayWnd")
-)
 
-var trayIconResourceNames = []string{
-	domain.IconStop:    "ICON_STOP",
-	domain.IconError:   "ICON_ERROR",
-	domain.IconTun:     "ICON_TUN",
-	domain.IconProxy:   "ICON_PROXY",
-	domain.IconDefault: "ICON_DEFAULT",
-}
+	trayIconResourceNames = []string{
+		domain.IconStop:    "ICON_STOP",
+		domain.IconError:   "ICON_ERROR",
+		domain.IconTun:     "ICON_TUN",
+		domain.IconProxy:   "ICON_PROXY",
+		domain.IconDefault: "ICON_DEFAULT",
+	}
+)
 
 type IconManager struct {
 	currentSize int
-	currentId   int
-	currentIcon *walk.Icon
+	icons       map[int]*walk.Icon
 }
 
 func NewIconManager() *IconManager {
-	slog.Debug("[IconManager] 初始化 NewIconManager 开始")
-	mgr := &IconManager{
-		currentId:   -1,
-		currentSize: 0,
+	return &IconManager{
+		icons: make(map[int]*walk.Icon),
 	}
-	slog.Debug("[IconManager] 初始化 NewIconManager 完成")
-	return mgr
 }
 
 func (m *IconManager) CurrentSize() int {
 	return m.currentSize
 }
 
-// GetSystemMetricSize 获取任务栏实时的物理像素需求
+// GetSystemMetricSize 直接使用 tailscale/win 导出函数获取任务栏实时像素
 func (m *IconManager) GetSystemMetricSize() int {
-	hwndTaskbar := win.FindWindow(trayClassName, nil)
-
-	var dpi uint32 = 96
-	if hwndTaskbar != 0 && procGetDpiForWindow.Find() == nil {
-		ret, _, _ := procGetDpiForWindow.Call(uintptr(hwndTaskbar))
-		if ret > 0 {
-			dpi = uint32(ret)
-		}
+	hwnd := win.FindWindow(trayClassName, nil)
+	dpi := win.GetDpiForWindow(hwnd)
+	if dpi == 0 {
+		dpi = 96
 	}
 
-	if procGetSystemMetricsForDpi.Find() == nil {
-		ret, _, _ := procGetSystemMetricsForDpi.Call(uintptr(win.SM_CXSMICON), uintptr(dpi))
-		if ret > 0 {
-			return int(ret)
-		}
+	if size := int(win.GetSystemMetricsForDpi(win.SM_CXSMICON, dpi)); size > 0 {
+		return size
 	}
 
-	// 线性回退保底: 16 * dpi / 96
-	size := int((16 * dpi) / 96)
-	if size <= 0 {
-		return 16
-	}
-	return size
+	return walk.IntFrom96DPI(16, int(dpi))
 }
 
-// Get 根据业务状态获取匹配当前 DPI 的最清晰图标
+// Get 获取图标：当前尺寸下读 Map 缓存；DPI 改变时自动刷新缓存
 func (m *IconManager) Get(stateId int) *walk.Icon {
-	targetSize := m.GetSystemMetricSize()
-	slog.Debug("[IconManager] Get 图标请求",
-		"reqStateId", stateId,
-		"currentId", m.currentId,
-		"currentSize", m.currentSize,
-		"targetSize", targetSize,
-	)
-
 	if stateId < 0 || stateId >= len(trayIconResourceNames) {
-		slog.Warn("[IconManager] 传入的 stateId 超出范围", "stateId", stateId)
 		return nil
 	}
+
+	targetSize := m.GetSystemMetricSize()
+
+	// 屏幕缩放比例变动：清空并释放所有旧尺寸的图标句柄
+	if targetSize != m.currentSize {
+		m.Dispose()
+		m.currentSize = targetSize
+	}
+
+	// 命中当前尺寸的内存缓存直接复用
+	if ico, ok := m.icons[stateId]; ok {
+		return ico
+	}
+
 	resName := trayIconResourceNames[stateId]
 	if resName == "" {
-		slog.Warn("[IconManager] stateId 对应的资源名称为空", "stateId", stateId)
 		return nil
 	}
 
-	// 命中缓存：状态与尺寸均未改变
-	if m.currentIcon != nil && m.currentId == stateId && m.currentSize == targetSize {
-		slog.Debug("[IconManager] 命中内存句柄缓存，直接复用", "stateId", stateId, "size", m.currentSize)
-		return m.currentIcon
-	}
-
-	slog.Debug("[IconManager] 缓存未命中或尺寸变化，准备加载新资源",
-		"resName", resName,
-		"oldSize", m.currentSize,
-		"newTargetSize", targetSize,
-		"oldId", m.currentId,
-		"newId", stateId,
-	)
-
-	m.Dispose()
-
-	walkSize := walk.Size{Width: targetSize, Height: targetSize}
-	ico, err := walk.NewIconFromResourceWithSize(resName, walkSize)
+	ico, err := walk.NewIconFromResourceWithSize(resName, walk.Size{
+		Width:  targetSize,
+		Height: targetSize,
+	})
 	if err != nil {
-		slog.Error("[IconManager] 从资源加载指定尺寸图标失败", "resource", resName, "size", targetSize, "err", err)
+		slog.Error("[IconManager] 加载图标资源失败", "resource", resName, "size", targetSize, "err", err)
 		return nil
 	}
 
-	m.currentSize = targetSize
-	m.currentId = stateId
-	m.currentIcon = ico
-
-	slog.Debug("[IconManager] 图标资源加载成功并已缓存", "resName", resName, "size", m.currentSize, "id", m.currentId)
-	return m.currentIcon
+	m.icons[stateId] = ico
+	return ico
 }
 
+// Dispose 释放当前持有的所有 Win32 图标句柄
 func (m *IconManager) Dispose() {
-	if m.currentIcon != nil {
-		slog.Debug("[IconManager] Dispose: 释放旧图标句柄", "lastId", m.currentId, "lastSize", m.currentSize)
-		m.currentIcon.Dispose()
-		m.currentIcon = nil
+	for _, ico := range m.icons {
+		if ico != nil {
+			ico.Dispose()
+		}
 	}
+	m.icons = make(map[int]*walk.Icon)
 }
