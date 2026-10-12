@@ -64,18 +64,17 @@ func (t *Tray) UpdateState(state domain.UIState) {
 		return
 	}
 
+	if !t.isBuilt {
+		t.buildMenuSkeleton()
+		t.isBuilt = true
+	}
+
 	stateChanged := t.latestState.Mode != state.Mode ||
 		t.latestState.IsAdmin != state.IsAdmin ||
 		t.latestState.AutoStart != state.AutoStart
 
 	t.latestState = state
 	t.iconCtrl.SetState(int(state.IconState))
-
-	if !t.isBuilt {
-		t.buildMenuSkeleton()
-		t.isBuilt = true
-		stateChanged = true
-	}
 
 	safelySetChecked(t.actProxy, state.IsProxy)
 	safelySetChecked(t.actTun, state.IsTun)
@@ -121,22 +120,22 @@ func (t *Tray) buildMenuSkeleton() {
 	t.addAction("进入 Web 面板", func() { t.engine.SendCommand(domain.ActionOpenWebUI, "") })
 	t.addSeparator()
 
-	t.actProxy = t.addCheckableAction("系统代理", t.latestState.IsProxy, func() {
+	t.actProxy = t.addCheckableAction("系统代理", false, func() {
 		t.toggle(domain.ActionToggleProxy, !t.latestState.IsProxy)
 	})
-	t.actTun = t.addCheckableAction("TUN 模式", t.latestState.IsTun, func() {
+	t.actTun = t.addCheckableAction("TUN 模式", false, func() {
 		t.toggle(domain.ActionToggleTun, !t.latestState.IsTun)
 	})
 
-	modeMenu, modeMenuAction := t.addSubMenu(fmt.Sprintf("路由模式: %s", getModeName(t.latestState.Mode)))
+	modeMenu, modeMenuAction := t.addSubMenu("路由模式")
 	t.actModeMenu = modeMenuAction
-	t.actModeRule = t.addCheckableSubAction(modeMenu, "规则", t.latestState.Mode == domain.ModeRule, func() {
+	t.actModeRule = t.addCheckableSubAction(modeMenu, "规则", false, func() {
 		t.engine.SendCommand(domain.ActionSwitchMode, domain.ModeRule)
 	})
-	t.actModeDirect = t.addCheckableSubAction(modeMenu, "直连", t.latestState.Mode == domain.ModeDirect, func() {
+	t.actModeDirect = t.addCheckableSubAction(modeMenu, "直连", false, func() {
 		t.engine.SendCommand(domain.ActionSwitchMode, domain.ModeDirect)
 	})
-	t.actModeGlobal = t.addCheckableSubAction(modeMenu, "全局", t.latestState.Mode == domain.ModeGlobal, func() {
+	t.actModeGlobal = t.addCheckableSubAction(modeMenu, "全局", false, func() {
 		t.engine.SendCommand(domain.ActionSwitchMode, domain.ModeGlobal)
 	})
 
@@ -152,10 +151,10 @@ func (t *Tray) buildMenuSkeleton() {
 
 	adminMenu, adminMenuAction := t.addSubMenu("运行权限")
 	t.actAdminMenu = adminMenuAction
-	t.actAutoStart = t.addCheckableSubAction(adminMenu, "开机自启（管理员）", t.latestState.AutoStart, func() {
+	t.actAutoStart = t.addCheckableSubAction(adminMenu, "开机自启（管理员）", false, func() {
 		t.toggle(domain.ActionToggleAutoStart, !t.latestState.AutoStart)
 	})
-	t.actRunAdmin = t.addCheckableSubAction(adminMenu, "始终以管理员身份运行", t.latestState.RunAsAdmin || t.latestState.AutoStart, func() {
+	t.actRunAdmin = t.addCheckableSubAction(adminMenu, "始终以管理员身份运行", false, func() {
 		t.toggle(domain.ActionToggleRunAsAdmin, !t.latestState.RunAsAdmin)
 	})
 
@@ -172,13 +171,13 @@ func (t *Tray) buildMenuSkeleton() {
 	})
 
 	t.addSeparatorTo(moreMenu)
-	t.actRemoteWebUI = t.addCheckableSubAction(moreMenu, "使用在线 Web 面板", t.latestState.RemoteWebUI, func() {
+	t.actRemoteWebUI = t.addCheckableSubAction(moreMenu, "使用在线 Web 面板", false, func() {
 		t.toggle(domain.ActionToggleRemoteWebUI, !t.latestState.RemoteWebUI)
 	})
-	t.actSysBrowser = t.addCheckableSubAction(moreMenu, "使用默认浏览器打开面板", t.latestState.UseSystemBrowser, func() {
+	t.actSysBrowser = t.addCheckableSubAction(moreMenu, "使用默认浏览器打开面板", false, func() {
 		t.toggle(domain.ActionToggleSystemBrowser, !t.latestState.UseSystemBrowser)
 	})
-	t.actAllowLan = t.addCheckableSubAction(moreMenu, "允许局域网代理", t.latestState.AllowLan, func() {
+	t.actAllowLan = t.addCheckableSubAction(moreMenu, "允许局域网代理", false, func() {
 		t.toggle(domain.ActionToggleAllowLan, !t.latestState.AllowLan)
 	})
 	t.addSeparatorTo(moreMenu)
@@ -266,9 +265,13 @@ func generateProfileFingerprint(items []domain.UIProfileItem) string {
 	var sb strings.Builder
 	for _, item := range items {
 		sb.WriteString(item.Name)
+		sb.WriteByte('|')
 		sb.WriteString(item.Path)
+		sb.WriteByte('|')
 		if item.IsRemote {
-			sb.WriteString("R")
+			sb.WriteString("R;")
+		} else {
+			sb.WriteString("L;")
 		}
 	}
 	return sb.String()
@@ -316,4 +319,22 @@ func (t *Tray) addSeparator() {
 
 func (t *Tray) addSeparatorTo(menu *walk.Menu) {
 	menu.Actions().Add(walk.NewSeparatorAction())
+}
+
+func safelySetChecked(a *walk.Action, checked bool) {
+	if a != nil {
+		a.SetChecked(checked)
+	}
+}
+
+func safelySetEnabled(a *walk.Action, enabled bool) {
+	if a != nil {
+		a.SetEnabled(enabled)
+	}
+}
+
+func safelySetText(a *walk.Action, text string) {
+	if a != nil {
+		a.SetText(text)
+	}
 }
