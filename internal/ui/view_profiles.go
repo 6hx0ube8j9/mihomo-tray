@@ -36,7 +36,8 @@ type ProfileModel struct {
 
 func (m *ProfileModel) StyleCell(style *walk.CellStyle) {
 	if m.IsBusy && style.Row() == m.TargetRowIdx {
-		style.TextColor = walk.RGB(160, 160, 160)
+		style.TextColor = walk.RGB(140, 140, 140)
+		style.BackgroundColor = walk.RGB(240, 240, 240)
 	}
 }
 
