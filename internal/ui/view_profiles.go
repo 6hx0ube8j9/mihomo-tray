@@ -27,6 +27,19 @@ type ProfileView struct {
 	isBusy     bool
 }
 
+type ProfileModel struct {
+	walk.TableModelBase
+	Items        []domain.UIProfileItem
+	IsBusy       bool
+	TargetRowIdx int
+}
+
+func (m *ProfileModel) StyleCell(style *walk.CellStyle) {
+	if m.IsBusy && style.Row() == m.TargetRowIdx {
+		style.TextColor = walk.RGB(160, 160, 160)
+	}
+}
+
 func NewProfileView(e *Engine) *ProfileView {
 	return &ProfileView{
 		engine: e,
@@ -120,19 +133,22 @@ func (v *ProfileView) Declarative() []Widget {
 func (v *ProfileView) RefreshData(state domain.UIState) {
 	v.isBusy = state.IsBusy 
 	
+	if v.model != nil {
+		v.model.IsBusy = state.IsBusy
+		if state.IsBusy && v.tableView != nil {
+			v.model.TargetRowIdx = v.tableView.CurrentIndex()
+		} else {
+			v.model.TargetRowIdx = -1 
+		}
+	}
+
 	if v.portsLabel != nil {
 		newPortText := fmt.Sprintf("Mixed  : %d\nSocks  : %d\nHTTP(S): %d", state.MixedPort, state.SocksPort, state.HttpPort)
 		if v.portsLabel.Text() != newPortText {
 			v.portsLabel.SetText(newPortText)
 		}
 	}
-
-	items := state.ProfileItems
-	if v.tableView == nil {
-		v.model.Items = items
-		return
-	}
-
+	
 	if v.isStructurallyEqual(v.model.Items, items) {
 		for i := range items {
 			old := v.model.Items[i]
@@ -193,9 +209,6 @@ func (v *ProfileView) updateActionState() {
 	if v.tableView == nil || v.actionSwitch == nil {
 		return
 	}
-	
-	v.tableView.SetEnabled(!v.isBusy)
-
 	idx := v.tableView.CurrentIndex()
 	hasSelection := idx >= 0 && idx < len(v.model.Items)
 
@@ -216,17 +229,8 @@ func (v *ProfileView) updateActionState() {
 	safelySetEnabled(v.actionMoveUp, canMoveUp)
 	safelySetEnabled(v.actionMoveDown, canMoveDown)
 
-	if v.btnMoveUp != nil {
-		v.btnMoveUp.SetEnabled(canMoveUp)
-	}
-	if v.btnMoveDown != nil {
-		v.btnMoveDown.SetEnabled(canMoveDown)
-	}
-}
-
-type ProfileModel struct {
-	walk.TableModelBase
-	Items []domain.UIProfileItem
+	if v.btnMoveUp != nil { v.btnMoveUp.SetEnabled(canMoveUp) }
+	if v.btnMoveDown != nil { v.btnMoveDown.SetEnabled(canMoveDown) }
 }
 
 func (m *ProfileModel) RowCount() int { return len(m.Items) }
