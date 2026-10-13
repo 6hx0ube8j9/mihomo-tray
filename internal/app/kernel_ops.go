@@ -88,6 +88,9 @@ func (a *Application) ReloadConfig(ctx context.Context) error {
 	if !a.State.TryBeginAction(state.ActionReload) {
 		return errors.New("系统繁忙，请稍后重试")
 	}
+
+	a.ForcePushUIState()
+	
 	defer func() {
 		a.State.EndAction()
 		a.ForcePushUIState()
@@ -112,6 +115,9 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 	if !a.State.TryBeginAction(state.ActionRestart) {
 		return errors.New("系统繁忙，请稍后重试")
 	}
+
+	a.ForcePushUIState()
+	
 	defer func() {
 		a.State.EndAction()
 		a.ForcePushUIState()
