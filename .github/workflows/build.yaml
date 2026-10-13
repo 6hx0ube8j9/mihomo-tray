@@ -16,10 +16,13 @@ jobs:
       matrix:
         goarch:
           - amd64
+          # - arm64
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -42,12 +45,16 @@ jobs:
         run: |
           go env GOOS GOARCH CGO_ENABLED
           New-Item -ItemType Directory -Force -Path "release"
-          go build -mod=readonly -ldflags="-s -w -H=windowsgui" -o "release/mihomo-tray.exe" .
+          
+          $commit = $env:GITHUB_SHA.Substring(0, 7)
+          $flags = "-s -w -H=windowsgui -X 'main.version=$commit'"
+          
+          go build -mod=readonly -ldflags="$flags" -o "release/mihomo-tray.exe" .
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mihomo-tray-${{ matrix.goarch }}
+          name: mihomo-tray-windows-${{ matrix.goarch }}
           path: release/mihomo-tray.exe
           if-no-files-found: error
           retention-days: 14
