@@ -131,14 +131,20 @@ func (v *ProfileView) Declarative() []Widget {
 }
 
 func (v *ProfileView) RefreshData(state domain.UIState) {
-	v.isBusy = state.IsBusy
-
+	v.isBusy = state.IsBusy 
+	
 	if v.model != nil {
 		v.model.IsBusy = state.IsBusy
+		
 		if state.IsBusy && v.tableView != nil {
-			v.model.TargetRowIdx = v.tableView.CurrentIndex()
+			v.model.TargetRowIdx = v.tableView.CurrentIndex()	
+			v.tableView.SetCurrentIndex(-1) 
+			
 		} else {
-			v.model.TargetRowIdx = -1
+			if v.model.TargetRowIdx >= 0 && v.tableView != nil {
+				v.tableView.SetCurrentIndex(v.model.TargetRowIdx)
+			}
+			v.model.TargetRowIdx = -1 
 		}
 	}
 
