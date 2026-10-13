@@ -84,6 +84,9 @@ func (a *Application) SwitchProfile(ctx context.Context, targetPath string) erro
 		a.ForcePushUIState()
 		return errors.New("系统繁忙，请稍后重试")
 	}
+	
+	a.ForcePushUIState()
+	
 	defer func() {
 		a.State.EndAction()
 		a.ForcePushUIState()
