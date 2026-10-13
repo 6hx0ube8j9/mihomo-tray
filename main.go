@@ -40,7 +40,6 @@ func main() {
 		}
 	}
 
-	// 1. 单实例排他锁定与二次启动唤醒
 	guard, isOwner := sys.TryAcquireSingleInstance(domain.AppMutexName, domain.ShowUIEventName, isRestarting)
 	if !isOwner {
 		sys.NotifyExistingInstance(domain.ShowUIEventName)
@@ -48,13 +47,9 @@ func main() {
 	}
 	defer guard.Close()
 
-	logWriter := logger.Init(baseDir)
+	logWriter := logger.Init(baseDir, isRestarting)
 	if logWriter != nil {
 		defer logWriter.Close()
-
-		if !isRestarting {
-			_, _ = logWriter.Write([]byte("\n────────────────────────── [ New Session ] ──────────────────────────\n"))
-		}
 	}
 
 	exitProcess := func(code int) {
