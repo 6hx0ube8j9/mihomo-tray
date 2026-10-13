@@ -70,6 +70,7 @@ type UIProfileItem struct {
 
 type UIState struct {
 	IconState        IconState
+	IsBusy           bool
 	IsTun            bool
 	IsProxy          bool
 	Mode             string
