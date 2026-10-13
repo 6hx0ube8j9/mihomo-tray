@@ -154,10 +154,8 @@ func (v *ProfileView) RefreshData(state domain.UIState) {
 		selectedPath = v.model.Items[idx].Path
 	}
 
-	hwnd := v.tableView.Handle()
-	if hwnd != 0 {
-		win.SendMessage(hwnd, win.WM_SETREDRAW, 0, 0)
-	}
+	v.tableView.SetSuspended(true)
+	defer v.tableView.SetSuspended(false)
 
 	v.model.Items = items
 	v.model.PublishRowsReset()
@@ -175,11 +173,6 @@ func (v *ProfileView) RefreshData(state domain.UIState) {
 		}
 	}
 
-	if hwnd != 0 {
-		win.SendMessage(hwnd, win.WM_SETREDRAW, 1, 0)
-		win.RedrawWindow(hwnd, nil, 0, win.RDW_ERASE|win.RDW_FRAME|win.RDW_INVALIDATE|win.RDW_ALLCHILDREN)
-	}
-
 	v.updateActionState()
 }
 
@@ -189,7 +182,6 @@ func (v *ProfileView) isStructurallyEqual(oldItems, newItems []domain.UIProfileI
 	}
 	for i := range oldItems {
 		if oldItems[i].Path != newItems[i].Path ||
-			oldItems[i].Name != newItems[i].Name ||
 			oldItems[i].IsRemote != newItems[i].IsRemote {
 			return false
 		}
