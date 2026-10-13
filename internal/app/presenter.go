@@ -85,6 +85,7 @@ func (a *Application) pushUIState() {
 	changed := false
 
 	if newState.IconState != a.lastUIState.IconState ||
+	    newState.IsBusy != a.lastUIState.IsBusy ||
 		newState.IsTun != a.lastUIState.IsTun ||
 		newState.IsProxy != a.lastUIState.IsProxy ||
 		newState.Mode != a.lastUIState.Mode ||
