@@ -64,7 +64,7 @@ func NewTrayIconController(e *Engine, ni *walk.NotifyIcon) *TrayIconController {
 func CreateNotifyIcon() (*walk.NotifyIcon, error) {
 	ni, err := walk.NewNotifyIconWithGUID(trayGUID)
 	if err != nil {
-		slog.Warn("[TrayHost] 带 GUID 注册失败，平滑降级至普通模式", "err", err)
+		slog.Warn("注册 GUID 托盘失败，降级为普通模式", "err", err)
 		ni, err = walk.NewNotifyIcon()
 		if err != nil {
 			return nil, err
@@ -94,28 +94,35 @@ func (c *TrayIconController) SetState(stateId int) {
 	if sizeChanged {
 		oldIcons = c.icons
 		c.icons = make(map[int]*walk.Icon)
-		c.currentSize.Store(int32(targetSize))
-
-		defer func() {
-			for _, oldIco := range oldIcons {
-				if oldIco != nil {
-					oldIco.Dispose()
-				}
-			}
-		}()
 	}
 
 	ico := c.getIcon(stateId, targetSize)
 	if ico == nil {
+		if sizeChanged {
+			c.icons = oldIcons
+		}
 		return
 	}
 
 	if err := c.ni.SetIcon(ico); err != nil {
-		slog.Warn("[TrayHost] 应用托盘图标失败", "stateId", stateId, "err", err)
+		slog.Warn("设置托盘图标失败", "state_id", stateId, "err", err)
+		if sizeChanged {
+			ico.Dispose()
+			c.icons = oldIcons
+		}
 		return
 	}
 
 	c.lastStateId.Store(int32(stateId))
+
+	if sizeChanged {
+		c.currentSize.Store(int32(targetSize))
+		for _, oldIco := range oldIcons {
+			if oldIco != nil {
+				oldIco.Dispose()
+			}
+		}
+	}
 }
 
 func (c *TrayIconController) getIcon(stateId, targetSize int) *walk.Icon {
@@ -138,10 +145,10 @@ func (c *TrayIconController) getIcon(stateId, targetSize int) *walk.Icon {
 	})
 
 	if err != nil || ico == nil {
-		slog.Debug("[TrayHost] 提取精确尺寸图标帧失败，降级使用默认资源", "size", targetSize, "err", err)
+		slog.Debug("加载指定尺寸图标失败，尝试默认尺寸", "resource", resName, "size", targetSize, "err", err)
 		ico, err = walk.NewIconFromResource(resName)
 		if err != nil || ico == nil {
-			slog.Error("[TrayHost] 降级提取系统图标严重失败", "resource", resName, "err", err)
+			slog.Error("加载默认图标资源失败", "resource", resName, "err", err)
 			return nil
 		}
 	}
