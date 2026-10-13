@@ -6,14 +6,15 @@ import (
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
+
 	"mihomo-tray/internal/domain"
 )
 
 type ProfileView struct {
-	engine     *Engine
-	tableView  *walk.TableView
-	model      *ProfileModel
-	portsLabel *walk.Label
+	engine         *Engine
+	tableView      *walk.TableView
+	model          *ProfileModel
+	portsLabel     *walk.Label
 
 	actionSwitch   *walk.Action
 	actionEditText *walk.Action
@@ -24,7 +25,8 @@ type ProfileView struct {
 	actionMoveDown *walk.Action
 	btnMoveUp      *walk.PushButton
 	btnMoveDown    *walk.PushButton
-	isBusy     bool
+
+	isBusy         bool
 }
 
 type ProfileModel struct {
@@ -34,16 +36,10 @@ type ProfileModel struct {
 	TargetRowIdx int
 }
 
-func (m *ProfileModel) StyleCell(style *walk.CellStyle) {
-	if m.IsBusy && style.Row() == m.TargetRowIdx {
-		style.BackgroundColor = walk.RGB(220, 224, 228)
-	}
-}
-
 func NewProfileView(e *Engine) *ProfileView {
 	return &ProfileView{
 		engine: e,
-		model:  &ProfileModel{Items: []domain.UIProfileItem{}},
+		model:  &ProfileModel{Items: []domain.UIProfileItem{}, TargetRowIdx: -1},
 	}
 }
 
@@ -66,16 +62,13 @@ func (v *ProfileView) Declarative() []Widget {
 				PushButton{Text: "导入本地配置", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestAddLocal, "") }},
 				PushButton{Text: "更改代理端口", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestEditPort, "") }},
 				PushButton{Text: "Web 面板设置", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestEditController, "") }},
-
 				HSpacer{},
-
 				Label{
 					AssignTo: &v.portsLabel,
 					Font:     Font{Family: "JetBrains Mono"},
 				},
 			},
 		},
-
 		Composite{
 			Layout: HBox{MarginsZero: true, Spacing: 10},
 			Children: []Widget{
@@ -91,7 +84,12 @@ func (v *ProfileView) Declarative() []Widget {
 					},
 					Model:                 v.model,
 					OnCurrentIndexChanged: v.updateActionState,
-					OnItemActivated:       func() { sendWithSelected(domain.ActionSwitchProfile) },
+					OnItemActivated: func() {
+						if v.isBusy {
+							return
+						}
+						sendWithSelected(domain.ActionSwitchProfile)
+					},
 					ContextMenuItems: []MenuItem{
 						Action{AssignTo: &v.actionSwitch, Text: "切换配置", OnTriggered: func() { sendWithSelected(domain.ActionSwitchProfile) }},
 						Action{AssignTo: &v.actionEditText, Text: "打开文本", OnTriggered: func() { sendWithSelected(domain.ActionOpenConfigFile) }},
@@ -104,7 +102,6 @@ func (v *ProfileView) Declarative() []Widget {
 						Action{AssignTo: &v.actionDelete, Text: "删除配置", OnTriggered: func() { sendWithSelected(domain.ActionRemoveProfile) }},
 					},
 				},
-
 				Composite{
 					Layout: VBox{MarginsZero: true, Spacing: 8},
 					Children: []Widget{
@@ -131,58 +128,87 @@ func (v *ProfileView) Declarative() []Widget {
 }
 
 func (v *ProfileView) RefreshData(state domain.UIState) {
-	v.isBusy = state.IsBusy 
-	
-	if v.model != nil {
-		v.model.IsBusy = state.IsBusy
-		
-		if state.IsBusy && v.tableView != nil {
-			v.model.TargetRowIdx = v.tableView.CurrentIndex()	
-			v.tableView.SetCurrentIndex(-1) 
-			
-		} else {
-			if v.model.TargetRowIdx >= 0 && v.tableView != nil {
-				v.tableView.SetCurrentIndex(v.model.TargetRowIdx)
-			}
-			v.model.TargetRowIdx = -1 
-		}
+	forceRedrawRow := v.syncBusyState(state.IsBusy)
+	v.updatePortsLabel(state)
+	v.renderTableItems(state.ProfileItems, forceRedrawRow)
+	v.updateActionState()
+}
+
+func (v *ProfileView) syncBusyState(newBusy bool) int {
+	forceRedrawRow := -1
+	wasBusy := v.isBusy
+	v.isBusy = newBusy
+
+	if v.model == nil {
+		return forceRedrawRow
 	}
+	v.model.IsBusy = newBusy
 
-	if v.portsLabel != nil {
-		newPortText := fmt.Sprintf("Mixed  : %d\nSocks  : %d\nHTTP(S): %d", state.MixedPort, state.SocksPort, state.HttpPort)
-		if v.portsLabel.Text() != newPortText {
-			v.portsLabel.SetText(newPortText)
+	if newBusy {
+		if !wasBusy && v.tableView != nil {
+			v.model.TargetRowIdx = v.tableView.CurrentIndex()
+			v.tableView.SetCurrentIndex(-1)
 		}
+		forceRedrawRow = v.model.TargetRowIdx
+	} else {
+		if wasBusy && v.model.TargetRowIdx >= 0 && v.tableView != nil {
+			v.tableView.SetCurrentIndex(v.model.TargetRowIdx)
+			forceRedrawRow = v.model.TargetRowIdx
+		}
+		v.model.TargetRowIdx = -1
 	}
+	return forceRedrawRow
+}
 
-	items := state.ProfileItems
+func (v *ProfileView) updatePortsLabel(state domain.UIState) {
+	if v.portsLabel == nil {
+		return
+	}
+	newPortText := fmt.Sprintf("Mixed  : %d\nSocks  : %d\nHTTP(S): %d", state.MixedPort, state.SocksPort, state.HttpPort)
+	if v.portsLabel.Text() != newPortText {
+		v.portsLabel.SetText(newPortText)
+	}
+}
 
+func (v *ProfileView) renderTableItems(items []domain.UIProfileItem, forceRedrawRow int) {
 	if v.tableView == nil {
 		v.model.Items = items
 		return
 	}
 
 	if v.isStructurallyEqual(v.model.Items, items) {
-		for i := range items {
-			old := v.model.Items[i]
-			cur := items[i]
-			if old.IsActive != cur.IsActive || old.Interval != cur.Interval || old.LastUpdate != cur.LastUpdate || old.Name != cur.Name {
-				v.model.Items[i] = cur
-				v.model.PublishRowChanged(i)
-			}
-		}
-		
-		if v.isBusy && v.model.TargetRowIdx >= 0 {
-			v.model.PublishRowChanged(v.model.TargetRowIdx)
-		}
-		
-		v.updateActionState()
+		v.fastUpdateTable(items, forceRedrawRow)
 		return
 	}
 
+	v.fullRebuildTable(items, forceRedrawRow)
+}
+
+func (v *ProfileView) fastUpdateTable(items []domain.UIProfileItem, forceRedrawRow int) {
+	for i := range items {
+		old := v.model.Items[i]
+		cur := items[i]
+		if old.IsActive != cur.IsActive || old.Interval != cur.Interval || old.LastUpdate != cur.LastUpdate || old.Name != cur.Name {
+			v.model.Items[i] = cur
+			v.model.PublishRowChanged(i)
+		}
+	}
+
+	if forceRedrawRow >= 0 {
+		v.model.PublishRowChanged(forceRedrawRow)
+	}
+}
+
+func (v *ProfileView) fullRebuildTable(items []domain.UIProfileItem, forceRedrawRow int) {
 	var selectedPath string
-	if idx := v.tableView.CurrentIndex(); idx >= 0 && idx < len(v.model.Items) {
-		selectedPath = v.model.Items[idx].Path
+
+	realIdx := v.tableView.CurrentIndex()
+	if realIdx == -1 && forceRedrawRow >= 0 {
+		realIdx = forceRedrawRow
+	}
+
+	if realIdx >= 0 && realIdx < len(v.model.Items) {
+		selectedPath = v.model.Items[realIdx].Path
 	}
 
 	v.tableView.SetSuspended(true)
@@ -192,19 +218,23 @@ func (v *ProfileView) RefreshData(state domain.UIState) {
 	v.model.PublishRowsReset()
 
 	if selectedPath != "" {
-		newIdx := -1
+		found := false
 		for i, item := range items {
 			if item.Path == selectedPath {
-				newIdx = i
+				v.tableView.SetCurrentIndex(i)
+				if v.model.IsBusy {
+					v.model.TargetRowIdx = i
+				}
+				found = true
 				break
 			}
 		}
-		if newIdx >= 0 {
-			v.tableView.SetCurrentIndex(newIdx)
+		if !found && v.model.IsBusy {
+			v.model.TargetRowIdx = -1
 		}
+	} else if v.model.IsBusy {
+		v.model.TargetRowIdx = -1
 	}
-
-	v.updateActionState()
 }
 
 func (v *ProfileView) isStructurallyEqual(oldItems, newItems []domain.UIProfileItem) bool {
@@ -212,8 +242,7 @@ func (v *ProfileView) isStructurallyEqual(oldItems, newItems []domain.UIProfileI
 		return false
 	}
 	for i := range oldItems {
-		if oldItems[i].Path != newItems[i].Path ||
-			oldItems[i].IsRemote != newItems[i].IsRemote {
+		if oldItems[i].Path != newItems[i].Path || oldItems[i].IsRemote != newItems[i].IsRemote {
 			return false
 		}
 	}
@@ -252,7 +281,9 @@ func (v *ProfileView) updateActionState() {
 	}
 }
 
-func (m *ProfileModel) RowCount() int { return len(m.Items) }
+func (m *ProfileModel) RowCount() int {
+	return len(m.Items)
+}
 
 func (m *ProfileModel) Value(row, col int) interface{} {
 	item := m.Items[row]
@@ -286,4 +317,10 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 		return item.LastUpdate
 	}
 	return ""
+}
+
+func (m *ProfileModel) StyleCell(style *walk.CellStyle) {
+	if m.IsBusy && style.Row() == m.TargetRowIdx {
+		style.BackgroundColor = walk.RGB(240, 240, 240)
+	}
 }
