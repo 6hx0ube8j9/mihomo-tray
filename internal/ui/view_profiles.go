@@ -122,9 +122,6 @@ func (v *ProfileView) RefreshData(state domain.UIState) {
 	
 	if v.portsLabel != nil {
 		newPortText := fmt.Sprintf("Mixed  : %d\nSocks  : %d\nHTTP(S): %d", state.MixedPort, state.SocksPort, state.HttpPort)
-		if v.isBusy {
-			newPortText = "内核处理中，请稍候..."
-		}
 		if v.portsLabel.Text() != newPortText {
 			v.portsLabel.SetText(newPortText)
 		}
@@ -196,6 +193,9 @@ func (v *ProfileView) updateActionState() {
 	if v.tableView == nil || v.actionSwitch == nil {
 		return
 	}
+	
+	v.tableView.SetEnabled(!v.isBusy)
+
 	idx := v.tableView.CurrentIndex()
 	hasSelection := idx >= 0 && idx < len(v.model.Items)
 
