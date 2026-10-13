@@ -88,7 +88,24 @@ func (c *TrayIconController) SetState(stateId int) {
 		return
 	}
 
-	ico, sizeChanged := c.getIcon(stateId, targetSize, currSize)
+	sizeChanged := targetSize != currSize
+	var oldIcons map[int]*walk.Icon
+
+	if sizeChanged {
+		oldIcons = c.icons
+		c.icons = make(map[int]*walk.Icon)
+		c.currentSize.Store(int32(targetSize))
+
+		defer func() {
+			for _, oldIco := range oldIcons {
+				if oldIco != nil {
+					oldIco.Dispose()
+				}
+			}
+		}()
+	}
+
+	ico := c.getIcon(stateId, targetSize)
 	if ico == nil {
 		return
 	}
@@ -99,29 +116,20 @@ func (c *TrayIconController) SetState(stateId int) {
 	}
 
 	c.lastStateId.Store(int32(stateId))
-
-	if sizeChanged {
-		c.currentSize.Store(int32(targetSize))
-		c.clearOldIcons(stateId)
-	}
 }
 
-func (c *TrayIconController) getIcon(stateId, targetSize, currSize int) (*walk.Icon, bool) {
+func (c *TrayIconController) getIcon(stateId, targetSize int) *walk.Icon {
 	if stateId < 0 || stateId >= len(trayIconResourceNames) {
-		return nil, false
+		return nil
 	}
 
-	sizeChanged := targetSize != currSize
-
-	if !sizeChanged {
-		if ico, ok := c.icons[stateId]; ok && ico != nil {
-			return ico, false
-		}
+	if ico, ok := c.icons[stateId]; ok && ico != nil {
+		return ico
 	}
 
 	resName := trayIconResourceNames[stateId]
 	if resName == "" {
-		return nil, false
+		return nil
 	}
 
 	ico, err := walk.NewIconFromResourceWithSize(resName, walk.Size{
@@ -134,12 +142,12 @@ func (c *TrayIconController) getIcon(stateId, targetSize, currSize int) (*walk.I
 		ico, err = walk.NewIconFromResource(resName)
 		if err != nil || ico == nil {
 			slog.Error("[TrayHost] 降级提取系统图标严重失败", "resource", resName, "err", err)
-			return nil, false
+			return nil
 		}
 	}
 
 	c.icons[stateId] = ico
-	return ico, sizeChanged
+	return ico
 }
 
 func (c *TrayIconController) getSystemMetricSize() int {
@@ -180,15 +188,6 @@ func (c *TrayIconController) startDpiWatcher() {
 			}
 		}
 	}()
-}
-
-func (c *TrayIconController) clearOldIcons(keepStateId int) {
-	for id, ico := range c.icons {
-		if id != keepStateId && ico != nil {
-			ico.Dispose()
-			delete(c.icons, id)
-		}
-	}
 }
 
 func (c *TrayIconController) clearAllCache() {
