@@ -64,10 +64,6 @@ func (t *Tray) UpdateState(state domain.UIState) {
 		return
 	}
 
-	stateChanged := t.latestState.Mode != state.Mode ||
-		t.latestState.IsAdmin != state.IsAdmin ||
-		t.latestState.AutoStart != state.AutoStart
-
 	t.latestState = state
 	t.iconCtrl.SetState(int(state.IconState))
 
@@ -85,14 +81,12 @@ func (t *Tray) UpdateState(state domain.UIState) {
 	safelySetChecked(t.actRemoteWebUI, state.RemoteWebUI)
 	safelySetChecked(t.actAllowLan, state.AllowLan)
 
-	if stateChanged {
-		safelySetText(t.actModeMenu, fmt.Sprintf("路由模式: %s", getModeName(state.Mode)))
-		adminText := "运行权限：普通用户"
-		if state.IsAdmin {
-			adminText = "运行权限：管理员"
-		}
-		safelySetText(t.actAdminMenu, adminText)
+	safelySetText(t.actModeMenu, fmt.Sprintf("路由模式: %s", getModeName(state.Mode)))
+	adminText := "运行权限：普通用户"
+	if state.IsAdmin {
+		adminText = "运行权限：管理员"
 	}
+	safelySetText(t.actAdminMenu, adminText)
 
 	fp := generateProfileFingerprint(state.ProfileItems)
 	if fp != t.lastProfileFingerprint {
@@ -229,13 +223,14 @@ func (t *Tray) ShowNotification(title, message string) {
 }
 
 func (t *Tray) Dispose() {
-	if t.ni != nil {
-		t.ni.Dispose()
-		t.ni = nil
-	}
 	if t.iconCtrl != nil {
 		t.iconCtrl.Dispose()
 		t.iconCtrl = nil
+	}
+	
+	if t.ni != nil {
+		t.ni.Dispose()
+		t.ni = nil
 	}
 }
 
