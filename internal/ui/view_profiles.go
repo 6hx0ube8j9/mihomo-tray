@@ -131,14 +131,14 @@ func (v *ProfileView) Declarative() []Widget {
 }
 
 func (v *ProfileView) RefreshData(state domain.UIState) {
-	v.isBusy = state.IsBusy 
-	
+	v.isBusy = state.IsBusy
+
 	if v.model != nil {
 		v.model.IsBusy = state.IsBusy
 		if state.IsBusy && v.tableView != nil {
 			v.model.TargetRowIdx = v.tableView.CurrentIndex()
 		} else {
-			v.model.TargetRowIdx = -1 
+			v.model.TargetRowIdx = -1
 		}
 	}
 
@@ -148,19 +148,28 @@ func (v *ProfileView) RefreshData(state domain.UIState) {
 			v.portsLabel.SetText(newPortText)
 		}
 	}
-	
+
+	items := state.ProfileItems
+
+	if v.tableView == nil {
+		v.model.Items = items
+		return
+	}
+
 	if v.isStructurallyEqual(v.model.Items, items) {
 		for i := range items {
 			old := v.model.Items[i]
 			cur := items[i]
-			if old.IsActive != cur.IsActive ||
-				old.Interval != cur.Interval ||
-				old.LastUpdate != cur.LastUpdate ||
-				old.Name != cur.Name {
+			if old.IsActive != cur.IsActive || old.Interval != cur.Interval || old.LastUpdate != cur.LastUpdate || old.Name != cur.Name {
 				v.model.Items[i] = cur
 				v.model.PublishRowChanged(i)
 			}
 		}
+		
+		if v.isBusy && v.model.TargetRowIdx >= 0 {
+			v.model.PublishRowChanged(v.model.TargetRowIdx)
+		}
+		
 		v.updateActionState()
 		return
 	}
@@ -229,8 +238,12 @@ func (v *ProfileView) updateActionState() {
 	safelySetEnabled(v.actionMoveUp, canMoveUp)
 	safelySetEnabled(v.actionMoveDown, canMoveDown)
 
-	if v.btnMoveUp != nil { v.btnMoveUp.SetEnabled(canMoveUp) }
-	if v.btnMoveDown != nil { v.btnMoveDown.SetEnabled(canMoveDown) }
+	if v.btnMoveUp != nil {
+		v.btnMoveUp.SetEnabled(canMoveUp)
+	}
+	if v.btnMoveDown != nil {
+		v.btnMoveDown.SetEnabled(canMoveDown)
+	}
 }
 
 func (m *ProfileModel) RowCount() int { return len(m.Items) }
