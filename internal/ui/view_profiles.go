@@ -26,6 +26,7 @@ type ProfileView struct {
 	actionMoveDown *walk.Action
 	btnMoveUp      *walk.PushButton
 	btnMoveDown    *walk.PushButton
+	isBusy     bool
 }
 
 func NewProfileView(e *Engine) *ProfileView {
@@ -119,9 +120,13 @@ func (v *ProfileView) Declarative() []Widget {
 }
 
 func (v *ProfileView) RefreshData(state domain.UIState) {
+	v.isBusy = state.IsBusy 
+	
 	if v.portsLabel != nil {
-		newPortText := fmt.Sprintf("Mixed  : %d\nSocks  : %d\nHTTP(S): %d",
-			state.MixedPort, state.SocksPort, state.HttpPort)
+		newPortText := fmt.Sprintf("Mixed  : %d\nSocks  : %d\nHTTP(S): %d", state.MixedPort, state.SocksPort, state.HttpPort)
+		if v.isBusy {
+			newPortText = "内核处理中，请稍候..."
+		}
 		if v.portsLabel.Text() != newPortText {
 			v.portsLabel.SetText(newPortText)
 		}
@@ -197,7 +202,7 @@ func (v *ProfileView) updateActionState() {
 	hasSelection := idx >= 0 && idx < len(v.model.Items)
 
 	var canSwitch, canUpdate, canMoveUp, canMoveDown bool
-	if hasSelection {
+	if hasSelection && !v.isBusy {
 		item := v.model.Items[idx]
 		canSwitch = !item.IsActive
 		canUpdate = item.IsRemote
@@ -206,10 +211,10 @@ func (v *ProfileView) updateActionState() {
 	}
 
 	safelySetEnabled(v.actionSwitch, canSwitch)
-	safelySetEnabled(v.actionEditText, hasSelection)
-	safelySetEnabled(v.actionEditInfo, hasSelection)
+	safelySetEnabled(v.actionEditText, hasSelection && !v.isBusy)
+	safelySetEnabled(v.actionEditInfo, hasSelection && !v.isBusy)
 	safelySetEnabled(v.actionUpdate, canUpdate)
-	safelySetEnabled(v.actionDelete, hasSelection)
+	safelySetEnabled(v.actionDelete, hasSelection && !v.isBusy)
 	safelySetEnabled(v.actionMoveUp, canMoveUp)
 	safelySetEnabled(v.actionMoveDown, canMoveDown)
 
