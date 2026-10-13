@@ -9,6 +9,7 @@ func (a *Application) calculateUIState() domain.UIState {
 	cfg := a.Cfg.GetConfig()
 
 	s := domain.UIState{
+		IsBusy:           a.State.IsActionBusy(),
 		IsTun:            cfg.Config.Tun.Enable,
 		IsProxy:          *cfg.General.SystemProxy,
 		Mode:             cfg.Config.Mode,
