@@ -321,6 +321,6 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 
 func (m *ProfileModel) StyleCell(style *walk.CellStyle) {
 	if m.IsBusy && style.Row() == m.TargetRowIdx {
-		style.BackgroundColor = walk.RGB(195, 195, 195)
+		style.BackgroundColor = walk.RGB(210, 210, 210)
 	}
 }
