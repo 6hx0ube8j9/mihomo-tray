@@ -246,7 +246,6 @@ func (a *Application) fetchAndCommitRemoteProfile(ctx context.Context, targetRel
 
 	if targetRelPath == a.Cfg.GetActivePath() {
 		if _, err := core.ValidateRuntimeYAML(a.Cfg.GetConfig(), tempBytes, a.Cfg.BaseDir()); err != nil {
-			a.Kernel.WriteCoreLog(domain.LogTagProfileUpdate, fmt.Sprintf("活跃订阅预检失败 [%s]: %v", filepath.Base(targetRelPath), err))
 			return errors.New("订阅配置校验失败，已保留原版本")
 		}
 	} else {
@@ -290,7 +289,6 @@ func (a *Application) validateProfileSource(sourcePath string) error {
 	}
 
 	if _, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), content); err != nil {
-		a.Kernel.WriteCoreLog(domain.LogTagConfig, fmt.Sprintf("语法校验失败 [%s]: %v", filepath.Base(sourcePath), err))
 		return fmt.Errorf("配置语法错误: %w", err)
 	}
 
