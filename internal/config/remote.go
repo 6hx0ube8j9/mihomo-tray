@@ -20,12 +20,16 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 	subURL = strings.TrimSpace(subURL)
 	slog.Info("开始拉取订阅", "url", subURL)
 
-	transport := &http.Transport{Proxy: http.ProxyFromEnvironment}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
 
 	if proxyPort != "" {
 		if u, err := url.Parse("http://127.0.0.1:" + proxyPort); err == nil {
 			transport.Proxy = http.ProxyURL(u)
+		} else {
+			slog.Warn("代理端口解析失败，降级为系统环境变量代理", "port", proxyPort)
 		}
+	} else {
+		transport.Proxy = http.ProxyFromEnvironment
 	}
 
 	client := &http.Client{
@@ -62,7 +66,12 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 				_ = resp.Body.Close()
 			}
 			slog.Warn("网络不稳定，准备进行自动重试", "url", subURL, "retry", i+1, "err", reqErr)
-			time.Sleep(1500 * time.Millisecond)
+			
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(1500 * time.Millisecond):
+			}
 		}
 	}
 
