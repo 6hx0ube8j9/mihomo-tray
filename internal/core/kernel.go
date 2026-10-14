@@ -248,7 +248,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 	}
 }
 
-func (km *KernelManager) waitForReady(ctx context.Context) error {
+func (km *KernelManager) WaitForReady(ctx context.Context) error {
 	ticker := time.NewTicker(readyPollInterval)
 	defer ticker.Stop()
 
@@ -260,6 +260,11 @@ func (km *KernelManager) waitForReady(ctx context.Context) error {
 			if km.st.IsExiting() {
 				return context.Canceled
 			}
+
+			if !km.runner.IsRunning() {
+				return errors.New("内核进程已提前退出")
+			}
+
 			reqCtx, cancel := context.WithTimeout(ctx, readyPollInterval)
 			err := km.client.Ping(reqCtx)
 			cancel()
