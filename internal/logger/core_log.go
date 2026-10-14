@@ -11,12 +11,16 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-const MaxCoreLogSize = 64 * 1024
+const (
+	MaxCoreLogSize = 64 * 1024
+	DedupeInterval = 5 * time.Second
+)
 
 type CoreLogger struct {
-	writer    *RollingLogWriter
-	lastError string
-	mu        sync.Mutex
+	writer        *RollingLogWriter
+	lastError     string
+	lastErrorTime time.Time
+	mu            sync.Mutex
 }
 
 func NewCoreLogger(baseDir string) *CoreLogger {
@@ -28,7 +32,6 @@ func NewCoreLogger(baseDir string) *CoreLogger {
 
 func (l *CoreLogger) WriteLog(rawMsg string) {
 	level, cleanMsg := extractLevelAndMsg(rawMsg)
-
 	if level < slog.LevelError {
 		return
 	}
@@ -36,12 +39,14 @@ func (l *CoreLogger) WriteLog(rawMsg string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if l.lastError == cleanMsg {
+	now := time.Now()
+	if l.lastError == cleanMsg && now.Sub(l.lastErrorTime) < DedupeInterval {
 		return
 	}
 	l.lastError = cleanMsg
+	l.lastErrorTime = now
 
-	timestamp := time.Now().Format(domain.TimeFormatLog)
+	timestamp := now.Format(domain.TimeFormatLog)
 	entry := fmt.Sprintf("[%s] [ERROR] %s\n", timestamp, cleanMsg)
 
 	_, _ = l.writer.Write([]byte(entry))
@@ -49,6 +54,8 @@ func (l *CoreLogger) WriteLog(rawMsg string) {
 }
 
 func (l *CoreLogger) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.writer != nil {
 		return l.writer.Close()
 	}
@@ -58,7 +65,6 @@ func (l *CoreLogger) Close() error {
 func extractLevelAndMsg(raw string) (slog.Level, string) {
 	raw = strings.TrimSpace(raw)
 	idx := strings.Index(raw, "level=")
-	
 	if idx == -1 {
 		return slog.LevelError, raw
 	}
@@ -69,9 +75,22 @@ func extractLevelAndMsg(raw string) (slog.Level, string) {
 		lvlStr = after[:end]
 	}
 
-	cleanMsg := raw
+	cleanMsg := raw[idx:]
 	if msgIdx := strings.Index(raw, "msg="); msgIdx != -1 {
-		cleanMsg = strings.Trim(strings.TrimSpace(raw[msgIdx+len("msg="):]), `"`)
+		val := strings.TrimSpace(raw[msgIdx+len("msg="):])
+		if strings.HasPrefix(val, `"`) {
+			if endQuote := strings.Index(val[1:], `"`); endQuote != -1 {
+				cleanMsg = val[1 : endQuote+1]
+			} else {
+				cleanMsg = strings.Trim(val, `"`)
+			}
+		} else {
+			if end := strings.IndexAny(val, " \t\r\n"); end != -1 {
+				cleanMsg = val[:end]
+			} else {
+				cleanMsg = val
+			}
+		}
 	}
 
 	return ParseLevel(lvlStr), cleanMsg
