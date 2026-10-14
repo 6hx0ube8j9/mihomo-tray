@@ -17,7 +17,7 @@ import (
 
 const (
 	pollActiveInterval = 3 * time.Second
-	pollIdleInterval   = 8 * time.Second
+	pollIdleInterval   = 10 * time.Second
 	pollIdleThreshold  = 30 * time.Second
 )
 
@@ -41,7 +41,6 @@ type Application struct {
 
 	lastUIState  domain.UIState
 	uiStateMutex sync.RWMutex
-
 	isAutoUpdating atomic.Bool
 }
 
@@ -82,7 +81,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 				fetchCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 				fetchErr := a.fetchAndCommitRemoteProfile(fetchCtx, activePath, p.URL, &p)
 				cancel()
-
+								
 				if fetchErr != nil {
 					slog.Warn("订阅拉取失败，取消激活", "err", fetchErr)
 					a.Cfg.SetActiveProfile("")
@@ -109,12 +108,10 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	a.pushUIState()
 
 	slog.Debug("启动事件监听")
-	
 	a.Kernel.SetPreStartHook(a.SyncRuntimeConfig)
 	go a.Kernel.RunDaemon(ctx, a.kernelEventCh)
 	go sys.WatchNetworkInterfaces(ctx, a.tunEventCh)
 	go sys.WatchProxyRegistry(ctx, a.proxyStatusCh)
-	
 	go a.eventLoop(ctx)
 }
 
@@ -186,14 +183,14 @@ func (a *Application) eventLoop(ctx context.Context) {
 
 	for {
 		select {
-		case <-ctx.Done():
-			slog.Debug("退出主事件循环")
-			return
-
 		case event := <-a.webuiEventCh:
 			if event == webui.EventError {
 				slog.Warn("Web 面板服务异常")
 			}
+
+		case <-ctx.Done():
+			slog.Debug("退出主事件循环")
+			return
 
 		case cmd := <-a.UICommandCh:
 			slog.Debug("处理界面指令", "action", cmd.Action)
@@ -202,7 +199,37 @@ func (a *Application) eventLoop(ctx context.Context) {
 			a.handleUICommand(ctx, cmd)
 
 		case event := <-a.kernelEventCh:
-			a.handleKernelEvent(ctx, event)
+			if event == domain.EventKernelReady {
+				slog.Info("内核及 API 已就绪")
+
+				if a.Cfg.GetConfig().Config.Tun.Enable {
+					a.State.SetTunRequestedTime(time.Now())
+				}
+				a.syncSystemProxy()
+
+				a.State.SetPhase(domain.PhaseRunning)
+
+				currentGen := a.State.AdvanceProbeGen()
+				go func(gen uint64) {
+					defer a.ForcePushUIState()
+
+					if a.State.IsExiting() || ctx.Err() != nil || a.State.GetProbeGen() != gen {
+						return
+					}
+					a.ForceSyncAPI()
+				}(currentGen)
+
+			} else if event == domain.EventKernelExit {
+				a.State.AdvanceProbeGen()
+
+				if a.State.IsRestarting() {
+					slog.Info("内核已停止，等待重启")
+				} else {
+					slog.Warn("内核进程异常退出")
+				}
+				a.State.SetPhase(domain.PhaseInitializing)
+			}
+			a.pushUIState()
 
 		case <-a.tunEventCh:
 			a.handleTunChange(ctx)
@@ -225,75 +252,18 @@ func (a *Application) eventLoop(ctx context.Context) {
 	}
 }
 
-func (a *Application) handleKernelEvent(ctx context.Context, event domain.KernelEvent) {
-	if event == domain.EventKernelReady {
-		slog.Info("内核及 API 已就绪")
-
-		if a.Cfg.GetConfig().Config.Tun.Enable {
-			a.State.SetTunRequestedTime(time.Now())
-		}
-		a.syncSystemProxy()
-
-		a.State.SetPhase(domain.PhaseRunning)
-
-		currentGen := a.State.AdvanceProbeGen()
-		go func(gen uint64) {
-			defer a.ForcePushUIState()
-			if a.State.IsExiting() || ctx.Err() != nil || a.State.GetProbeGen() != gen {
-				return
-			}
-			a.ForceSyncAPI()
-		}(currentGen)
-
-	} else if event == domain.EventKernelExit {
-		a.State.AdvanceProbeGen()
-
-		if a.State.IsRestarting() {
-			slog.Info("内核已停止，等待重启")
-		} else {
-			slog.Warn("内核进程异常退出")
-		}
-		a.State.SetPhase(domain.PhaseInitializing)
-	}
-	a.pushUIState()
-}
-
-func (a *Application) handleTunChange(ctx context.Context) {
-	if a.State.GetPhase() != domain.PhaseRunning {
-		return
-	}
-	slog.Debug("侦测到内核 TUN 状态变化，强制同步")
-	a.ForceSyncAPI()
-}
-
-func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.ProxyStatus) {
-	a.State.UpdateProxyState(status.Mode, status.SocksPort, status.HttpPort)
-	if status.Mode == "rule" || status.Mode == "global" {
-		a.State.SetIconState(domain.IconProxy)
-	} else if status.Mode == "direct" {
-		a.State.SetIconState(domain.IconDefault)
-	}
-	a.pushUIState()
-}
-
 func (a *Application) processAutoUpdates(ctx context.Context) {
 	if !a.isAutoUpdating.CompareAndSwap(false, true) {
-		slog.Debug("上一轮订阅自动更新仍在执行中，跳过本次触发")
 		return
 	}
-
 	go func() {
 		defer a.isAutoUpdating.Store(false)
-
 		for _, p := range a.Cfg.GetProfiles() {
 			if a.State.IsExiting() || ctx.Err() != nil {
 				return
 			}
-
 			if p.IsUpdateDue() {
-				slog.Debug("自动更新订阅", "name", p.Name)
 				a.UpdateRemoteProfile(ctx, p.Path, false)
-				
 				select {
 				case <-ctx.Done():
 					return
