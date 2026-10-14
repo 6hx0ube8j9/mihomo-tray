@@ -16,6 +16,10 @@ var (
 	procSetConsoleCtrlHandler = modKernel32.NewProc("SetConsoleCtrlHandler")
 )
 
+type Job struct {
+	handle windows.Handle
+}
+
 func IsSystemShuttingDown() bool {
 	const SM_SHUTTINGDOWN = 0x2000
 	r, _, _ := procGetSystemMetrics.Call(SM_SHUTTINGDOWN)
@@ -155,5 +159,40 @@ func HardKill(pid uint32) {
 		windows.CloseHandle(h)
 	} else {
 		slog.Error("强制终止进程失败", "pid", pid, "err", err)
+	}
+}
+
+// NewKillOnCloseJob 创建一个随父进程关闭自动清理所有子进程的 Job
+func NewKillOnCloseJob() (*Job, error) {
+	h, err := CreateKillOnCloseJob()
+	if err != nil {
+		return nil, err
+	}
+	return &Job{handle: h}, nil
+}
+
+// Assign 将目标 PID 绑定进 Job
+func (j *Job) Assign(pid int) {
+	if j != nil && j.handle != 0 {
+		AssignProcessToJob(j.handle, pid)
+	}
+}
+
+// Close 释放 Job 句柄
+func (j *Job) Close() error {
+	if j != nil && j.handle != 0 {
+		err := windows.CloseHandle(j.handle)
+		j.handle = 0
+		return err
+	}
+	return nil
+}
+
+// BackgroundProcAttr 统一定义后台守护进程/命令行工具的 Win32 启动标志（静默、无黑框、屏蔽系统错误弹窗）
+func BackgroundProcAttr() *windows.SysProcAttr {
+	const CREATE_DEFAULT_ERROR_MODE = 0x04000000
+	return &windows.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | CREATE_DEFAULT_ERROR_MODE,
 	}
 }
