@@ -124,7 +124,7 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	slog.Debug("停止内核进程")
 	a.Kernel.KillCurrent()
 
-	if *a.Cfg.GetConfig().General.SystemProxy {
+	if p := a.Cfg.GetConfig().General.SystemProxy; p != nil && *p {
 		slog.Debug("关闭系统代理")
 		if err := sys.SetSystemProxy(false, ""); err != nil {
 			slog.Warn("关闭系统代理失败", "err", err)
