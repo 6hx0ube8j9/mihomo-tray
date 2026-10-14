@@ -179,7 +179,6 @@ func HardKill(pid uint32) {
 	}
 }
 
-// BackgroundProcAttr 统一定义后台守护进程/命令行工具的 Win32 启动标志（静默、无黑框、屏蔽系统错误弹窗）
 func BackgroundProcAttr() *windows.SysProcAttr {
 	const CREATE_DEFAULT_ERROR_MODE = 0x04000000
 	return &windows.SysProcAttr{
@@ -188,7 +187,6 @@ func BackgroundProcAttr() *windows.SysProcAttr {
 	}
 }
 
-// IsSystemShuttingDown 检查系统是否正在关机或注销
 func IsSystemShuttingDown() bool {
 	const SM_SHUTTINGDOWN = 0x2000
 	r, _, _ := procGetSystemMetrics.Call(SM_SHUTTINGDOWN)
