@@ -117,18 +117,18 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 	}
 
 	a.ForcePushUIState()
-	
 	defer func() {
 		a.State.EndAction()
 		a.ForcePushUIState()
 	}()
 
-	slog.Info("开始重启内核")
+	slog.Info("用户触发托盘指令：开始 100% 物理硬重启内核")
 	a.CheckAndReconcilePrivileges(false)
 
-	if err := a.applyActiveConfig(ctx, "重启内核"); err != nil {
-		return err
-	}
+	a.SyncRuntimeConfig()
+	cfg := a.Cfg.GetConfig()
+
+	a.executePhysicalRestart(cfg)
 
 	a.restartWebUIIfOpen()
 	return nil
