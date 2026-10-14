@@ -47,6 +47,10 @@ type KernelManager struct {
 	preStartHook func()
 }
 
+func GetKernelPath(baseDir string) string {
+	return filepath.Join(baseDir, domain.KernelExeName)
+}
+
 func NewKernelManager(cfg *config.Manager, st *state.RuntimeState, client *APIClient) *KernelManager {
 	return &KernelManager{
 		cfg:    cfg,
@@ -115,7 +119,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.KernelEvent) sessionResult {
 	km.runPreStartHook()
 
-	target := filepath.Join(km.cfg.BaseDir(), domain.KernelExeName)
+	target := GetKernelPath(km.cfg.BaseDir())
 	absBaseDir, _ := filepath.Abs(km.cfg.BaseDir())
 	runtimeAbs := filepath.Join(absBaseDir, domain.RuntimeConfigName)
 
