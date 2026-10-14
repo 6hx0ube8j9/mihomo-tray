@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"mihomo-tray/internal/sys"
 )
 
 var shortCircuitKeywords = []string{
