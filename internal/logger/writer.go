@@ -48,8 +48,16 @@ func (w *RollingLogWriter) rotate() {
 		w.file = nil
 	}
 
-	_ = fs.ReplaceAtomic(w.logPath, w.bakPath)
-	w.file, _ = os.OpenFile(w.logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
+	err := fs.ReplaceAtomic(w.logPath, w.bakPath)
+	
+	flags := os.O_CREATE | os.O_WRONLY
+	if err != nil {
+		flags |= os.O_TRUNC
+	} else {
+		flags |= os.O_TRUNC
+	}
+
+	w.file, _ = os.OpenFile(w.logPath, flags, 0666)
 	w.currSize = 0
 }
 
