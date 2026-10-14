@@ -109,7 +109,6 @@ func (r *ProcessRunner) Kill() {
 	forceKill := func() {
 		_ = cmd.Process.Kill()
 		sys.HardKill(pid)
-		sys.KillOtherProcessesByName(domain.KernelExeName, 0)
 	}
 
 	if err := sys.SendCtrlBreak(pid); err != nil {
