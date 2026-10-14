@@ -134,8 +134,10 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 		return nil, fmt.Errorf("yaml marshal: %w", err)
 	}
 
+	finalYAML := append([]byte(yamlHeader), outBytes...)
+	
 	return &ComposeResult{
-		YAML:      []byte(yamlHeader + string(outBytes)),
+		YAML:      finalYAML,
 		TunDevice: tunDevice,
 	}, nil
 }
