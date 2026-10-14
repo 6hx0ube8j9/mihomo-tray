@@ -60,8 +60,23 @@ func NewAPIClient(pipePath string) *APIClient {
 }
 
 func (c *APIClient) Ping(ctx context.Context) error {
-	_, err := c.DoRequest(ctx, http.MethodGet, "/version", nil)
-	return err
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost/version", nil)
+	if err != nil {
+		return err
+	}
+	
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	
+	_, _ = io.Copy(io.Discard, resp.Body)
+	
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	return fmt.Errorf("http status %d", resp.StatusCode)
 }
 
 func (c *APIClient) UpdatePorts(ctx context.Context, mixed, socks, httpPort int) error {
