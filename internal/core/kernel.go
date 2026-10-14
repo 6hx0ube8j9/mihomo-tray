@@ -3,15 +3,10 @@ package core
 import (
 	"context"
 	"log/slog"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
-
-	"golang.org/x/sys/windows"
 
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/domain"
@@ -20,87 +15,58 @@ import (
 	"mihomo-tray/internal/sys"
 )
 
-const KernelReadyTimeout = 30 * time.Minute
-
 const (
+	KernelReadyTimeout  = 30 * time.Minute
 	MaxQuickCrashes     = 10
 	MaxCrashWindow      = KernelReadyTimeout
 	CoolDownCrashCount  = 3
 	CoolDownDuration    = 15 * time.Second
 	QuickCrashThreshold = 5 * time.Second
+	readyProbeTimeout   = 10 * time.Second
+	readyPollInterval   = 200 * time.Millisecond
+	defaultRestartDelay = 600 * time.Millisecond
+	minRestartDelay     = 50 * time.Millisecond
+	maxRestartDelay     = 30 * time.Second
+	crashLogBufferSize  = 64 * 1024
 )
-
-type TailBuffer struct {
-	mu  sync.Mutex
-	buf []byte
-	max int
-}
-
-func NewTailBuffer(maxSize int) *TailBuffer {
-	return &TailBuffer{
-		buf: make([]byte, 0, maxSize),
-		max: maxSize,
-	}
-}
-
-func (t *TailBuffer) Write(p []byte) (int, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	t.buf = append(t.buf, p...)
-	if len(t.buf) > t.max {
-		overflow := len(t.buf) - t.max
-		copy(t.buf, t.buf[overflow:])
-		t.buf = t.buf[:t.max]
-	}
-	return len(p), nil
-}
-
-func (t *TailBuffer) String() string {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return string(t.buf)
-}
 
 func GetKernelPath(baseDir string) string {
 	return filepath.Join(baseDir, domain.KernelExeName)
 }
 
 type KernelManager struct {
-	cfg          *config.Manager
-	st           *state.RuntimeState
-	logger       *logger.CoreLogger
-	hJob         windows.Handle
-	currentPid   uint32
-	activeProc   *os.Process
+	cfg    *config.Manager
+	st     *state.RuntimeState
+	logger *logger.CoreLogger
+	client *APIClient
+	runner *ProcessRunner
+
 	mu           sync.Mutex
-	killMu       sync.Mutex
 	isPaused     bool
 	wakeCh       chan struct{}
 	preStartHook func()
 }
 
-func (km *KernelManager) SetPreStartHook(hook func()) {
-	km.mu.Lock()
-	km.preStartHook = hook
-	km.mu.Unlock()
-}
-
-func NewKernelManager(cfg *config.Manager, st *state.RuntimeState) *KernelManager {
-	km := &KernelManager{
+func NewKernelManager(cfg *config.Manager, st *state.RuntimeState, client *APIClient) *KernelManager {
+	return &KernelManager{
 		cfg:    cfg,
 		st:     st,
 		logger: logger.NewCoreLogger(cfg.BaseDir()),
+		client: client,
+		runner: NewProcessRunner(),
 		wakeCh: make(chan struct{}, 1),
 	}
-	km.hJob, _ = sys.CreateKillOnCloseJob()
-	return km
+}
+
+func (km *KernelManager) SetPreStartHook(hook func()) {
+	km.mu.Lock()
+	defer km.mu.Unlock()
+	km.preStartHook = hook
 }
 
 func (km *KernelManager) Close() {
-	if km.hJob != 0 {
-		windows.CloseHandle(km.hJob)
-		km.hJob = 0
+	if km.runner != nil {
+		km.runner.Close()
 	}
 	if km.logger != nil {
 		_ = km.logger.Close()
@@ -110,45 +76,33 @@ func (km *KernelManager) Close() {
 func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.KernelEvent) {
 	target := GetKernelPath(km.cfg.BaseDir())
 	absBaseDir, _ := filepath.Abs(km.cfg.BaseDir())
-	currentDelay := 50 * time.Millisecond
-	const maxDelay = 30 * time.Second
+	runtimeAbs := filepath.Join(absBaseDir, domain.RuntimeConfigName)
 
+	currentDelay := minRestartDelay
 	crashCount := 0
 	quickCrashCount := 0
 	var firstCrashTime time.Time
 
-	sys.KillOtherProcessesByName(domain.KernelExeName, 0)
+	km.runner.CleanupOrphans()
 
 	for {
-		select {
-		case <-ctx.Done():
-			km.KillCurrent()
+		if ctx.Err() != nil {
+			km.runner.Kill()
 			return
-		default:
 		}
 
-		km.mu.Lock()
-		paused := km.isPaused
-		km.mu.Unlock()
-
-		if paused {
-			select {
-			case <-km.wakeCh:
-				quickCrashCount = 0
-				firstCrashTime = time.Time{}
-				crashCount = 0
-				currentDelay = 50 * time.Millisecond
-			case <-ctx.Done():
-				return
-			}
+		if km.waitIfPaused(ctx) {
+			quickCrashCount = 0
+			firstCrashTime = time.Time{}
+			crashCount = 0
+			currentDelay = minRestartDelay
 			continue
 		}
 
-		localPid := atomic.LoadUint32(&km.currentPid)
-		if localPid != 0 && sys.IsPidRunning(localPid, domain.KernelExeName) {
+		if km.runner.IsRunning() {
 			select {
 			case <-ctx.Done():
-				km.KillCurrent()
+				km.runner.Kill()
 				return
 			case <-time.After(2 * time.Second):
 				continue
@@ -165,30 +119,12 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 		case <-time.After(300 * time.Millisecond):
 		}
 
-		km.mu.Lock()
-		hook := km.preStartHook
-		km.mu.Unlock()
-		if hook != nil {
-			hook()
-		}
+		km.runPreStartHook()
 
-		errBuf := NewTailBuffer(64 * 1024)
-		runtimeAbs := filepath.Join(absBaseDir, domain.RuntimeConfigName)
-
-		cmd := exec.Command(target, "-d", ".", "-f", runtimeAbs)
-		cmd.Dir = absBaseDir
-
-		const CREATE_DEFAULT_ERROR_MODE = 0x04000000
-		cmd.SysProcAttr = &windows.SysProcAttr{
-			HideWindow:    true,
-			CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | CREATE_DEFAULT_ERROR_MODE,
-		}
-
-		cmd.Stdout = errBuf
-		cmd.Stderr = errBuf
+		errBuf := logger.NewTailBuffer(crashLogBufferSize)
 		startTime := time.Now()
 
-		if err := cmd.Start(); err != nil {
+		if err := km.runner.Start(absBaseDir, target, runtimeAbs, errBuf); err != nil {
 			km.logger.WriteLog(domain.LogTagKernelTransition, err.Error())
 
 			if firstCrashTime.IsZero() {
@@ -207,30 +143,25 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 				currentDelay = CoolDownDuration
 				crashCount = 0
 			} else {
-				currentDelay = km.calculateBackoff(currentDelay, maxDelay)
+				currentDelay = km.calculateBackoff(currentDelay, maxRestartDelay)
 			}
 
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(currentDelay):
-			case <-km.wakeCh:
-				quickCrashCount = 0
-				firstCrashTime = time.Time{}
-				crashCount = 0
-				currentDelay = 50 * time.Millisecond
-			}
+			km.waitBackoff(ctx, currentDelay)
 			continue
 		}
 
-		slog.Debug("内核底层进程已运行", "PID", cmd.Process.Pid)
+		slog.Debug("内核底层进程已运行", "PID", km.runner.Pid())
 
-		km.mu.Lock()
-		km.activeProc = cmd.Process
-		atomic.StoreUint32(&km.currentPid, uint32(cmd.Process.Pid))
-		km.mu.Unlock()
+		readyCtx, readyCancel := context.WithTimeout(ctx, readyProbeTimeout)
+		readyErr := km.waitForReady(readyCtx)
+		readyCancel()
 
-		sys.AssignProcessToJob(km.hJob, cmd.Process.Pid)
+		if readyErr != nil {
+			slog.Error("内核启动后未能按时就绪，强制回收", "err", readyErr)
+			km.runner.Kill()
+			km.waitBackoff(ctx, currentDelay)
+			continue
+		}
 
 		select {
 		case <-ctx.Done():
@@ -238,27 +169,12 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 		case eventCh <- domain.EventKernelReady:
 		}
 
-		waitDone := make(chan struct{})
-		go func() {
-			select {
-			case <-ctx.Done():
-				km.KillCurrent()
-			case <-waitDone:
-			}
-		}()
-
-		waitErr := cmd.Wait()
-		close(waitDone)
-
-		km.mu.Lock()
-		isKilledByUs := (km.activeProc == nil)
-		km.mu.Unlock()
+		waitErr := km.runner.Wait(ctx)
+		runDuration := time.Since(startTime)
 
 		isShutdown := sys.IsSystemShuttingDown()
 		isAppExiting := ctx.Err() != nil || km.st.IsExiting() || isShutdown
-		runDuration := time.Since(startTime)
-
-		isCrash := waitErr != nil && !isKilledByUs && !isAppExiting
+		isCrash := waitErr != nil && !km.runner.IsKilledByUs() && !isAppExiting
 		wasRunning := km.st.GetPhase() == domain.PhaseRunning
 
 		if isCrash {
@@ -278,7 +194,6 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 			if isConfigFatal {
 				slog.Error("配置存在致命错误，内核守护进程已挂起")
 				km.HaltDaemon()
-
 				select {
 				case eventCh <- domain.EventKernelExit:
 				default:
@@ -290,11 +205,6 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 		if isShutdown {
 			return
 		}
-
-		km.mu.Lock()
-		km.activeProc = nil
-		atomic.StoreUint32(&km.currentPid, 0)
-		km.mu.Unlock()
 
 		select {
 		case eventCh <- domain.EventKernelExit:
@@ -325,68 +235,74 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 				currentDelay = CoolDownDuration
 				crashCount = 0
 			} else {
-				currentDelay = km.calculateBackoff(currentDelay, maxDelay)
+				currentDelay = km.calculateBackoff(currentDelay, maxRestartDelay)
 			}
 		} else {
 			quickCrashCount = 0
 			firstCrashTime = time.Time{}
 			crashCount = 0
-			currentDelay = 600 * time.Millisecond
+			currentDelay = defaultRestartDelay
 		}
 
+		km.waitBackoff(ctx, currentDelay)
+	}
+}
+
+func (km *KernelManager) waitForReady(ctx context.Context) error {
+	ticker := time.NewTicker(readyPollInterval)
+	defer ticker.Stop()
+
+	for {
 		select {
 		case <-ctx.Done():
-			return
-		case <-time.After(currentDelay):
-		case <-km.wakeCh:
-			quickCrashCount = 0
-			firstCrashTime = time.Time{}
-			crashCount = 0
-			currentDelay = 50 * time.Millisecond
+			return ctx.Err()
+		case <-ticker.C:
+			if km.st.IsExiting() {
+				return context.Canceled
+			}
+			reqCtx, cancel := context.WithTimeout(ctx, readyPollInterval)
+			err := km.client.Ping(reqCtx)
+			cancel()
+
+			if err == nil {
+				return nil
+			}
 		}
 	}
 }
 
-func (km *KernelManager) KillCurrent() {
-	km.killMu.Lock()
-	defer km.killMu.Unlock()
-
+func (km *KernelManager) waitIfPaused(ctx context.Context) bool {
 	km.mu.Lock()
-	proc := km.activeProc
-	pid := atomic.LoadUint32(&km.currentPid)
-
-	if proc == nil || pid == 0 {
-		km.mu.Unlock()
-		return
-	}
-
-	km.activeProc = nil
-	atomic.StoreUint32(&km.currentPid, 0)
+	paused := km.isPaused
 	km.mu.Unlock()
 
-	forceKill := func() {
-		_ = proc.Kill()
-		sys.HardKill(pid)
-		sys.KillOtherProcessesByName(domain.KernelExeName, 0)
+	if !paused {
+		return false
 	}
 
-	if err := sys.SendCtrlBreak(pid); err != nil {
-		forceKill()
-	} else {
-		exited := false
-		for i := 0; i < 30; i++ {
-			if !sys.IsPidRunning(pid, domain.KernelExeName) {
-				exited = true
-				break
-			}
-			time.Sleep(50 * time.Millisecond)
-		}
-
-		if !exited {
-			forceKill()
-		}
+	select {
+	case <-km.wakeCh:
+		return true
+	case <-ctx.Done():
+		return false
 	}
-	time.Sleep(100 * time.Millisecond)
+}
+
+func (km *KernelManager) waitBackoff(ctx context.Context, d time.Duration) {
+	select {
+	case <-ctx.Done():
+	case <-time.After(d):
+	case <-km.wakeCh:
+	}
+}
+
+func (km *KernelManager) runPreStartHook() {
+	km.mu.Lock()
+	hook := km.preStartHook
+	km.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
 }
 
 func (km *KernelManager) calculateBackoff(current, max time.Duration) time.Duration {
@@ -421,9 +337,13 @@ func (km *KernelManager) IsPaused() bool {
 }
 
 func (km *KernelManager) IsRunning() bool {
-	km.mu.Lock()
-	defer km.mu.Unlock()
-	return km.activeProc != nil && atomic.LoadUint32(&km.currentPid) != 0
+	return km.runner != nil && km.runner.IsRunning()
+}
+
+func (km *KernelManager) KillCurrent() {
+	if km.runner != nil {
+		km.runner.Kill()
+	}
 }
 
 func (km *KernelManager) WriteCoreLog(errType, rawMsg string) {
