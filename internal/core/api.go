@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/Microsoft/go-winio"
-	
+
 	"mihomo-tray/internal/domain"
 )
 
