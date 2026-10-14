@@ -48,7 +48,7 @@ func (e *Engine) Run() error {
 
 	err = MainWindow{
 		AssignTo: &e.mw,
-		Title:    "Mihomo Tray Host",
+		Title: domain.HostTitle
 		Visible:  false,
 	}.Create()
 
@@ -68,9 +68,7 @@ func (e *Engine) Run() error {
 	app.Run()
 
 	slog.Debug("退出 UI 消息循环，清理资源")
-	e.Tray.Dispose()
-	e.Dashboard.Dispose()
-	e.mw.Dispose()
+	e.disposeAll()
 
 	return nil
 }
@@ -104,9 +102,8 @@ func (e *Engine) listenState() {
 		case <-e.ctx.Done():
 			if e.app != nil {
 				e.app.Synchronize(func() {
-					if e.mw != nil {
-						e.mw.Close()
-					}
+					e.disposeAll()
+					e.app.Exit(0)
 				})
 			}
 			return
@@ -135,6 +132,21 @@ func (e *Engine) listenState() {
 				}
 			})
 		}
+	}
+}
+
+func (e *Engine) disposeAll() {
+	if e.Dashboard != nil {
+		e.Dashboard.Dispose()
+		e.Dashboard = nil
+	}
+	if e.Tray != nil {
+		e.Tray.Dispose()
+		e.Tray = nil
+	}
+	if e.mw != nil {
+		e.mw.Dispose()
+		e.mw = nil
 	}
 }
 
