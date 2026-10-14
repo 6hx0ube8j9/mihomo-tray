@@ -57,8 +57,6 @@ func (a *Application) DeployAndApplyConfig(ctx context.Context, targetRelPath, a
 		}
 
 		slog.Error("配置装配或预检失败", "action", actionDesc, "profile", profileName, "err", err)
-		a.Kernel.WriteCoreLog(domain.LogTagConfig, fmt.Sprintf("%s 失败 [%s]:\n%v", actionDesc, profileName, err))
-
 		cleanErr := err.Error()
 		cleanErr = strings.TrimPrefix(cleanErr, "compose: ")
 		cleanErr = strings.TrimPrefix(cleanErr, "validate: ")
@@ -77,7 +75,6 @@ func (a *Application) DeployAndApplyConfig(ctx context.Context, targetRelPath, a
 			return nil
 		}
 		slog.Warn("API 热重载失败，退化为物理重启")
-		a.Kernel.WriteCoreLog(domain.LogTagKernelTransition, fmt.Sprintf("%s: 热重载失败，切换冷启动", actionDesc))
 	}
 
 	a.executePhysicalRestart(cfg)
