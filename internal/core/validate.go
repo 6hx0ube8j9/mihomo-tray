@@ -10,8 +10,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"golang.org/x/sys/windows"
 )
 
 var shortCircuitKeywords = []string{
@@ -27,6 +25,7 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 
 	cmd := exec.CommandContext(ctx, exePath, "-d", ".", "-t", "-f", yamlAbsPath)
 	cmd.Dir = workDir
+	cmd.SysProcAttr = sys.BackgroundProcAttr()
 
 	const CREATE_DEFAULT_ERROR_MODE = 0x04000000
 	cmd.SysProcAttr = &windows.SysProcAttr{
