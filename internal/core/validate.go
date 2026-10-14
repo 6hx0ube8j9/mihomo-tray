@@ -29,12 +29,6 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 	cmd.Dir = workDir
 	cmd.SysProcAttr = sys.BackgroundProcAttr()
 
-	const CREATE_DEFAULT_ERROR_MODE = 0x04000000
-	cmd.SysProcAttr = &windows.SysProcAttr{
-		HideWindow:    true,
-		CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | CREATE_DEFAULT_ERROR_MODE,
-	}
-
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("stdout pipe: %w", err)
