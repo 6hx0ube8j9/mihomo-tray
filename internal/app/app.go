@@ -214,7 +214,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 					a.ForceSyncAPI()
 				}(currentGen)
 
-			} else if event == domain.EventKernelExit:
+			} else if event == domain.EventKernelExit {
 				a.State.AdvanceProbeGen()
 
 				if a.State.IsRestarting() {
