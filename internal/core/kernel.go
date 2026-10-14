@@ -17,6 +17,7 @@ import (
 )
 
 const (
+	maxCrashWindow      = 30 * time.Minute
 	readyPollInterval   = 200 * time.Millisecond
 	slowPollInterval    = 2 * time.Second
 	quickCrashThreshold = 5 * time.Second
@@ -80,6 +81,7 @@ func (km *KernelManager) Close() {
 func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.KernelEvent) {
 	currentDelay := defaultRestartDelay
 	consecutiveCrashes := 0
+	var firstCrashTime time.Time
 
 	km.runner.CleanupOrphans()
 
@@ -91,6 +93,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 
 		if km.waitIfPaused(ctx) {
 			consecutiveCrashes = 0
+			firstCrashTime = time.Time{}
 			currentDelay = defaultRestartDelay
 			continue
 		}
@@ -106,9 +109,10 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 		}
 
 		if res.isCrash {
-			currentDelay = km.handleSessionCrash(res, &consecutiveCrashes, currentDelay)
+			currentDelay = km.handleSessionCrash(res, &consecutiveCrashes, &firstCrashTime, currentDelay)
 		} else {
 			consecutiveCrashes = 0
+			firstCrashTime = time.Time{}
 			currentDelay = defaultRestartDelay
 		}
 
@@ -138,7 +142,10 @@ func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.K
 
 	slog.Debug("内核进程已启动", "pid", km.runner.Pid())
 
-	readyErr := km.WaitForReady(ctx)
+	readyCtx, cancelReady := context.WithTimeout(ctx, maxCrashWindow)
+	readyErr := km.WaitForReady(readyCtx)
+	cancelReady()
+
 	if readyErr == nil {
 		select {
 		case <-ctx.Done():
@@ -146,6 +153,9 @@ func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.K
 			return sessionResult{isAppExiting: true}
 		case eventCh <- domain.EventKernelReady:
 		}
+	} else if readyErr == context.DeadlineExceeded {
+		slog.Error("内核 API 就绪超时")
+		km.runner.Kill()
 	}
 
 	waitErr := km.runner.Wait(ctx)
@@ -202,7 +212,7 @@ func (km *KernelManager) WaitForReady(ctx context.Context) error {
 	}
 }
 
-func (km *KernelManager) handleSessionCrash(res sessionResult, crashCount *int, currentDelay time.Duration) time.Duration {
+func (km *KernelManager) handleSessionCrash(res sessionResult, crashCount *int, firstCrashTime *time.Time, currentDelay time.Duration) time.Duration {
 	wasRunning := km.st.GetPhase() == domain.PhaseRunning
 	upperLog := strings.ToUpper(res.crashLog)
 	isConfigFatal := strings.Contains(upperLog, "FATA") || strings.Contains(upperLog, "PANIC")
@@ -219,22 +229,25 @@ func (km *KernelManager) handleSessionCrash(res sessionResult, crashCount *int, 
 		return defaultRestartDelay
 	}
 
-	if res.runDuration < quickCrashThreshold {
-		if wasRunning {
-			*crashCount = 0
-		}
-		*crashCount++
-
-		if *crashCount >= maxConsecutiveCrash {
-			slog.Error("内核连续异常退出，已暂停启动")
-			km.HaltDaemon()
-			return defaultRestartDelay
-		}
-		return km.calculateBackoff(currentDelay, maxRestartDelay)
+	if wasRunning {
+		*crashCount = 0
+		*firstCrashTime = time.Time{}
+	}
+	if firstCrashTime.IsZero() {
+		*firstCrashTime = time.Now()
 	}
 
-	*crashCount = 0
-	return defaultRestartDelay
+	if res.runDuration < quickCrashThreshold {
+		*crashCount++
+	}
+
+	if *crashCount >= maxConsecutiveCrash || time.Since(*firstCrashTime) >= maxCrashWindow {
+		slog.Error("内核异常退出超限，守护进程已挂起保护")
+		km.HaltDaemon()
+		return defaultRestartDelay
+	}
+
+	return km.calculateBackoff(currentDelay, maxRestartDelay)
 }
 
 func (km *KernelManager) waitIfPaused(ctx context.Context) bool {
