@@ -38,16 +38,19 @@ type Application struct {
 
 	UIStateNotifyCh chan struct{}
 
-	lastUIState      domain.UIState
-	uiStateMutex     sync.RWMutex
+	lastUIState  domain.UIState
+	uiStateMutex sync.RWMutex
 }
 
 func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
+	api := core.NewAPIClient(domain.IPCNamedPipe)
+	kernel := core.NewKernelManager(cm, st, api)
+
 	return &Application{
 		Cfg:             cm,
 		State:           st,
-		Kernel:          core.NewKernelManager(cm, st),
-		API:             core.NewAPIClient(st),
+		Kernel:          kernel,
+		API:             api,
 		WebUI:           webui.NewManager(),
 		kernelEventCh:   make(chan domain.KernelEvent, 10),
 		tunEventCh:      make(chan struct{}, 1),
@@ -192,38 +195,26 @@ func (a *Application) eventLoop(ctx context.Context) {
 
 		case event := <-a.kernelEventCh:
 			if event == domain.EventKernelReady {
-				slog.Info("内核进程已启动")
+				slog.Info("内核及 API 已就绪")
 
 				if a.Cfg.GetConfig().Config.Tun.Enable {
 					a.State.SetTunRequestedTime(time.Now())
 				}
 				a.syncSystemProxy()
 
-				currentGen := a.State.AdvanceProbeGen()
+				a.State.SetPhase(domain.PhaseRunning)
 
+				currentGen := a.State.AdvanceProbeGen()
 				go func(gen uint64) {
 					defer a.ForcePushUIState()
-
-					waitCtx, cancel := context.WithTimeout(ctx, core.KernelReadyTimeout)
-					defer cancel()
-					err := a.API.WaitForReady(waitCtx)
 
 					if a.State.IsExiting() || ctx.Err() != nil || a.State.GetProbeGen() != gen {
 						return
 					}
-
-					if err == nil {
-						slog.Info("内核 API 已就绪")
-						a.State.SetPhase(domain.PhaseRunning)
-						a.ForceSyncAPI()
-					} else {
-						slog.Error("内核 API 就绪超时", "timeout", core.KernelReadyTimeout, "err", err)
-						a.Kernel.HaltDaemon()
-						a.State.SetPhase(domain.PhaseInitializing)
-					}
+					a.ForceSyncAPI()
 				}(currentGen)
 
-			} else if event == domain.EventKernelExit {
+			} else if event == domain.EventKernelExit:
 				a.State.AdvanceProbeGen()
 
 				if a.State.IsRestarting() {
