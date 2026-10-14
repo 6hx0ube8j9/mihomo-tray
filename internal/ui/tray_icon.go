@@ -71,7 +71,7 @@ func CreateNotifyIcon() (*walk.NotifyIcon, error) {
 		}
 	}
 	_ = ni.SetVisible(true)
-	_ = ni.SetToolTip("Mihomo Tray")
+	_ = ni.SetToolTip(domain.AppName)
 	return ni, nil
 }
 
