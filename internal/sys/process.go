@@ -20,10 +20,64 @@ type Job struct {
 	handle windows.Handle
 }
 
-func IsSystemShuttingDown() bool {
-	const SM_SHUTTINGDOWN = 0x2000
-	r, _, _ := procGetSystemMetrics.Call(SM_SHUTTINGDOWN)
-	return r != 0
+func NewKillOnCloseJob() (*Job, error) {
+	h, err := createKillOnCloseJob()
+	if err != nil {
+		return nil, err
+	}
+	return &Job{handle: h}, nil
+}
+
+func (j *Job) Assign(pid int) {
+	if j != nil && j.handle != 0 {
+		assignProcessToJob(j.handle, pid)
+	}
+}
+
+func (j *Job) Close() error {
+	if j != nil && j.handle != 0 {
+		err := windows.CloseHandle(j.handle)
+		j.handle = 0
+		return err
+	}
+	return nil
+}
+
+func createKillOnCloseJob() (windows.Handle, error) {
+	h, err := windows.CreateJobObject(nil, nil)
+	if err != nil {
+		slog.Error("创建 Job Object 失败", "err", err)
+		return 0, err
+	}
+	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
+		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
+			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+		},
+	}
+	_, err = windows.SetInformationJobObject(
+		h,
+		windows.JobObjectExtendedLimitInformation,
+		uintptr(unsafe.Pointer(&info)),
+		uint32(unsafe.Sizeof(info)),
+	)
+	if err != nil {
+		slog.Error("配置 Job Object 退出策略失败", "err", err)
+	}
+	return h, err
+}
+
+func assignProcessToJob(hJob windows.Handle, pid int) {
+	if hJob == 0 {
+		return
+	}
+	if hp, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(pid)); err == nil {
+		if err := windows.AssignProcessToJobObject(hJob, hp); err != nil {
+			slog.Error("进程绑定 Job Object 失败", "pid", pid, "err", err)
+		}
+		windows.CloseHandle(hp)
+	} else {
+		slog.Error("获取进程句柄失败", "pid", pid, "err", err)
+	}
 }
 
 func KillOtherProcessesByName(name string, excludePid uint32) {
@@ -93,43 +147,6 @@ func IsPidRunning(pid uint32, expectedExeName string) bool {
 	return false
 }
 
-func CreateKillOnCloseJob() (windows.Handle, error) {
-	h, err := windows.CreateJobObject(nil, nil)
-	if err != nil {
-		slog.Error("创建 Job Object 失败", "err", err)
-		return 0, err
-	}
-	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
-		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
-			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-		},
-	}
-	_, err = windows.SetInformationJobObject(
-		h,
-		windows.JobObjectExtendedLimitInformation,
-		uintptr(unsafe.Pointer(&info)),
-		uint32(unsafe.Sizeof(info)),
-	)
-	if err != nil {
-		slog.Error("配置 Job Object 退出策略失败", "err", err)
-	}
-	return h, err
-}
-
-func AssignProcessToJob(hJob windows.Handle, pid int) {
-	if hJob == 0 {
-		return
-	}
-	if hp, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(pid)); err == nil {
-		if err := windows.AssignProcessToJobObject(hJob, hp); err != nil {
-			slog.Error("进程绑定 Job Object 失败", "pid", pid, "err", err)
-		}
-		windows.CloseHandle(hp)
-	} else {
-		slog.Error("获取进程句柄失败", "pid", pid, "err", err)
-	}
-}
-
 func SendCtrlBreak(pid uint32) error {
 	if pid == 0 {
 		return fmt.Errorf("invalid pid")
@@ -162,32 +179,6 @@ func HardKill(pid uint32) {
 	}
 }
 
-// NewKillOnCloseJob 创建一个随父进程关闭自动清理所有子进程的 Job
-func NewKillOnCloseJob() (*Job, error) {
-	h, err := CreateKillOnCloseJob()
-	if err != nil {
-		return nil, err
-	}
-	return &Job{handle: h}, nil
-}
-
-// Assign 将目标 PID 绑定进 Job
-func (j *Job) Assign(pid int) {
-	if j != nil && j.handle != 0 {
-		AssignProcessToJob(j.handle, pid)
-	}
-}
-
-// Close 释放 Job 句柄
-func (j *Job) Close() error {
-	if j != nil && j.handle != 0 {
-		err := windows.CloseHandle(j.handle)
-		j.handle = 0
-		return err
-	}
-	return nil
-}
-
 // BackgroundProcAttr 统一定义后台守护进程/命令行工具的 Win32 启动标志（静默、无黑框、屏蔽系统错误弹窗）
 func BackgroundProcAttr() *windows.SysProcAttr {
 	const CREATE_DEFAULT_ERROR_MODE = 0x04000000
@@ -195,4 +186,11 @@ func BackgroundProcAttr() *windows.SysProcAttr {
 		HideWindow:    true,
 		CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | CREATE_DEFAULT_ERROR_MODE,
 	}
+}
+
+// IsSystemShuttingDown 检查系统是否正在关机或注销
+func IsSystemShuttingDown() bool {
+	const SM_SHUTTINGDOWN = 0x2000
+	r, _, _ := procGetSystemMetrics.Call(SM_SHUTTINGDOWN)
+	return r != 0
 }
