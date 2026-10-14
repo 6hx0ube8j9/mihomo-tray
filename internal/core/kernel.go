@@ -324,9 +324,3 @@ func (km *KernelManager) KillCurrent() {
 		km.runner.Kill()
 	}
 }
-
-func (km *KernelManager) WriteCoreLog(errType, rawMsg string) {
-	if km.logger != nil {
-		km.logger.WriteLog(errType, rawMsg)
-	}
-}
