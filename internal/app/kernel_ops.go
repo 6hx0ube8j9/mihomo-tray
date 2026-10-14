@@ -54,14 +54,13 @@ func (a *Application) DeployAndApplyConfig(ctx context.Context, targetRelPath, a
 		if profileName == "." || profileName == "" {
 			profileName = "空配置"
 		}
-
-		slog.Error("配置装配或预检失败", "action", actionDesc, "profile", profileName, "err", err)
+		
 		uiErr := err
 		if unwrapped := errors.Unwrap(err); unwrapped != nil {
 			uiErr = unwrapped
 		}
 
-		return fmt.Errorf("配置校验未通过 (%s):\n\n%s", profileName, uiErr.Error())
+		return fmt.Errorf("配置校验未通过 (%s):\n%s", profileName, logger.CleanError(uiErr))
 	}
 
 	a.State.SetActualTunDevice(deployRes.TunDevice)
@@ -69,12 +68,11 @@ func (a *Application) DeployAndApplyConfig(ctx context.Context, targetRelPath, a
 
 	isKernelRunning := a.State.GetPhase() == domain.PhaseRunning && !a.Kernel.IsPaused()
 	if isKernelRunning {
-		slog.Debug("执行 API 热重载", "action", actionDesc)
+		slog.Debug("执行 API 重载", "action", actionDesc)
 		if err := a.apiHotReloadCommand(ctx, deployRes.RuntimeAbs); err == nil {
-			slog.Info("配置热重载成功")
 			return nil
 		}
-		slog.Warn("API 热重载失败，退化为物理重启")
+		slog.Warn("API 重载失败，回退为重启内核")
 	}
 
 	a.executePhysicalRestart(cfg)
@@ -92,10 +90,9 @@ func (a *Application) ReloadConfig(ctx context.Context) error {
 		a.State.EndAction()
 		a.ForcePushUIState()
 	}()
-
-	slog.Info("开始重载配置")
+	
 	if err := a.Cfg.ReloadFromDisk(); err != nil {
-		return fmt.Errorf("读取配置失败: %w", err)
+		return fmt.Errorf("读取配置失败: %s", logger.CleanError(err)) 
 	}
 
 	a.CheckAndReconcilePrivileges(false)
@@ -119,7 +116,7 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 		a.ForcePushUIState()
 	}()
 
-	slog.Info("用户触发托盘指令：开始 100% 物理硬重启内核")
+	slog.Info("用户触发托盘指令：开始重启内核")
 	a.CheckAndReconcilePrivileges(false)
 
 	a.SyncRuntimeConfig()
