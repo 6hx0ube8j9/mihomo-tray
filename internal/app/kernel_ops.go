@@ -10,6 +10,7 @@ import (
 
 	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/logger"
 	"mihomo-tray/internal/state"
 )
 
@@ -54,13 +55,8 @@ func (a *Application) DeployAndApplyConfig(ctx context.Context, targetRelPath, a
 		if profileName == "." || profileName == "" {
 			profileName = "空配置"
 		}
-		
-		uiErr := err
-		if unwrapped := errors.Unwrap(err); unwrapped != nil {
-			uiErr = unwrapped
-		}
 
-		return fmt.Errorf("配置校验未通过 (%s):\n%s", profileName, logger.CleanError(uiErr))
+		return fmt.Errorf("配置校验未通过 (%s):\n%s", profileName, logger.CleanError(err))
 	}
 
 	a.State.SetActualTunDevice(deployRes.TunDevice)
@@ -68,11 +64,11 @@ func (a *Application) DeployAndApplyConfig(ctx context.Context, targetRelPath, a
 
 	isKernelRunning := a.State.GetPhase() == domain.PhaseRunning && !a.Kernel.IsPaused()
 	if isKernelRunning {
-		slog.Debug("执行 API 重载", "action", actionDesc)
+		slog.Debug("执行重载配置", "action", actionDesc)
 		if err := a.apiHotReloadCommand(ctx, deployRes.RuntimeAbs); err == nil {
 			return nil
 		}
-		slog.Warn("API 重载失败，回退为重启内核")
+		slog.Warn("重载配置失败，回退为重启内核")
 	}
 
 	a.executePhysicalRestart(cfg)
@@ -90,9 +86,9 @@ func (a *Application) ReloadConfig(ctx context.Context) error {
 		a.State.EndAction()
 		a.ForcePushUIState()
 	}()
-	
+
 	if err := a.Cfg.ReloadFromDisk(); err != nil {
-		return fmt.Errorf("读取配置失败: %s", logger.CleanError(err)) 
+		return fmt.Errorf("读取配置失败: %s", logger.CleanError(err))
 	}
 
 	a.CheckAndReconcilePrivileges(false)
@@ -116,7 +112,7 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 		a.ForcePushUIState()
 	}()
 
-	slog.Info("用户触发托盘指令：开始重启内核")
+	slog.Info("用户托盘指令，准备重启内核")
 	a.CheckAndReconcilePrivileges(false)
 
 	a.SyncRuntimeConfig()
@@ -132,7 +128,7 @@ func (a *Application) SyncRuntimeConfig() {
 	activePath := a.Cfg.GetActivePath()
 	if activePath != "" {
 		if err := a.Cfg.ValidatePhysicalFile(activePath); err != nil {
-			slog.Warn("活跃配置无效，取消选中", "path", activePath, "err", err)
+			slog.Warn("活跃配置无效，取消选中", "path", activePath, "err", logger.CleanError(err))
 			a.Cfg.SetActiveProfile("")
 			activePath = ""
 		}
@@ -141,7 +137,7 @@ func (a *Application) SyncRuntimeConfig() {
 	cfg := a.Cfg.GetConfig()
 	deployRes, err := core.DeployRuntimeConfig(cfg, activePath, a.Cfg.BaseDir())
 	if err != nil {
-		slog.Error("装配运行配置失败，切换空配置", "err", err)
+		slog.Error("加载运行配置失败，切换空配置", "err", logger.CleanError(err))
 		a.Cfg.SetActiveProfile("")
 		_, _ = core.DeployRuntimeConfig(cfg, "", a.Cfg.BaseDir())
 		return
