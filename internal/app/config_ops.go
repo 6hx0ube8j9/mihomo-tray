@@ -13,6 +13,13 @@ import (
 
 const apiSyncTimeout = 2 * time.Second
 
+var (
+	ErrKernelNotReady = errors.New("内核尚未就绪")
+	ErrSystemBusy     = errors.New("系统繁忙，请稍后重试")
+	ErrInvalidPort    = errors.New("端口超出合法范围 (0-65535)")
+	ErrAPITimeout     = errors.New("与内核通信超时")
+)
+
 func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted bool, err error) {
 	originalTun := a.Cfg.GetConfig().Config.Tun.Enable
 	if originalTun == enable {
@@ -39,7 +46,7 @@ func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted boo
 		if enable {
 			a.State.SetTunRequestedTime(time.Time{})
 		}
-		return false, errors.New("内核尚未就绪")
+		return false, ErrKernelNotReady
 	}
 
 	a.State.SetConfigSyncing(true)
@@ -57,7 +64,7 @@ func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted boo
 
 		if ctx.Err() == nil {
 			if errors.Is(syncErr, context.DeadlineExceeded) || errors.Is(syncErr, context.Canceled) {
-				return false, errors.New("与内核通信超时")
+				return false, ErrAPITimeout
 			}
 			return false, fmt.Errorf("TUN 设置失败: %w", syncErr)
 		}
@@ -75,7 +82,7 @@ func (a *Application) ToggleProxy(enable bool) {
 
 func (a *Application) SwitchMode(ctx context.Context, mode string) error {
 	if a.State.GetPhase() != domain.PhaseRunning {
-		return errors.New("内核尚未就绪")
+		return ErrKernelNotReady
 	}
 
 	if mode == a.Cfg.GetConfig().Config.Mode {
@@ -99,7 +106,7 @@ func (a *Application) SwitchMode(ctx context.Context, mode string) error {
 
 func (a *Application) ToggleAllowLan(ctx context.Context, enable bool) error {
 	if a.State.GetPhase() != domain.PhaseRunning {
-		return errors.New("内核尚未就绪")
+		return ErrKernelNotReady
 	}
 
 	if enable == *a.Cfg.GetConfig().Config.AllowLan {
@@ -167,7 +174,7 @@ func (a *Application) GetControllerConfigSnapshot() (addr, secret string, online
 
 func (a *Application) ApplyPortConfig(ctx context.Context, mixed, socks, httpPort int) error {
 	if !netutil.IsValidPort(mixed) || !netutil.IsValidPort(socks) || !netutil.IsValidPort(httpPort) {
-		return errors.New("端口超出合法范围 (0-65535)")
+		return ErrInvalidPort
 	}
 
 	cMixed, cSocks, cHttp := a.GetPortConfigSnapshot()
