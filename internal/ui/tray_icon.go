@@ -17,6 +17,8 @@ const (
 	baseDPI          = 96
 	baseIconSize     = 16
 	dpiProbeInterval = 1500 * time.Millisecond
+
+	trayIconGUID = "{6A1B2C3D-4E5F-7A8B-9C0D-1E2F3A4B5C6D}"
 )
 
 var (
@@ -57,13 +59,14 @@ func NewTrayIconController(e *Engine, ni *walk.NotifyIcon) *TrayIconController {
 func CreateNotifyIcon() (*walk.NotifyIcon, error) {
 	var ni *walk.NotifyIcon
 	var err error
-	
-	if guid, parseErr := windows.StringToGUID(domain.TrayIconGUID); parseErr == nil {
+
+	guid, parseErr := windows.StringToGUID(trayIconGUID)
+	if parseErr == nil {
 		ni, err = walk.NewNotifyIconWithGUID(guid)
 	}
 
-	if ni == nil || err != nil {
-		slog.Warn("注册 GUID 托盘失败，降级为普通模式", "err", err)
+	if parseErr != nil || err != nil {
+		slog.Warn("注册 GUID 托盘失败，降级为普通模式", "parseErr", parseErr, "err", err)
 		ni, err = walk.NewNotifyIcon()
 		if err != nil {
 			return nil, err
