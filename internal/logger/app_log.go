@@ -47,21 +47,36 @@ func (h *customConsoleHandler) Enabled(ctx context.Context, level slog.Level) bo
 
 func (h *customConsoleHandler) Handle(ctx context.Context, r slog.Record) error {
 	var buf bytes.Buffer
-	buf.WriteString(fmt.Sprintf("[%s] [%s] %s", r.Time.Format(timeFormatApp), r.Level.String(), r.Message))
+
+	cleanMessage := strings.ReplaceAll(r.Message, "\n", " ｜ ")
+	buf.WriteString(fmt.Sprintf("[%s] [%s] %s", r.Time.Format(timeFormatApp), r.Level.String(), cleanMessage))
 
 	var prefix string
 	if len(h.groups) > 0 {
 		prefix = strings.Join(h.groups, ".") + "."
 	}
 
+	formatValue := func(val any) string {
+		switch v := val.(type) {
+		case error:
+			cleaned := strings.ReplaceAll(v.Error(), "\n", " ｜ ")
+			return strings.ReplaceAll(cleaned, "\t", " ")
+		case string:
+			cleaned := strings.ReplaceAll(v, "\n", " ｜ ")
+			return strings.ReplaceAll(cleaned, "\t", " ")
+		default:
+			return fmt.Sprintf("%v", v)
+		}
+	}
+
 	hasAttr := len(h.attrs) > 0 || r.NumAttrs() > 0
 	if hasAttr {
 		buf.WriteString(" |")
 		for _, a := range h.attrs {
-			buf.WriteString(fmt.Sprintf(" %s%s=%v", prefix, a.Key, a.Value.Any()))
+			buf.WriteString(fmt.Sprintf(" %s%s=%s", prefix, a.Key, formatValue(a.Value.Any())))
 		}
 		r.Attrs(func(a slog.Attr) bool {
-			buf.WriteString(fmt.Sprintf(" %s%s=%v", prefix, a.Key, a.Value.Any()))
+			buf.WriteString(fmt.Sprintf(" %s%s=%s", prefix, a.Key, formatValue(a.Value.Any())))
 			return true
 		})
 	}
