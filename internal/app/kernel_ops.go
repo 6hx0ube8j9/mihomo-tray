@@ -57,11 +57,12 @@ func (a *Application) DeployAndApplyConfig(ctx context.Context, targetRelPath, a
 		}
 
 		slog.Error("配置装配或预检失败", "action", actionDesc, "profile", profileName, "err", err)
-		cleanErr := err.Error()
-		cleanErr = strings.TrimPrefix(cleanErr, "compose: ")
-		cleanErr = strings.TrimPrefix(cleanErr, "validate: ")
+		uiErr := err
+		if unwrapped := errors.Unwrap(err); unwrapped != nil {
+			uiErr = unwrapped
+		}
 
-		return fmt.Errorf("配置校验未通过 (%s):\n\n%s", profileName, cleanErr)
+		return fmt.Errorf("配置校验未通过 (%s):\n\n%s", profileName, uiErr.Error())
 	}
 
 	a.State.SetActualTunDevice(deployRes.TunDevice)
