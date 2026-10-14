@@ -2,6 +2,8 @@ package domain
 
 // ================= 文件与目录名称 =================
 const (
+	AppName            = "Mihomo Tray"
+	HostTitle          = "SysTrayHost"
 	KernelExeName      = "mihomo.exe"
 	RuntimeConfigName  = "config.yaml"
 	TrayConfigName     = "mihomo-tray.json"
