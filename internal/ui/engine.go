@@ -205,7 +205,6 @@ func (e *Engine) RunModalEditor(key string, cfg EditorConfig) EditorResult {
 }
 
 func (e *Engine) ShowError(title, message string) {
-	slog.Error("弹出错误提示", "title", title, "message", message)
 	e.showModalAsync("error", title, message, walk.MsgBoxOK|walk.MsgBoxIconError)
 }
 
