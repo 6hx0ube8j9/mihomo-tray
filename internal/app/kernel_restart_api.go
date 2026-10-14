@@ -19,7 +19,7 @@ func (a *Application) RestartKernelViaAPI(ctx context.Context) error {
 	waitCtx, waitCancel := context.WithTimeout(ctx, 3*time.Second)
 	defer waitCancel()
 
-	if err := a.API.WaitForReady(waitCtx); err != nil {
+	if err := a.Kernel.WaitForReady(waitCtx); err != nil {
 		return fmt.Errorf("kernel readiness timeout: %w", err)
 	}
 
