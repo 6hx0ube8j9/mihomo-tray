@@ -4,9 +4,9 @@ import (
 	"context"
 	"log/slog"
 	"time"
-
-	"mihomo-tray/internal/logger"
+	
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/logger"
 )
 
 func (a *Application) asyncRun(title string, task func() error) {
