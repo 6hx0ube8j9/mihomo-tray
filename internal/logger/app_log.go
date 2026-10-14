@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	MaxAppLogSize = 1024 * 1024 // 1 MB 轮转上限
+	MaxAppLogSize = 1024 * 1024
 	sessionHeader = "\n────────────────────────── [ New Session ] ──────────────────────────\n"
 	timeFormatApp = domain.TimeFormatLog + ".000"
 )
@@ -35,9 +35,10 @@ func (w *sessionWriter) Write(p []byte) (n int, err error) {
 }
 
 type customConsoleHandler struct {
-	w     io.Writer
-	level *slog.LevelVar
-	mu    sync.Mutex
+	w      io.Writer
+	level  *slog.LevelVar
+	attrs  []slog.Attr
+	groups []string
 }
 
 func (h *customConsoleHandler) Enabled(ctx context.Context, level slog.Level) bool {
@@ -46,26 +47,59 @@ func (h *customConsoleHandler) Enabled(ctx context.Context, level slog.Level) bo
 
 func (h *customConsoleHandler) Handle(ctx context.Context, r slog.Record) error {
 	var buf bytes.Buffer
-	
 	buf.WriteString(fmt.Sprintf("[%s] [%s] %s", r.Time.Format(timeFormatApp), r.Level.String(), r.Message))
 
-	if r.NumAttrs() > 0 {
+	var prefix string
+	if len(h.groups) > 0 {
+		prefix = strings.Join(h.groups, ".") + "."
+	}
+
+	hasAttr := len(h.attrs) > 0 || r.NumAttrs() > 0
+	if hasAttr {
 		buf.WriteString(" |")
+		for _, a := range h.attrs {
+			buf.WriteString(fmt.Sprintf(" %s%s=%v", prefix, a.Key, a.Value.Any()))
+		}
 		r.Attrs(func(a slog.Attr) bool {
-			buf.WriteString(fmt.Sprintf(" %s=%v", a.Key, a.Value.Any()))
+			buf.WriteString(fmt.Sprintf(" %s%s=%v", prefix, a.Key, a.Value.Any()))
 			return true
 		})
 	}
 	buf.WriteByte('\n')
 
-	h.mu.Lock()
-	defer h.mu.Unlock()
 	_, err := h.w.Write(buf.Bytes())
 	return err
 }
-func (h *customConsoleHandler) WithAttrs(attrs []slog.Attr) slog.Handler { return h }
-func (h *customConsoleHandler) WithGroup(name string) slog.Handler      { return h }
 
+func (h *customConsoleHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	if len(attrs) == 0 {
+		return h
+	}
+	newAttrs := make([]slog.Attr, 0, len(h.attrs)+len(attrs))
+	newAttrs = append(newAttrs, h.attrs...)
+	newAttrs = append(newAttrs, attrs...)
+	return &customConsoleHandler{
+		w:      h.w,
+		level:  h.level,
+		attrs:  newAttrs,
+		groups: h.groups,
+	}
+}
+
+func (h *customConsoleHandler) WithGroup(name string) slog.Handler {
+	if name == "" {
+		return h
+	}
+	newGroups := make([]string, 0, len(h.groups)+1)
+	newGroups = append(newGroups, h.groups...)
+	newGroups = append(newGroups, name)
+	return &customConsoleHandler{
+		w:      h.w,
+		level:  h.level,
+		attrs:  h.attrs,
+		groups: newGroups,
+	}
+}
 
 func Init(baseDir string, isRestarting bool) *RollingLogWriter {
 	logPath := filepath.Join(baseDir, domain.LogsDir, domain.AppLogFile)
