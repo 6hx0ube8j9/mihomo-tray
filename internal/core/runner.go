@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -92,7 +93,7 @@ func (r *ProcessRunner) Wait(ctx context.Context) error {
 		return err
 	}
 	if !state.Success() {
-		return state.ExitCodeError()
+		return fmt.Errorf("exit status %d", state.ExitCode())
 	}
 	return nil
 }
