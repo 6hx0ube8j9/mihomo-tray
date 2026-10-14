@@ -131,7 +131,7 @@ func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.K
 	startTime := time.Now()
 
 	if err := km.runner.Start(absBaseDir, target, runtimeAbs, errBuf); err != nil {
-		km.logger.WriteLog(domain.LogTagKernelTransition, err.Error())
+		km.logger.WriteLog(err.Error())
 		return sessionResult{
 			runDuration:  0,
 			isCrash:      true,
@@ -219,7 +219,7 @@ func (km *KernelManager) handleSessionCrash(res sessionResult, crashCount *int, 
 
 	if res.runDuration < quickCrashThreshold || isConfigFatal {
 		if res.crashLog != "" {
-			km.logger.WriteLog(domain.LogTagKernelTransition, res.crashLog)
+			km.logger.WriteLog(res.crashLog)
 		}
 	}
 
