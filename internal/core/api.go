@@ -14,15 +14,13 @@ import (
 	"time"
 
 	"github.com/Microsoft/go-winio"
-
+	
 	"mihomo-tray/internal/domain"
-	"mihomo-tray/internal/state"
 )
 
 const (
 	MaxAPIResponseSize = 5 * 1024 * 1024
 	pipeDialTimeout    = 2 * time.Second
-	pollReadyInterval  = 200 * time.Millisecond
 )
 
 const (
@@ -38,19 +36,19 @@ const (
 )
 
 type APIClient struct {
-	st         *state.RuntimeState
+	pipePath   string
 	httpClient *http.Client
 }
 
-func NewAPIClient(st *state.RuntimeState) *APIClient {
+func NewAPIClient(pipePath string) *APIClient {
 	return &APIClient{
-		st: st,
+		pipePath: pipePath,
 		httpClient: &http.Client{
 			Transport: &http.Transport{
 				Proxy: nil,
 				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 					timeout := pipeDialTimeout
-					return winio.DialPipe(domain.IPCNamedPipe, &timeout)
+					return winio.DialPipe(pipePath, &timeout)
 				},
 				MaxIdleConns:          100,
 				MaxIdleConnsPerHost:   100,
@@ -59,6 +57,11 @@ func NewAPIClient(st *state.RuntimeState) *APIClient {
 			},
 		},
 	}
+}
+
+func (c *APIClient) Ping(ctx context.Context) error {
+	_, err := c.DoRequest(ctx, http.MethodGet, "/version", nil)
+	return err
 }
 
 func (c *APIClient) UpdatePorts(ctx context.Context, mixed, socks, httpPort int) error {
@@ -94,18 +97,12 @@ func (c *APIClient) SyncAllRuntime(ctx context.Context, mode string, allowLan bo
 }
 
 func (c *APIClient) ForceReloadKernel(ctx context.Context, runtimeAbs string) error {
-	if c.st.IsExiting() {
-		return context.Canceled
-	}
 	payload := map[string]any{apiKeyPath: filepath.ToSlash(runtimeAbs)}
 	_, err := c.DoRequest(ctx, http.MethodPut, "/configs?force=true", payload)
 	return err
 }
 
 func (c *APIClient) RestartKernel(ctx context.Context) error {
-	if c.st.IsExiting() {
-		return context.Canceled
-	}
 	_, err := c.DoRequest(ctx, http.MethodPost, "/restart", nil)
 	if err == nil {
 		c.httpClient.CloseIdleConnections()
@@ -113,39 +110,13 @@ func (c *APIClient) RestartKernel(ctx context.Context) error {
 	return err
 }
 
-func (c *APIClient) WaitForReady(ctx context.Context) error {
-	ticker := time.NewTicker(pollReadyInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if c.st.IsExiting() {
-				return context.Canceled
-			}
-			reqCtx, cancel := context.WithTimeout(ctx, pollReadyInterval)
-			_, err := c.DoRequest(reqCtx, "GET", "/version", nil)
-			cancel()
-
-			if err == nil {
-				return nil
-			}
-		}
-	}
-}
-
 func (c *APIClient) SyncConfigToKernel(ctx context.Context, payload map[string]any) error {
-	if c.st.IsExiting() {
-		return context.Canceled
-	}
 	_, err := c.DoRequest(ctx, http.MethodPatch, "/configs", payload)
 	return err
 }
 
 func (c *APIClient) GetKernelStatus(ctx context.Context) (*domain.KernelStatus, error) {
-	body, err := c.DoRequest(ctx, "GET", "/configs", nil)
+	body, err := c.DoRequest(ctx, http.MethodGet, "/configs", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -158,10 +129,6 @@ func (c *APIClient) GetKernelStatus(ctx context.Context) (*domain.KernelStatus, 
 }
 
 func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload any) ([]byte, error) {
-	if c.st.IsExiting() {
-		return nil, context.Canceled
-	}
-
 	url := "http://localhost/" + strings.TrimPrefix(path, "/")
 
 	var bodyReader io.Reader
