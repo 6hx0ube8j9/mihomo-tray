@@ -32,7 +32,7 @@ func (a *Application) ImportLocalProfile(ctx context.Context, sourcePath string)
 	slog.Info("导入本地配置", "path", sourcePath)
 
 	if err := a.validateProfileSource(sourcePath); err != nil {
-		return fmt.Errorf("配置格式错误: %w", err)
+		return err
 	}
 
 	targetRelPath, _, err := a.Cfg.SafeCopyUntrustedConfig(sourcePath)
@@ -141,7 +141,7 @@ func (a *Application) EditRemoteProfile(ctx context.Context, oldPath, newName, n
 		slog.Info("订阅地址变更，重新加载配置")
 		if err := a.applyActiveConfig(ctx, "更新订阅"); err != nil {
 			a.ForcePushUIState()
-			return fmt.Errorf("应用配置失败: %w", err)
+			return err
 		}
 	}
 
@@ -175,7 +175,7 @@ func (a *Application) DeleteProfile(targetPath string) error {
 		slog.Info("活跃配置已删除，切换空配置")
 		if err := a.applyActiveConfig(context.Background(), "重置为空配置"); err != nil {
 			a.ForcePushUIState()
-			return fmt.Errorf("重置内核失败: %w", err)
+			return err
 		}
 	}
 
@@ -200,7 +200,7 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 	err := a.fetchAndCommitRemoteProfile(ctx, targetRelPath, p.URL, &p)
 	if err != nil {
 		if isManual {
-			return fmt.Errorf("订阅拉取失败: %w", err)
+			return err
 		}
 		slog.Warn("自动更新订阅失败", "path", targetRelPath, "err", err)
 		return nil
@@ -209,11 +209,10 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 	slog.Info("订阅更新成功", "path", targetRelPath)
 
 	if a.Cfg.GetActivePath() == targetRelPath {
-		slog.Info("活跃配置已更新，重新加载")
 		if err := a.applyActiveConfig(ctx, "应用订阅更新"); err != nil {
 			a.ForcePushUIState()
 			if isManual {
-				return fmt.Errorf("应用内核失败: %w", err)
+				return err
 			}
 			slog.Error("自动更新订阅应用失败", "err", err)
 		}
