@@ -25,7 +25,9 @@ type ProcessRunner struct {
 
 func NewProcessRunner() *ProcessRunner {
 	job, _ := sys.NewKillOnCloseJob()
-	return &ProcessRunner{job: job}
+	return &ProcessRunner{
+		job: job,
+	}
 }
 
 func (r *ProcessRunner) Close() {
@@ -33,6 +35,10 @@ func (r *ProcessRunner) Close() {
 	if r.job != nil {
 		_ = r.job.Close()
 	}
+}
+
+func (r *ProcessRunner) CleanupOrphans() {
+	sys.KillOtherProcessesByName(domain.KernelExeName, 0)
 }
 
 func (r *ProcessRunner) Start(workDir, targetExe, runtimeConfig string, out io.Writer) error {
@@ -54,4 +60,95 @@ func (r *ProcessRunner) Start(workDir, targetExe, runtimeConfig string, out io.W
 
 	r.job.Assign(cmd.Process.Pid)
 	return nil
+}
+
+func (r *ProcessRunner) Wait(ctx context.Context) error {
+	r.mu.Lock()
+	proc := r.activeProc
+	r.mu.Unlock()
+
+	if proc == nil {
+		return nil
+	}
+
+	waitDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			r.Kill()
+		case <-waitDone:
+		}
+	}()
+
+	state, err := proc.Wait()
+	close(waitDone)
+
+	r.mu.Lock()
+	r.activeProc = nil
+	r.currentPid.Store(0)
+	r.mu.Unlock()
+
+	if err != nil {
+		return err
+	}
+	if !state.Success() {
+		return state.ExitCodeError()
+	}
+	return nil
+}
+
+func (r *ProcessRunner) Kill() {
+	r.killMu.Lock()
+	defer r.killMu.Unlock()
+
+	r.mu.Lock()
+	proc := r.activeProc
+	pid := r.currentPid.Load()
+
+	if proc == nil || pid == 0 {
+		r.mu.Unlock()
+		return
+	}
+
+	r.isKilledByUs.Store(true)
+	r.activeProc = nil
+	r.currentPid.Store(0)
+	r.mu.Unlock()
+
+	forceKill := func() {
+		_ = proc.Kill()
+		sys.HardKill(pid)
+		sys.KillOtherProcessesByName(domain.KernelExeName, 0)
+	}
+
+	if err := sys.SendCtrlBreak(pid); err != nil {
+		forceKill()
+	} else {
+		exited := false
+		for i := 0; i < 30; i++ {
+			if !sys.IsPidRunning(pid, domain.KernelExeName) {
+				exited = true
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+
+		if !exited {
+			forceKill()
+		}
+	}
+	time.Sleep(100 * time.Millisecond)
+}
+
+func (r *ProcessRunner) Pid() uint32 {
+	return r.currentPid.Load()
+}
+
+func (r *ProcessRunner) IsRunning() bool {
+	pid := r.currentPid.Load()
+	return pid != 0 && sys.IsPidRunning(pid, domain.KernelExeName)
+}
+
+func (r *ProcessRunner) IsKilledByUs() bool {
+	return r.isKilledByUs.Load()
 }
