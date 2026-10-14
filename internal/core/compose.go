@@ -25,15 +25,15 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 		dec := yaml.NewDecoder(bytes.NewReader(sourceYAML))
 		if err := dec.Decode(&root); err != nil {
 			if !errors.Is(err, io.EOF) {
-				return nil, fmt.Errorf("yaml parse: %w", err)
+				return nil, err
 			}
 		} else {
 			var extra yaml.Node
 			err := dec.Decode(&extra)
 			if err == nil {
-				return nil, errors.New("multiple YAML documents detected ('---')")
+				return nil, errors.New("不支持包含多个配置文档 ('---')")
 			} else if !errors.Is(err, io.EOF) {
-				return nil, fmt.Errorf("yaml stream: %w", err)
+				return nil, err
 			}
 		}
 	}
