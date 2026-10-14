@@ -49,16 +49,16 @@ func (w *RollingLogWriter) rotate() {
 	}
 
 	err := fs.ReplaceAtomic(w.logPath, w.bakPath)
-	
-	flags := os.O_CREATE | os.O_WRONLY
-	if err != nil {
-		flags |= os.O_TRUNC
-	} else {
-		flags |= os.O_TRUNC
-	}
 
+	flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
 	w.file, _ = os.OpenFile(w.logPath, flags, 0666)
 	w.currSize = 0
+
+	if err != nil && w.file != nil {
+		msg := []byte("[Warning] Log rotation failed (file locked). Old logs were truncated to prevent I/O deadlock.\n")
+		n, _ := w.file.Write(msg)
+		w.currSize += int64(n)
+	}
 }
 
 func (w *RollingLogWriter) Write(p []byte) (n int, err error) {
