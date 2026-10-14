@@ -11,12 +11,15 @@ const (
 	ProfilesDir        = "profiles"
 	WebCacheDir        = "webcache"
 
+	// Tray GUID
+	TrayIconGUID = "{6A1B2C3D-4E5F-7A8B-9C0D-1E2F3A4B5C6D}"
+	
 	// IPCNamedPipe Windows 本地命名管道
-	IPCNamedPipe = `\\.\pipe\mihomo-tray-ipc`
+	IPCNamedPipe = `\\.\pipe\{6A1B2C3D-4E5F-7A8B-9C0D-1E2F3A4B5C70}`
 
 	// 单实例互斥体与跨权限唤醒事件名称
-	AppMutexName    = `Local\Mihomo_Tray_Mutex`
-	ShowUIEventName = `Local\Mihomo_Tray_Mutex_ShowUI`
+	AppMutexName    = `Local\{6A1B2C3D-4E5F-7A8B-9C0D-1E2F3A4B5C6E}`
+	ShowUIEventName = `Local\{6A1B2C3D-4E5F-7A8B-9C0D-1E2F3A4B5C6F}`
 )
 
 // ================= 路由模式 =================
