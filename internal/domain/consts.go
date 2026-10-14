@@ -34,13 +34,6 @@ const (
 	TimeFormatLog = "2006-01-02 15:04:05"
 )
 
-// ================= 内核日志分类标签 =================
-const (
-	LogTagConfig           = "CONFIG"
-	LogTagProfileUpdate    = "PROFILE_UPDATE"
-	LogTagKernelTransition = "KERNEL_TRANSITION"
-)
-
 // ================= 网络与本地回环 =================
 const (
 	LocalhostIP                   = "127.0.0.1"
