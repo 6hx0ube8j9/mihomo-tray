@@ -11,10 +11,10 @@ const (
 	ProfilesDir        = "profiles"
 	WebCacheDir        = "webcache"
 	
-	// IPCNamedPipe Windows 本地命名管道
+	// IPCNamedPipe Windows 本地管道
 	IPCNamedPipe = `\\.\pipe\{6A1B2C3D-4E5F-7A8B-9C0D-1E2F3A4B5C70}`
 
-	// 单实例互斥体与跨权限唤醒事件名称
+	// 单实例互斥体与跨权限唤醒事件
 	AppMutexName    = `Local\{6A1B2C3D-4E5F-7A8B-9C0D-1E2F3A4B5C6E}`
 	ShowUIEventName = `Local\{6A1B2C3D-4E5F-7A8B-9C0D-1E2F3A4B5C6F}`
 )
