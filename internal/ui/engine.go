@@ -48,7 +48,7 @@ func (e *Engine) Run() error {
 
 	err = MainWindow{
 		AssignTo: &e.mw,
-		Title: domain.HostTitle
+		Title:    domain.HostTitle,
 		Visible:  false,
 	}.Create()
 
