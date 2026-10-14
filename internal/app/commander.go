@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"mihomo-tray/internal/logger"
 	"mihomo-tray/internal/domain"
 )
 
