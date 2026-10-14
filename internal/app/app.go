@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"mihomo-tray/internal/config"
@@ -40,6 +41,8 @@ type Application struct {
 
 	lastUIState  domain.UIState
 	uiStateMutex sync.RWMutex
+
+	isAutoUpdating atomic.Bool
 }
 
 func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
@@ -76,7 +79,10 @@ func (a *Application) Bootstrap(ctx context.Context) {
 			if p, ok := a.Cfg.GetProfileByPath(activePath); ok && p.URL != "" {
 				slog.Info("活跃配置不存在，尝试拉取远程订阅", "path", activePath)
 
-				fetchErr := a.fetchAndCommitRemoteProfile(context.Background(), activePath, p.URL, &p)
+				fetchCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+				fetchErr := a.fetchAndCommitRemoteProfile(fetchCtx, activePath, p.URL, &p)
+				cancel()
+
 				if fetchErr != nil {
 					slog.Warn("订阅拉取失败，取消激活", "err", fetchErr)
 					a.Cfg.SetActiveProfile("")
@@ -271,16 +277,28 @@ func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.Pr
 }
 
 func (a *Application) processAutoUpdates(ctx context.Context) {
+	if !a.isAutoUpdating.CompareAndSwap(false, true) {
+		slog.Debug("上一轮订阅自动更新仍在执行中，跳过本次触发")
+		return
+	}
+
 	go func() {
+		defer a.isAutoUpdating.Store(false)
+
 		for _, p := range a.Cfg.GetProfiles() {
 			if a.State.IsExiting() || ctx.Err() != nil {
 				return
 			}
-			
+
 			if p.IsUpdateDue() {
 				slog.Debug("自动更新订阅", "name", p.Name)
 				a.UpdateRemoteProfile(ctx, p.Path, false)
-				time.Sleep(3 * time.Second)
+				
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(3 * time.Second):
+				}
 			}
 		}
 	}()
