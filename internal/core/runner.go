@@ -2,9 +2,7 @@ package core
 
 import (
 	"context"
-	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"sync"
 	"sync/atomic"
@@ -16,7 +14,7 @@ import (
 
 type ProcessRunner struct {
 	job          *sys.Job
-	activeProc   *os.Process
+	activeCmd    *exec.Cmd
 	currentPid   atomic.Uint32
 	isKilledByUs atomic.Bool
 
@@ -54,7 +52,7 @@ func (r *ProcessRunner) Start(workDir, targetExe, runtimeConfig string, out io.W
 	}
 
 	r.mu.Lock()
-	r.activeProc = cmd.Process
+	r.activeCmd = cmd
 	r.currentPid.Store(uint32(cmd.Process.Pid))
 	r.isKilledByUs.Store(false)
 	r.mu.Unlock()
@@ -65,10 +63,10 @@ func (r *ProcessRunner) Start(workDir, targetExe, runtimeConfig string, out io.W
 
 func (r *ProcessRunner) Wait(ctx context.Context) error {
 	r.mu.Lock()
-	proc := r.activeProc
+	cmd := r.activeCmd
 	r.mu.Unlock()
 
-	if proc == nil {
+	if cmd == nil {
 		return nil
 	}
 
@@ -81,21 +79,15 @@ func (r *ProcessRunner) Wait(ctx context.Context) error {
 		}
 	}()
 
-	state, err := proc.Wait()
+	err := cmd.Wait()
 	close(waitDone)
 
 	r.mu.Lock()
-	r.activeProc = nil
+	r.activeCmd = nil
 	r.currentPid.Store(0)
 	r.mu.Unlock()
 
-	if err != nil {
-		return err
-	}
-	if !state.Success() {
-		return fmt.Errorf("exit status %d", state.ExitCode())
-	}
-	return nil
+	return err
 }
 
 func (r *ProcessRunner) Kill() {
@@ -103,21 +95,19 @@ func (r *ProcessRunner) Kill() {
 	defer r.killMu.Unlock()
 
 	r.mu.Lock()
-	proc := r.activeProc
+	cmd := r.activeCmd
 	pid := r.currentPid.Load()
 
-	if proc == nil || pid == 0 {
+	if cmd == nil || cmd.Process == nil || pid == 0 {
 		r.mu.Unlock()
 		return
 	}
 
 	r.isKilledByUs.Store(true)
-	r.activeProc = nil
-	r.currentPid.Store(0)
 	r.mu.Unlock()
 
 	forceKill := func() {
-		_ = proc.Kill()
+		_ = cmd.Process.Kill()
 		sys.HardKill(pid)
 		sys.KillOtherProcessesByName(domain.KernelExeName, 0)
 	}
