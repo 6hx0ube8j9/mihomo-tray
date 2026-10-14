@@ -2,6 +2,18 @@ package logger
 
 import "sync"
 
+const DefaultTailBufferSize = 64 * 1024
+
+func NewTailBuffer(size ...int) *TailBuffer {
+	bufSize := DefaultTailBufferSize
+	if len(size) > 0 && size[0] > 0 {
+		bufSize = size[0]
+	}
+	return &TailBuffer{
+		maxSize: bufSize,
+	}
+}
+
 type TailBuffer struct {
 	mu  sync.Mutex
 	buf []byte
