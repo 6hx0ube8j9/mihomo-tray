@@ -177,6 +177,7 @@ func (a *Application) DeleteProfile(targetPath string) error {
 }
 
 func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath string, isManual bool) error {
+	// 1. 获取订阅专属锁，防止并发重入拉取
 	if !a.State.TryAcquireProfileLock(targetRelPath) {
 		return nil
 	}
@@ -199,28 +200,19 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 		return nil
 	}
 
-	if a.Cfg.GetActivePath() == targetRelPath {
-		if !a.State.TryBeginAction(state.ActionSwitchProfile) {
-			if isManual {
-				return errors.New("系统繁忙，请稍后重试")
-			}
-			return nil
+	if isManual && a.Cfg.GetActivePath() == targetRelPath {
+		if !a.State.TryBeginAction(state.ActionReload) {
+			return errors.New("系统繁忙，请稍后重试")
 		}
+		defer a.State.EndAction()
 
-		err := a.applyActiveConfig(ctx, "应用订阅更新")
-		a.State.EndAction()
-
-		if err != nil {
+		if err := a.applyActiveConfig(ctx, "应用订阅更新"); err != nil {
 			a.ForcePushUIState()
-			if isManual {
-				return err
-			}
-			slog.Error("自动更新订阅应用失败", "err", err)
-			return nil
+			return err
 		}
 	}
 
-	slog.Info("订阅更新成功", "path", targetRelPath)
+	slog.Info("订阅更新成功", "path", targetRelPath, "manual", isManual)
 	a.ForcePushUIState()
 	return nil
 }
