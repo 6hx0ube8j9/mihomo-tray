@@ -60,8 +60,7 @@ func (a *Application) reconcileTunState(kernelTunEnabled bool) bool {
 }
 
 func (a *Application) syncSystemProxy() {
-	cfg := a.Cfg.GetConfig()
-	wantEnable := cfg.General.SystemProxy != nil && *cfg.General.SystemProxy
+	wantEnable := a.Cfg.IsSystemProxyEnabled()
 
 	if !wantEnable {
 		if err := sys.SetSystemProxy(false, ""); err != nil {
@@ -96,8 +95,7 @@ func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.Pr
 		return
 	}
 
-	cfg := a.Cfg.GetConfig()
-	if cfg.General.SystemProxy == nil || !*cfg.General.SystemProxy {
+	if !a.Cfg.IsSystemProxyEnabled() {
 		return
 	}
 
@@ -128,8 +126,7 @@ func (a *Application) repairProxyLoop(ctx context.Context, port, expectedServer 
 	defer a.State.ReleaseProxyRepair()
 
 	for i := 1; i <= proxyRepairMaxAttempts; i++ {
-		cfg := a.Cfg.GetConfig()
-		if a.State.IsExiting() || ctx.Err() != nil || cfg.General.SystemProxy == nil || !*cfg.General.SystemProxy {
+		if a.State.IsExiting() || ctx.Err() != nil || !a.Cfg.IsSystemProxyEnabled() {
 			return
 		}
 
@@ -235,7 +232,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 	}
 
 	cfg := a.Cfg.GetConfig()
-	isProxyEnabled := cfg.General.SystemProxy != nil && *cfg.General.SystemProxy
+	isProxyEnabled := a.Cfg.IsSystemProxyEnabled()
 
 	if resp.Mode != "" && resp.Mode != cfg.Config.Mode {
 		slog.Info("内核路由模式更新", "from", cfg.Config.Mode, "to", resp.Mode)
