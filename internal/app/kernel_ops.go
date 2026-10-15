@@ -5,15 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"time"
 
 	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/domain"
-	"mihomo-tray/internal/logger"
 	"mihomo-tray/internal/state"
 )
 
 func (a *Application) executePhysicalRestart(cfg domain.TrayConfig) {
+	slog.Debug("执行内核物理重启", "tun", cfg.Config.Tun.Enable)
 	if cfg.Config.Tun.Enable {
 		a.State.SetTunRequestedTime(time.Now())
 	}
@@ -65,6 +66,7 @@ func (a *Application) DeployAndApplyConfig(ctx context.Context, targetRelPath, a
 	if isKernelRunning {
 		slog.Debug("执行重载配置", "action", actionDesc)
 		if err := a.apiHotReloadCommand(ctx, deployRes.RuntimeAbs); err == nil {
+			slog.Debug("配置热重载成功", "target", targetRelPath)
 			return nil
 		}
 		slog.Warn("重载配置失败，回退为重启内核")
@@ -86,8 +88,10 @@ func (a *Application) ReloadConfig(ctx context.Context) error {
 		a.ForcePushUIState()
 	}()
 
+	slog.Debug("用户指令，准备重载配置")
+
 	if err := a.Cfg.ReloadFromDisk(); err != nil {
-		return fmt.Errorf("读取配置失败: %s", logger.CleanError(err))
+		return fmt.Errorf("读取配置失败: %w", err)
 	}
 
 	a.CheckAndReconcilePrivileges(false)
@@ -111,7 +115,7 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 		a.ForcePushUIState()
 	}()
 
-	slog.Info("用户托盘指令，准备重启内核")
+	slog.Debug("用户指令，准备重启内核")
 	a.CheckAndReconcilePrivileges(false)
 
 	a.SyncRuntimeConfig()
@@ -127,7 +131,7 @@ func (a *Application) SyncRuntimeConfig() {
 	activePath := a.Cfg.GetActivePath()
 	if activePath != "" {
 		if err := a.Cfg.ValidatePhysicalFile(activePath); err != nil {
-			slog.Warn("活跃配置无效，取消选中", "path", activePath, "err", logger.CleanError(err))
+			slog.Warn("活跃配置无效，取消选中", "path", activePath, "err", err)
 			a.Cfg.SetActiveProfile("")
 			activePath = ""
 		}
@@ -136,7 +140,7 @@ func (a *Application) SyncRuntimeConfig() {
 	cfg := a.Cfg.GetConfig()
 	deployRes, err := core.DeployRuntimeConfig(cfg, activePath, a.Cfg.BaseDir())
 	if err != nil {
-		slog.Error("加载运行配置失败，切换空配置", "err", logger.CleanError(err))
+		slog.Error("加载运行配置失败，切换空配置", "err", err)
 		a.Cfg.SetActiveProfile("")
 		_, _ = core.DeployRuntimeConfig(cfg, "", a.Cfg.BaseDir())
 		return
