@@ -63,6 +63,21 @@ func (m *Manager) LoadAndInitMemory() {
 	m.mu.Unlock()
 }
 
+func (m *Manager) GetEffectiveAllowLan() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.data.Config.AllowLan == nil {
+		return domain.DefaultAllowLan
+	}
+	return *m.data.Config.AllowLan
+}
+
+func (m *Manager) IsSystemProxyEnabled() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.data.General.SystemProxy != nil && *m.data.General.SystemProxy
+}
+
 func (m *Manager) ReloadFromDisk() error {
 	jsonPath := filepath.Join(m.baseDir, domain.TrayConfigName)
 	content, err := os.ReadFile(jsonPath)
@@ -78,7 +93,7 @@ func (m *Manager) ReloadFromDisk() error {
 	var newCfg domain.TrayConfig
 	if err := json.Unmarshal(content, &newCfg); err != nil {
 		m.FlushInitialState()
-		return fmt.Errorf("主配置文件格式已损坏，重载请求已拦截，系统恢复为上一次的有效配置。\n\n%w", err)
+		return fmt.Errorf("主配置格式损坏，已从内存恢复: %w", err)
 	}
 
 	isTainted := applyDefaults(&newCfg)
