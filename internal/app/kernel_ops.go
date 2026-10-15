@@ -51,11 +51,6 @@ func (a *Application) DeployAndApplyConfig(ctx context.Context, targetRelPath, a
 	cfg := a.Cfg.GetConfig()
 	deployRes, err := core.DeployRuntimeConfig(cfg, targetRelPath, a.Cfg.BaseDir())
 	if err != nil {
-		profileName := filepath.Base(targetRelPath)
-		if profileName == "." || profileName == "" {
-			profileName = "空配置"
-		}
-
 		return fmt.Errorf("配置校验失败 ｜ %s", logger.CleanError(err))
 	}
 
