@@ -26,26 +26,25 @@ func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted boo
 		return false, nil
 	}
 
+	rollback := func() {
+		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = originalTun })
+		if enable {
+			a.State.SetTunRequestedTime(time.Time{})
+		}
+	}
+
 	a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = enable })
 	if enable {
 		a.State.SetTunRequestedTime(time.Now())
 	}
 
-	restarted = a.ElevatePrivilege(func() {
-		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = originalTun })
-		if enable {
-			a.State.SetTunRequestedTime(time.Time{})
-		}
-	})
+	restarted = a.ElevatePrivilege(rollback)
 	if restarted {
 		return true, nil
 	}
 
 	if a.State.GetPhase() != domain.PhaseRunning {
-		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = originalTun })
-		if enable {
-			a.State.SetTunRequestedTime(time.Time{})
-		}
+		rollback()
 		return false, ErrKernelNotReady
 	}
 
@@ -57,16 +56,13 @@ func (a *Application) ToggleTun(ctx context.Context, enable bool) (restarted boo
 	defer cancel()
 
 	if syncErr := a.API.UpdateTun(reqCtx, enable, a.State.GetActualTunDevice()); syncErr != nil {
-		a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = originalTun })
-		if enable {
-			a.State.SetTunRequestedTime(time.Time{})
-		}
+		rollback()
 
 		if ctx.Err() == nil {
 			if errors.Is(syncErr, context.DeadlineExceeded) || errors.Is(syncErr, context.Canceled) {
 				return false, ErrAPITimeout
 			}
-			return false, fmt.Errorf("TUN 设置失败: %w", syncErr)
+			return false, syncErr
 		}
 	}
 	return false, nil
@@ -97,7 +93,7 @@ func (a *Application) SwitchMode(ctx context.Context, mode string) error {
 	defer cancel()
 
 	if err := a.API.UpdateMode(reqCtx, mode); err != nil {
-		return fmt.Errorf("切换模式失败: %w", err)
+		return err
 	}
 
 	a.Cfg.Update(func(c *domain.TrayConfig) { c.Config.Mode = mode })
@@ -109,7 +105,7 @@ func (a *Application) ToggleAllowLan(ctx context.Context, enable bool) error {
 		return ErrKernelNotReady
 	}
 
-	if enable == *a.Cfg.GetConfig().Config.AllowLan {
+	if a.Cfg.GetConfig().Config.AllowLan != nil && enable == *a.Cfg.GetConfig().Config.AllowLan {
 		return nil
 	}
 
@@ -121,7 +117,7 @@ func (a *Application) ToggleAllowLan(ctx context.Context, enable bool) error {
 	defer cancel()
 
 	if err := a.API.UpdateAllowLan(reqCtx, enable); err != nil {
-		return fmt.Errorf("设置局域网共享失败: %w", err)
+		return err
 	}
 
 	a.Cfg.Update(func(c *domain.TrayConfig) {
