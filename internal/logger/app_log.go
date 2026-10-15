@@ -51,21 +51,36 @@ func (h *customConsoleHandler) Enabled(_ context.Context, level slog.Level) bool
 	return level >= h.level.Level()
 }
 
+func cleanString(s string) string {
+	if strings.ContainsAny(s, "\n\t\r") {
+		s = strings.ReplaceAll(s, "\r\n", " ｜ ")
+		s = strings.ReplaceAll(s, "\n", " ｜ ")
+		s = strings.ReplaceAll(s, "\r", " ｜ ")
+		s = strings.ReplaceAll(s, "\t", " ")
+		s = strings.TrimSpace(s)
+	}
+	return s
+}
+
 func (h *customConsoleHandler) Handle(_ context.Context, r slog.Record) error {
 	var buf bytes.Buffer
 
-	buf.WriteString(fmt.Sprintf("%s %-5s %s", r.Time.Format(domain.TimeFormatLog), r.Level.String(), r.Message))
+	buf.WriteString(fmt.Sprintf("%s %-5s %s", r.Time.Format(domain.TimeFormatLog), r.Level.String(), cleanString(r.Message)))
 
 	var prefix string
 	if len(h.groups) > 0 {
 		prefix = strings.Join(h.groups, ".") + "."
 	}
 
+	appendAttr := func(a slog.Attr) {
+		buf.WriteString(fmt.Sprintf(" %s%s=%s", prefix, a.Key, cleanString(fmt.Sprint(a.Value.Any()))))
+	}
+
 	for _, a := range h.attrs {
-		buf.WriteString(fmt.Sprintf(" %s%s=%v", prefix, a.Key, a.Value.Any()))
+		appendAttr(a)
 	}
 	r.Attrs(func(a slog.Attr) bool {
-		buf.WriteString(fmt.Sprintf(" %s%s=%v", prefix, a.Key, a.Value.Any()))
+		appendAttr(a)
 		return true
 	})
 
