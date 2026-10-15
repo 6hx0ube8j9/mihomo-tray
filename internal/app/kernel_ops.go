@@ -56,7 +56,7 @@ func (a *Application) DeployAndApplyConfig(ctx context.Context, targetRelPath, a
 			profileName = "空配置"
 		}
 
-		return fmt.Errorf("配置校验未通过 (%s):\n%s", profileName, logger.CleanError(err))
+		return fmt.Errorf("配置校验失败 ｜ %s", logger.CleanError(err))
 	}
 
 	a.State.SetActualTunDevice(deployRes.TunDevice)
