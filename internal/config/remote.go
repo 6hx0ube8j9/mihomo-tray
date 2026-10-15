@@ -22,6 +22,7 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 	slog.Info("开始拉取订阅", "url", subURL)
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	defer transport.CloseIdleConnections()
 
 	if proxyPort != "" {
 		if u, err := url.Parse("http://127.0.0.1:" + proxyPort); err == nil {
@@ -67,7 +68,7 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 				_ = resp.Body.Close()
 			}
 			slog.Warn("网络不稳定，准备进行自动重试", "url", subURL, "retry", i+1, "err", reqErr)
-			
+
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
