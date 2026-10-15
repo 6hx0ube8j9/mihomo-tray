@@ -30,7 +30,7 @@ func (a *Application) ElevatePrivilege(rollback func()) (restarted bool) {
 
 func (a *Application) CheckAndReconcilePrivileges(isStartup bool) {
 	cfg := a.Cfg.GetConfig()
-	needsAdmin := cfg.General.RunAsAdmin || cfg.Config.Tun.Enable || (cfg.General.Autostart != nil && *cfg.General.Autostart)
+    needsAdmin := cfg.General.RunAsAdmin || cfg.Config.Tun.Enable || a.Cfg.IsAutostartEnabled()
 
 	if needsAdmin && !sys.IsAdmin() {
 		if isStartup {
