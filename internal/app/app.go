@@ -120,9 +120,11 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	a.Kernel.KillCurrent()
 
 	if a.Cfg.IsSystemProxyEnabled() {
-		slog.Debug("关闭系统代理")
-		if err := sys.SetSystemProxy(false, ""); err != nil {
-			slog.Warn("关闭系统代理失败", "err", err)
+		slog.Debug("退出清理：关闭系统代理")
+		if portStr, hasPort := a.Cfg.GetEffectiveSystemProxyPortStr(); hasPort {
+			if err := sys.DisableProxy(portStr); err != nil {
+				slog.Warn("关闭系统代理失败", "err", err)
+			}
 		}
 	}
 
