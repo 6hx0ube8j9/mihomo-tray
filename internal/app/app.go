@@ -222,7 +222,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 			} else if event == domain.EventKernelExit {
 				a.State.AdvanceProbeGen()
 
-				if a.State.IsRestarting() {
+				if a.Kernel.IsKilledByUs() {
 					slog.Info("内核已停止，等待重启")
 				} else {
 					slog.Warn("内核进程异常退出")
