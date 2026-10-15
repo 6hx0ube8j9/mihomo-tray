@@ -131,8 +131,7 @@ func (a *Application) SyncRuntimeConfig() {
 	activePath := a.Cfg.GetActivePath()
 	if activePath != "" {
 		if err := a.Cfg.ValidatePhysicalFile(activePath); err != nil {
-			slog.Warn("活跃配置无效，取消选中", "path", activePath, "err", err)
-			a.Cfg.SetActiveProfile("")
+			a.FallbackToEmptyProfile(context.Background(), "启动校验文件失效")
 			activePath = ""
 		}
 	}
