@@ -338,3 +338,25 @@ func (a *Application) SetProfileInterval(payload string) {
 		a.ForcePushUIState()
 	}
 }
+
+func (a *Application) FallbackToEmptyProfile(ctx context.Context, reason string) {
+	slog.Warn("配置失效或被移除，安全回退为空配置", "reason", reason)
+
+	a.Cfg.SetActiveProfile("")
+	
+	a.disableSystemProxySetting()
+	if err := sys.SetSystemProxy(false, ""); err != nil {
+		slog.Error("注销系统代理失败", "err", err)
+	}
+
+	a.Cfg.Update(func(c *domain.TrayConfig) {
+		c.Config.Tun.Enable = false
+	})
+	a.State.SetTunRequestedTime(time.Time{})
+	
+	if a.State.GetPhase() == domain.PhaseRunning {
+		_ = a.DeployAndApplyConfig(ctx, "", "回退空配置")
+	}
+
+	a.ForcePushUIState()
+}
