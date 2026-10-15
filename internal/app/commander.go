@@ -6,7 +6,6 @@ import (
 	"time"
 	
 	"mihomo-tray/internal/domain"
-	"mihomo-tray/internal/logger"
 )
 
 func (a *Application) asyncRun(title string, task func() error) {
@@ -98,13 +97,9 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 					return
 				}
 			}
-
-			if err := a.DeleteProfile(path); err != nil {
-				slog.Error("删除配置失败", "err", err)
-				if a.ui != nil {
-					a.ui.ShowError("删除配置", err.Error())
-				}
-			}
+			a.asyncRun("删除配置", func() error {
+				return a.DeleteProfile(path)
+			})
 		}(targetPath)
 
 	case domain.ActionMoveProfileUp:
@@ -254,17 +249,16 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 					return
 				}
 			}
-			if err := a.ClearWebUICache(); err != nil {
-				slog.Error("清理缓存失败", "err", err)
-				if a.ui != nil {
-					a.ui.ShowError("清理缓存", err.Error())
+			a.asyncRun("清理缓存", func() error {
+				if err := a.ClearWebUICache(); err != nil {
+					return err
 				}
-			} else {
 				slog.Info("Web 面板缓存已清理")
 				if a.ui != nil {
 					a.ui.ShowNotification("清理完成", "面板缓存已清除。")
 				}
-			}
+				return nil
+			})
 		}()
 	}
 }
