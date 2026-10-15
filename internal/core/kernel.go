@@ -237,11 +237,14 @@ func (km *KernelManager) handleSessionCrash(res sessionResult, crashCount *int, 
 		*firstCrashTime = time.Now()
 	}
 
-	if res.runDuration < quickCrashThreshold {
+	if time.Since(*firstCrashTime) >= maxCrashWindow {
+		*firstCrashTime = time.Now()
+		*crashCount = 1
+	} else if res.runDuration < quickCrashThreshold {
 		*crashCount++
 	}
 
-	if *crashCount >= maxConsecutiveCrash || time.Since(*firstCrashTime) >= maxCrashWindow {
+	if *crashCount >= maxConsecutiveCrash {
 		slog.Error("内核异常退出超限，守护进程已挂起保护")
 		km.HaltDaemon()
 		return defaultRestartDelay
