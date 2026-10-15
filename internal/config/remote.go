@@ -76,22 +76,22 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 	}
 
 	if reqErr != nil {
-		return nil, fmt.Errorf("无法连接至订阅服务器 (已重试%d次)。请检查网络状态或代理设置。\n\n%w", maxRetries, reqErr)
+		return nil, fmt.Errorf("连接订阅服务器失败 (已重试%d次): %w", maxRetries, reqErr)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("服务器拒绝提供配置，HTTP 状态码: %d", resp.StatusCode)
+		return nil, fmt.Errorf("服务器拒绝提供配置 (HTTP %d)", resp.StatusCode)
 	}
 
 	contentType := strings.ToLower(resp.Header.Get("Content-Type"))
 	if strings.Contains(contentType, "text/html") {
-		return nil, fmt.Errorf("目标链接无效或提供的内容非代理配置 (服务器返回了网页内容)")
+		return nil, errors.New("订阅链接返回了网页内容而非代理配置")
 	}
 
 	tmpName, err := fs.SaveTempWithLimit(m.ProfilesDirAbs(), "sub_*.tmp", resp.Body, domain.MaxProfileBytes)
 	if err != nil {
-		return nil, fmt.Errorf("订阅内容写入本地失败: %w", err)
+		return nil, fmt.Errorf("订阅写入临时文件失败: %w", err)
 	}
 
 	res := &domain.FetchResult{TempPath: tmpName}
@@ -128,7 +128,7 @@ func (m *Manager) CommitRemoteProfile(tempPath string, targetRelPath string, ite
 
 	targetAbs := m.GetProfileAbsPath(targetRelPath)
 	if err := fs.ReplaceAtomic(tempPath, targetAbs); err != nil {
-		return fmt.Errorf("配置落盘受阻，文件可能被系统占用。\n\n%w", err)
+		return fmt.Errorf("保存配置文件失败: %w", err)
 	}
 
 	m.UpsertProfile(item)
