@@ -85,9 +85,11 @@ func (a *Application) SwitchMode(ctx context.Context, mode string) error {
 		return nil
 	}
 
-	a.State.SetConfigSyncing(true)
+	if !a.State.TryBeginAction(state.ActionSyncAPI) {
+		return ErrSystemBusy
+	}
+	defer a.State.EndAction()
 	defer a.ForceSyncAPI()
-	defer a.State.SetConfigSyncing(false)
 
 	reqCtx, cancel := context.WithTimeout(ctx, apiSyncTimeout)
 	defer cancel()
