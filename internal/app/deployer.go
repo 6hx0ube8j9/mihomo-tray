@@ -137,9 +137,8 @@ func (a *Application) SyncRuntimeConfig() {
 	cfg := a.Cfg.GetConfig()
 	deployRes, err := core.DeployRuntimeConfig(cfg, activePath, a.Cfg.BaseDir())
 	if err != nil {
-		slog.Error("加载运行配置失败，安全切换为空配置", "err", err)
-		a.Cfg.SetActiveProfile("")
-		_, _ = core.DeployRuntimeConfig(cfg, "", a.Cfg.BaseDir())
+		slog.Error("底稿配置内容存在错误，回退为空配置", "err", err)
+		a.FallbackToEmptyProfile(context.Background(), "底稿配置内容校验失败")
 		return
 	}
 	a.State.SetActualTunDevice(deployRes.TunDevice)
