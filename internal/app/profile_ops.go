@@ -233,16 +233,16 @@ func (a *Application) fetchAndCommitRemoteProfile(ctx context.Context, targetRel
 
 	tempBytes, err := os.ReadFile(res.TempPath)
 	if err != nil || len(tempBytes) == 0 {
-		return errors.New("订阅文件内容为空")
+		return errors.New("订阅内容为空")
 	}
 
 	if targetRelPath == a.Cfg.GetActivePath() {
 		if _, err := core.ValidateRuntimeYAML(a.Cfg.GetConfig(), tempBytes, a.Cfg.BaseDir()); err != nil {
-			return errors.New("订阅配置校验失败，已保留原版本")
+			return fmt.Errorf("订阅校验失败: %w", err)
 		}
 	} else {
 		if _, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), tempBytes); err != nil {
-			return errors.New("订阅配置语法错误")
+			return fmt.Errorf("订阅语法错误: %w", err)
 		}
 	}
 
