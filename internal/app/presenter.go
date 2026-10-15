@@ -11,13 +11,13 @@ func (a *Application) calculateUIState() domain.UIState {
 	s := domain.UIState{
 		IsBusy:           a.State.IsActionBusy(),
 		IsTun:            cfg.Config.Tun.Enable,
-		IsProxy:          *cfg.General.SystemProxy,
+		IsProxy:          a.Cfg.IsSystemProxyEnabled(),
 		Mode:             cfg.Config.Mode,
-		AutoStart:        *cfg.General.Autostart,
+		AutoStart:        a.Cfg.IsAutostartEnabled(),
 		RunAsAdmin:       cfg.General.RunAsAdmin,
-		UseSystemBrowser: *cfg.General.SystemBrowser,
-		RemoteWebUI:      *cfg.General.RemoteWebUI,
-		AllowLan:         *cfg.Config.AllowLan,
+		UseSystemBrowser: a.Cfg.IsSystemBrowserEnabled(),
+		RemoteWebUI:      a.Cfg.IsRemoteWebUIEnabled(),
+		AllowLan:         a.Cfg.GetEffectiveAllowLan(),
 		IsAdmin:          sys.IsAdmin(),
 
 		MixedPort: a.Cfg.GetEffectiveMixedPort(),
