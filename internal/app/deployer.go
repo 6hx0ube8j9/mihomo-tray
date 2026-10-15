@@ -128,7 +128,7 @@ func (a *Application) SyncRuntimeConfig() {
 	if activePath != "" {
 		if err := a.Cfg.ValidatePhysicalFile(activePath); err != nil {
 			a.FallbackToEmptyProfile(context.Background(), "启动校验文件失效")
-			activePath = ""
+			return
 		}
 	}
 
