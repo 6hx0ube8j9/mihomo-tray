@@ -65,14 +65,6 @@ func (r *RuntimeState) IsReloading() bool     { return r.CurrentAction() == Acti
 func (r *RuntimeState) IsRestarting() bool    { return r.CurrentAction() == ActionRestart }
 func (r *RuntimeState) IsConfigSyncing() bool { return r.CurrentAction() == ActionSyncAPI }
 
-func (r *RuntimeState) SetConfigSyncing(enable bool) {
-	if enable {
-		r.TryBeginAction(ActionSyncAPI)
-	} else {
-		r.currentAction.CompareAndSwap(int32(ActionSyncAPI), int32(ActionNone))
-	}
-}
-
 // ---------------- 订阅单项并发锁 ----------------
 
 func (r *RuntimeState) TryAcquireProfileLock(path string) bool {
