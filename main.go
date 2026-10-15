@@ -109,8 +109,8 @@ func main() {
 			c.General.Autostart = &b
 		})
 	}
-
-	needsAdminStartup := cfgAutostart || cfg.General.RunAsAdmin
+	
+	needsAdminStartup := finalAutostart || cfg.General.RunAsAdmin
 
 	if !admin && !isAutostart {
 		if needsAdminStartup {
