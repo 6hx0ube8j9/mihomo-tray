@@ -143,12 +143,12 @@ func (a *Application) repairProxyLoop(ctx context.Context, port, expectedServer 
 
 		cur, err := sys.GetProxyStatus()
 		if err == nil && cur.Enabled && strings.EqualFold(cur.Server, expectedServer) {
-			slog.Debug("系统代理自愈成功", "attempt", i)
+			slog.Debug("系统代理已自动恢复", "attempt", i)
 			return
 		}
 	}
 
-	slog.Warn("系统代理持续被外部篡改，已自动关闭托盘代理开关")
+	slog.Warn("系统代理持续被外部修改，已自动停用")
 	a.disableSystemProxySetting()
 }
 
