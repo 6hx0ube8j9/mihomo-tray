@@ -97,18 +97,11 @@ func (a *Application) SwitchProfile(ctx context.Context, targetPath string) erro
 		target = oldActive
 	}
 
-	if target != "" {
-		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
-			return fmt.Errorf("配置文件错误: %w", err)
-		}
-	}
-
 	if err := a.DeployAndApplyConfig(ctx, target, "切换配置"); err != nil {
 		return err
 	}
 
 	a.Cfg.SetActiveProfile(target)
-
 	a.restartWebUIIfOpen()
 	return nil
 }
@@ -206,8 +199,6 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 		return nil
 	}
 
-	slog.Info("订阅更新成功", "path", targetRelPath)
-
 	if a.Cfg.GetActivePath() == targetRelPath {
 		if err := a.applyActiveConfig(ctx, "应用订阅更新"); err != nil {
 			a.ForcePushUIState()
@@ -215,9 +206,11 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 				return err
 			}
 			slog.Error("自动更新订阅应用失败", "err", err)
+			return nil
 		}
 	}
 
+	slog.Info("订阅更新成功", "path", targetRelPath)
 	a.ForcePushUIState()
 	return nil
 }
@@ -268,27 +261,30 @@ func (a *Application) validateProfileSource(sourcePath string) error {
 		absPath = a.Cfg.GetProfileAbsPath(sourcePath)
 	}
 
+	fileName := filepath.Base(sourcePath)
+
 	fi, err := os.Stat(absPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return errors.New("配置文件不存在")
+			return fmt.Errorf("%s: 文件不存在", fileName)
 		}
-		return fmt.Errorf("读取文件错误: %w", err)
+		return fmt.Errorf("%s: 无法读取文件: %w", fileName, err)
 	}
+
 	if fi.Size() == 0 {
-		return errors.New("配置文件内容为空")
+		return fmt.Errorf("%s: 文件内容为空", fileName)
 	}
 	if fi.Size() > domain.MaxProfileBytes {
-		return errors.New("配置超出大小限制")
+		return fmt.Errorf("%s: 文件大小超出限制 (最大 15MB)", fileName)
 	}
 
 	content, err := os.ReadFile(absPath)
 	if err != nil {
-		return fmt.Errorf("读取配置内容失败: %w", err)
+		return fmt.Errorf("%s: 读取内容失败: %w", fileName, err)
 	}
 
 	if _, err := core.ComposeRuntimeYAML(a.Cfg.GetConfig(), content); err != nil {
-		return fmt.Errorf("配置语法错误: %w", err)
+		return fmt.Errorf("%s: %w", fileName, err)
 	}
 
 	return nil
@@ -296,11 +292,11 @@ func (a *Application) validateProfileSource(sourcePath string) error {
 
 func (a *Application) onProfileImported(ctx context.Context, newProfilePath string) {
 	if len(a.Cfg.GetProfiles()) == 1 {
-		slog.Info("激活首个导入配置", "path", newProfilePath)
+		slog.Info("激活首个配置", "path", newProfilePath)
 		a.Cfg.SetActiveProfile(newProfilePath)
 		a.ForcePushUIState()
 
-		if err := a.applyActiveConfig(ctx, "激活首个导入配置"); err != nil {
+		if err := a.applyActiveConfig(ctx, "激活首个配置"); err != nil {
 			slog.Warn("首次激活配置失败", "err", err)
 		}
 
