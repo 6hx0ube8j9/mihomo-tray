@@ -74,26 +74,15 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	activePath := a.Cfg.GetActivePath()
 	if activePath != "" {
 		if err := a.Cfg.ValidatePhysicalFile(activePath); err != nil {
-			p, ok := a.Cfg.GetProfileByPath(activePath)
-			recovered := false
-
-			if ok && p.URL != "" {
+			if p, ok := a.Cfg.GetProfileByPath(activePath); ok && p.URL != "" {
 				slog.Info("当前配置物理文件丢失，尝试拉取远程订阅恢复", "path", activePath)
-
 				fetchCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-				fetchErr := a.fetchAndCommitRemoteProfile(fetchCtx, activePath, p.URL, &p)
-				cancel()
-
-				if fetchErr == nil {
+				if err := a.fetchAndCommitRemoteProfile(fetchCtx, activePath, p.URL, &p); err == nil {
 					slog.Info("订阅拉取成功，配置已恢复")
-					recovered = true
 				} else {
-					slog.Warn("订阅拉取恢复失败", "err", fetchErr)
+					slog.Warn("订阅拉取恢复失败", "err", err)
 				}
-			}
-
-			if !recovered {
-				a.FallbackToEmptyProfile(ctx, "启动配置物理文件失效且无法恢复")
+				cancel()
 			}
 		}
 	}
