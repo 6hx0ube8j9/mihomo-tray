@@ -17,7 +17,6 @@ import (
 type Manager struct {
 	baseDir string
 	exePath string
-	isAdmin bool
 
 	mu   sync.RWMutex
 	ioMu sync.Mutex
