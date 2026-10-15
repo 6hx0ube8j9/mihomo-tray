@@ -15,7 +15,7 @@ import (
 
 const profileFileExt = ".yaml"
 
-var ErrProfileLimitExceeded = fmt.Errorf("配置数量已达上限 (%d 个)。", domain.MaxProfileCount)
+var ErrProfileLimitExceeded = fmt.Errorf("配置数量已达上限 (%d 个)", domain.MaxProfileCount)
 var ErrProfileNameConflict = errors.New("配置名称已存在")
 
 func (m *Manager) AllocateRemoteProfilePath(rawName string) (displayName string, relPath string, err error) {
@@ -157,7 +157,7 @@ func (m *Manager) SetActiveProfile(relPath string) {
 func (m *Manager) RemoveProfile(relPath string) {
 	m.Update(func(cfg *domain.TrayConfig) {
 		if relPath == cfg.Profiles.Active {
-			slog.Info("当前活跃配置被移除，系统切换至空转状态")
+			slog.Info("当前配置已移除，重置为空配置")
 			cfg.Profiles.Active = ""
 		}
 
@@ -223,18 +223,21 @@ func (m *Manager) MoveProfile(relPath string, offset int) bool {
 
 func (m *Manager) ValidatePhysicalFile(relPath string) error {
 	if relPath == "" {
-		return fmt.Errorf("未指定配置文件路径")
+		return errors.New("未指定配置文件路径")
 	}
+
+	fileName := filepath.Base(relPath)
 	absPath := m.GetProfileAbsPath(relPath)
+
 	fi, err := os.Stat(absPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("本地配置文件已丢失或被移除")
+			return fmt.Errorf("%s: 文件不存在", fileName)
 		}
-		return fmt.Errorf("无法读取本地配置文件，请检查系统权限。\n\n%w", err)
+		return fmt.Errorf("%s: 读取文件失败: %w", fileName, err)
 	}
 	if fi.Size() == 0 {
-		return fmt.Errorf("配置文件已损坏 (文件内容为空)")
+		return fmt.Errorf("%s: 文件内容为空", fileName)
 	}
 	return nil
 }
