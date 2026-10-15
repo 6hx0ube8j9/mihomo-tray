@@ -117,9 +117,7 @@ func (a *Application) RestartKernel(ctx context.Context) error {
 	slog.Debug("用户指令，准备物理重启内核")
 	a.CheckAndReconcilePrivileges(false)
 
-	a.SyncRuntimeConfig()
 	cfg := a.Cfg.GetConfig()
-
 	a.executePhysicalRestart(cfg)
 	a.restartWebUIIfOpen()
 	return nil
