@@ -40,8 +40,8 @@ func (m *Manager) LoadAndInitMemory() {
 	m.mu.Lock()
 	if f, err := os.Open(cfgPath); err == nil {
 		if err := json.NewDecoder(f).Decode(&m.data); err != nil {
-			slog.Warn("主配置文件解析失败，已自动备份并重置为默认设置", "path", cfgPath, "err", err)
 			_ = f.Close()
+			slog.Warn("主配置解析失败，已重置为默认配置", "path", cfgPath, "err", err)
 
 			corruptPath := cfgPath + fmt.Sprintf(".%d.err", time.Now().Unix())
 			_ = os.Rename(cfgPath, corruptPath)
@@ -51,7 +51,7 @@ func (m *Manager) LoadAndInitMemory() {
 			_ = f.Close()
 		}
 	} else {
-		slog.Debug("主配置文件不存在，正在初始化默认设置", "path", cfgPath)
+		slog.Debug("主配置不存在，初始化默认配置", "path", cfgPath)
 		isTainted = true
 	}
 
@@ -63,27 +63,12 @@ func (m *Manager) LoadAndInitMemory() {
 	m.mu.Unlock()
 }
 
-func (m *Manager) GetEffectiveAllowLan() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if m.data.Config.AllowLan == nil {
-		return domain.DefaultAllowLan
-	}
-	return *m.data.Config.AllowLan
-}
-
-func (m *Manager) IsSystemProxyEnabled() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.data.General.SystemProxy != nil && *m.data.General.SystemProxy
-}
-
 func (m *Manager) ReloadFromDisk() error {
 	jsonPath := filepath.Join(m.baseDir, domain.TrayConfigName)
 	content, err := os.ReadFile(jsonPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			slog.Warn("主配置文件丢失，已从内存数据自动恢复")
+			slog.Warn("主配置丢失，已从内存自动恢复")
 			m.FlushInitialState()
 			return nil
 		}
@@ -93,7 +78,7 @@ func (m *Manager) ReloadFromDisk() error {
 	var newCfg domain.TrayConfig
 	if err := json.Unmarshal(content, &newCfg); err != nil {
 		m.FlushInitialState()
-		return fmt.Errorf("主配置格式损坏，已从内存恢复: %w", err)
+		return fmt.Errorf("主配置格式损坏，已恢复有效配置: %w", err)
 	}
 
 	isTainted := applyDefaults(&newCfg)
@@ -133,6 +118,10 @@ func (m *Manager) Update(updater func(cfg *domain.TrayConfig)) {
 	if err := fs.WriteAtomic(cfgPath, snapshotBytes); err != nil {
 		slog.Error("配置原子落盘失败", "err", err)
 	}
+}
+
+func (m *Manager) FlushInitialState() {
+	m.Update(func(cfg *domain.TrayConfig) {})
 }
 
 func (m *Manager) GetEffectivePort(p *int, defaultPort int) int {
@@ -181,8 +170,37 @@ func (m *Manager) GetEffectiveSecret(s *string) string {
 	return *s
 }
 
-func (m *Manager) FlushInitialState() {
-	m.Update(func(cfg *domain.TrayConfig) {})
+func (m *Manager) GetEffectiveAllowLan() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.data.Config.AllowLan == nil {
+		return domain.DefaultAllowLan
+	}
+	return *m.data.Config.AllowLan
+}
+
+func (m *Manager) IsSystemProxyEnabled() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.data.General.SystemProxy != nil && *m.data.General.SystemProxy
+}
+
+func (m *Manager) IsAutostartEnabled() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.data.General.Autostart != nil && *m.data.General.Autostart
+}
+
+func (m *Manager) IsSystemBrowserEnabled() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.data.General.SystemBrowser != nil && *m.data.General.SystemBrowser
+}
+
+func (m *Manager) IsRemoteWebUIEnabled() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.data.General.RemoteWebUI != nil && *m.data.General.RemoteWebUI
 }
 
 func (m *Manager) BaseDir() string        { return m.baseDir }
