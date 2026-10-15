@@ -80,7 +80,7 @@ func main() {
 		isMine = sys.IsTaskPathValid(domain.AppTaskName, exePath)
 	}
 
-	cfgAutostart := *cfg.General.Autostart
+	cfgAutostart := cfgMgr.IsAutostartEnabled()
 	finalAutostart := cfgAutostart
 
 	if osTaskExists {
