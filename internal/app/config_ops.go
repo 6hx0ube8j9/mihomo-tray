@@ -105,7 +105,7 @@ func (a *Application) ToggleAllowLan(ctx context.Context, enable bool) error {
 		return ErrKernelNotReady
 	}
 
-	if a.Cfg.GetConfig().Config.AllowLan != nil && enable == *a.Cfg.GetConfig().Config.AllowLan {
+	if enable == a.Cfg.GetEffectiveAllowLan() {
 		return nil
 	}
 
