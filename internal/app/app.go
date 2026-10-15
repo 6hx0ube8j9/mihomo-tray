@@ -76,7 +76,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	if activePath != "" {
 		if err := a.Cfg.ValidatePhysicalFile(activePath); err != nil {
 			if p, ok := a.Cfg.GetProfileByPath(activePath); ok && p.URL != "" {
-				slog.Info("活跃配置不存在，尝试拉取远程订阅", "path", activePath)
+				slog.Info("当前配置不存在，尝试拉取远程订阅", "path", activePath)
 
 				fetchCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 				fetchErr := a.fetchAndCommitRemoteProfile(fetchCtx, activePath, p.URL, &p)
@@ -90,7 +90,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 					slog.Info("订阅拉取成功，配置已恢复")
 				}
 			} else {
-				slog.Warn("活跃配置不存在，取消激活")
+				slog.Warn("当前配置不存在，取消选中")
 				a.Cfg.SetActiveProfile("")
 				activePath = ""
 			}
