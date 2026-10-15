@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/fs"
@@ -17,10 +18,18 @@ type DeployResult struct {
 	IsUnchanged bool
 }
 
+func sanitizeConfigErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	cleanMsg := strings.ReplaceAll(err.Error(), "yaml: ", "")
+	return errors.New(strings.TrimSpace(cleanMsg))
+}
+
 func ValidateRuntimeYAML(cfg domain.TrayConfig, sourceBytes []byte, baseDir string) (*ComposeResult, error) {
 	res, err := ComposeRuntimeYAML(cfg, sourceBytes)
 	if err != nil {
-		return nil, err
+		return nil, sanitizeConfigErr(err)
 	}
 
 	testConfigAbs := filepath.Join(baseDir, domain.TestConfigFileName)
@@ -31,7 +40,7 @@ func ValidateRuntimeYAML(cfg domain.TrayConfig, sourceBytes []byte, baseDir stri
 
 	kernelPath := GetKernelPath(baseDir)
 	if err := ValidateConfig(kernelPath, baseDir, testConfigAbs); err != nil {
-		return nil, err
+		return nil, sanitizeConfigErr(err)
 	}
 
 	return res, nil
