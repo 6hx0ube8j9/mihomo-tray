@@ -200,7 +200,7 @@ func (a *Application) syncAllConfig(ctx context.Context) {
 	_ = a.API.SyncAllRuntime(
 		ctx,
 		cfg.Config.Mode,
-		*cfg.Config.AllowLan,
+		a.Cfg.GetEffectiveAllowLan(),
 		cfg.Config.Tun.Enable,
 		a.State.GetActualTunDevice(),
 	)
@@ -245,7 +245,7 @@ func (a *Application) pollKernelAPI(ctx context.Context) bool {
 		changed = true
 	}
 
-	expectedAllowLan := *cfg.Config.AllowLan
+	expectedAllowLan := a.Cfg.GetEffectiveAllowLan()
 	if resp.AllowLan != expectedAllowLan {
 		slog.Info("内核局域网共享更新", "from", expectedAllowLan, "to", resp.AllowLan)
 		a.Cfg.Update(func(c *domain.TrayConfig) {
