@@ -200,7 +200,17 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 	}
 
 	if a.Cfg.GetActivePath() == targetRelPath {
-		if err := a.applyActiveConfig(ctx, "应用订阅更新"); err != nil {
+		if !a.State.TryBeginAction(state.ActionSwitchProfile) {
+			if isManual {
+				return errors.New("系统繁忙，请稍后重试")
+			}
+			return nil
+		}
+
+		err := a.applyActiveConfig(ctx, "应用订阅更新")
+		a.State.EndAction()
+
+		if err != nil {
 			a.ForcePushUIState()
 			if isManual {
 				return err
