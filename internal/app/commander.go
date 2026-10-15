@@ -12,7 +12,8 @@ import (
 func (a *Application) asyncRun(title string, task func() error) {
 	go func() {
 		if err := task(); err != nil {
-			slog.Error("任务执行失败", "action", title, "name", profileName, "err", logger.CleanError(err))		
+			slog.Error(title+"失败", "err", logger.CleanError(err))
+			
 			if a.ui != nil {
 				a.ui.ShowError(title, err.Error())
 			}
