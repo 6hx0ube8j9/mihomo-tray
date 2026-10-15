@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -15,20 +16,26 @@ import (
 
 const (
 	MaxAppLogSize = 1024 * 1024
-	sessionHeader = "\n────────────────────────── [ New Session ] ──────────────────────────\n"
+	sessionHeader = "[Startup]"
 )
 
 var GlobalLogLevel = new(slog.LevelVar)
 
 type sessionWriter struct {
-	target io.Writer
-	header []byte
-	once   sync.Once
+	target  io.Writer
+	logPath string
+	once    sync.Once
 }
 
 func (w *sessionWriter) Write(p []byte) (n int, err error) {
 	w.once.Do(func() {
-		_, _ = w.target.Write(w.header)
+		header := sessionHeader + "\n"
+
+		if fi, err := os.Stat(w.logPath); err == nil && fi.Size() > 0 && fi.Size() < MaxAppLogSize {
+			header = "\n" + sessionHeader + "\n"
+		}
+
+		_, _ = w.target.Write([]byte(header))
 	})
 	return w.target.Write(p)
 }
@@ -46,6 +53,7 @@ func (h *customConsoleHandler) Enabled(_ context.Context, level slog.Level) bool
 
 func (h *customConsoleHandler) Handle(_ context.Context, r slog.Record) error {
 	var buf bytes.Buffer
+
 	buf.WriteString(fmt.Sprintf("%s %-5s %s", r.Time.Format(domain.TimeFormatLog), r.Level.String(), r.Message))
 
 	var prefix string
@@ -107,8 +115,8 @@ func Init(baseDir string, isRestarting bool) *RollingLogWriter {
 	var logTarget io.Writer = writer
 	if !isRestarting {
 		logTarget = &sessionWriter{
-			target: writer,
-			header: []byte(sessionHeader),
+			target:  writer,
+			logPath: logPath,
 		}
 	}
 
