@@ -39,8 +39,8 @@ type Application struct {
 
 	UIStateNotifyCh chan struct{}
 
-	lastUIState  domain.UIState
-	uiStateMutex sync.RWMutex
+	lastUIState    domain.UIState
+	uiStateMutex   sync.RWMutex
 	isAutoUpdating atomic.Bool
 }
 
@@ -72,27 +72,28 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	slog.Debug("初始化核心服务")
 
 	activePath := a.Cfg.GetActivePath()
-
 	if activePath != "" {
 		if err := a.Cfg.ValidatePhysicalFile(activePath); err != nil {
-			if p, ok := a.Cfg.GetProfileByPath(activePath); ok && p.URL != "" {
-				slog.Info("当前配置不存在，尝试拉取远程订阅", "path", activePath)
+			p, ok := a.Cfg.GetProfileByPath(activePath)
+			recovered := false
+
+			if ok && p.URL != "" {
+				slog.Info("当前配置物理文件丢失，尝试拉取远程订阅恢复", "path", activePath)
 
 				fetchCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 				fetchErr := a.fetchAndCommitRemoteProfile(fetchCtx, activePath, p.URL, &p)
 				cancel()
-								
-				if fetchErr != nil {
-					slog.Warn("订阅拉取失败，取消激活", "err", fetchErr)
-					a.Cfg.SetActiveProfile("")
-					activePath = ""
-				} else {
+
+				if fetchErr == nil {
 					slog.Info("订阅拉取成功，配置已恢复")
+					recovered = true
+				} else {
+					slog.Warn("订阅拉取恢复失败", "err", fetchErr)
 				}
-			} else {
-				slog.Warn("当前配置不存在，取消选中")
-				a.Cfg.SetActiveProfile("")
-				activePath = ""
+			}
+
+			if !recovered {
+				a.FallbackToEmptyProfile(ctx, "启动配置物理文件失效且无法恢复")
 			}
 		}
 	}
@@ -154,7 +155,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 	lastUserAction := time.Now()
 
 	tryPollAPI := func() {
-		if a.State.GetPhase() == domain.PhaseRunning && !a.State.IsConfigSyncing() && !a.State.IsReloading() {
+		if a.State.GetPhase() == domain.PhaseRunning && !a.State.IsActionBusy() {
 			if a.pollKernelAPI(ctx) {
 				a.pushUIState()
 			}
