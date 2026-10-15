@@ -16,7 +16,6 @@ import (
 const (
 	MaxAppLogSize = 1024 * 1024
 	sessionHeader = "\n────────────────────────── [ New Session ] ──────────────────────────\n"
-	timeFormatApp = domain.TimeFormatLog + ".000"
 )
 
 var GlobalLogLevel = new(slog.LevelVar)
@@ -47,27 +46,21 @@ func (h *customConsoleHandler) Enabled(_ context.Context, level slog.Level) bool
 
 func (h *customConsoleHandler) Handle(_ context.Context, r slog.Record) error {
 	var buf bytes.Buffer
-	
-	buf.WriteString(fmt.Sprintf("[%s] [%s] %s", r.Time.Format(timeFormatApp), r.Level.String(), r.Message))
+	buf.WriteString(fmt.Sprintf("%s %-5s %s", r.Time.Format(domain.TimeFormatLog), r.Level.String(), r.Message))
 
 	var prefix string
 	if len(h.groups) > 0 {
 		prefix = strings.Join(h.groups, ".") + "."
 	}
 
-	if len(h.attrs) > 0 || r.NumAttrs() > 0 {
-		buf.WriteString(" |")
-		
-		for _, a := range h.attrs {
-			buf.WriteString(fmt.Sprintf(" %s%s=%v", prefix, a.Key, a.Value.Any()))
-		}
-		
-		r.Attrs(func(a slog.Attr) bool {
-			buf.WriteString(fmt.Sprintf(" %s%s=%v", prefix, a.Key, a.Value.Any()))
-			return true
-		})
+	for _, a := range h.attrs {
+		buf.WriteString(fmt.Sprintf(" %s%s=%v", prefix, a.Key, a.Value.Any()))
 	}
-	
+	r.Attrs(func(a slog.Attr) bool {
+		buf.WriteString(fmt.Sprintf(" %s%s=%v", prefix, a.Key, a.Value.Any()))
+		return true
+	})
+
 	buf.WriteByte('\n')
 	_, err := h.w.Write(buf.Bytes())
 	return err
@@ -80,7 +73,7 @@ func (h *customConsoleHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	newAttrs := make([]slog.Attr, 0, len(h.attrs)+len(attrs))
 	newAttrs = append(newAttrs, h.attrs...)
 	newAttrs = append(newAttrs, attrs...)
-	
+
 	return &customConsoleHandler{
 		w:      h.w,
 		level:  h.level,
@@ -96,7 +89,7 @@ func (h *customConsoleHandler) WithGroup(name string) slog.Handler {
 	newGroups := make([]string, 0, len(h.groups)+1)
 	newGroups = append(newGroups, h.groups...)
 	newGroups = append(newGroups, name)
-	
+
 	return &customConsoleHandler{
 		w:      h.w,
 		level:  h.level,
