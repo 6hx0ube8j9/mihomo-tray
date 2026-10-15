@@ -56,8 +56,10 @@ func (r *ProcessRunner) Start(workDir, targetExe, runtimeConfig string, out io.W
 	r.currentPid.Store(uint32(cmd.Process.Pid))
 	r.isKilledByUs.Store(false)
 	r.mu.Unlock()
-
-	r.job.Assign(cmd.Process.Pid)
+	
+    if r.job != nil {
+		r.job.Assign(cmd.Process.Pid)
+	}
 	return nil
 }
 
