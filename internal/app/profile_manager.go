@@ -80,28 +80,27 @@ func (a *Application) SwitchProfile(ctx context.Context, targetPath string) erro
 		return nil
 	}
 
+	if targetPath == "" {
+		a.FallbackToEmptyProfile(ctx, "用户主动切换为空配置")
+		return nil
+	}
+
 	if !a.State.TryBeginAction(state.ActionSwitchProfile) {
 		a.ForcePushUIState()
 		return errors.New("系统繁忙，请稍后重试")
 	}
 
 	a.ForcePushUIState()
-
 	defer func() {
 		a.State.EndAction()
 		a.ForcePushUIState()
 	}()
 
-	target := targetPath
-	if target == "" {
-		target = oldActive
-	}
-
-	if err := a.DeployAndApplyConfig(ctx, target, "切换配置"); err != nil {
+	if err := a.DeployAndApplyConfig(ctx, targetPath, "切换配置"); err != nil {
 		return err
 	}
 
-	a.Cfg.SetActiveProfile(target)
+	a.Cfg.SetActiveProfile(targetPath)
 	a.restartWebUIIfOpen()
 	return nil
 }
@@ -214,18 +213,25 @@ func (a *Application) UpdateRemoteProfile(ctx context.Context, targetRelPath str
 }
 
 func (a *Application) FallbackToEmptyProfile(ctx context.Context, reason string) {
-	slog.Warn("配置失效或被移除，安全回退为空配置", "reason", reason)
-
-	a.Cfg.SetActiveProfile("")
-	a.disableSystemProxySetting()
+	slog.Warn("配置失效或加载失败，安全回退为空配置", "reason", reason)
 
 	a.Cfg.Update(func(c *domain.TrayConfig) {
+		c.Profiles.Active = ""
+		bProxy := false
+		c.General.SystemProxy = &bProxy
 		c.Config.Tun.Enable = false
 	})
+
 	a.State.SetTunRequestedTime(time.Time{})
+	a.State.SetTunAlive(false)
 
 	if a.State.GetPhase() == domain.PhaseRunning {
 		_ = a.DeployAndApplyConfig(ctx, "", "回退空配置")
+	} else {
+		cfg := a.Cfg.GetConfig()
+		_, _ = core.DeployRuntimeConfig(cfg, "", a.Cfg.BaseDir())
+
+		a.syncSystemProxy()
 	}
 
 	a.ForcePushUIState()
