@@ -22,8 +22,12 @@ func sanitizeConfigErr(err error) error {
 	if err == nil {
 		return nil
 	}
-	cleanMsg := strings.ReplaceAll(err.Error(), "yaml: ", "")
-	return errors.New(strings.TrimSpace(cleanMsg))
+
+	msg := strings.TrimSpace(err.Error())
+	msg = strings.TrimPrefix(msg, "yaml: ")
+	msg = strings.Replace(msg, ": yaml: ", ": ", 1)
+
+	return errors.New(strings.TrimSpace(msg))
 }
 
 func ValidateRuntimeYAML(cfg domain.TrayConfig, sourceBytes []byte, baseDir string) (*ComposeResult, error) {
