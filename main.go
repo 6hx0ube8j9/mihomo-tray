@@ -183,5 +183,4 @@ func main() {
 
 	runtimeState.ForceExitPhase()
 	application.SafeShutdown(cancel)
-	slog.Info("应用已安全退出")
 }
