@@ -161,7 +161,7 @@ func (a *Application) disableSystemProxySetting() {
 }
 
 func (a *Application) handleTunChange(ctx context.Context) {
-	if a.State.IsExiting() || a.State.IsConfigSyncing() || a.State.IsRestarting() || a.State.IsReloading() {
+	if a.State.IsExiting() || a.State.IsActionBusy() {
 		return
 	}
 
@@ -204,7 +204,7 @@ func (a *Application) syncAllConfig(ctx context.Context) {
 }
 
 func (a *Application) pollKernelAPI(ctx context.Context) bool {
-	if a.State.IsExiting() || a.State.IsReloading() || a.State.IsConfigSyncing() {
+	if a.State.IsExiting() || a.State.IsActionBusy() {
 		return false
 	}
 
