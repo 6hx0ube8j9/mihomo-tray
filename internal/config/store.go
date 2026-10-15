@@ -24,7 +24,7 @@ type Manager struct {
 	data domain.TrayConfig
 }
 
-func NewManager(baseDir, exePath string, isAdmin bool) *Manager {
+func NewManager(baseDir, exePath string) *Manager {
 	return &Manager{
 		baseDir: baseDir,
 		exePath: exePath,
