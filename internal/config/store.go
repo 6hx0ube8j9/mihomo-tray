@@ -28,7 +28,6 @@ func NewManager(baseDir, exePath string, isAdmin bool) *Manager {
 	return &Manager{
 		baseDir: baseDir,
 		exePath: exePath,
-		isAdmin: isAdmin,
 	}
 }
 
