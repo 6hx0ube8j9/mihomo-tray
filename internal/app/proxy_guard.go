@@ -21,19 +21,22 @@ func (a *Application) ToggleProxy(enable bool) {
 		c.General.SystemProxy = &b
 	})
 	a.syncSystemProxy()
+	a.pushUIState()
 }
 
 func (a *Application) syncSystemProxy() {
 	wantEnable := a.Cfg.IsSystemProxyEnabled()
+	portStr, hasPort := a.Cfg.GetEffectiveSystemProxyPortStr()
 
 	if !wantEnable {
-		if err := sys.SetSystemProxy(false, ""); err != nil {
-			slog.Error("关闭系统代理失败", "err", err)
+		if hasPort {
+			if err := sys.DisableProxy(portStr); err != nil {
+				slog.Error("关闭系统代理失败", "err", err)
+			}
 		}
 		return
 	}
 
-	portStr, hasPort := a.Cfg.GetEffectiveSystemProxyPortStr()
 	if !hasPort {
 		slog.Warn("Mixed 与 HTTP 端口均未开启，强制关闭系统代理")
 		a.disableSystemProxySetting()
@@ -45,7 +48,7 @@ func (a *Application) syncSystemProxy() {
 	}
 
 	slog.Debug("更新系统代理", "enabled", true, "port", portStr)
-	if err := sys.SetSystemProxy(true, portStr); err != nil {
+	if err := sys.EnableProxy(portStr); err != nil {
 		slog.Error("设置系统代理失败", "err", err)
 	}
 }
@@ -70,7 +73,7 @@ func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.Pr
 		}
 		return
 	}
-  
+
 	if !a.State.TryAcquireProxyRepair() {
 		return
 	}
@@ -101,7 +104,7 @@ func (a *Application) repairProxyLoop(ctx context.Context, port, expectedServer 
 		}
 	}
 
-	slog.Warn("系统代理持续被外部修改，已自动停用")
+	slog.Warn("系统代理持续被外部修改或恢复超时，已自动停用")
 	a.disableSystemProxySetting()
 }
 
@@ -109,13 +112,17 @@ func (a *Application) disableSystemProxySetting() {
 	if a.State.IsExiting() {
 		return
 	}
+
 	a.Cfg.Update(func(c *domain.TrayConfig) {
 		b := false
 		c.General.SystemProxy = &b
 	})
 
-	if err := sys.SetSystemProxy(false, ""); err != nil {
-		slog.Error("注销系统代理注册表失败", "err", err)
+	if portStr, hasPort := a.Cfg.GetEffectiveSystemProxyPortStr(); hasPort {
+		if err := sys.DisableProxy(portStr); err != nil {
+			slog.Error("注销系统代理注册表失败", "err", err)
+		}
 	}
+
 	a.pushUIState()
 }
