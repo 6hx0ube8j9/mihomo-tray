@@ -1,3 +1,4 @@
+
 package sys
 
 import (
@@ -13,8 +14,6 @@ import (
 )
 
 var (
-	modWininet            = windows.NewLazySystemDLL("wininet.dll")
-	modRasapi32           = windows.NewLazySystemDLL("rasapi32.dll")
 	procInternetSetOption = modWininet.NewProc("InternetSetOptionW")
 	procRasEnumEntries    = modRasapi32.NewProc("RasEnumEntriesW")
 )
@@ -36,7 +35,9 @@ const (
 	internetSettingsPath = `Software\Microsoft\Windows\CurrentVersion\Internet Settings`
 	connectionsPath      = internetSettingsPath + `\Connections`
 
-	RAS_MaxEntryName = 256
+	ERROR_SUCCESS          = 0
+	ERROR_BUFFER_TOO_SMALL = 603
+	RAS_MaxEntryName       = 256
 )
 
 type internetPerConnOption struct {
@@ -131,9 +132,9 @@ func applyProxyToList(list *internetPerConnOptionList) error {
 	)
 
 	var entries []RasEntryName
-	if ret == uintptr(windows.ERROR_SUCCESS) && cEntries == 1 {
+	if ret == uintptr(ERROR_SUCCESS) && cEntries == 1 {
 		entries = []RasEntryName{entry}
-	} else if ret == uintptr(windows.ERROR_BUFFER_TOO_SMALL) && cEntries > 0 {
+	} else if ret == uintptr(ERROR_BUFFER_TOO_SMALL) && cEntries > 0 {
 		entries = make([]RasEntryName, cEntries)
 		entries[0].dwSize = uint32(unsafe.Sizeof(RasEntryName{}))
 		ret, _, _ = procRasEnumEntries.Call(
@@ -142,7 +143,7 @@ func applyProxyToList(list *internetPerConnOptionList) error {
 			uintptr(unsafe.Pointer(&cb)),
 			uintptr(unsafe.Pointer(&cEntries)),
 		)
-		if ret != uintptr(windows.ERROR_SUCCESS) {
+		if ret != uintptr(ERROR_SUCCESS) {
 			entries = nil
 		}
 	}
@@ -233,7 +234,7 @@ func DisableProxy(expectedServer string) error {
 			return nil
 		}
 		if expected != "" && !isServerMatch(curr.Server, expected) {
-			slog.Warn("skip proxy disable: address mismatch", "current", curr.Server, "expected", expected)
+			slog.Warn("skip proxy disable", "reason", "address mismatch", "current", curr.Server, "expected", expected)
 			return nil
 		}
 	}
