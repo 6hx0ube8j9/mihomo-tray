@@ -19,6 +19,10 @@ var ErrProfileLimitExceeded = fmt.Errorf("配置数量已达上限 (%d 个)", do
 var ErrProfileNameConflict = errors.New("配置名称已存在")
 
 func (m *Manager) AllocateRemoteProfilePath(rawName string) (displayName string, relPath string, err error) {
+	if err := m.CheckProfileLimit(); err != nil {
+		return "", "", err
+	}
+
 	if strings.TrimSpace(rawName) == "" {
 		rawName = fmt.Sprintf("%d", time.Now().Unix())
 	}
@@ -43,7 +47,7 @@ func (m *Manager) CheckProfileLimit() error {
 	return nil
 }
 
-func IsInAppTree(appDir, targetPath string) (string, bool) {
+func isInAppTree(appDir, targetPath string) (string, bool) {
 	rel, err := filepath.Rel(appDir, targetPath)
 	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
 		return "", false
@@ -63,7 +67,7 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 		}
 	}
 
-	if relPath, isTree := IsInAppTree(m.baseDir, absSrc); isTree {
+	if relPath, isTree := isInAppTree(m.baseDir, absSrc); isTree {
 		if filepath.Dir(filepath.ToSlash(relPath)) == domain.ProfilesDir {
 			return relPath, false, nil
 		}
@@ -157,7 +161,6 @@ func (m *Manager) SetActiveProfile(relPath string) {
 func (m *Manager) RemoveProfile(relPath string) {
 	m.Update(func(cfg *domain.TrayConfig) {
 		if relPath == cfg.Profiles.Active {
-			slog.Info("当前配置已移除，重置为空配置")
 			cfg.Profiles.Active = ""
 		}
 
