@@ -179,8 +179,5 @@ func main() {
 	}
 
 	slog.Info("托盘事件循环结束，开始清理资源")
-	cancel()
-
-	runtimeState.ForceExitPhase()
 	application.SafeShutdown(cancel)
 }
