@@ -61,7 +61,7 @@ func main() {
 	}
 
 	admin := sys.IsAdmin()
-	cfgMgr := config.NewManager(baseDir, exePath, admin)
+	cfgMgr := config.NewManager(baseDir, exePath)
 	cfgMgr.LoadAndInitMemory()
 	logger.SyncLogLevel(cfgMgr.GetConfig().General.TrayLogLevel)
 
