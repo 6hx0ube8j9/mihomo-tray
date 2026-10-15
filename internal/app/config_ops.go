@@ -187,7 +187,7 @@ func (a *Application) ApplyPortConfig(ctx context.Context, mixed, socks, httpPor
 
 	a.pushUIState()
 
-	if p := a.Cfg.GetConfig().General.SystemProxy; p != nil && *p {
+	if a.Cfg.IsSystemProxyEnabled() {
 		a.syncSystemProxy()
 	}
 
@@ -201,7 +201,7 @@ func (a *Application) ApplyPortConfig(ctx context.Context, mixed, socks, httpPor
 
 		if err := a.API.UpdatePorts(reqCtx, mixed, socks, httpPort); err != nil {
 			if ctx.Err() == nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
-				return fmt.Errorf("端口同步失败: %w", err)
+				return err
 			}
 		}
 	}
