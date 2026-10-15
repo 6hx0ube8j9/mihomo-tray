@@ -14,7 +14,7 @@ import (
 )
 
 func (a *Application) executePhysicalRestart(cfg domain.TrayConfig) {
-	slog.Debug("执行内核物理重启", "tun", cfg.Config.Tun.Enable)
+	slog.Debug("执行内核重启", "tun", cfg.Config.Tun.Enable)
 	if cfg.Config.Tun.Enable {
 		a.State.SetTunRequestedTime(time.Now())
 	}
