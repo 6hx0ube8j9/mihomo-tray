@@ -327,3 +327,7 @@ func (km *KernelManager) KillCurrent() {
 		km.runner.Kill()
 	}
 }
+
+func (km *KernelManager) IsKilledByUs() bool {
+    return km.runner != nil && km.runner.IsKilledByUs()
+}
