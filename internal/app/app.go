@@ -223,6 +223,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 
 		case status := <-a.proxyStatusCh:
 			a.ProxyGuard.HandleStatusChange(ctx, status)
+			a.Presenter.PushUIState()
 
 		case <-ticker.C:
 			adjustPollInterval()
