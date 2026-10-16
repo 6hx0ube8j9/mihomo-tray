@@ -8,6 +8,11 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
+const (
+	TunInitGracePeriod = 20 * time.Second
+	TunLostAlarmDelay  = 6 * time.Second
+)
+
 type KernelAction int32
 
 const (
@@ -31,7 +36,7 @@ type RuntimeState struct {
 	probeGen       atomic.Uint64
 	tunDevName     atomic.Value
 	profileLocks   sync.Map
-	
+
 	busyHook func()
 }
 
@@ -148,6 +153,14 @@ func (r *RuntimeState) GetActualTunDevice() string {
 		return v.(string)
 	}
 	return ""
+}
+
+func (r *RuntimeState) IsTunInGracePeriod() bool {
+	reqTime := r.GetTunRequestedTime()
+	lostTime := r.GetTunLostTime()
+	reqActive := !reqTime.IsZero() && time.Since(reqTime) < TunInitGracePeriod
+	lostActive := !lostTime.IsZero() && time.Since(lostTime) < TunLostAlarmDelay
+	return reqActive || lostActive
 }
 
 // ---------------- 系统代理自动修复锁与探测代际 ----------------
