@@ -34,14 +34,14 @@ func (d *Deployer) SyncRuntimeConfig() error {
 	activePath := d.cfg.GetActivePath()
 	if activePath != "" {
 		if err := d.cfg.ValidatePhysicalFile(activePath); err != nil {
-			return fmt.Errorf("active config file invalid: %w", err)
+			return fmt.Errorf("当前配置无效 - %w", err)
 		}
 	}
 
 	cfg := d.cfg.GetConfig()
 	deployRes, err := core.DeployRuntimeConfig(cfg, activePath, d.cfg.BaseDir())
 	if err != nil {
-		return fmt.Errorf("deploy runtime yaml failed: %w", err)
+		return fmt.Errorf("生成运行配置失败 - %w", err)
 	}
 
 	d.st.SetActualTunDevice(deployRes.TunDevice)
@@ -62,18 +62,18 @@ func (d *Deployer) DeployAndApply(ctx context.Context, targetRelPath, actionDesc
 		if name == "." || name == "" {
 			name = "空配置"
 		}
-		return fmt.Errorf("%s: %w", name, err)
+		return fmt.Errorf("%s - %w", name, err)
 	}
 
 	d.st.SetActualTunDevice(deployRes.TunDevice)
 
 	if d.st.GetPhase() == domain.PhaseRunning && !d.kernel.IsPaused() {
-		slog.Debug("执行内核热重载", "action", actionDesc)
+		slog.Debug("执行热重载", "action", actionDesc)
 		if err := d.hotReload(ctx, deployRes.RuntimeAbs); err == nil {
 			slog.Debug("热重载成功", "target", targetRelPath)
 			return nil
 		}
-		slog.Warn("热重载失败，自动回退为物理重启内核")
+		slog.Warn("热重载失败，准备重启内核")
 	}
 
 	d.PhysicalRestart(cfg)
@@ -81,7 +81,7 @@ func (d *Deployer) DeployAndApply(ctx context.Context, targetRelPath, actionDesc
 }
 
 func (d *Deployer) PhysicalRestart(cfg domain.TrayConfig) {
-	slog.Debug("触发物理重启内核", "tun", cfg.Config.Tun.Enable)
+	slog.Debug("重启内核", "tun", cfg.Config.Tun.Enable)
 	if cfg.Config.Tun.Enable {
 		d.st.SetTunRequestedTime(time.Now())
 	}
@@ -117,7 +117,7 @@ func (d *Deployer) ReloadConfig(ctx context.Context) error {
 	defer d.st.EndAction()
 
 	if err := d.cfg.ReloadFromDisk(); err != nil {
-		return fmt.Errorf("读取配置失败: %w", err)
+		return fmt.Errorf("读取配置失败 - %w", err)
 	}
 
 	return d.DeployAndApply(ctx, d.cfg.GetActivePath(), "配置重载")
@@ -129,7 +129,7 @@ func (d *Deployer) RestartKernel(ctx context.Context) error {
 	}
 	defer d.st.EndAction()
 
-	slog.Info("用户指令，准备重启内核")
+	slog.Info("准备重启内核")
 	_ = d.SyncRuntimeConfig()
 	d.PhysicalRestart(d.cfg.GetConfig())
 	return nil
