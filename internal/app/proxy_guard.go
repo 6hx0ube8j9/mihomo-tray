@@ -79,7 +79,7 @@ func (g *ProxyGuard) HandleStatusChange(ctx context.Context, status sys.ProxySta
 	expectedServer := domain.LocalhostIP + ":" + expectedPort
 
 	if status.Enabled {
-		if status.Server != "" && !strings.EqualFold(status.Server, expectedServer) {
+		if status.Server != "" && !status.Matches(expectedServer) {
 			slog.Warn("检测到第三方代理劫持，停用本地接管", "server", status.Server, "expected", expectedServer)
 			g.DisableAndClearSetting()
 		}
@@ -108,7 +108,7 @@ func (g *ProxyGuard) repairLoop(ctx context.Context, expectedServer string) {
 		}
 
 		cur, err := sys.GetProxyStatus()
-		if err == nil && cur.Enabled && strings.EqualFold(cur.Server, expectedServer) {
+		if err == nil && cur.Enabled && cur.Matches(expectedServer) {
 			slog.Debug("系统代理自愈成功", "attempt", i)
 			return
 		}
