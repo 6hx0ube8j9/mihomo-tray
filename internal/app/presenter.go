@@ -42,9 +42,10 @@ func (p *Presenter) CalculateUIState() domain.UIState {
 		RemoteWebUI:      p.cfg.IsRemoteWebUIEnabled(),
 		AllowLan:         p.cfg.GetEffectiveAllowLan(),
 		IsAdmin:          sys.IsAdmin(),
-		MixedPort:        p.cfg.GetEffectiveMixedPort(),
-		SocksPort:        p.cfg.GetEffectivePort(cfg.Config.SocksPort, domain.DefaultSocksPort),
-		HttpPort:         p.cfg.GetEffectivePort(cfg.Config.Port, domain.DefaultPort),
+
+		MixedPort: p.cfg.GetEffectiveMixedPort(),
+		SocksPort: p.cfg.GetEffectivePort(cfg.Config.SocksPort, domain.DefaultSocksPort),
+		HttpPort:  p.cfg.GetEffectivePort(cfg.Config.Port, domain.DefaultPort),
 	}
 
 	activePath := p.cfg.GetActivePath()
@@ -60,6 +61,7 @@ func (p *Presenter) CalculateUIState() domain.UIState {
 			IsRemote: prof.URL != "",
 			Interval: prof.Interval,
 		}
+
 		if item.IsRemote {
 			item.LastUpdate = prof.FormatLastUpdateText()
 		}
@@ -103,6 +105,7 @@ func (p *Presenter) PushUIState() {
 	p.mu.Lock()
 	newState := p.CalculateUIState()
 	changed := p.hasStateChanged(&newState, &p.lastUIState)
+
 	if changed {
 		p.lastUIState = newState
 	}
@@ -143,8 +146,9 @@ func (p *Presenter) GetSnapshot() domain.UIState {
 }
 
 func (p *Presenter) hasStateChanged(curr, last *domain.UIState) bool {
-	if curr.IconState != last.IconState || curr.IsBusy != last.IsBusy || curr.IsTun != last.IsTun ||
-		curr.IsProxy != last.IsProxy || curr.Mode != last.Mode || curr.AllowLan != last.AllowLan ||
+	if curr.IconState != last.IconState || curr.IsBusy != last.IsBusy ||
+		curr.IsTun != last.IsTun || curr.IsProxy != last.IsProxy ||
+		curr.Mode != last.Mode || curr.AllowLan != last.AllowLan ||
 		curr.AutoStart != last.AutoStart || curr.RunAsAdmin != last.RunAsAdmin ||
 		curr.UseSystemBrowser != last.UseSystemBrowser || curr.RemoteWebUI != last.RemoteWebUI ||
 		curr.IsAdmin != last.IsAdmin || curr.MixedPort != last.MixedPort ||
@@ -152,6 +156,7 @@ func (p *Presenter) hasStateChanged(curr, last *domain.UIState) bool {
 		len(curr.ProfileItems) != len(last.ProfileItems) {
 		return true
 	}
+
 	for i := range curr.ProfileItems {
 		if curr.ProfileItems[i].Path != last.ProfileItems[i].Path ||
 			curr.ProfileItems[i].IsActive != last.ProfileItems[i].IsActive ||
