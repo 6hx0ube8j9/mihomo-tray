@@ -91,7 +91,7 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 
 	st.SetBusyHook(func() {
 		if app.Presenter != nil {
-			app.Presenter.ForcePushUIState()
+			app.Presenter.NotifyChanged()
 		}
 	})
 
