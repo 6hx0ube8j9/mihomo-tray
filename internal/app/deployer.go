@@ -109,3 +109,28 @@ func (d *Deployer) hotReload(ctx context.Context, runtimeAbs string) error {
 	)
 	return nil
 }
+
+func (d *Deployer) ReloadConfig(ctx context.Context) error {
+	if !d.st.TryBeginAction(state.ActionReload) {
+		return errors.New("系统繁忙，请稍后重试")
+	}
+	defer d.st.EndAction()
+
+	if err := d.cfg.ReloadFromDisk(); err != nil {
+		return fmt.Errorf("读取配置失败: %w", err)
+	}
+
+	return d.DeployAndApply(ctx, d.cfg.GetActivePath(), "配置重载")
+}
+
+func (d *Deployer) RestartKernel(ctx context.Context) error {
+	if !d.st.TryBeginAction(state.ActionRestart) {
+		return errors.New("系统繁忙，请稍后重试")
+	}
+	defer d.st.EndAction()
+
+	slog.Info("用户托盘指令，准备重启内核")
+	_ = d.SyncRuntimeConfig()
+	d.PhysicalRestart(d.cfg.GetConfig())
+	return nil
+}
