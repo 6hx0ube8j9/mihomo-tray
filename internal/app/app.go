@@ -252,18 +252,25 @@ func (a *Application) processAutoUpdates(ctx context.Context) {
 	}
 	go func() {
 		defer a.isAutoUpdating.Store(false)
+		hasUpdate := false
+		
 		for _, p := range a.Cfg.GetProfiles() {
 			if a.State.IsExiting() || ctx.Err() != nil {
 				return
 			}
 			if p.IsUpdateDue() {
 				_ = a.ProfileHub.UpdateRemoteProfile(ctx, p.Path, false)
+				hasUpdate = true
 				select {
 				case <-ctx.Done():
 					return
 				case <-time.After(3 * time.Second):
 				}
 			}
+		}
+
+		if hasUpdate {
+			a.Presenter.PushUIState()
 		}
 	}()
 }
