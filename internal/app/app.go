@@ -73,17 +73,20 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 		}
 	})
 
-	app.ProxyGuard = NewProxyGuard(cm, st, func(title, msg string) {
-		if app.ui != nil {
-			app.ui.ShowNotification(title, msg)
-		}
-	})
 	app.Deployer = NewDeployer(cm, st, kernel, api, app.ProxyGuard)
 	app.ProfileHub = NewProfileHub(cm, st, app.Deployer, app.ProxyGuard)
+
 	app.Presenter = NewPresenter(cm, st, app.UIStateNotifyCh)
 	app.Probe = NewKernelProbe(cm, st, api, app.ProxyGuard)
-	app.Tuner = NewTuner(cm, st, api, app.Deployer, app.ProxyGuard, app.Presenter)
-	app.HostBridge = NewHostBridge(cm, st)
+
+	app.HostBridge = NewHostBridge(cm, st, func() {
+		if app.Presenter != nil {
+			app.Presenter.ForcePushUIState()
+		}
+	})
+
+	app.Tuner = NewTuner(cm, st, api, app.Deployer, app.ProxyGuard, app.Presenter, app.ForceSyncAPI)
+
 	app.Panel = NewPanel(cm, st, app.Tuner, app.WebUI, app.webuiEventCh)
 
 	st.SetBusyHook(func() {
