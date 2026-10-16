@@ -25,7 +25,16 @@ func (a *Application) RestartKernelViaAPI(ctx context.Context) error {
 	}
 
 	time.Sleep(200 * time.Millisecond)
-	a.syncAllConfig(ctx)
+
+	cfg := a.Cfg.GetConfig()
+	_ = a.API.SyncAllRuntime(
+		ctx,
+		cfg.Config.Mode,
+		a.Cfg.GetEffectiveAllowLan(),
+		cfg.Config.Tun.Enable,
+		a.State.GetActualTunDevice(),
+	)
+
 	a.ForceSyncAPI()
 	return nil
 }
