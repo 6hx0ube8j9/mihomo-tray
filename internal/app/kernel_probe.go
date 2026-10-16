@@ -13,9 +13,11 @@ import (
 )
 
 const (
-	TunInitGracePeriod   = 20 * time.Second
-	TunLostAlarmDelay    = 6 * time.Second
-	kernelAPIPollTimeout = 1500 * time.Millisecond
+	TunInitGracePeriod    = 20 * time.Second
+	TunLostAlarmDelay     = 6 * time.Second
+	tunProbeBurstInterval = 300 * time.Millisecond
+	tunProbeBurstTimes    = 3
+	kernelAPIPollTimeout  = 1500 * time.Millisecond
 )
 
 type KernelProbe struct {
@@ -37,10 +39,8 @@ func NewKernelProbe(cfg *config.Manager, st *state.RuntimeState, api *core.APICl
 func (p *KernelProbe) IsTunInGracePeriod() bool {
 	reqTime := p.st.GetTunRequestedTime()
 	lostTime := p.st.GetTunLostTime()
-
 	reqActive := !reqTime.IsZero() && time.Since(reqTime) < TunInitGracePeriod
 	lostActive := !lostTime.IsZero() && time.Since(lostTime) < TunLostAlarmDelay
-
 	return reqActive || lostActive
 }
 
@@ -143,7 +143,6 @@ func (p *KernelProbe) PollStatus(ctx context.Context) bool {
 
 func (p *KernelProbe) reconcileTunState(kernelTunEnabled bool) bool {
 	wantTun := p.cfg.GetConfig().Config.Tun.Enable
-
 	if wantTun && kernelTunEnabled && p.st.IsTunAlive() && p.IsTunInGracePeriod() {
 		p.st.SetTunRequestedTime(time.Time{})
 		slog.Debug("TUN 网卡已进入就绪状态")
@@ -152,14 +151,38 @@ func (p *KernelProbe) reconcileTunState(kernelTunEnabled bool) bool {
 	if kernelTunEnabled != wantTun {
 		if wantTun && !kernelTunEnabled && p.IsTunInGracePeriod() {
 			if time.Since(p.st.GetTunRequestedTime()) < TunInitGracePeriod {
-				slog.Debug("TUN 处于保护期，跳过外部反向覆盖")
 				return false
 			}
 		}
-
 		slog.Info("同步 TUN 状态变更", "expected", wantTun, "actual", kernelTunEnabled)
 		p.cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = kernelTunEnabled })
 		return true
 	}
 	return false
+}
+
+func (p *KernelProbe) HandleTunChange(ctx context.Context, forceSync func(), pushUI func()) {
+	if p.st.IsExiting() || p.st.IsActionBusy() {
+		return
+	}
+	tunDev := p.st.GetActualTunDevice()
+	alive := sys.IsTunActive(tunDev)
+	if p.st.IsTunAlive() != alive {
+		slog.Info("TUN 网卡状态变更", "device", tunDev, "active", alive)
+		p.st.SetTunAlive(alive)
+		if !alive {
+			p.st.SetTunLostTime(time.Now())
+		}
+		go func() {
+			for i := 0; i < tunProbeBurstTimes; i++ {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(tunProbeBurstInterval):
+				}
+				forceSync()
+			}
+		}()
+		pushUI()
+	}
 }
