@@ -7,7 +7,6 @@ import (
 
 	"mihomo-tray/internal/domain"
 )
-
 func (a *Application) asyncRun(title string, task func() error) {
 	go func() {
 		if err := task(); err != nil {
@@ -15,6 +14,8 @@ func (a *Application) asyncRun(title string, task func() error) {
 			if a.ui != nil {
 				a.ui.ShowError(title+"失败", err.Error())
 			}
+		} else {
+			a.Presenter.PushUIState()
 		}
 	}()
 }
