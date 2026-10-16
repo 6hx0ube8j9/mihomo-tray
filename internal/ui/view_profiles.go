@@ -25,21 +25,18 @@ type ProfileView struct {
 	actionMoveDown *walk.Action
 	btnMoveUp      *walk.PushButton
 	btnMoveDown    *walk.PushButton
-
 	isBusy         bool
 }
 
 type ProfileModel struct {
 	walk.TableModelBase
-	Items        []domain.UIProfileItem
-	IsBusy       bool
-	TargetRowIdx int
+	Items []domain.UIProfileItem
 }
 
 func NewProfileView(e *Engine) *ProfileView {
 	return &ProfileView{
 		engine: e,
-		model:  &ProfileModel{Items: []domain.UIProfileItem{}, TargetRowIdx: -1},
+		model:  &ProfileModel{Items: []domain.UIProfileItem{}},
 	}
 }
 
@@ -128,36 +125,11 @@ func (v *ProfileView) Declarative() []Widget {
 }
 
 func (v *ProfileView) RefreshData(state domain.UIState) {
-	forceRedrawRow := v.syncBusyState(state.IsBusy)
+	v.isBusy = state.IsBusy
+	
 	v.updatePortsLabel(state)
-	v.renderTableItems(state.ProfileItems, forceRedrawRow)
+	v.renderTableItems(state.ProfileItems)
 	v.updateActionState()
-}
-
-func (v *ProfileView) syncBusyState(newBusy bool) int {
-	forceRedrawRow := -1
-	wasBusy := v.isBusy
-	v.isBusy = newBusy
-
-	if v.model == nil {
-		return forceRedrawRow
-	}
-	v.model.IsBusy = newBusy
-
-	if newBusy {
-		if !wasBusy && v.tableView != nil {
-			v.model.TargetRowIdx = v.tableView.CurrentIndex()
-			v.tableView.SetCurrentIndex(-1)
-		}
-		forceRedrawRow = v.model.TargetRowIdx
-	} else {
-		if wasBusy && v.model.TargetRowIdx >= 0 && v.tableView != nil {
-			v.tableView.SetCurrentIndex(v.model.TargetRowIdx)
-			forceRedrawRow = v.model.TargetRowIdx
-		}
-		v.model.TargetRowIdx = -1
-	}
-	return forceRedrawRow
 }
 
 func (v *ProfileView) updatePortsLabel(state domain.UIState) {
@@ -170,21 +142,21 @@ func (v *ProfileView) updatePortsLabel(state domain.UIState) {
 	}
 }
 
-func (v *ProfileView) renderTableItems(items []domain.UIProfileItem, forceRedrawRow int) {
+func (v *ProfileView) renderTableItems(items []domain.UIProfileItem) {
 	if v.tableView == nil {
 		v.model.Items = items
 		return
 	}
 
 	if v.isStructurallyEqual(v.model.Items, items) {
-		v.fastUpdateTable(items, forceRedrawRow)
+		v.fastUpdateTable(items)
 		return
 	}
 
-	v.fullRebuildTable(items, forceRedrawRow)
+	v.fullRebuildTable(items)
 }
 
-func (v *ProfileView) fastUpdateTable(items []domain.UIProfileItem, forceRedrawRow int) {
+func (v *ProfileView) fastUpdateTable(items []domain.UIProfileItem) {
 	for i := range items {
 		old := v.model.Items[i]
 		cur := items[i]
@@ -193,22 +165,12 @@ func (v *ProfileView) fastUpdateTable(items []domain.UIProfileItem, forceRedrawR
 			v.model.PublishRowChanged(i)
 		}
 	}
-
-	if forceRedrawRow >= 0 {
-		v.model.PublishRowChanged(forceRedrawRow)
-	}
 }
 
-func (v *ProfileView) fullRebuildTable(items []domain.UIProfileItem, forceRedrawRow int) {
+func (v *ProfileView) fullRebuildTable(items []domain.UIProfileItem) {
 	var selectedPath string
-
-	realIdx := v.tableView.CurrentIndex()
-	if realIdx == -1 && forceRedrawRow >= 0 {
-		realIdx = forceRedrawRow
-	}
-
-	if realIdx >= 0 && realIdx < len(v.model.Items) {
-		selectedPath = v.model.Items[realIdx].Path
+	if idx := v.tableView.CurrentIndex(); idx >= 0 && idx < len(v.model.Items) {
+		selectedPath = v.model.Items[idx].Path
 	}
 
 	v.tableView.SetSuspended(true)
@@ -218,22 +180,12 @@ func (v *ProfileView) fullRebuildTable(items []domain.UIProfileItem, forceRedraw
 	v.model.PublishRowsReset()
 
 	if selectedPath != "" {
-		found := false
 		for i, item := range items {
 			if item.Path == selectedPath {
 				v.tableView.SetCurrentIndex(i)
-				if v.model.IsBusy {
-					v.model.TargetRowIdx = i
-				}
-				found = true
 				break
 			}
 		}
-		if !found && v.model.IsBusy {
-			v.model.TargetRowIdx = -1
-		}
-	} else if v.model.IsBusy {
-		v.model.TargetRowIdx = -1
 	}
 }
 
@@ -257,6 +209,7 @@ func (v *ProfileView) updateActionState() {
 	hasSelection := idx >= 0 && idx < len(v.model.Items)
 
 	var canSwitch, canUpdate, canMoveUp, canMoveDown bool
+	
 	if hasSelection && !v.isBusy {
 		item := v.model.Items[idx]
 		canSwitch = !item.IsActive
@@ -317,10 +270,4 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 		return item.LastUpdate
 	}
 	return ""
-}
-
-func (m *ProfileModel) StyleCell(style *walk.CellStyle) {
-	if m.IsBusy && style.Row() == m.TargetRowIdx {
-		style.BackgroundColor = walk.RGB(210, 210, 210)
-	}
 }
