@@ -1,58 +1,81 @@
 package app
 
 import (
+	"sync"
+
+	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
 )
 
-func (a *Application) calculateUIState() domain.UIState {
-	cfg := a.Cfg.GetConfig()
+type Presenter struct {
+	cfg      *config.Manager
+	st       *state.RuntimeState
+	probe    *KernelProbe
+	notifyCh chan struct{}
+
+	lastUIState domain.UIState
+	mu          sync.RWMutex
+}
+
+func NewPresenter(cfg *config.Manager, st *state.RuntimeState, probe *KernelProbe, notifyCh chan struct{}) *Presenter {
+	return &Presenter{
+		cfg:      cfg,
+		st:       st,
+		probe:    probe,
+		notifyCh: notifyCh,
+	}
+}
+
+func (p *Presenter) CalculateUIState() domain.UIState {
+	cfg := p.cfg.GetConfig()
 
 	s := domain.UIState{
-		IsBusy:           a.State.IsActionBusy(),
+		IsBusy:           p.st.IsActionBusy(),
 		IsTun:            cfg.Config.Tun.Enable,
-		IsProxy:          a.Cfg.IsSystemProxyEnabled(),
+		IsProxy:          p.cfg.IsSystemProxyEnabled(),
 		Mode:             cfg.Config.Mode,
-		AutoStart:        a.Cfg.IsAutostartEnabled(),
+		AutoStart:        p.cfg.IsAutostartEnabled(),
 		RunAsAdmin:       cfg.General.RunAsAdmin,
-		UseSystemBrowser: a.Cfg.IsSystemBrowserEnabled(),
-		RemoteWebUI:      a.Cfg.IsRemoteWebUIEnabled(),
-		AllowLan:         a.Cfg.GetEffectiveAllowLan(),
+		UseSystemBrowser: p.cfg.IsSystemBrowserEnabled(),
+		RemoteWebUI:      p.cfg.IsRemoteWebUIEnabled(),
+		AllowLan:         p.cfg.GetEffectiveAllowLan(),
 		IsAdmin:          sys.IsAdmin(),
 
-		MixedPort: a.Cfg.GetEffectiveMixedPort(),
-		SocksPort: a.Cfg.GetEffectivePort(cfg.Config.SocksPort, domain.DefaultSocksPort),
-		HttpPort:  a.Cfg.GetEffectivePort(cfg.Config.Port, domain.DefaultPort),
+		MixedPort: p.cfg.GetEffectiveMixedPort(),
+		SocksPort: p.cfg.GetEffectivePort(cfg.Config.SocksPort, domain.DefaultSocksPort),
+		HttpPort:  p.cfg.GetEffectivePort(cfg.Config.Port, domain.DefaultPort),
 	}
 
-	activePath := a.Cfg.GetActivePath()
-	profiles := a.Cfg.GetProfiles()
+	activePath := p.cfg.GetActivePath()
+	profiles := p.cfg.GetProfiles()
 	s.CanAddProfile = len(profiles) < domain.MaxProfileCount
 
 	s.ProfileItems = make([]domain.UIProfileItem, 0, len(profiles))
-	for _, p := range profiles {
+	for _, prof := range profiles {
 		item := domain.UIProfileItem{
-			Name:     domain.TruncateMiddle(p.Name),
-			Path:     p.Path,
-			IsActive: p.Path == activePath && activePath != "",
-			IsRemote: p.URL != "",
-			Interval: p.Interval,
+			Name:     domain.TruncateMiddle(prof.Name),
+			Path:     prof.Path,
+			IsActive: prof.Path == activePath && activePath != "",
+			IsRemote: prof.URL != "",
+			Interval: prof.Interval,
 		}
 
 		if item.IsRemote {
-			item.LastUpdate = p.FormatLastUpdateText()
+			item.LastUpdate = prof.FormatLastUpdateText()
 		}
 
 		s.ProfileItems = append(s.ProfileItems, item)
 	}
 
-	if a.State.IsExiting() {
+	if p.st.IsExiting() {
 		s.IconState = domain.IconStop
 		return s
 	}
 
-	if !a.State.IsActionBusy() {
-		if a.State.IsRestarting() || a.State.GetPhase() != domain.PhaseRunning {
+	if !p.st.IsActionBusy() {
+		if p.st.IsRestarting() || p.st.GetPhase() != domain.PhaseRunning {
 			s.IconState = domain.IconStop
 			return s
 		}
@@ -67,7 +90,7 @@ func (a *Application) calculateUIState() domain.UIState {
 		return s
 	}
 
-	if a.State.IsTunAlive() || a.isTunInGracePeriod() {
+	if p.st.IsTunAlive() || p.probe.IsTunInGracePeriod() {
 		s.IconState = domain.IconTun
 	} else {
 		s.IconState = domain.IconError
@@ -75,79 +98,80 @@ func (a *Application) calculateUIState() domain.UIState {
 	return s
 }
 
-func (a *Application) pushUIState() {
-	if a.State.IsExiting() || a.State.IsActionBusy() {
+func (p *Presenter) PushUIState() {
+	if p.st.IsExiting() || p.st.IsActionBusy() {
 		return
 	}
 
-	a.uiStateMutex.Lock()
-	newState := a.calculateUIState()
-	changed := false
-
-	if newState.IconState != a.lastUIState.IconState ||
-		newState.IsBusy != a.lastUIState.IsBusy ||
-		newState.IsTun != a.lastUIState.IsTun ||
-		newState.IsProxy != a.lastUIState.IsProxy ||
-		newState.Mode != a.lastUIState.Mode ||
-		newState.AllowLan != a.lastUIState.AllowLan ||
-		newState.AutoStart != a.lastUIState.AutoStart ||
-		newState.RunAsAdmin != a.lastUIState.RunAsAdmin ||
-		newState.UseSystemBrowser != a.lastUIState.UseSystemBrowser ||
-		newState.RemoteWebUI != a.lastUIState.RemoteWebUI ||
-		newState.IsAdmin != a.lastUIState.IsAdmin ||
-		newState.MixedPort != a.lastUIState.MixedPort ||
-		newState.SocksPort != a.lastUIState.SocksPort ||
-		newState.HttpPort != a.lastUIState.HttpPort ||
-		len(newState.ProfileItems) != len(a.lastUIState.ProfileItems) {
-		changed = true
-	} else {
-		for i := range newState.ProfileItems {
-			if newState.ProfileItems[i].Path != a.lastUIState.ProfileItems[i].Path ||
-				newState.ProfileItems[i].IsActive != a.lastUIState.ProfileItems[i].IsActive ||
-				newState.ProfileItems[i].Interval != a.lastUIState.ProfileItems[i].Interval ||
-				newState.ProfileItems[i].LastUpdate != a.lastUIState.ProfileItems[i].LastUpdate {
-				changed = true
-				break
-			}
-		}
-	}
+	p.mu.Lock()
+	newState := p.CalculateUIState()
+	changed := p.hasStateChanged(&newState, &p.lastUIState)
 
 	if changed {
-		a.lastUIState = newState
+		p.lastUIState = newState
 	}
-	a.uiStateMutex.Unlock()
+	p.mu.Unlock()
 
 	if changed {
 		select {
-		case a.UIStateNotifyCh <- struct{}{}:
+		case p.notifyCh <- struct{}{}:
 		default:
 		}
 	}
 }
 
-func (a *Application) ForcePushUIState() {
-	if a.State.IsExiting() {
+func (p *Presenter) ForcePushUIState() {
+	if p.st.IsExiting() {
 		return
 	}
 
-	a.uiStateMutex.Lock()
-	newState := a.calculateUIState()
-	a.lastUIState = newState
-	a.uiStateMutex.Unlock()
+	p.mu.Lock()
+	p.lastUIState = p.CalculateUIState()
+	p.mu.Unlock()
 
 	select {
-	case a.UIStateNotifyCh <- struct{}{}:
+	case p.notifyCh <- struct{}{}:
 	default:
 	}
 }
 
-func (a *Application) GetUIStateSnapshot() domain.UIState {
-	a.uiStateMutex.RLock()
-	defer a.uiStateMutex.RUnlock()
+func (p *Presenter) GetSnapshot() domain.UIState {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 
-	stateSnapshot := a.lastUIState
-	items := make([]domain.UIProfileItem, len(a.lastUIState.ProfileItems))
-	copy(items, a.lastUIState.ProfileItems)
+	stateSnapshot := p.lastUIState
+	items := make([]domain.UIProfileItem, len(p.lastUIState.ProfileItems))
+	copy(items, p.lastUIState.ProfileItems)
 	stateSnapshot.ProfileItems = items
 	return stateSnapshot
+}
+
+func (p *Presenter) hasStateChanged(curr, last *domain.UIState) bool {
+	if curr.IconState != last.IconState ||
+		curr.IsBusy != last.IsBusy ||
+		curr.IsTun != last.IsTun ||
+		curr.IsProxy != last.IsProxy ||
+		curr.Mode != last.Mode ||
+		curr.AllowLan != last.AllowLan ||
+		curr.AutoStart != last.AutoStart ||
+		curr.RunAsAdmin != last.RunAsAdmin ||
+		curr.UseSystemBrowser != last.UseSystemBrowser ||
+		curr.RemoteWebUI != last.RemoteWebUI ||
+		curr.IsAdmin != last.IsAdmin ||
+		curr.MixedPort != last.MixedPort ||
+		curr.SocksPort != last.SocksPort ||
+		curr.HttpPort != last.HttpPort ||
+		len(curr.ProfileItems) != len(last.ProfileItems) {
+		return true
+	}
+
+	for i := range curr.ProfileItems {
+		if curr.ProfileItems[i].Path != last.ProfileItems[i].Path ||
+			curr.ProfileItems[i].IsActive != last.ProfileItems[i].IsActive ||
+			curr.ProfileItems[i].Interval != last.ProfileItems[i].Interval ||
+			curr.ProfileItems[i].LastUpdate != last.ProfileItems[i].LastUpdate {
+			return true
+		}
+	}
+	return false
 }
