@@ -33,6 +33,13 @@ func NewProfileHub(cfg *config.Manager, st *state.RuntimeState, deployer *Deploy
 	}
 }
 
+func (h *ProfileHub) getActiveProxyPort() string {
+	if h.deployer != nil && h.deployer.IsKernelRunning() {
+		return h.cfg.GetEffectiveLocalProxyPortStr()
+	}
+	return ""
+}
+
 func (h *ProfileHub) EnsureActiveValid(ctx context.Context) {
 	activePath := h.cfg.GetActivePath()
 	if activePath == "" {
@@ -97,14 +104,11 @@ func (h *ProfileHub) SwitchProfile(ctx context.Context, targetPath string) error
 	}
 	defer h.st.EndAction()
 
-	oldPath := h.cfg.GetActivePath()
-	h.cfg.SetActiveProfile(targetPath)
-
 	if err := h.deployer.DeployAndApply(ctx, targetPath, "切换配置"); err != nil {
-		h.cfg.SetActiveProfile(oldPath)
 		return err
 	}
 
+	h.cfg.SetActiveProfile(targetPath)
 	return nil
 }
 
@@ -282,7 +286,7 @@ func (h *ProfileHub) SetProfileInterval(payload string) {
 }
 
 func (h *ProfileHub) fetchAndCommit(ctx context.Context, targetRelPath, url string, item *domain.ProfileItem) error {
-	proxyPort := h.cfg.GetEffectiveLocalProxyPortStr()
+	proxyPort := h.getActiveProxyPort()
 	res, err := h.cfg.FetchRemoteProfile(ctx, url, proxyPort)
 	if err != nil {
 		return err
@@ -319,27 +323,28 @@ func (h *ProfileHub) validateSource(sourcePath string) error {
 		absPath = h.cfg.GetProfileAbsPath(sourcePath)
 	}
 
+	fileName := filepath.Base(sourcePath)
 	fi, err := os.Stat(absPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return errors.New("目标配置文件不存在")
+			return fmt.Errorf("%s: 目标配置文件不存在", fileName)
 		}
-		return fmt.Errorf("无法读取文件: %w", err)
+		return fmt.Errorf("%s: 无法读取文件: %w", fileName, err)
 	}
 	if fi.Size() == 0 {
-		return errors.New("文件内容为空")
+		return fmt.Errorf("%s: 文件内容为空", fileName)
 	}
 	if fi.Size() > domain.MaxProfileBytes {
-		return errors.New("文件超出大小限制")
+		return fmt.Errorf("%s: 文件超出大小限制", fileName)
 	}
 
 	content, err := os.ReadFile(absPath)
 	if err != nil {
-		return fmt.Errorf("读取配置内容失败: %w", err)
+		return fmt.Errorf("%s: 读取配置内容失败: %w", fileName, err)
 	}
 
 	if _, err := core.ComposeRuntimeYAML(h.cfg.GetConfig(), content); err != nil {
-		return fmt.Errorf("配置语法错误: %w", err)
+		return fmt.Errorf("%s: 配置语法错误: %w", fileName, err)
 	}
 	return nil
 }
