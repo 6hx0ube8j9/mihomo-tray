@@ -76,8 +76,13 @@ func GetWebUITarget(debugPort string) (id string, title string, found bool) {
 	}
 
 	for _, t := range targets {
+		targetType, _ := t["type"].(string)
+		if targetType != "" && targetType != "page" {
+			continue
+		}
+
 		pURL, _ := t["url"].(string)
-		if strings.Contains(pURL, "/ui/") || strings.Contains(pURL, "setup") || strings.Contains(pURL, "#/proxies") || strings.Contains(pURL, "board.zash") {
+		if pURL != "" && pURL != "about:blank" {
 			id, _ = t["id"].(string)
 			title, _ = t["title"].(string)
 			return id, title, true
