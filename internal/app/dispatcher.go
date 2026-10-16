@@ -7,15 +7,16 @@ import (
 
 	"mihomo-tray/internal/domain"
 )
+
 func (a *Application) asyncRun(title string, task func() error) {
 	go func() {
+		defer a.Presenter.PushUIState()
+
 		if err := task(); err != nil {
 			slog.Error(title+"失败", "err", err)
 			if a.ui != nil {
 				a.ui.ShowError(title+"失败", err.Error())
 			}
-		} else {
-			a.Presenter.PushUIState()
 		}
 	}()
 }
@@ -40,7 +41,7 @@ func (a *Application) tryRestartWebUIIfOpen() {
 
 func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand) {
 	switch cmd.Action {
-	
+
 	// ================= 订阅与配置管理 (ProfileHub) =================
 	case domain.ActionOpenProfileManager:
 		if a.ui != nil {
@@ -54,7 +55,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 						slog.Error("导入本地配置失败", "err", err)
 						a.ui.ShowError("导入配置", err.Error())
 					} else {
-						a.tryRestartWebUIIfOpen()
 						a.Presenter.PushUIState()
 					}
 				}
@@ -69,7 +69,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 						slog.Error("添加订阅失败", "err", err)
 						a.ui.ShowError("添加订阅", err.Error())
 					} else {
-						a.tryRestartWebUIIfOpen()
 						a.Presenter.PushUIState()
 					}
 				}
@@ -182,8 +181,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		}()
 	case domain.ActionToggleSystemBrowser:
 		a.Tuner.ToggleSystemBrowser(cmd.Payload == "true")
+		a.Presenter.PushUIState()
 	case domain.ActionToggleRemoteWebUI:
 		a.Tuner.ToggleRemoteWebUI(cmd.Payload == "true")
+		a.Presenter.PushUIState()
 	case domain.ActionCopyWebUIPassword:
 		if err := a.Panel.CopyPassword(); err != nil {
 			if a.ui != nil {
@@ -211,19 +212,21 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	// ================= 系统特权与文件资源 (HostBridge / Deployer) =================
 	case domain.ActionReloadConfig:
 		a.asyncRun("重载配置", func() error {
-			if err := a.Deployer.ReloadConfig(ctx); err != nil {
+			// [调优顺序] 先读配置 -> 回滚特权 -> 部署内核
+			if err := a.Deployer.ReloadConfig(ctx, func() {
+				a.HostBridge.CheckAndReconcilePrivileges(false)
+			}); err != nil {
 				return err
 			}
-			a.HostBridge.CheckAndReconcilePrivileges(false)
 			a.tryRestartWebUIIfOpen()
 			return nil
 		})
 	case domain.ActionRestartKernel:
 		a.asyncRun("重启内核", func() error {
+			a.HostBridge.CheckAndReconcilePrivileges(false)
 			if err := a.Deployer.RestartKernel(ctx); err != nil {
 				return err
 			}
-			a.HostBridge.CheckAndReconcilePrivileges(false)
 			a.tryRestartWebUIIfOpen()
 			return nil
 		})
