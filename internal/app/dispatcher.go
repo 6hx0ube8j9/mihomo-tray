@@ -55,6 +55,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 						a.ui.ShowError("导入配置", err.Error())
 					} else {
 						a.tryRestartWebUIIfOpen()
+						a.Presenter.PushUIState()
 					}
 				}
 			}
@@ -69,6 +70,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 						a.ui.ShowError("添加订阅", err.Error())
 					} else {
 						a.tryRestartWebUIIfOpen()
+						a.Presenter.PushUIState()
 					}
 				}
 			}
@@ -93,6 +95,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				if err != nil {
 					slog.Error("保存配置信息失败", "err", err)
 					a.ui.ShowError("保存配置", err.Error())
+				} else {
+					a.Presenter.PushUIState()
 				}
 			}(p)
 		}
