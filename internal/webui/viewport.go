@@ -70,8 +70,8 @@ func calculateWindowBounds() (winW, winH, winX, winY int) {
 		winH = maxSafeH
 	}
 
-	winX = max(0, startX+(usableW-winW)/2)
-	winY = max(0, startY+(usableH-winH)/2)
+	winX = startX + (usableW-winW)/2
+	winY = startY + (usableH-winH)/2
 	return
 }
 
@@ -103,7 +103,7 @@ func (m *Manager) findAndFocusWebUI(targetTitle, appHostPort string, targetPid u
 	var pendingPidHwnd uintptr
 
 	targetHwnd := sys.FindTopWindow(func(info sys.WindowInfo) bool {
-		if !isBrowserWindowClass(info.ClassName) || info.Title == "" {
+		if !sys.IsWindowVisible(info.Hwnd) || !isBrowserWindowClass(info.ClassName) || info.Title == "" {
 			return false
 		}
 
