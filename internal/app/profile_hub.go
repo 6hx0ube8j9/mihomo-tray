@@ -78,7 +78,7 @@ func (h *ProfileHub) FallbackToEmpty(ctx context.Context, reason string) {
 		cfg := h.cfg.GetConfig()
 		_, _ = core.DeployRuntimeConfig(cfg, "", h.cfg.BaseDir())
 	}
-	
+
 	h.guard.Sync()
 }
 
