@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"log/slog"
-	"strings"
 	"time"
 
 	"mihomo-tray/internal/config"
@@ -44,8 +43,10 @@ func (g *ProxyGuard) Sync() {
 	portStr, hasPort := g.cfg.GetEffectiveSystemProxyPortStr()
 
 	if !wantEnable {
-		if err := sys.DisableProxy(portStr); err != nil {
-			slog.Error("关闭系统代理失败", "err", err)
+		if hasPort {
+			if err := sys.DisableProxy(portStr); err != nil {
+				slog.Error("关闭系统代理失败", "err", err)
+			}
 		}
 		return
 	}
@@ -126,8 +127,9 @@ func (g *ProxyGuard) DisableAndClearSetting() {
 		c.General.SystemProxy = &b
 	})
 
-	portStr, _ := g.cfg.GetEffectiveSystemProxyPortStr()
-	if err := sys.DisableProxy(portStr); err != nil {
-		slog.Error("注销系统代理注册表失败", "err", err)
+	if portStr, hasPort := g.cfg.GetEffectiveSystemProxyPortStr(); hasPort {
+		if err := sys.DisableProxy(portStr); err != nil {
+			slog.Error("注销系统代理注册表失败", "err", err)
+		}
 	}
 }
