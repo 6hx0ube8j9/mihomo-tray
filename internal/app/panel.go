@@ -15,20 +15,20 @@ import (
 )
 
 type Panel struct {
-	cfg      *config.Manager
-	st       *state.RuntimeState
-	settings *SettingsService // 或叫做 Tuner
-	coreMgr  *webui.Manager
-	eventCh  chan webui.Event
+	cfg     *config.Manager
+	st      *state.RuntimeState
+	tuner   *Tuner
+	coreMgr *webui.Manager
+	eventCh chan webui.Event
 }
 
-func NewPanel(cfg *config.Manager, st *state.RuntimeState, settings *SettingsService, coreMgr *webui.Manager, eventCh chan webui.Event) *Panel {
+func NewPanel(cfg *config.Manager, st *state.RuntimeState, tuner *Tuner, coreMgr *webui.Manager, eventCh chan webui.Event) *Panel {
 	return &Panel{
-		cfg:      cfg,
-		st:       st,
-		settings: settings,
-		coreMgr:  coreMgr,
-		eventCh:  eventCh,
+		cfg:     cfg,
+		st:      st,
+		tuner:   tuner,
+		coreMgr: coreMgr,
+		eventCh: eventCh,
 	}
 }
 
@@ -37,7 +37,7 @@ func (p *Panel) Open(forceSync func()) error {
 		return errors.New("内核尚未就绪，请稍候")
 	}
 
-	addr, secret, online, sysBrowser, remoteURL := p.settings.GetControllerSnapshot()
+	addr, secret, online, sysBrowser, remoteURL := p.tuner.GetControllerSnapshot()
 	cfg := p.cfg.GetConfig()
 
 	slog.Info("启动 Web 面板", "addr", addr, "sys_browser", sysBrowser, "remote", online)
@@ -59,7 +59,7 @@ func (p *Panel) Open(forceSync func()) error {
 }
 
 func (p *Panel) CopyPassword() error {
-	_, secret, _, _, _ := p.settings.GetControllerSnapshot()
+	_, secret, _, _, _ := p.tuner.GetControllerSnapshot()
 	if secret == "" {
 		return errors.New("外部控制未设置访问密码")
 	}
