@@ -102,7 +102,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 
 	a.HostBridge.CheckAndReconcilePrivileges(true)
 	if err := a.Deployer.SyncRuntimeConfig(); err != nil {
-		slog.Warn("底稿配置验证未通过，执行降级保护", "err", err)
+		slog.Warn("启动时底稿配置校验失败，执行安全回退", "err", err)
 		a.ProfileHub.FallbackToEmpty(ctx, "配置语法校验失败")
 	}
 
