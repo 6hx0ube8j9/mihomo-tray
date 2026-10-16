@@ -13,14 +13,16 @@ import (
 )
 
 type HostBridge struct {
-	cfg *config.Manager
-	st  *state.RuntimeState
+	cfg             *config.Manager
+	st              *state.RuntimeState
+	onElevateRevert func()
 }
 
-func NewHostBridge(cfg *config.Manager, st *state.RuntimeState) *HostBridge {
+func NewHostBridge(cfg *config.Manager, st *state.RuntimeState, onElevateRevert func()) *HostBridge {
 	return &HostBridge{
-		cfg: cfg,
-		st:  st,
+		cfg:             cfg,
+		st:              st,
+		onElevateRevert: onElevateRevert,
 	}
 }
 
@@ -37,6 +39,9 @@ func (h *HostBridge) ElevatePrivilege(rollback func()) (restarted bool) {
 	slog.Warn("提权取消或失败，已回滚设置", "err", err)
 	if rollback != nil {
 		rollback()
+	}
+	if h.onElevateRevert != nil {
+		h.onElevateRevert()
 	}
 	return false
 }
