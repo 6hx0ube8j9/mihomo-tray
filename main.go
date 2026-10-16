@@ -146,7 +146,7 @@ func main() {
 	application := app.NewApplication(cfgMgr, runtimeState)
 
 	slog.Debug("初始化托盘引擎")
-	uiEngine := ui.NewEngine(ctx, cancel, application.UICommandCh, application.UIStateNotifyCh, application.GetUIStateSnapshot)
+	uiEngine := ui.NewEngine(ctx, cancel, application.UICommandCh, application.UIStateNotifyCh, application.Presenter.GetSnapshot)
 	application.SetUIPort(uiEngine)
 
 	go func() {
