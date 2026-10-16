@@ -21,16 +21,18 @@ func (a *Application) asyncRun(title string, task func() error) {
 
 func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand) {
 	switch cmd.Action {
+
+	// ==================== 订阅与配置管理 (Profiles) ====================
 	case domain.ActionOpenProfileManager:
 		if a.ui != nil {
-			a.ui.ShowProfileManager(a.GetUIStateSnapshot())
+			a.ui.ShowProfileManager(a.Presenter.GetSnapshot())
 		}
 
 	case domain.ActionRequestAddLocal:
 		go func() {
 			if a.ui != nil {
 				if selectedPath, ok := a.ui.OpenYAMLFileDialog(); ok {
-					if err := a.ImportLocalProfile(ctx, selectedPath); err != nil {
+					if err := a.Profiles.ImportLocalProfile(ctx, selectedPath); err != nil {
 						slog.Error("导入本地配置失败", "path", selectedPath, "err", err)
 						a.ui.ShowError("导入配置", err.Error())
 					}
@@ -43,7 +45,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			if a.ui != nil {
 				name, url, interval, ok := a.ui.ShowProfileInfoEditor("添加远程订阅", "", "", domain.DefaultUpdateInterval, true)
 				if ok {
-					if err := a.AddRemoteProfile(ctx, name, url, interval); err != nil {
+					if err := a.Profiles.AddRemoteProfile(ctx, name, url, interval); err != nil {
 						slog.Error("添加订阅失败", "url", url, "err", err)
 						a.ui.ShowError("添加订阅", err.Error())
 					}
@@ -52,7 +54,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		}()
 
 	case domain.ActionEditProfileInfo:
-		if p, ok := a.GetProfileInfo(cmd.Payload); ok {
+		if p, ok := a.Profiles.GetProfileInfo(cmd.Payload); ok {
 			go func(profile domain.ProfileItem) {
 				if a.ui == nil {
 					return
@@ -66,9 +68,9 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 				var err error
 				if isRemote {
-					err = a.EditRemoteProfile(ctx, profile.Path, name, url, interval)
+					err = a.Profiles.EditRemoteProfile(ctx, profile.Path, name, url, interval)
 				} else {
-					err = a.EditLocalProfile(ctx, profile.Path, name)
+					err = a.Profiles.EditLocalProfile(ctx, profile.Path, name)
 				}
 
 				if err != nil {
@@ -79,15 +81,19 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		}
 
 	case domain.ActionUpdateRemoteProfile:
-		if p, ok := a.GetProfileInfo(cmd.Payload); ok {
-			a.asyncRun("更新订阅", func() error { return a.UpdateRemoteProfile(ctx, p.Path, true) })
+		if p, ok := a.Profiles.GetProfileInfo(cmd.Payload); ok {
+			a.asyncRun("更新订阅", func() error {
+				return a.Profiles.UpdateRemoteProfile(ctx, p.Path, true)
+			})
 		}
 
 	case domain.ActionSetProfileInterval:
-		a.SetProfileInterval(cmd.Payload)
+		a.Profiles.SetProfileInterval(cmd.Payload)
 
 	case domain.ActionSwitchProfile:
-		a.asyncRun("切换配置", func() error { return a.SwitchProfile(ctx, cmd.Payload) })
+		a.asyncRun("切换配置", func() error {
+			return a.Profiles.SwitchProfile(ctx, cmd.Payload)
+		})
 
 	case domain.ActionRemoveProfile:
 		targetPath := cmd.Payload
@@ -98,17 +104,70 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				}
 			}
 			a.asyncRun("删除配置", func() error {
-				return a.DeleteProfile(path)
+				return a.Profiles.DeleteProfile(path)
 			})
 		}(targetPath)
 
 	case domain.ActionMoveProfileUp:
-		a.MoveProfileUp(cmd.Payload)
-		a.pushUIState()
+		a.Profiles.MoveProfileUp(cmd.Payload)
+		a.Presenter.PushUIState()
 
 	case domain.ActionMoveProfileDown:
-		a.MoveProfileDown(cmd.Payload)
-		a.pushUIState()
+		a.Profiles.MoveProfileDown(cmd.Payload)
+		a.Presenter.PushUIState()
+
+	case domain.ActionOpenConfigFile:
+		a.asyncRun("打开配置", func() error {
+			return a.OpenConfigFile(cmd.Payload)
+		})
+
+	case domain.ActionEditCurrentConfig:
+		a.asyncRun("编辑配置", func() error {
+			return a.EditCurrentConfig()
+		})
+
+	// ==================== 网络开关与系统代理 (Proxy / Features) ====================
+	case domain.ActionToggleProxy:
+		a.asyncRun("系统代理", func() error {
+			a.Proxy.SetProxy(cmd.Payload == "true")
+			time.Sleep(100 * time.Millisecond)
+			a.Presenter.ForcePushUIState()
+			return nil
+		})
+
+	case domain.ActionToggleTun:
+		a.asyncRun("TUN 模式", func() error {
+			restarted, err := a.ToggleTun(ctx, cmd.Payload == "true")
+			if err != nil {
+				return err
+			}
+			if restarted && a.ui != nil {
+				a.ui.Exit()
+			}
+			time.Sleep(100 * time.Millisecond)
+			a.Presenter.ForcePushUIState()
+			return nil
+		})
+
+	case domain.ActionSwitchMode:
+		a.asyncRun("路由模式", func() error {
+			if err := a.SwitchMode(ctx, cmd.Payload); err != nil {
+				return err
+			}
+			time.Sleep(100 * time.Millisecond)
+			a.Presenter.ForcePushUIState()
+			return nil
+		})
+
+	case domain.ActionToggleAllowLan:
+		a.asyncRun("局域网代理", func() error {
+			if err := a.ToggleAllowLan(ctx, cmd.Payload == "true"); err != nil {
+				return err
+			}
+			time.Sleep(100 * time.Millisecond)
+			a.Presenter.ForcePushUIState()
+			return nil
+		})
 
 	case domain.ActionRequestEditPort:
 		go func() {
@@ -123,6 +182,26 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			}
 		}()
 
+	// ==================== 内核生命周期与部署调度 (Deployer) ====================
+	case domain.ActionReloadConfig:
+		a.asyncRun("重载配置", func() error {
+			return a.ReloadConfig(ctx)
+		})
+
+	case domain.ActionRestartKernel:
+		a.asyncRun("重启内核", func() error {
+			return a.RestartKernel(ctx)
+		})
+
+	case domain.ActionForceSyncAPI:
+		a.ForceSyncAPI()
+
+	// ==================== Web 面板与凭据管理 (WebUI) ====================
+	case domain.ActionOpenWebUI:
+		a.asyncRun("打开面板", func() error {
+			return a.OpenWebUI()
+		})
+
 	case domain.ActionRequestEditController:
 		go func() {
 			if a.ui != nil {
@@ -136,99 +215,13 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			}
 		}()
 
-	case domain.ActionToggleTun:
-		a.asyncRun("TUN 模式", func() error {
-			restarted, err := a.ToggleTun(ctx, cmd.Payload == "true")
-			if err != nil {
-				return err
-			}
-			if restarted && a.ui != nil {
-				a.ui.Exit()
-			}
-			time.Sleep(100 * time.Millisecond)
-			a.ForcePushUIState()
-			return nil
-		})
-
-	case domain.ActionToggleProxy:
-		a.asyncRun("系统代理", func() error {
-			a.ToggleProxy(cmd.Payload == "true")
-			time.Sleep(100 * time.Millisecond)
-			a.ForcePushUIState()
-			return nil
-		})
-
-	case domain.ActionSwitchMode:
-		a.asyncRun("路由模式", func() error {
-			if err := a.SwitchMode(ctx, cmd.Payload); err != nil {
-				return err
-			}
-			time.Sleep(100 * time.Millisecond)
-			a.ForcePushUIState()
-			return nil
-		})
-
-	case domain.ActionToggleAllowLan:
-		a.asyncRun("局域网代理", func() error {
-			if err := a.ToggleAllowLan(ctx, cmd.Payload == "true"); err != nil {
-				return err
-			}
-			time.Sleep(100 * time.Millisecond)
-			a.ForcePushUIState()
-			return nil
-		})
-
-	case domain.ActionForceSyncAPI:
-		a.ForceSyncAPI()
-
-	case domain.ActionOpenBaseDir:
-		a.OpenBaseDir()
-
-	case domain.ActionOpenAppConfig:
-		a.OpenAppConfig()
-
-	case domain.ActionOpenConfigFile:
-		a.asyncRun("打开配置", func() error { return a.OpenConfigFile(cmd.Payload) })
-
-	case domain.ActionEditCurrentConfig:
-		a.asyncRun("编辑配置", func() error { return a.EditCurrentConfig() })
-
-	case domain.ActionToggleAutoStart:
-		restarted := a.ToggleAutoStart(cmd.Payload == "true")
-		if restarted && a.ui != nil {
-			a.ui.Exit()
-		}
-		a.pushUIState()
-
-	case domain.ActionToggleRunAsAdmin:
-		restarted := a.ToggleRunAsAdmin(cmd.Payload == "true")
-		if restarted && a.ui != nil {
-			a.ui.Exit()
-		}
-		a.pushUIState()
-
-	case domain.ActionReloadConfig:
-		a.asyncRun("重载配置", func() error { return a.ReloadConfig(ctx) })
-
-	case domain.ActionRestartKernel:
-		a.asyncRun("重启内核", func() error { return a.RestartKernel(ctx) })
-
-	case domain.ActionExitApp:
-		slog.Info("收到退出指令")
-		if a.ui != nil {
-			a.ui.Exit()
-		}
-
 	case domain.ActionToggleSystemBrowser:
 		a.ToggleSystemBrowser(cmd.Payload == "true")
-		a.pushUIState()
+		a.Presenter.PushUIState()
 
 	case domain.ActionToggleRemoteWebUI:
 		a.ToggleRemoteWebUI(cmd.Payload == "true")
-		a.pushUIState()
-
-	case domain.ActionOpenWebUI:
-		a.asyncRun("打开面板", func() error { return a.OpenWebUI() })
+		a.Presenter.PushUIState()
 
 	case domain.ActionCopyWebUIPassword:
 		if err := a.CopyWebUIPassword(); err != nil {
@@ -236,10 +229,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			if a.ui != nil {
 				a.ui.ShowError("复制密码", err.Error())
 			}
-		} else {
-			if a.ui != nil {
-				a.ui.ShowNotification("复制成功", "密码已复制到剪贴板。")
-			}
+		} else if a.ui != nil {
+			a.ui.ShowNotification("复制成功", "密码已复制到剪贴板。")
 		}
 
 	case domain.ActionClearWebUICache:
@@ -260,5 +251,32 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				return nil
 			})
 		}()
+
+	// ==================== 系统宿主与特权相关 (Privilege) ====================
+	case domain.ActionToggleAutoStart:
+		restarted := a.ToggleAutoStart(cmd.Payload == "true")
+		if restarted && a.ui != nil {
+			a.ui.Exit()
+		}
+		a.Presenter.PushUIState()
+
+	case domain.ActionToggleRunAsAdmin:
+		restarted := a.ToggleRunAsAdmin(cmd.Payload == "true")
+		if restarted && a.ui != nil {
+			a.ui.Exit()
+		}
+		a.Presenter.PushUIState()
+
+	case domain.ActionOpenBaseDir:
+		a.OpenBaseDir()
+
+	case domain.ActionOpenAppConfig:
+		a.OpenAppConfig()
+
+	case domain.ActionExitApp:
+		slog.Info("收到退出指令")
+		if a.ui != nil {
+			a.ui.Exit()
+		}
 	}
 }
