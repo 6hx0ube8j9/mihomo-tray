@@ -97,11 +97,14 @@ func (h *ProfileHub) SwitchProfile(ctx context.Context, targetPath string) error
 	}
 	defer h.st.EndAction()
 
+	oldPath := h.cfg.GetActivePath()
+	h.cfg.SetActiveProfile(targetPath)
+
 	if err := h.deployer.DeployAndApply(ctx, targetPath, "切换配置"); err != nil {
+		h.cfg.SetActiveProfile(oldPath)
 		return err
 	}
 
-	h.cfg.SetActiveProfile(targetPath)
 	return nil
 }
 
