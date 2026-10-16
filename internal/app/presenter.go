@@ -12,18 +12,16 @@ import (
 type Presenter struct {
 	cfg      *config.Manager
 	st       *state.RuntimeState
-	probe    *KernelProbe
 	notifyCh chan struct{}
 
 	lastUIState domain.UIState
 	mu          sync.RWMutex
 }
 
-func NewPresenter(cfg *config.Manager, st *state.RuntimeState, probe *KernelProbe, notifyCh chan struct{}) *Presenter {
+func NewPresenter(cfg *config.Manager, st *state.RuntimeState, notifyCh chan struct{}) *Presenter {
 	return &Presenter{
 		cfg:      cfg,
 		st:       st,
-		probe:    probe,
 		notifyCh: notifyCh,
 	}
 }
@@ -89,7 +87,8 @@ func (p *Presenter) CalculateUIState() domain.UIState {
 		return s
 	}
 
-	if p.st.IsTunAlive() || p.probe.IsTunInGracePeriod() {
+	// [优化] 直接调用状态层的保护期判定
+	if p.st.IsTunAlive() || p.st.IsTunInGracePeriod() {
 		s.IconState = domain.IconTun
 	} else {
 		s.IconState = domain.IconError
