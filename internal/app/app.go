@@ -28,12 +28,14 @@ type Application struct {
 	WebUI  *webui.Manager
 	ui     UIPort
 
-	Deployer  *Deployer
-	Proxy     *ProxyGuard
-	Probe     *KernelProbe
-	Profiles  *ProfileService
-	Settings  *SettingsService
-	Presenter *Presenter
+	Deployer   *Deployer
+	ProxyGuard *ProxyGuard
+	Probe      *KernelProbe
+	ProfileHub *ProfileHub
+	Tuner      *Tuner
+	HostBridge *HostBridge
+	Panel      *Panel
+	Presenter  *Presenter
 
 	kernelEventCh   chan domain.KernelEvent
 	tunEventCh      chan struct{}
@@ -49,7 +51,7 @@ type Application struct {
 func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	api := core.NewAPIClient(domain.IPCNamedPipe)
 	kernel := core.NewKernelManager(cm, st, api)
-	
+
 	app := &Application{
 		Cfg:             cm,
 		State:           st,
@@ -66,19 +68,19 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	}
 
 	app.Deployer = NewDeployer(cm, st, kernel, api)
-	
-	app.Proxy = NewProxyGuard(cm, st, func(title, msg string) {
+
+	app.ProxyGuard = NewProxyGuard(cm, st, func(title, msg string) {
 		if app.ui != nil {
 			app.ui.ShowNotification(title, msg)
 		}
 	})
-	
-	app.Probe = NewKernelProbe(cm, st, api, app.Proxy)
-	app.Profiles = NewProfileService(cm, st, app.Deployer, app.Proxy)
-	
+
+	app.Probe = NewKernelProbe(cm, st, api, app.ProxyGuard)
+	app.ProfileHub = NewProfileHub(cm, st, app.Deployer, app.ProxyGuard)
 	app.Presenter = NewPresenter(cm, st, app.Probe, app.UIStateNotifyCh)
-	
-	app.Settings = NewSettingsService(cm, st, api, app.Deployer, app.Proxy, app.Presenter)
+	app.Tuner = NewTuner(cm, st, api, app.Deployer, app.ProxyGuard, app.Presenter)
+	app.HostBridge = NewHostBridge(cm, st)
+	app.Panel = NewPanel(cm, st, app.Tuner, app.WebUI, app.webuiEventCh)
 
 	return app
 }
@@ -90,19 +92,19 @@ func (a *Application) SetUIPort(ui UIPort) {
 func (a *Application) Bootstrap(ctx context.Context) {
 	slog.Debug("初始化核心服务")
 
-	a.Profiles.EnsureActiveProfileValid(ctx)
+	a.ProfileHub.EnsureActiveValid(ctx)
 
-	a.CheckAndReconcilePrivileges(true)
+	a.HostBridge.CheckAndReconcilePrivileges(true)
 	if err := a.Deployer.SyncRuntimeConfig(); err != nil {
-		slog.Warn("运行时配置部署失败，执行降级保护", "err", err)
-		a.Profiles.FallbackToEmpty(ctx, "运行时配置加载失败")
+		slog.Warn("底稿配置验证未通过，执行降级保护", "err", err)
+		a.ProfileHub.FallbackToEmpty(ctx, "配置语法校验失败")
 	}
 
 	if a.Cfg.GetConfig().Config.Tun.Enable {
 		a.State.SetTunRequestedTime(time.Now())
 	}
 
-	a.Proxy.Sync()
+	a.ProxyGuard.Sync()
 	a.Presenter.PushUIState()
 
 	slog.Debug("启动事件监听")
@@ -125,7 +127,7 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 
 	if a.Cfg.IsSystemProxyEnabled() {
 		slog.Debug("退出清理：关闭系统代理")
-		a.Proxy.DisableAndClearSetting()
+		a.ProxyGuard.DisableAndClearSetting()
 	}
 
 	a.Kernel.Close()
@@ -193,7 +195,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 				if a.Cfg.GetConfig().Config.Tun.Enable {
 					a.State.SetTunRequestedTime(time.Now())
 				}
-				a.Proxy.Sync()
+				a.ProxyGuard.Sync()
 				a.State.SetPhase(domain.PhaseRunning)
 
 				currentGen := a.State.AdvanceProbeGen()
@@ -220,7 +222,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 			a.Probe.HandleTunChange(ctx, a.ForceSyncAPI, a.Presenter.PushUIState)
 
 		case status := <-a.proxyStatusCh:
-			a.Proxy.HandleStatusChange(ctx, status)
+			a.ProxyGuard.HandleStatusChange(ctx, status)
 
 		case <-ticker.C:
 			adjustPollInterval()
@@ -255,7 +257,7 @@ func (a *Application) processAutoUpdates(ctx context.Context) {
 				return
 			}
 			if p.IsUpdateDue() {
-				_ = a.Profiles.UpdateRemoteProfile(ctx, p.Path, false)
+				_ = a.ProfileHub.UpdateRemoteProfile(ctx, p.Path, false)
 				select {
 				case <-ctx.Done():
 					return
