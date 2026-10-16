@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"log/slog"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,6 +14,12 @@ import (
 	"mihomo-tray/internal/webui"
 )
 
+const (
+	pollActiveInterval = 3 * time.Second
+	pollIdleInterval   = 10 * time.Second
+	pollIdleThreshold  = 30 * time.Second
+)
+
 type Application struct {
 	Cfg    *config.Manager
 	State  *state.RuntimeState
@@ -23,10 +28,12 @@ type Application struct {
 	WebUI  *webui.Manager
 	ui     UIPort
 
-	Deployer *Deployer
-	Proxy    *ProxyGuard
-	Probe    *KernelProbe
-	Profiles *ProfileService
+	Deployer  *Deployer
+	Proxy     *ProxyGuard
+	Probe     *KernelProbe
+	Profiles  *ProfileService
+	Settings  *SettingsService
+	Presenter *Presenter
 
 	kernelEventCh   chan domain.KernelEvent
 	tunEventCh      chan struct{}
@@ -36,15 +43,13 @@ type Application struct {
 	webuiEventCh    chan webui.Event
 	UIStateNotifyCh chan struct{}
 
-	lastUIState    domain.UIState
-	uiStateMutex   sync.RWMutex
 	isAutoUpdating atomic.Bool
 }
 
 func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	api := core.NewAPIClient(domain.IPCNamedPipe)
 	kernel := core.NewKernelManager(cm, st, api)
-
+	
 	app := &Application{
 		Cfg:             cm,
 		State:           st,
@@ -61,24 +66,35 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	}
 
 	app.Deployer = NewDeployer(cm, st, kernel, api)
+	
 	app.Proxy = NewProxyGuard(cm, st, func(title, msg string) {
 		if app.ui != nil {
 			app.ui.ShowNotification(title, msg)
 		}
 	})
+	
 	app.Probe = NewKernelProbe(cm, st, api, app.Proxy)
 	app.Profiles = NewProfileService(cm, st, app.Deployer, app.Proxy)
+	
+	app.Presenter = NewPresenter(cm, st, app.Probe, app.UIStateNotifyCh)
+	
+	app.Settings = NewSettingsService(cm, st, api, app.Deployer, app.Proxy, app.Presenter)
 
 	return app
+}
+
+func (a *Application) SetUIPort(ui UIPort) {
+	a.ui = ui
 }
 
 func (a *Application) Bootstrap(ctx context.Context) {
 	slog.Debug("初始化核心服务")
 
-	a.ensureActiveProfileValid(ctx)
+	a.Profiles.EnsureActiveProfileValid(ctx)
 
 	a.CheckAndReconcilePrivileges(true)
 	if err := a.Deployer.SyncRuntimeConfig(); err != nil {
+		slog.Warn("运行时配置部署失败，执行降级保护", "err", err)
 		a.Profiles.FallbackToEmpty(ctx, "运行时配置加载失败")
 	}
 
@@ -87,40 +103,14 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	}
 
 	a.Proxy.Sync()
-	a.pushUIState()
+	a.Presenter.PushUIState()
 
-	// 3. 启动监听服务与守护协程
 	slog.Debug("启动事件监听")
 	a.Kernel.SetPreStartHook(func() { _ = a.Deployer.SyncRuntimeConfig() })
 	go a.Kernel.RunDaemon(ctx, a.kernelEventCh)
 	go sys.WatchNetworkInterfaces(ctx, a.tunEventCh)
 	go sys.WatchProxyRegistry(ctx, a.proxyStatusCh)
 	go a.eventLoop(ctx)
-}
-
-func (a *Application) ensureActiveProfileValid(ctx context.Context) {
-	activePath := a.Cfg.GetActivePath()
-	if activePath == "" {
-		return
-	}
-
-	if err := a.Cfg.ValidatePhysicalFile(activePath); err == nil {
-		return
-	}
-
-	if p, ok := a.Cfg.GetProfileByPath(activePath); ok && p.URL != "" {
-		slog.Info("当前配置物理文件丢失，尝试拉取恢复", "path", activePath)
-		fCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-		err := a.Profiles.fetchAndCommit(fCtx, activePath, p.URL, &p)
-		cancel()
-
-		if err == nil {
-			slog.Info("配置已成功恢复")
-			return
-		}
-	}
-
-	a.Profiles.FallbackToEmpty(ctx, "物理文件丢失且无法自动恢复")
 }
 
 func (a *Application) SafeShutdown(cancel context.CancelFunc) {
@@ -131,16 +121,147 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	if cancel != nil {
 		cancel()
 	}
-
 	a.Kernel.KillCurrent()
 
 	if a.Cfg.IsSystemProxyEnabled() {
-		portStr, _ := a.Cfg.GetEffectiveSystemProxyPortStr()
-		if err := sys.DisableProxy(portStr); err != nil {
-			slog.Warn("退出注销系统代理受阻", "err", err)
-		}
+		slog.Debug("退出清理：关闭系统代理")
+		a.Proxy.DisableAndClearSetting()
 	}
 
 	a.Kernel.Close()
 	slog.Info("应用已安全退出")
+}
+
+func (a *Application) eventLoop(ctx context.Context) {
+	slog.Debug("启动主事件循环")
+
+	currentInterval := pollActiveInterval
+	ticker := time.NewTicker(currentInterval)
+	defer ticker.Stop()
+
+	subTicker := time.NewTicker(10 * time.Minute)
+	defer subTicker.Stop()
+
+	lastUserAction := time.Now()
+
+	tryPollAPI := func() {
+		if a.Probe.PollStatus(ctx) {
+			a.Presenter.PushUIState()
+		}
+	}
+
+	adjustPollInterval := func() {
+		isUserActive := time.Since(lastUserAction) < pollIdleThreshold
+		isWebActive := a.WebUI.IsActive()
+
+		targetInterval := pollIdleInterval
+		if isUserActive || isWebActive {
+			targetInterval = pollActiveInterval
+		}
+
+		if targetInterval != currentInterval {
+			wasIdle := (currentInterval == pollIdleInterval)
+			currentInterval = targetInterval
+			ticker.Reset(currentInterval)
+
+			if wasIdle && targetInterval == pollActiveInterval {
+				tryPollAPI()
+			}
+		}
+	}
+
+	for {
+		select {
+		case event := <-a.webuiEventCh:
+			if event == webui.EventError {
+				slog.Warn("Web 面板服务异常")
+			}
+
+		case <-ctx.Done():
+			slog.Debug("退出主事件循环")
+			return
+
+		case cmd := <-a.UICommandCh:
+			slog.Debug("处理界面指令", "action", cmd.Action)
+			lastUserAction = time.Now()
+			adjustPollInterval()
+			a.handleUICommand(ctx, cmd)
+
+		case event := <-a.kernelEventCh:
+			if event == domain.EventKernelReady {
+				slog.Info("内核及 API 已就绪")
+				if a.Cfg.GetConfig().Config.Tun.Enable {
+					a.State.SetTunRequestedTime(time.Now())
+				}
+				a.Proxy.Sync()
+				a.State.SetPhase(domain.PhaseRunning)
+
+				currentGen := a.State.AdvanceProbeGen()
+				go func(gen uint64) {
+					defer a.Presenter.ForcePushUIState()
+					if a.State.IsExiting() || ctx.Err() != nil || a.State.GetProbeGen() != gen {
+						return
+					}
+					a.ForceSyncAPI()
+				}(currentGen)
+
+			} else if event == domain.EventKernelExit {
+				a.State.AdvanceProbeGen()
+				if a.Kernel.IsKilledByUs() {
+					slog.Info("内核已停止，等待重启")
+				} else {
+					slog.Warn("内核进程异常退出")
+				}
+				a.State.SetPhase(domain.PhaseInitializing)
+			}
+			a.Presenter.PushUIState()
+
+		case <-a.tunEventCh:
+			a.Probe.HandleTunChange(ctx, a.ForceSyncAPI, a.Presenter.PushUIState)
+
+		case status := <-a.proxyStatusCh:
+			a.Proxy.HandleStatusChange(ctx, status)
+
+		case <-ticker.C:
+			adjustPollInterval()
+			tryPollAPI()
+
+		case <-a.apiPollCh:
+			lastUserAction = time.Now()
+			adjustPollInterval()
+			tryPollAPI()
+
+		case <-subTicker.C:
+			a.processAutoUpdates(ctx)
+		}
+	}
+}
+
+func (a *Application) ForceSyncAPI() {
+	select {
+	case a.apiPollCh <- struct{}{}:
+	default:
+	}
+}
+
+func (a *Application) processAutoUpdates(ctx context.Context) {
+	if !a.isAutoUpdating.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer a.isAutoUpdating.Store(false)
+		for _, p := range a.Cfg.GetProfiles() {
+			if a.State.IsExiting() || ctx.Err() != nil {
+				return
+			}
+			if p.IsUpdateDue() {
+				_ = a.Profiles.UpdateRemoteProfile(ctx, p.Path, false)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(3 * time.Second):
+				}
+			}
+		}
+	}()
 }
