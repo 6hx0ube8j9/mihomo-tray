@@ -129,7 +129,7 @@ func (d *Deployer) RestartKernel(ctx context.Context) error {
 	}
 	defer d.st.EndAction()
 
-	slog.Info("用户托盘指令，准备重启内核")
+	slog.Info("用户指令，准备重启内核")
 	_ = d.SyncRuntimeConfig()
 	d.PhysicalRestart(d.cfg.GetConfig())
 	return nil
