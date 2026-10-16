@@ -6,7 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
 )
 
@@ -15,34 +17,44 @@ const (
 	proxyRepairPollInterval = 1000 * time.Millisecond
 )
 
-func (a *Application) ToggleProxy(enable bool) {
-	a.Cfg.Update(func(c *domain.TrayConfig) {
+type ProxyGuard struct {
+	cfg     *config.Manager
+	st      *state.RuntimeState
+	onAlert func(title, msg string)
+}
+
+func NewProxyGuard(cfg *config.Manager, st *state.RuntimeState, onAlert func(title, msg string)) *ProxyGuard {
+	return &ProxyGuard{
+		cfg:     cfg,
+		st:      st,
+		onAlert: onAlert,
+	}
+}
+
+func (g *ProxyGuard) SetProxy(enable bool) {
+	g.cfg.Update(func(c *domain.TrayConfig) {
 		b := enable
 		c.General.SystemProxy = &b
 	})
-	a.syncSystemProxy()
-	a.pushUIState()
+	g.Sync()
 }
 
-func (a *Application) syncSystemProxy() {
-	wantEnable := a.Cfg.IsSystemProxyEnabled()
-	portStr, hasPort := a.Cfg.GetEffectiveSystemProxyPortStr()
+func (g *ProxyGuard) Sync() {
+	wantEnable := g.cfg.IsSystemProxyEnabled()
+	portStr, hasPort := g.cfg.GetEffectiveSystemProxyPortStr()
 
 	if !wantEnable {
-		if hasPort {
-			if err := sys.DisableProxy(portStr); err != nil {
-				slog.Error("关闭系统代理失败", "err", err)
-			}
+		if err := sys.DisableProxy(portStr); err != nil {
+			slog.Error("关闭系统代理失败", "err", err)
 		}
 		return
 	}
 
 	if !hasPort {
-		slog.Warn("Mixed 与 HTTP 端口均未开启，强制关闭系统代理")
-		a.disableSystemProxySetting()
-
-		if a.ui != nil {
-			a.ui.ShowNotification("系统代理", "系统代理已关闭，请检查代理端口配置。")
+		slog.Warn("未检测到有效代理端口，强制关闭系统代理")
+		g.DisableAndClearSetting()
+		if g.onAlert != nil {
+			g.onAlert("系统代理", "系统代理已关闭，请检查代理端口配置。")
 		}
 		return
 	}
@@ -53,14 +65,14 @@ func (a *Application) syncSystemProxy() {
 	}
 }
 
-func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.ProxyStatus) {
-	if a.State.IsExiting() || !a.Cfg.IsSystemProxyEnabled() {
+func (g *ProxyGuard) HandleStatusChange(ctx context.Context, status sys.ProxyStatus) {
+	if g.st.IsExiting() || !g.cfg.IsSystemProxyEnabled() {
 		return
 	}
 
-	expectedPort, ok := a.Cfg.GetEffectiveSystemProxyPortStr()
+	expectedPort, ok := g.cfg.GetEffectiveSystemProxyPortStr()
 	if !ok {
-		a.disableSystemProxySetting()
+		g.DisableAndClearSetting()
 		return
 	}
 
@@ -68,28 +80,28 @@ func (a *Application) handleProxyStatusChange(ctx context.Context, status sys.Pr
 
 	if status.Enabled {
 		if status.Server != "" && !strings.EqualFold(status.Server, expectedServer) {
-			slog.Warn("系统代理被外部修改，停用本地代理接管", "server", status.Server, "expected", expectedServer)
-			a.disableSystemProxySetting()
+			slog.Warn("检测到第三方代理劫持，停用本地接管", "server", status.Server, "expected", expectedServer)
+			g.DisableAndClearSetting()
 		}
 		return
 	}
 
-	if !a.State.TryAcquireProxyRepair() {
+	if !g.st.TryAcquireProxyRepair() {
 		return
 	}
 
-	go a.repairProxyLoop(ctx, expectedPort, expectedServer)
+	go g.repairLoop(ctx, expectedServer)
 }
 
-func (a *Application) repairProxyLoop(ctx context.Context, port, expectedServer string) {
-	defer a.State.ReleaseProxyRepair()
+func (g *ProxyGuard) repairLoop(ctx context.Context, expectedServer string) {
+	defer g.st.ReleaseProxyRepair()
 
 	for i := 1; i <= proxyRepairMaxAttempts; i++ {
-		if a.State.IsExiting() || ctx.Err() != nil || !a.Cfg.IsSystemProxyEnabled() {
+		if g.st.IsExiting() || ctx.Err() != nil || !g.cfg.IsSystemProxyEnabled() {
 			return
 		}
 
-		a.syncSystemProxy()
+		g.Sync()
 
 		select {
 		case <-ctx.Done():
@@ -99,30 +111,27 @@ func (a *Application) repairProxyLoop(ctx context.Context, port, expectedServer 
 
 		cur, err := sys.GetProxyStatus()
 		if err == nil && cur.Enabled && strings.EqualFold(cur.Server, expectedServer) {
-			slog.Debug("系统代理已自动恢复", "attempt", i)
+			slog.Debug("系统代理自愈成功", "attempt", i)
 			return
 		}
 	}
 
-	slog.Warn("系统代理持续被外部修改或恢复超时，已自动停用")
-	a.disableSystemProxySetting()
+	slog.Warn("系统代理持续被外部修改或自愈超时，自动解除接管")
+	g.DisableAndClearSetting()
 }
 
-func (a *Application) disableSystemProxySetting() {
-	if a.State.IsExiting() {
+func (g *ProxyGuard) DisableAndClearSetting() {
+	if g.st.IsExiting() {
 		return
 	}
 
-	a.Cfg.Update(func(c *domain.TrayConfig) {
+	g.cfg.Update(func(c *domain.TrayConfig) {
 		b := false
 		c.General.SystemProxy = &b
 	})
 
-	if portStr, hasPort := a.Cfg.GetEffectiveSystemProxyPortStr(); hasPort {
-		if err := sys.DisableProxy(portStr); err != nil {
-			slog.Error("注销系统代理注册表失败", "err", err)
-		}
+	portStr, _ := g.cfg.GetEffectiveSystemProxyPortStr()
+	if err := sys.DisableProxy(portStr); err != nil {
+		slog.Error("注销系统代理注册表失败", "err", err)
 	}
-
-	a.pushUIState()
 }
