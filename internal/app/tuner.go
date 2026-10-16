@@ -29,9 +29,10 @@ type Tuner struct {
 	deployer  *Deployer
 	proxy     *ProxyGuard
 	presenter *Presenter
+	forceSync func()
 }
 
-func NewTuner(cfg *config.Manager, st *state.RuntimeState, api *core.APIClient, deployer *Deployer, proxy *ProxyGuard, presenter *Presenter) *Tuner {
+func NewTuner(cfg *config.Manager, st *state.RuntimeState, api *core.APIClient, deployer *Deployer, proxy *ProxyGuard, presenter *Presenter, forceSync func()) *Tuner {
 	return &Tuner{
 		cfg:       cfg,
 		st:        st,
@@ -39,6 +40,13 @@ func NewTuner(cfg *config.Manager, st *state.RuntimeState, api *core.APIClient, 
 		deployer:  deployer,
 		proxy:     proxy,
 		presenter: presenter,
+		forceSync: forceSync,
+	}
+}
+
+func (t *Tuner) triggerForceSync() {
+	if t.forceSync != nil {
+		t.forceSync()
 	}
 }
 
@@ -79,6 +87,7 @@ func (t *Tuner) ToggleTun(ctx context.Context, enable bool, elevate func(rollbac
 		return false, ErrSystemBusy
 	}
 	defer t.st.EndAction()
+	defer t.triggerForceSync()
 
 	reqCtx, cancel := context.WithTimeout(ctx, apiSyncTimeout)
 	defer cancel()
@@ -106,6 +115,7 @@ func (t *Tuner) SwitchMode(ctx context.Context, mode string) error {
 		return ErrSystemBusy
 	}
 	defer t.st.EndAction()
+	defer t.triggerForceSync()
 
 	reqCtx, cancel := context.WithTimeout(ctx, apiSyncTimeout)
 	defer cancel()
@@ -128,6 +138,7 @@ func (t *Tuner) ToggleAllowLan(ctx context.Context, enable bool) error {
 		return ErrSystemBusy
 	}
 	defer t.st.EndAction()
+	defer t.triggerForceSync()
 
 	reqCtx, cancel := context.WithTimeout(ctx, apiSyncTimeout)
 	defer cancel()
@@ -176,6 +187,7 @@ func (t *Tuner) ApplyPortConfig(ctx context.Context, mixed, socks, httpPort int)
 			return ErrSystemBusy
 		}
 		defer t.st.EndAction()
+		defer t.triggerForceSync()
 
 		reqCtx, cancel := context.WithTimeout(ctx, apiSyncTimeout)
 		defer cancel()
