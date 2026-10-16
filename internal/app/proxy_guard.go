@@ -89,7 +89,6 @@ func (g *ProxyGuard) HandleStatusChange(ctx context.Context, status sys.ProxySta
 	if !g.st.TryAcquireProxyRepair() {
 		return
 	}
-
 	go g.repairLoop(ctx, expectedServer)
 }
 
@@ -100,7 +99,6 @@ func (g *ProxyGuard) repairLoop(ctx context.Context, expectedServer string) {
 		if g.st.IsExiting() || ctx.Err() != nil || !g.cfg.IsSystemProxyEnabled() {
 			return
 		}
-
 		g.Sync()
 
 		select {
@@ -115,7 +113,6 @@ func (g *ProxyGuard) repairLoop(ctx context.Context, expectedServer string) {
 			return
 		}
 	}
-
 	slog.Warn("系统代理持续被外部修改或自愈超时，自动解除接管")
 	g.DisableAndClearSetting()
 }
@@ -124,7 +121,6 @@ func (g *ProxyGuard) DisableAndClearSetting() {
 	if g.st.IsExiting() {
 		return
 	}
-
 	g.cfg.Update(func(c *domain.TrayConfig) {
 		b := false
 		c.General.SystemProxy = &b
