@@ -19,15 +19,21 @@ type Deployer struct {
 	st     *state.RuntimeState
 	kernel *core.KernelManager
 	api    *core.APIClient
+	proxy  *ProxyGuard
 }
 
-func NewDeployer(cfg *config.Manager, st *state.RuntimeState, kernel *core.KernelManager, api *core.APIClient) *Deployer {
+func NewDeployer(cfg *config.Manager, st *state.RuntimeState, kernel *core.KernelManager, api *core.APIClient, proxy *ProxyGuard) *Deployer {
 	return &Deployer{
 		cfg:    cfg,
 		st:     st,
 		kernel: kernel,
 		api:    api,
+		proxy:  proxy,
 	}
+}
+
+func (d *Deployer) IsKernelRunning() bool {
+	return d.st.GetPhase() == domain.PhaseRunning && !d.kernel.IsPaused()
 }
 
 func (d *Deployer) SyncRuntimeConfig() error {
@@ -67,7 +73,11 @@ func (d *Deployer) DeployAndApply(ctx context.Context, targetRelPath, actionDesc
 
 	d.st.SetActualTunDevice(deployRes.TunDevice)
 
-	if d.st.GetPhase() == domain.PhaseRunning && !d.kernel.IsPaused() {
+	if d.proxy != nil {
+		d.proxy.Sync()
+	}
+
+	if d.IsKernelRunning() {
 		slog.Debug("执行热重载", "action", actionDesc)
 		if err := d.hotReload(ctx, deployRes.RuntimeAbs); err == nil {
 			slog.Debug("热重载成功", "target", targetRelPath)
