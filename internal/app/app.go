@@ -67,16 +67,15 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 		UIStateNotifyCh: make(chan struct{}, 1),
 	}
 
-	app.Deployer = NewDeployer(cm, st, kernel, api)
-
 	app.ProxyGuard = NewProxyGuard(cm, st, func(title, msg string) {
 		if app.ui != nil {
 			app.ui.ShowNotification(title, msg)
 		}
 	})
 
-	app.Probe = NewKernelProbe(cm, st, api, app.ProxyGuard)
+	app.Deployer = NewDeployer(cm, st, kernel, api, app.ProxyGuard)
 	app.ProfileHub = NewProfileHub(cm, st, app.Deployer, app.ProxyGuard)
+	app.Probe = NewKernelProbe(cm, st, api, app.ProxyGuard)
 	app.Presenter = NewPresenter(cm, st, app.Probe, app.UIStateNotifyCh)
 	app.Tuner = NewTuner(cm, st, api, app.Deployer, app.ProxyGuard, app.Presenter)
 	app.HostBridge = NewHostBridge(cm, st)
@@ -84,7 +83,7 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 
 	st.SetBusyHook(func() {
 		if app.Presenter != nil {
-			app.Presenter.ForcePushUIState() 
+			app.Presenter.ForcePushUIState()
 		}
 	})
 
