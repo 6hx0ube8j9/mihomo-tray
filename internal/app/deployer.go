@@ -120,7 +120,7 @@ func (d *Deployer) hotReload(ctx context.Context, runtimeAbs string) error {
 	return nil
 }
 
-func (d *Deployer) ReloadConfig(ctx context.Context) error {
+func (d *Deployer) ReloadConfig(ctx context.Context, reconcilePrivileges func()) error {
 	if !d.st.TryBeginAction(state.ActionReload) {
 		return errors.New("系统繁忙，请稍后重试")
 	}
@@ -128,6 +128,10 @@ func (d *Deployer) ReloadConfig(ctx context.Context) error {
 
 	if err := d.cfg.ReloadFromDisk(); err != nil {
 		return fmt.Errorf("读取配置失败 - %w", err)
+	}
+
+	if reconcilePrivileges != nil {
+		reconcilePrivileges()
 	}
 
 	return d.DeployAndApply(ctx, d.cfg.GetActivePath(), "配置重载")
