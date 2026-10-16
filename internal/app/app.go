@@ -82,6 +82,12 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	app.HostBridge = NewHostBridge(cm, st)
 	app.Panel = NewPanel(cm, st, app.Tuner, app.WebUI, app.webuiEventCh)
 
+	st.SetBusyHook(func() {
+		if app.Presenter != nil {
+			app.Presenter.ForcePushUIState() 
+		}
+	})
+
 	return app
 }
 
