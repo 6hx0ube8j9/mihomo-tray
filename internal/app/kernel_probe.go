@@ -13,8 +13,6 @@ import (
 )
 
 const (
-	TunInitGracePeriod    = 20 * time.Second
-	TunLostAlarmDelay     = 6 * time.Second
 	tunProbeBurstInterval = 300 * time.Millisecond
 	tunProbeBurstTimes    = 3
 	kernelAPIPollTimeout  = 1500 * time.Millisecond
@@ -34,14 +32,6 @@ func NewKernelProbe(cfg *config.Manager, st *state.RuntimeState, api *core.APICl
 		api:   api,
 		guard: guard,
 	}
-}
-
-func (p *KernelProbe) IsTunInGracePeriod() bool {
-	reqTime := p.st.GetTunRequestedTime()
-	lostTime := p.st.GetTunLostTime()
-	reqActive := !reqTime.IsZero() && time.Since(reqTime) < TunInitGracePeriod
-	lostActive := !lostTime.IsZero() && time.Since(lostTime) < TunLostAlarmDelay
-	return reqActive || lostActive
 }
 
 func (p *KernelProbe) PollStatus(ctx context.Context) bool {
@@ -138,19 +128,23 @@ func (p *KernelProbe) PollStatus(ctx context.Context) bool {
 		changed = true
 	}
 
+	if changed && p.cfg.GetConfig().Config.Tun.Enable && !realAlive && !p.st.IsTunInGracePeriod() {
+		slog.Warn("TUN 网卡未就绪", "device", currentActual)
+	}
+
 	return changed
 }
 
 func (p *KernelProbe) reconcileTunState(kernelTunEnabled bool) bool {
 	wantTun := p.cfg.GetConfig().Config.Tun.Enable
-	if wantTun && kernelTunEnabled && p.st.IsTunAlive() && p.IsTunInGracePeriod() {
+	if wantTun && kernelTunEnabled && p.st.IsTunAlive() && p.st.IsTunInGracePeriod() {
 		p.st.SetTunRequestedTime(time.Time{})
 		slog.Debug("TUN 网卡已进入就绪状态")
 	}
 
 	if kernelTunEnabled != wantTun {
-		if wantTun && !kernelTunEnabled && p.IsTunInGracePeriod() {
-			if time.Since(p.st.GetTunRequestedTime()) < TunInitGracePeriod {
+		if wantTun && !kernelTunEnabled && p.st.IsTunInGracePeriod() {
+			if time.Since(p.st.GetTunRequestedTime()) < state.TunInitGracePeriod {
 				return false
 			}
 		}
