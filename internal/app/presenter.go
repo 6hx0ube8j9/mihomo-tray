@@ -18,13 +18,6 @@ type Presenter struct {
 	mu          sync.RWMutex
 }
 
-func (p *Presenter) NotifyChanged() {
-    select {
-    case p.notifyCh <- struct{}{}:
-    default:
-    }
-}
-
 func NewPresenter(cfg *config.Manager, st *state.RuntimeState, notifyCh chan struct{}) *Presenter {
 	return &Presenter{
 		cfg:      cfg,
