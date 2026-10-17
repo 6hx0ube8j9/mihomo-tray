@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"mihomo-tray/internal/config"
@@ -26,20 +25,14 @@ type Tuner struct {
 	cfg       *config.Manager
 	st        *state.RuntimeState
 	api       *core.APIClient
-	deployer  *Deployer
-	proxy     *ProxyGuard
-	presenter *Presenter
 	forceSync func()
 }
 
-func NewTuner(cfg *config.Manager, st *state.RuntimeState, api *core.APIClient, deployer *Deployer, proxy *ProxyGuard, presenter *Presenter, forceSync func()) *Tuner {
+func NewTuner(cfg *config.Manager, st *state.RuntimeState, api *core.APIClient, forceSync func()) *Tuner {
 	return &Tuner{
 		cfg:       cfg,
 		st:        st,
 		api:       api,
-		deployer:  deployer,
-		proxy:     proxy,
-		presenter: presenter,
 		forceSync: forceSync,
 	}
 }
@@ -48,10 +41,6 @@ func (t *Tuner) triggerForceSync() {
 	if t.forceSync != nil {
 		t.forceSync()
 	}
-}
-
-func (t *Tuner) ToggleProxy(enable bool) {
-	t.proxy.SetProxy(enable)
 }
 
 func (t *Tuner) ToggleTun(ctx context.Context, enable bool, elevate func(rollback func()) bool) (restarted bool, err error) {
@@ -161,13 +150,13 @@ func (t *Tuner) GetPortSnapshot() (mixed, socks, httpPort int) {
 	return
 }
 
-func (t *Tuner) ApplyPortConfig(ctx context.Context, mixed, socks, httpPort int) error {
+func (t *Tuner) ApplyPortConfig(ctx context.Context, mixed, socks, httpPort int) (changed bool, err error) {
 	if !netutil.IsValidPort(mixed) || !netutil.IsValidPort(socks) || !netutil.IsValidPort(httpPort) {
-		return ErrInvalidPort
+		return false, ErrInvalidPort
 	}
 	cMixed, cSocks, cHttp := t.GetPortSnapshot()
 	if mixed == cMixed && socks == cSocks && httpPort == cHttp {
-		return nil
+		return false, nil
 	}
 
 	t.cfg.Update(func(c *domain.TrayConfig) {
@@ -176,15 +165,10 @@ func (t *Tuner) ApplyPortConfig(ctx context.Context, mixed, socks, httpPort int)
 		c.Config.SocksPort = &sk
 		c.Config.Port = &h
 	})
-	t.presenter.PushUIState()
-
-	if t.cfg.IsSystemProxyEnabled() {
-		t.proxy.Sync()
-	}
 
 	if t.st.GetPhase() == domain.PhaseRunning {
 		if !t.st.TryBeginAction(state.ActionSyncAPI) {
-			return ErrSystemBusy
+			return true, ErrSystemBusy
 		}
 		defer t.st.EndAction()
 		defer t.triggerForceSync()
@@ -194,11 +178,11 @@ func (t *Tuner) ApplyPortConfig(ctx context.Context, mixed, socks, httpPort int)
 
 		if err := t.api.UpdatePorts(reqCtx, mixed, socks, httpPort); err != nil {
 			if ctx.Err() == nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
-				return err
+				return true, err
 			}
 		}
 	}
-	return nil
+	return true, nil
 }
 
 func (t *Tuner) GetControllerSnapshot() (addr, sec string, online, sys bool, remoteURL string) {
@@ -216,13 +200,13 @@ func (t *Tuner) GetControllerSnapshot() (addr, sec string, online, sys bool, rem
 	return
 }
 
-func (t *Tuner) ApplyControllerConfig(ctx context.Context, addr, sec string, online, sys bool, remoteURL string) (shouldReopenUI bool, err error) {
+func (t *Tuner) ApplyControllerConfig(addr, sec string, online, sys bool, remoteURL string) (coreChanged, appChanged bool) {
 	cAddr, cSec, cOnline, cSys, cRemoteURL := t.GetControllerSnapshot()
-	coreChanged := (cAddr != addr) || (cSec != sec)
-	appChanged := (cOnline != online) || (cSys != sys) || (cRemoteURL != remoteURL)
+	coreChanged = (cAddr != addr) || (cSec != sec)
+	appChanged = (cOnline != online) || (cSys != sys) || (cRemoteURL != remoteURL)
 
 	if !coreChanged && !appChanged {
-		return false, nil
+		return false, false
 	}
 
 	t.cfg.Update(func(c *domain.TrayConfig) {
@@ -235,16 +219,7 @@ func (t *Tuner) ApplyControllerConfig(ctx context.Context, addr, sec string, onl
 		c.General.SystemBrowser = &bSys
 		c.General.RemoteWebUIURL = &bRemoteURL
 	})
-	t.presenter.PushUIState()
-
-	if coreChanged {
-		if err := t.deployer.RestartKernel(ctx); err != nil {
-			return false, fmt.Errorf("重启内核失败: %w", err)
-		}
-		return true, nil
-	}
-
-	return appChanged, nil
+	return coreChanged, appChanged
 }
 
 func (t *Tuner) ToggleSystemBrowser(enable bool) {
