@@ -263,7 +263,5 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		if a.ui != nil {
 			a.ui.Exit()
 		}
-	case domain.ActionForceSyncAPI:
-		a.ForceSyncAPI()
 	}
 }
