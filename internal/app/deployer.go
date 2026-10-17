@@ -115,11 +115,6 @@ func (d *Deployer) hotReload(ctx context.Context, runtimeAbs string) error {
 }
 
 func (d *Deployer) ReloadConfig(ctx context.Context, reconcilePrivileges func()) error {
-	if !d.st.TryBeginAction(state.ActionReload) {
-		return errors.New("系统繁忙，请稍后重试")
-	}
-	defer d.st.EndAction()
-
 	if err := d.cfg.ReloadFromDisk(); err != nil {
 		return fmt.Errorf("读取配置失败 - %w", err)
 	}
@@ -132,11 +127,6 @@ func (d *Deployer) ReloadConfig(ctx context.Context, reconcilePrivileges func())
 }
 
 func (d *Deployer) RestartKernel(ctx context.Context) error {
-	if !d.st.TryBeginAction(state.ActionRestart) {
-		return errors.New("系统繁忙，请稍后重试")
-	}
-	defer d.st.EndAction()
-
 	slog.Info("准备重启内核")
 	_ = d.SyncRuntimeConfig()
 	d.PhysicalRestart(d.cfg.GetConfig())
