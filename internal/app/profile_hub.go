@@ -18,36 +18,34 @@ import (
 )
 
 type ProfileHub struct {
-	cfg         *config.Manager
-	st          *state.RuntimeState
-	deployer    *Deployer
-	onProxySync func()
+	cfg       *config.Manager
+	st        *state.RuntimeState
+	proxyPort func() string
 }
 
-func NewProfileHub(cfg *config.Manager, st *state.RuntimeState, deployer *Deployer, onProxySync func()) *ProfileHub {
+func NewProfileHub(cfg *config.Manager, st *state.RuntimeState, proxyPort func() string) *ProfileHub {
 	return &ProfileHub{
-		cfg:         cfg,
-		st:          st,
-		deployer:    deployer,
-		onProxySync: onProxySync,
+		cfg:       cfg,
+		st:        st,
+		proxyPort: proxyPort,
 	}
 }
 
 func (h *ProfileHub) getActiveProxyPort() string {
-	if h.deployer != nil && h.deployer.IsKernelRunning() {
-		return h.cfg.GetEffectiveLocalProxyPortStr()
+	if h.proxyPort != nil {
+		return h.proxyPort()
 	}
 	return ""
 }
 
-func (h *ProfileHub) EnsureActiveValid(ctx context.Context) {
+func (h *ProfileHub) EnsureActiveValid(ctx context.Context) bool {
 	activePath := h.cfg.GetActivePath()
 	if activePath == "" {
-		return
+		return true
 	}
 
 	if err := h.cfg.ValidatePhysicalFile(activePath); err == nil {
-		return
+		return true
 	}
 
 	if p, ok := h.cfg.GetProfileByPath(activePath); ok && p.URL != "" {
@@ -58,94 +56,42 @@ func (h *ProfileHub) EnsureActiveValid(ctx context.Context) {
 
 		if err == nil {
 			slog.Info("配置已成功拉取恢复")
-			return
+			return true
 		}
 		slog.Warn("拉取恢复失败", "err", err)
 	}
 
-	h.FallbackToEmpty(ctx, "活跃配置物理文件无效且无法恢复")
+	return false
 }
 
-func (h *ProfileHub) FallbackToEmpty(ctx context.Context, reason string) {
-	slog.Warn("配置失效，系统安全回退至空配置", "reason", reason)
-
-	h.cfg.Update(func(c *domain.TrayConfig) {
-		c.Profiles.Active = ""
-		bProxy := false
-		c.General.SystemProxy = &bProxy
-		c.Config.Tun.Enable = false
-	})
-
-	h.st.SetTunRequestedTime(time.Time{})
-	h.st.SetTunAlive(false)
-
-	if h.st.GetPhase() == domain.PhaseRunning {
-		_ = h.deployer.DeployAndApply(ctx, "", "回退空配置")
-	} else {
-		cfg := h.cfg.GetConfig()
-		_, _ = core.DeployRuntimeConfig(cfg, "", h.cfg.BaseDir())
-	}
-
-	if h.onProxySync != nil {
-		h.onProxySync()
-	}
-}
-
-func (h *ProfileHub) SwitchProfile(ctx context.Context, targetPath string) error {
-	if targetPath == "" {
-		h.FallbackToEmpty(ctx, "用户主动切换为空配置")
-		return nil
-	}
-
-	if targetPath == h.cfg.GetActivePath() {
-		return nil
-	}
-
-	if !h.st.TryBeginAction(state.ActionSwitchProfile) {
-		return errors.New("系统繁忙，请稍后重试")
-	}
-	defer h.st.EndAction()
-
-	if err := h.deployer.DeployAndApply(ctx, targetPath, "切换配置"); err != nil {
-		return err
-	}
-
-	h.cfg.SetActiveProfile(targetPath)
-	return nil
-}
-
-func (h *ProfileHub) ImportLocalProfile(ctx context.Context, sourcePath string) error {
+func (h *ProfileHub) ImportLocal(sourcePath string) (targetRelPath string, isFirst bool, err error) {
 	if sourcePath == "" {
-		return nil
+		return "", false, nil
 	}
 	slog.Info("导入本地配置", "path", sourcePath)
 
-	if err := h.validateSource(sourcePath); err != nil {
-		return err
+	if err := h.ValidateSource(sourcePath); err != nil {
+		return "", false, err
 	}
 
-	targetRelPath, _, err := h.cfg.SafeCopyUntrustedConfig(sourcePath)
+	targetRelPath, _, err = h.cfg.SafeCopyUntrustedConfig(sourcePath)
 	if err != nil {
-		return fmt.Errorf("保存配置失败: %w", err)
+		return "", false, fmt.Errorf("保存配置失败: %w", err)
 	}
 
 	h.cfg.RegisterNewProfile(targetRelPath)
-
-	if len(h.cfg.GetProfiles()) == 1 {
-		return h.SwitchProfile(ctx, targetRelPath)
-	}
-	return nil
+	return targetRelPath, len(h.cfg.GetProfiles()) == 1, nil
 }
 
-func (h *ProfileHub) AddRemoteProfile(ctx context.Context, rawName, url string, interval int) error {
+func (h *ProfileHub) AddRemote(ctx context.Context, rawName, url string, interval int) (targetRelPath string, isFirst bool, err error) {
 	cleanURL := strings.TrimSpace(url)
 	if cleanURL == "" {
-		return errors.New("订阅链接为空")
+		return "", false, errors.New("订阅链接为空")
 	}
 
 	safeName, targetRelPath, err := h.cfg.AllocateRemoteProfilePath(rawName)
 	if err != nil {
-		return err
+		return "", false, err
 	}
 
 	newItem := domain.ProfileItem{
@@ -157,17 +103,14 @@ func (h *ProfileHub) AddRemoteProfile(ctx context.Context, rawName, url string, 
 	}
 
 	if err := h.fetchAndCommit(ctx, targetRelPath, newItem.URL, &newItem); err != nil {
-		return err
+		return "", false, err
 	}
 
 	slog.Info("添加远程订阅成功", "path", targetRelPath)
-	if len(h.cfg.GetProfiles()) == 1 {
-		return h.SwitchProfile(ctx, targetRelPath)
-	}
-	return nil
+	return targetRelPath, len(h.cfg.GetProfiles()) == 1, nil
 }
 
-func (h *ProfileHub) UpdateRemoteProfile(ctx context.Context, targetRelPath string, isManual bool) error {
+func (h *ProfileHub) UpdateRemote(ctx context.Context, targetRelPath string) error {
 	if !h.st.TryAcquireProfileLock(targetRelPath) {
 		return nil
 	}
@@ -175,48 +118,31 @@ func (h *ProfileHub) UpdateRemoteProfile(ctx context.Context, targetRelPath stri
 
 	p, ok := h.cfg.GetProfileByPath(targetRelPath)
 	if !ok || p.URL == "" {
-		if isManual {
-			return errors.New("配置或订阅链接不存在")
-		}
-		return nil
+		return errors.New("配置或订阅链接不存在")
 	}
 
-	err := h.fetchAndCommit(ctx, targetRelPath, p.URL, &p)
-	if err != nil {
-		if isManual {
-			return err
-		}
-		slog.Warn("自动更新订阅失败", "path", targetRelPath, "err", err)
-		return nil
+	if err := h.fetchAndCommit(ctx, targetRelPath, p.URL, &p); err != nil {
+		return err
 	}
 
-	slog.Info("订阅更新已落盘", "path", targetRelPath, "manual", isManual)
-
-	if isManual && h.cfg.GetActivePath() == targetRelPath {
-		if !h.st.TryBeginAction(state.ActionReload) {
-			return errors.New("系统繁忙，配置已保存，请稍后手动重载")
-		}
-		defer h.st.EndAction()
-		return h.deployer.DeployAndApply(ctx, targetRelPath, "应用手动订阅更新")
-	}
-
+	slog.Info("订阅更新已落盘", "path", targetRelPath)
 	return nil
 }
 
-func (h *ProfileHub) EditRemoteProfile(ctx context.Context, oldPath, newName, newURL string, newInterval int) error {
+func (h *ProfileHub) EditRemote(ctx context.Context, oldPath, newName, newURL string, newInterval int) (urlChanged bool, err error) {
 	p, ok := h.cfg.GetProfileByPath(oldPath)
 	if !ok {
-		return errors.New("配置不存在")
+		return false, errors.New("配置不存在")
 	}
 
 	if newName == p.Name && newURL == p.URL && newInterval == p.Interval {
-		return nil
+		return false, nil
 	}
 
-	urlChanged := newURL != p.URL
+	urlChanged = (newURL != p.URL)
 	if urlChanged {
 		if err := h.fetchAndCommit(ctx, p.Path, newURL, &p); err != nil {
-			return err
+			return false, err
 		}
 	}
 
@@ -225,18 +151,10 @@ func (h *ProfileHub) EditRemoteProfile(ctx context.Context, oldPath, newName, ne
 	p.Interval = newInterval
 	p.AutoUpdate = newInterval > 0
 	h.cfg.UpsertProfile(p)
-
-	if urlChanged && h.cfg.GetActivePath() == p.Path {
-		if !h.st.TryBeginAction(state.ActionReload) {
-			return errors.New("配置已保存，但系统繁忙未能立即热重载")
-		}
-		defer h.st.EndAction()
-		return h.deployer.DeployAndApply(ctx, p.Path, "应用订阅地址变更")
-	}
-	return nil
+	return urlChanged, nil
 }
 
-func (h *ProfileHub) EditLocalProfile(ctx context.Context, targetPath, newName string) error {
+func (h *ProfileHub) EditLocal(targetPath, newName string) error {
 	p, ok := h.cfg.GetProfileByPath(targetPath)
 	if !ok {
 		return errors.New("配置不存在")
@@ -248,39 +166,31 @@ func (h *ProfileHub) EditLocalProfile(ctx context.Context, targetPath, newName s
 	return nil
 }
 
-func (h *ProfileHub) DeleteProfile(ctx context.Context, targetPath string) error {
-	isActive := targetPath == h.cfg.GetActivePath()
-
-	if err := h.cfg.DeleteProfile(targetPath); err != nil {
-		slog.Warn("清理本地物理配置失败", "path", targetPath, "err", err)
-	}
-
-	if isActive {
-		slog.Info("活跃配置已被删除，执行降级回退")
-		h.FallbackToEmpty(ctx, "正在使用的配置文件被删除")
-	}
-	return nil
+func (h *ProfileHub) Delete(targetPath string) (wasActive bool, err error) {
+	wasActive = (targetPath == h.cfg.GetActivePath())
+	err = h.cfg.DeleteProfile(targetPath)
+	return wasActive, err
 }
 
-func (h *ProfileHub) GetProfileInfo(path string) (domain.ProfileItem, bool) {
-	return h.cfg.GetProfileByPath(path)
-}
-
-func (h *ProfileHub) MoveProfileUp(path string)   { h.cfg.MoveProfile(path, -1) }
-func (h *ProfileHub) MoveProfileDown(path string) { h.cfg.MoveProfile(path, 1) }
+func (h *ProfileHub) GetActivePath() string                 { return h.cfg.GetActivePath() }
+func (h *ProfileHub) SetActiveProfile(path string)          { h.cfg.SetActiveProfile(path) }
+func (h *ProfileHub) ClearActiveProfile()                   { h.cfg.SetActiveProfile("") }
+func (h *ProfileHub) IsActive(path string) bool             { return path != "" && path == h.cfg.GetActivePath() }
+func (h *ProfileHub) ValidateTarget(path string) error      { return h.cfg.ValidatePhysicalFile(path) }
+func (h *ProfileHub) GetProfileInfo(path string) (domain.ProfileItem, bool) { return h.cfg.GetProfileByPath(path) }
+func (h *ProfileHub) MoveProfileUp(path string)             { h.cfg.MoveProfile(path, -1) }
+func (h *ProfileHub) MoveProfileDown(path string)           { h.cfg.MoveProfile(path, 1) }
 
 func (h *ProfileHub) SetProfileInterval(payload string) {
 	parts := strings.SplitN(payload, "|", 2)
 	if len(parts) != 2 {
 		return
 	}
-	path := parts[0]
 	interval, err := strconv.Atoi(parts[1])
 	if err != nil {
 		return
 	}
-
-	if p, ok := h.cfg.GetProfileByPath(path); ok {
+	if p, ok := h.cfg.GetProfileByPath(parts[0]); ok {
 		p.Interval = interval
 		p.AutoUpdate = interval > 0
 		h.cfg.UpsertProfile(p)
@@ -288,8 +198,7 @@ func (h *ProfileHub) SetProfileInterval(payload string) {
 }
 
 func (h *ProfileHub) fetchAndCommit(ctx context.Context, targetRelPath, url string, item *domain.ProfileItem) error {
-	proxyPort := h.getActiveProxyPort()
-	res, err := h.cfg.FetchRemoteProfile(ctx, url, proxyPort)
+	res, err := h.cfg.FetchRemoteProfile(ctx, url, h.getActiveProxyPort())
 	if err != nil {
 		return err
 	}
@@ -319,7 +228,7 @@ func (h *ProfileHub) fetchAndCommit(ctx context.Context, targetRelPath, url stri
 	return h.cfg.CommitRemoteProfile(res.TempPath, targetRelPath, *item)
 }
 
-func (h *ProfileHub) validateSource(sourcePath string) error {
+func (h *ProfileHub) ValidateSource(sourcePath string) error {
 	absPath := sourcePath
 	if !filepath.IsAbs(sourcePath) {
 		absPath = h.cfg.GetProfileAbsPath(sourcePath)
