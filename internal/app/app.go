@@ -48,6 +48,31 @@ type Application struct {
 	isAutoUpdating atomic.Bool
 }
 
+func (a *Application) FallbackToEmpty(ctx context.Context, reason string) {
+	slog.Warn("配置失效，系统安全回退至空配置", "reason", reason)
+
+	a.ProfileHub.ClearActiveProfile()
+
+	a.Cfg.Update(func(c *domain.TrayConfig) {
+		c.Profiles.Active = ""
+		bProxy := false
+		c.General.SystemProxy = &bProxy
+		c.Config.Tun.Enable = false
+	})
+	a.State.SetTunRequestedTime(time.Time{})
+	a.State.SetTunAlive(false)
+
+	if a.Deployer.IsKernelRunning() {
+		_ = a.Deployer.DeployAndApply(ctx, "", "回退空配置")
+	} else {
+		cfg := a.Cfg.GetConfig()
+		_, _ = core.DeployRuntimeConfig(cfg, "", a.Cfg.BaseDir())
+	}
+
+	a.ProxyGuard.Sync()
+	a.Presenter.PushUIState()
+}
+
 func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	api := core.NewAPIClient(domain.IPCNamedPipe)
 	kernel := core.NewKernelManager(cm, st, api)
@@ -74,7 +99,13 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	})
 
 	app.Deployer = NewDeployer(cm, st, kernel, api)
-	app.ProfileHub = NewProfileHub(cm, st, app.Deployer, app.ProxyGuard.Sync)
+	
+	app.ProfileHub = NewProfileHub(cm, st, func() string {
+		if app.Deployer.IsKernelRunning() {
+			return app.Cfg.GetEffectiveLocalProxyPortStr()
+		}
+		return ""
+	})
 
 	app.Presenter = NewPresenter(cm, st, app.UIStateNotifyCh)
 	app.Probe = NewKernelProbe(cm, st, api, app.ProxyGuard)
@@ -98,7 +129,10 @@ func (a *Application) SetUIPort(ui UIPort) {
 func (a *Application) Bootstrap(ctx context.Context) {
 	slog.Debug("初始化核心服务")
 
-	a.ProfileHub.EnsureActiveValid(ctx)
+	if !a.ProfileHub.EnsureActiveValid(ctx) {
+		a.FallbackToEmpty(ctx, "活跃配置物理文件无效且无法恢复")
+	}
+	
 	a.HostBridge.CheckAndReconcilePrivileges(true)
 
 	if err := a.Deployer.SyncRuntimeConfig(); err != nil {
