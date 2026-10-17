@@ -36,18 +36,12 @@ type RuntimeState struct {
 	probeGen       atomic.Uint64
 	tunDevName     atomic.Value
 	profileLocks   sync.Map
-
-	busyHook func()
 }
 
 func NewRuntimeState() *RuntimeState {
 	rs := &RuntimeState{}
 	rs.phase.Store(int32(domain.PhaseInitializing))
 	return rs
-}
-
-func (r *RuntimeState) SetBusyHook(hook func()) {
-	r.busyHook = hook
 }
 
 func (r *RuntimeState) IsActionBusy() bool {
@@ -60,20 +54,11 @@ func (r *RuntimeState) TryBeginAction(action KernelAction) bool {
 	if r.IsExiting() {
 		return false
 	}
-	if r.currentAction.CompareAndSwap(int32(ActionNone), int32(action)) {
-		if r.busyHook != nil {
-			r.busyHook()
-		}
-		return true
-	}
-	return false
+	return r.currentAction.CompareAndSwap(int32(ActionNone), int32(action))
 }
 
 func (r *RuntimeState) EndAction() {
 	r.currentAction.Store(int32(ActionNone))
-	if r.busyHook != nil {
-		r.busyHook()
-	}
 }
 
 func (r *RuntimeState) CurrentAction() KernelAction {
