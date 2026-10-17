@@ -40,7 +40,6 @@ const (
 	ActionToggleProxy    = "ToggleProxy"
 	ActionSwitchMode     = "SwitchMode"
 	ActionToggleAllowLan = "ToggleAllowLan"
-	ActionForceSyncAPI   = "ForceSyncAPI"
 
 	// 系统与生命周期
 	ActionOpenBaseDir      = "OpenBaseDir"
