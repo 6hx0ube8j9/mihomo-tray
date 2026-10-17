@@ -216,7 +216,7 @@ func (t *Tuner) GetControllerSnapshot() (addr, sec string, online, sys bool, rem
 	return
 }
 
-func (t *Tuner) ApplyControllerConfig(ctx context.Context, addr, sec string, online, sys bool, remoteURL string) (restarted bool, err error) {
+func (t *Tuner) ApplyControllerConfig(ctx context.Context, addr, sec string, online, sys bool, remoteURL string) (shouldReopenUI bool, err error) {
 	cAddr, cSec, cOnline, cSys, cRemoteURL := t.GetControllerSnapshot()
 	coreChanged := (cAddr != addr) || (cSec != sec)
 	appChanged := (cOnline != online) || (cSys != sys) || (cRemoteURL != remoteURL)
@@ -243,7 +243,8 @@ func (t *Tuner) ApplyControllerConfig(ctx context.Context, addr, sec string, onl
 		}
 		return true, nil
 	}
-	return false, nil
+
+	return appChanged, nil
 }
 
 func (t *Tuner) ToggleSystemBrowser(enable bool) {
