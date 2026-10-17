@@ -38,12 +38,14 @@ func (d *Dashboard) Show() {
 		d.window.Show()
 	}
 	ActivateWindow(d.window.Handle())
+	d.window.SetCursor(walk.CursorArrow())
 }
 
 func (d *Dashboard) createWindow() {
 	err := MainWindow{
 		AssignTo: &d.window,
 		Title:    "管理配置",
+		Visible:  false,
 		MinSize:  Size{Width: 700, Height: 350},
 		Size:     Size{Width: 780, Height: 450},
 		Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
