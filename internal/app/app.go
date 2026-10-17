@@ -73,11 +73,8 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 		}
 	})
 
-	app.Deployer = NewDeployer(cm, st, kernel, api, app.ProxyGuard)
-	
-	app.ProfileHub = NewProfileHub(cm, st, func() bool {
-		return app.Deployer.IsKernelRunning()
-	}, app.ProxyGuard)	
+	app.Deployer = NewDeployer(cm, st, kernel, api)
+	app.ProfileHub = NewProfileHub(cm, st, app.Deployer, app.ProxyGuard.Sync)
 
 	app.Presenter = NewPresenter(cm, st, app.UIStateNotifyCh)
 	app.Probe = NewKernelProbe(cm, st, api, app.ProxyGuard)
@@ -88,15 +85,8 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 		}
 	})
 
-	app.Tuner = NewTuner(cm, st, api, app.Deployer, app.ProxyGuard, app.Presenter, app.ForceSyncAPI)
-
-	app.Panel = NewPanel(cm, st, app.Tuner, app.WebUI, app.webuiEventCh)
-
-	st.SetBusyHook(func() {
-		if app.Presenter != nil {
-			app.Presenter.ForcePushUIState()
-		}
-	})
+	app.Tuner = NewTuner(cm, st, api, app.ForceSyncAPI)
+	app.Panel = NewPanel(cm, st, app.WebUI, app.webuiEventCh)
 
 	return app
 }
@@ -109,8 +99,8 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	slog.Debug("初始化核心服务")
 
 	a.ProfileHub.EnsureActiveValid(ctx)
-
 	a.HostBridge.CheckAndReconcilePrivileges(true)
+
 	if err := a.Deployer.SyncRuntimeConfig(); err != nil {
 		slog.Warn("启动时底稿配置校验失败，执行安全回退", "err", err)
 		a.ProfileHub.FallbackToEmpty(ctx, "配置语法校验失败")
@@ -268,7 +258,7 @@ func (a *Application) processAutoUpdates(ctx context.Context) {
 	go func() {
 		defer a.isAutoUpdating.Store(false)
 		hasUpdate := false
-		
+
 		for _, p := range a.Cfg.GetProfiles() {
 			if a.State.IsExiting() || ctx.Err() != nil {
 				return
