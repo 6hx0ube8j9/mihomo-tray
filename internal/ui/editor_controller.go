@@ -82,7 +82,7 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 					Composite{
 						Layout: HBox{MarginsZero: true, Spacing: 12},
 						Children: []Widget{
-							CheckBox{AssignTo: &onlineCheck, Text: "使用在线 Web 面板", Checked: defaultOnline},
+							CheckBox{AssignTo: &onlineCheck, Text: "使用在线托管面板", Checked: defaultOnline},
 							CheckBox{AssignTo: &sysBrowserCheck, Text: "使用系统默认浏览器", Checked: defaultSysBrowser},
 							HSpacer{},
 						},
