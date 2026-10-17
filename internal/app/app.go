@@ -108,7 +108,7 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	})
 
 	app.Presenter = NewPresenter(cm, st, app.UIStateNotifyCh)
-	app.Probe = NewKernelProbe(cm, st, api, app.ProxyGuard)
+	app.Probe = NewKernelProbe(cm, st, api)
 
 	app.HostBridge = NewHostBridge(cm, st, func() {
 		if app.Presenter != nil {
@@ -185,11 +185,17 @@ func (a *Application) eventLoop(ctx context.Context) {
 	lastUserAction := time.Now()
 
 	tryPollAPI := func() {
-		if a.Probe.PollStatus(ctx) {
-			a.Presenter.PushUIState()
-		}
-	}
+        res := a.Probe.PollStatus(ctx)
 
+        if res.PortChanged && a.Cfg.IsSystemProxyEnabled() {
+            a.ProxyGuard.Sync()
+        }
+
+        if res.Changed {
+            a.Presenter.PushUIState()
+        }
+    }
+	
 	adjustPollInterval := func() {
 		isUserActive := time.Since(lastUserAction) < pollIdleThreshold
 		isWebActive := a.WebUI.IsActive()
