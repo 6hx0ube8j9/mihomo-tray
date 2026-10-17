@@ -132,12 +132,12 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	if !a.ProfileHub.EnsureActiveValid(ctx) {
 		a.FallbackToEmpty(ctx, "活跃配置物理文件无效且无法恢复")
 	}
-	
+
 	a.HostBridge.CheckAndReconcilePrivileges(true)
 
 	if err := a.Deployer.SyncRuntimeConfig(); err != nil {
 		slog.Warn("启动时底稿配置校验失败，执行安全回退", "err", err)
-		a.ProfileHub.FallbackToEmpty(ctx, "配置语法校验失败")
+		a.FallbackToEmpty(ctx, "配置语法校验失败")
 	}
 
 	if a.Cfg.GetConfig().Config.Tun.Enable {
@@ -298,7 +298,7 @@ func (a *Application) processAutoUpdates(ctx context.Context) {
 				return
 			}
 			if p.IsUpdateDue() {
-				_ = a.ProfileHub.UpdateRemoteProfile(ctx, p.Path, false)
+				_ = a.ProfileHub.UpdateRemote(ctx, p.Path)
 				hasUpdate = true
 				select {
 				case <-ctx.Done():
