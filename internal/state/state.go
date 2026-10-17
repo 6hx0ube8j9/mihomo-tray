@@ -80,10 +80,6 @@ func (r *RuntimeState) CurrentAction() KernelAction {
 	return KernelAction(r.currentAction.Load())
 }
 
-func (r *RuntimeState) IsReloading() bool     { return r.CurrentAction() == ActionReload }
-func (r *RuntimeState) IsRestarting() bool    { return r.CurrentAction() == ActionRestart }
-func (r *RuntimeState) IsConfigSyncing() bool { return r.CurrentAction() == ActionSyncAPI }
-
 // ---------------- 订阅单项并发锁 ----------------
 
 func (r *RuntimeState) TryAcquireProfileLock(path string) bool {
