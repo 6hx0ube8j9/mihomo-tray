@@ -151,22 +151,22 @@ func (t *Tray) buildMenuSkeleton() {
 	})
 
 	moreMenu, _ := t.addSubMenu("更多设置")
-	t.addActionTo(moreMenu, fmt.Sprintf("应用配置:%s", domain.TrayConfigName), func() {
+	t.addActionTo(moreMenu, fmt.Sprintf("打开应用配置: %s", domain.TrayConfigName), func() {
 		t.engine.SendCommand(domain.ActionOpenAppConfig, "")
 	})
 	t.addSeparatorTo(moreMenu)
-	t.addActionTo(moreMenu, "复制 Web 访问密码", func() {
+	t.addActionTo(moreMenu, "复制面板密码", func() {
 		t.engine.SendCommand(domain.ActionCopyWebUIPassword, "")
 	})
-	t.addActionTo(moreMenu, "清理 Web 面板缓存", func() {
+	t.addActionTo(moreMenu, "清除面板缓存", func() {
 		t.engine.SendCommand(domain.ActionClearWebUICache, "")
 	})
 
 	t.addSeparatorTo(moreMenu)
-	t.actRemoteWebUI = t.addCheckableSubAction(moreMenu, "使用在线 Web 面板", false, func() {
+	t.actRemoteWebUI = t.addCheckableSubAction(moreMenu, "使用在线托管面板", false, func() {
 		t.toggle(domain.ActionToggleRemoteWebUI, !t.latestState.RemoteWebUI)
 	})
-	t.actSysBrowser = t.addCheckableSubAction(moreMenu, "使用默认浏览器打开面板", false, func() {
+	t.actSysBrowser = t.addCheckableSubAction(moreMenu, "在默认浏览器打开面板", false, func() {
 		t.toggle(domain.ActionToggleSystemBrowser, !t.latestState.UseSystemBrowser)
 	})
 	t.actAllowLan = t.addCheckableSubAction(moreMenu, "允许局域网代理", false, func() {
