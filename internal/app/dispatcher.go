@@ -101,6 +101,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			if err := a.ProfileHub.SwitchProfile(ctx, cmd.Payload); err != nil {
 				return err
 			}
+			a.ProxyGuard.Sync()
 			a.Panel.ReopenIfActive(a.ForceSyncAPI)
 			return nil
 		})
@@ -221,6 +222,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			}); err != nil {
 				return err
 			}
+			a.ProxyGuard.Sync()
 			a.Panel.ReopenIfActive(a.ForceSyncAPI)
 			return nil
 		})
