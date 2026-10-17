@@ -66,6 +66,19 @@ func (g *ProxyGuard) Sync() {
 	}
 }
 
+func (g *ProxyGuard) SafeShutdownCleanup() {
+	portStr, hasPort := g.cfg.GetEffectiveSystemProxyPortStr()
+	if !hasPort {
+		return
+	}
+
+	if err := sys.DisableProxy(portStr); err != nil {
+		slog.Error("退出时注销系统代理失败", "err", err)
+	} else {
+		slog.Debug("退出时系统代理安全清理完成")
+	}
+}
+
 func (g *ProxyGuard) HandleStatusChange(ctx context.Context, status sys.ProxyStatus) {
 	if g.st.IsExiting() || !g.cfg.IsSystemProxyEnabled() {
 		return
@@ -131,18 +144,5 @@ func (g *ProxyGuard) DisableAndClearSetting() {
 		if err := sys.DisableProxy(portStr); err != nil {
 			slog.Error("注销系统代理注册表失败", "err", err)
 		}
-	}
-}
-
-func (g *ProxyGuard) SafeShutdownCleanup() {
-	portStr, hasPort := g.cfg.GetEffectiveSystemProxyPortStr()
-	if !hasPort {
-		return
-	}
-
-	if err := sys.DisableProxy(portStr); err != nil {
-		slog.Error("退出时注销系统代理失败", "err", err)
-	} else {
-		slog.Debug("退出时系统代理安全清理完成")
 	}
 }
