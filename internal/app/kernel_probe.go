@@ -19,24 +19,27 @@ const (
 )
 
 type KernelProbe struct {
-	cfg   *config.Manager
-	st    *state.RuntimeState
-	api   *core.APIClient
-	guard *ProxyGuard
+	cfg *config.Manager
+	st  *state.RuntimeState
+	api *core.APIClient
 }
 
-func NewKernelProbe(cfg *config.Manager, st *state.RuntimeState, api *core.APIClient, guard *ProxyGuard) *KernelProbe {
+func NewKernelProbe(cfg *config.Manager, st *state.RuntimeState, api *core.APIClient) *KernelProbe {
 	return &KernelProbe{
-		cfg:   cfg,
-		st:    st,
-		api:   api,
-		guard: guard,
+		cfg: cfg,
+		st:  st,
+		api: api,
 	}
 }
 
-func (p *KernelProbe) PollStatus(ctx context.Context) bool {
+type ProbeResult struct {
+	Changed     bool
+	PortChanged bool
+}
+
+func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 	if p.st.IsExiting() || p.st.IsActionBusy() {
-		return false
+		return ProbeResult{}
 	}
 
 	qCtx, cancel := context.WithTimeout(ctx, kernelAPIPollTimeout)
@@ -44,36 +47,36 @@ func (p *KernelProbe) PollStatus(ctx context.Context) bool {
 
 	resp, err := p.api.GetKernelStatus(qCtx)
 	if err != nil {
-		return false
+		return ProbeResult{}
 	}
 
-	changed := false
+	res := ProbeResult{}
 	currentActual := p.st.GetActualTunDevice()
+
 	if resp.Tun.Device != "" && resp.Tun.Device != currentActual {
 		p.st.SetActualTunDevice(resp.Tun.Device)
 		currentActual = resp.Tun.Device
-		changed = true
+		res.Changed = true
 	}
 
 	realAlive := sys.IsTunActive(currentActual)
 	if p.st.IsTunAlive() != realAlive {
 		p.st.SetTunAlive(realAlive)
-		changed = true
+		res.Changed = true
 	}
 
 	cfg := p.cfg.GetConfig()
-	isProxyEnabled := p.cfg.IsSystemProxyEnabled()
 
 	if resp.Mode != "" && resp.Mode != cfg.Config.Mode {
 		slog.Info("内核路由模式更新", "from", cfg.Config.Mode, "to", resp.Mode)
 		p.cfg.Update(func(c *domain.TrayConfig) { c.Config.Mode = resp.Mode })
-		changed = true
+		res.Changed = true
 	}
 
 	if resp.LogLevel != "" && resp.LogLevel != cfg.Config.LogLevel {
 		slog.Info("内核日志等级更新", "from", cfg.Config.LogLevel, "to", resp.LogLevel)
 		p.cfg.Update(func(c *domain.TrayConfig) { c.Config.LogLevel = resp.LogLevel })
-		changed = true
+		res.Changed = true
 	}
 
 	if cfg.Config.UnifiedDelay != nil && resp.UnifiedDelay != *cfg.Config.UnifiedDelay {
@@ -82,7 +85,7 @@ func (p *KernelProbe) PollStatus(ctx context.Context) bool {
 			b := resp.UnifiedDelay
 			c.Config.UnifiedDelay = &b
 		})
-		changed = true
+		res.Changed = true
 	}
 
 	if resp.AllowLan != p.cfg.GetEffectiveAllowLan() {
@@ -91,7 +94,7 @@ func (p *KernelProbe) PollStatus(ctx context.Context) bool {
 			b := resp.AllowLan
 			c.Config.AllowLan = &b
 		})
-		changed = true
+		res.Changed = true
 	}
 
 	if cfg.Config.MixedPort == nil || *cfg.Config.MixedPort != resp.MixedPort {
@@ -99,10 +102,8 @@ func (p *KernelProbe) PollStatus(ctx context.Context) bool {
 			val := resp.MixedPort
 			c.Config.MixedPort = &val
 		})
-		if isProxyEnabled {
-			p.guard.Sync()
-		}
-		changed = true
+		res.Changed = true
+		res.PortChanged = true
 	}
 
 	if cfg.Config.Port == nil || *cfg.Config.Port != resp.Port {
@@ -110,10 +111,8 @@ func (p *KernelProbe) PollStatus(ctx context.Context) bool {
 			val := resp.Port
 			c.Config.Port = &val
 		})
-		if isProxyEnabled && (cfg.Config.MixedPort == nil || *cfg.Config.MixedPort <= 0) {
-			p.guard.Sync()
-		}
-		changed = true
+		res.Changed = true
+		res.PortChanged = true
 	}
 
 	if cfg.Config.SocksPort == nil || *cfg.Config.SocksPort != resp.SocksPort {
@@ -121,18 +120,18 @@ func (p *KernelProbe) PollStatus(ctx context.Context) bool {
 			val := resp.SocksPort
 			c.Config.SocksPort = &val
 		})
-		changed = true
+		res.Changed = true
 	}
 
 	if p.reconcileTunState(resp.Tun.Enable) {
-		changed = true
+		res.Changed = true
 	}
 
-	if changed && p.cfg.GetConfig().Config.Tun.Enable && !realAlive && !p.st.IsTunInGracePeriod() {
+	if res.Changed && p.cfg.GetConfig().Config.Tun.Enable && !realAlive && !p.st.IsTunInGracePeriod() {
 		slog.Warn("TUN 网卡未就绪", "device", currentActual)
 	}
 
-	return changed
+	return res
 }
 
 func (p *KernelProbe) reconcileTunState(kernelTunEnabled bool) bool {
