@@ -87,7 +87,6 @@ func (p *Presenter) CalculateUIState() domain.UIState {
 		return s
 	}
 
-	// [优化] 直接调用状态层的保护期判定
 	if p.st.IsTunAlive() || p.st.IsTunInGracePeriod() {
 		s.IconState = domain.IconTun
 	} else {
