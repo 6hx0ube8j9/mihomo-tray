@@ -18,26 +18,26 @@ import (
 )
 
 type ProfileHub struct {
-    cfg         *config.Manager
-    st          *state.RuntimeState
-    isProxyLive func() bool
-    guard       *ProxyGuard
+	cfg         *config.Manager
+	st          *state.RuntimeState
+	deployer    *Deployer
+	onProxySync func()
 }
 
-func NewProfileHub(cfg *config.Manager, st *state.RuntimeState, isProxyLive func() bool, guard *ProxyGuard) *ProfileHub {
-    return &ProfileHub{
-        cfg:         cfg,
-        st:          st,
-        isProxyLive: isProxyLive,
-        guard:       guard,
-    }
+func NewProfileHub(cfg *config.Manager, st *state.RuntimeState, deployer *Deployer, onProxySync func()) *ProfileHub {
+	return &ProfileHub{
+		cfg:         cfg,
+		st:          st,
+		deployer:    deployer,
+		onProxySync: onProxySync,
+	}
 }
 
 func (h *ProfileHub) getActiveProxyPort() string {
-    if h.isProxyLive != nil && h.isProxyLive() {
-        return h.cfg.GetEffectiveLocalProxyPortStr()
-    }
-    return ""
+	if h.deployer != nil && h.deployer.IsKernelRunning() {
+		return h.cfg.GetEffectiveLocalProxyPortStr()
+	}
+	return ""
 }
 
 func (h *ProfileHub) EnsureActiveValid(ctx context.Context) {
@@ -86,7 +86,9 @@ func (h *ProfileHub) FallbackToEmpty(ctx context.Context, reason string) {
 		_, _ = core.DeployRuntimeConfig(cfg, "", h.cfg.BaseDir())
 	}
 
-	h.guard.Sync()
+	if h.onProxySync != nil {
+		h.onProxySync()
+	}
 }
 
 func (h *ProfileHub) SwitchProfile(ctx context.Context, targetPath string) error {
