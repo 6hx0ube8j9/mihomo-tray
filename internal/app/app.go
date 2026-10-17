@@ -126,14 +126,14 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	a.State.ForceExitPhase()
 	a.WebUI.Cleanup()
 
-	if cancel != nil {
-		cancel()
-	}
-	a.Kernel.KillCurrent()
-
 	slog.Debug("退出清理：安全比对并注销系统代理")
 	a.ProxyGuard.SafeShutdownCleanup()
 
+	if cancel != nil {
+		cancel()
+	}
+
+	a.Kernel.KillCurrent()
 	a.Kernel.Close()
 	slog.Info("应用已安全退出")
 }
