@@ -74,7 +74,10 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	})
 
 	app.Deployer = NewDeployer(cm, st, kernel, api, app.ProxyGuard)
-	app.ProfileHub = NewProfileHub(cm, st, app.Deployer, app.ProxyGuard)
+	
+	app.ProfileHub = NewProfileHub(cm, st, func() bool {
+		return app.Deployer.IsKernelRunning()
+	}, app.ProxyGuard)	
 
 	app.Presenter = NewPresenter(cm, st, app.UIStateNotifyCh)
 	app.Probe = NewKernelProbe(cm, st, api, app.ProxyGuard)
