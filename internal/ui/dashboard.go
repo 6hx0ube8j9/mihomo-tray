@@ -38,7 +38,6 @@ func (d *Dashboard) Show() {
 		d.window.Show()
 	}
 	ActivateWindow(d.window.Handle())
-	d.window.SetCursor(walk.CursorArrow())
 }
 
 func (d *Dashboard) createWindow() {
