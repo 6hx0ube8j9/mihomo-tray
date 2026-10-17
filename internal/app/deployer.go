@@ -19,16 +19,14 @@ type Deployer struct {
 	st     *state.RuntimeState
 	kernel *core.KernelManager
 	api    *core.APIClient
-	proxy  *ProxyGuard
 }
 
-func NewDeployer(cfg *config.Manager, st *state.RuntimeState, kernel *core.KernelManager, api *core.APIClient, proxy *ProxyGuard) *Deployer {
+func NewDeployer(cfg *config.Manager, st *state.RuntimeState, kernel *core.KernelManager, api *core.APIClient) *Deployer {
 	return &Deployer{
 		cfg:    cfg,
 		st:     st,
 		kernel: kernel,
 		api:    api,
-		proxy:  proxy,
 	}
 }
 
@@ -72,10 +70,6 @@ func (d *Deployer) DeployAndApply(ctx context.Context, targetRelPath, actionDesc
 	}
 
 	d.st.SetActualTunDevice(deployRes.TunDevice)
-
-	if d.proxy != nil {
-		d.proxy.Sync()
-	}
 
 	if d.IsKernelRunning() {
 		slog.Debug("执行热重载", "action", actionDesc)
