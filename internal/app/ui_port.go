@@ -4,7 +4,6 @@ import "mihomo-tray/internal/domain"
 
 type UIPort interface {
 	ShowError(title, message string)
-	ShowInfo(title, message string)
 	ShowNotification(title, message string)
 	ShowConfirm(title, message string) bool
 
