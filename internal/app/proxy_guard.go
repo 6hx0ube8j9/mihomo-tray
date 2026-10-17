@@ -133,3 +133,16 @@ func (g *ProxyGuard) DisableAndClearSetting() {
 		}
 	}
 }
+
+func (g *ProxyGuard) SafeShutdownCleanup() {
+	portStr, hasPort := g.cfg.GetEffectiveSystemProxyPortStr()
+	if !hasPort {
+		return
+	}
+
+	if err := sys.DisableProxy(portStr); err != nil {
+		slog.Error("退出时注销系统代理失败", "err", err)
+	} else {
+		slog.Debug("退出时系统代理安全清理完成")
+	}
+}
