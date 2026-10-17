@@ -151,7 +151,7 @@ func (t *Tray) buildMenuSkeleton() {
 	})
 
 	moreMenu, _ := t.addSubMenu("更多设置")
-	t.addActionTo(moreMenu, fmt.Sprintf("打开应用配置 (%s)", domain.TrayConfigName), func() {
+	t.addActionTo(moreMenu, fmt.Sprintf("应用配置:%s", domain.TrayConfigName), func() {
 		t.engine.SendCommand(domain.ActionOpenAppConfig, "")
 	})
 	t.addSeparatorTo(moreMenu)
