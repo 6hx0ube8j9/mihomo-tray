@@ -47,33 +47,44 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		if a.ui != nil {
 			a.ui.ShowProfileManager(a.Presenter.GetSnapshot())
 		}
+		
 	case domain.ActionRequestAddLocal:
 		go func() {
 			if a.ui != nil {
 				if path, ok := a.ui.OpenYAMLFileDialog(); ok {
+					wasFirst := len(a.Cfg.GetProfiles()) == 0
 					if err := a.ProfileHub.ImportLocalProfile(ctx, path); err != nil {
 						slog.Error("导入本地配置失败", "err", err)
 						a.ui.ShowError("导入配置", err.Error())
 					} else {
+						if wasFirst {
+							a.Panel.ReopenIfActive(a.ForceSyncAPI)
+						}
 						a.Presenter.PushUIState()
 					}
 				}
 			}
 		}()
+
 	case domain.ActionRequestAddRemote:
 		go func() {
 			if a.ui != nil {
 				name, url, interval, ok := a.ui.ShowProfileInfoEditor("添加远程订阅", "", "", domain.DefaultUpdateInterval, true)
 				if ok {
+					wasFirst := len(a.Cfg.GetProfiles()) == 0
 					if err := a.ProfileHub.AddRemoteProfile(ctx, name, url, interval); err != nil {
 						slog.Error("添加订阅失败", "err", err)
 						a.ui.ShowError("添加订阅", err.Error())
 					} else {
+						if wasFirst {
+							a.Panel.ReopenIfActive(a.ForceSyncAPI)
+						}
 						a.Presenter.PushUIState()
 					}
 				}
 			}
 		}()
+		
 	case domain.ActionEditProfileInfo:
 		if p, ok := a.ProfileHub.GetProfileInfo(cmd.Payload); ok {
 			go func(profile domain.ProfileItem) {
@@ -111,7 +122,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			if err := a.ProfileHub.SwitchProfile(ctx, cmd.Payload); err != nil {
 				return err
 			}
-			a.tryRestartWebUIIfOpen()
+			a.Panel.ReopenIfActive(a.ForceSyncAPI)
 			return nil
 		})
 	case domain.ActionRemoveProfile:
@@ -170,9 +181,9 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				nAddr, nSec, nOnline, nSys, nRemoteURL, ok := a.ui.ShowControllerEditor(cAddr, cSec, cOnline, cSys, cRemoteURL)
 				if ok {
 					a.asyncRun("面板设置", func() error {
-						restarted, err := a.Tuner.ApplyControllerConfig(ctx, nAddr, nSec, nOnline, nSys, nRemoteURL)
-						if err == nil && restarted {
-							a.tryRestartWebUIIfOpen()
+						shouldReopen, err := a.Tuner.ApplyControllerConfig(ctx, nAddr, nSec, nOnline, nSys, nRemoteURL)
+						if err == nil && shouldReopen {
+							a.Panel.ReopenIfActive(a.ForceSyncAPI)
 						}
 						return err
 					})
