@@ -3,14 +3,14 @@ package app
 import (
 	"context"
 	"log/slog"
-	"time"
 
 	"mihomo-tray/internal/domain"
 )
 
 func (a *Application) asyncRun(title string, task func() error) {
 	go func() {
-		defer a.Presenter.PushUIState()
+		a.Presenter.ForcePushUIState()
+		defer a.Presenter.ForcePushUIState()
 
 		if err := task(); err != nil {
 			slog.Error(title+"失败", "err", err)
@@ -21,24 +21,6 @@ func (a *Application) asyncRun(title string, task func() error) {
 	}()
 }
 
-func (a *Application) tryRestartWebUIIfOpen() {
-	if a.WebUI.IsActive() {
-		a.WebUI.Cleanup()
-		go func() {
-			for i := 0; i < 60; i++ {
-				if a.State.IsExiting() {
-					return
-				}
-				if a.State.GetPhase() == domain.PhaseRunning {
-					a.UICommandCh <- domain.UICommand{Action: domain.ActionOpenWebUI}
-					return
-				}
-				time.Sleep(200 * time.Millisecond)
-			}
-		}()
-	}
-}
-
 func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand) {
 	switch cmd.Action {
 
@@ -47,7 +29,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		if a.ui != nil {
 			a.ui.ShowProfileManager(a.Presenter.GetSnapshot())
 		}
-		
 	case domain.ActionRequestAddLocal:
 		go func() {
 			if a.ui != nil {
@@ -65,7 +46,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				}
 			}
 		}()
-
 	case domain.ActionRequestAddRemote:
 		go func() {
 			if a.ui != nil {
@@ -84,7 +64,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				}
 			}
 		}()
-		
 	case domain.ActionEditProfileInfo:
 		if p, ok := a.ProfileHub.GetProfileInfo(cmd.Payload); ok {
 			go func(profile domain.ProfileItem) {
@@ -140,12 +119,14 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		a.ProfileHub.MoveProfileDown(cmd.Payload)
 		a.Presenter.PushUIState()
 
-	// ================= 运行参数调优 (Tuner) =================
+	// ================= 系统代理控制 (ProxyGuard) =================
 	case domain.ActionToggleProxy:
 		a.asyncRun("系统代理", func() error {
-			a.Tuner.ToggleProxy(cmd.Payload == "true")
+			a.ProxyGuard.SetProxy(cmd.Payload == "true")
 			return nil
 		})
+
+	// ================= 运行参数调优 (Tuner) =================
 	case domain.ActionToggleTun:
 		a.asyncRun("TUN 模式", func() error {
 			restarted, err := a.Tuner.ToggleTun(ctx, cmd.Payload == "true", a.HostBridge.ElevatePrivilege)
@@ -165,7 +146,14 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				nMixed, nSocks, nHttp, ok := a.ui.ShowPortEditor(cMixed, cSocks, cHttp)
 				if ok {
 					a.asyncRun("端口设置", func() error {
-						return a.Tuner.ApplyPortConfig(ctx, nMixed, nSocks, nHttp)
+						changed, err := a.Tuner.ApplyPortConfig(ctx, nMixed, nSocks, nHttp)
+						if err != nil {
+							return err
+						}
+						if changed && a.Cfg.IsSystemProxyEnabled() {
+							a.ProxyGuard.Sync()
+						}
+						return nil
 					})
 				}
 			}
@@ -181,11 +169,16 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				nAddr, nSec, nOnline, nSys, nRemoteURL, ok := a.ui.ShowControllerEditor(cAddr, cSec, cOnline, cSys, cRemoteURL)
 				if ok {
 					a.asyncRun("面板设置", func() error {
-						shouldReopen, err := a.Tuner.ApplyControllerConfig(ctx, nAddr, nSec, nOnline, nSys, nRemoteURL)
-						if err == nil && shouldReopen {
+						coreChanged, appChanged := a.Tuner.ApplyControllerConfig(nAddr, nSec, nOnline, nSys, nRemoteURL)
+						if coreChanged {
+							if err := a.Deployer.RestartKernel(ctx); err != nil {
+								return err
+							}
+						}
+						if coreChanged || appChanged {
 							a.Panel.ReopenIfActive(a.ForceSyncAPI)
 						}
-						return err
+						return nil
 					})
 				}
 			}
@@ -223,13 +216,12 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	// ================= 系统特权与文件资源 (HostBridge / Deployer) =================
 	case domain.ActionReloadConfig:
 		a.asyncRun("重载配置", func() error {
-			// [调优顺序] 先读配置 -> 回滚特权 -> 部署内核
 			if err := a.Deployer.ReloadConfig(ctx, func() {
 				a.HostBridge.CheckAndReconcilePrivileges(false)
 			}); err != nil {
 				return err
 			}
-			a.tryRestartWebUIIfOpen()
+			a.Panel.ReopenIfActive(a.ForceSyncAPI)
 			return nil
 		})
 	case domain.ActionRestartKernel:
@@ -238,7 +230,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			if err := a.Deployer.RestartKernel(ctx); err != nil {
 				return err
 			}
-			a.tryRestartWebUIIfOpen()
+			a.Panel.ReopenIfActive(a.ForceSyncAPI)
 			return nil
 		})
 	case domain.ActionOpenBaseDir:
