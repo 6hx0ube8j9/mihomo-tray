@@ -57,32 +57,50 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		go func() {
 			if a.ui != nil {
 				if path, ok := a.ui.OpenYAMLFileDialog(); ok {
-					wasFirst := len(a.Cfg.GetProfiles()) == 0
-					if err := a.ProfileHub.ImportLocalProfile(ctx, path); err != nil {
+					targetRelPath, isFirst, err := a.ProfileHub.ImportLocal(path)
+					if err != nil {
 						slog.Error("导入本地配置失败", "err", err)
 						a.ui.ShowError("导入配置", err.Error())
-					} else {
-						if wasFirst {
+						return
+					}
+					if isFirst {
+						a.runExclusiveAction(state.ActionSwitchProfile, "激活配置", func() error {
+							if err := a.Deployer.DeployAndApply(ctx, targetRelPath, "激活首个导入配置"); err != nil {
+								return err
+							}
+							a.ProfileHub.SetActiveProfile(targetRelPath)
+							a.ProxyGuard.Sync()
 							a.Panel.ReopenIfActive(a.ForceSyncAPI)
-						}
+							return nil
+						})
+					} else {
 						a.Presenter.PushUIState()
 					}
 				}
 			}
-		}()
+		}()		
 	case domain.ActionRequestAddRemote:
 		go func() {
 			if a.ui != nil {
 				name, url, interval, ok := a.ui.ShowProfileInfoEditor("添加远程订阅", "", "", domain.DefaultUpdateInterval, true)
 				if ok {
-					wasFirst := len(a.Cfg.GetProfiles()) == 0
-					if err := a.ProfileHub.AddRemoteProfile(ctx, name, url, interval); err != nil {
+					targetRelPath, isFirst, err := a.ProfileHub.AddRemote(ctx, name, url, interval)
+					if err != nil {
 						slog.Error("添加订阅失败", "err", err)
 						a.ui.ShowError("添加订阅", err.Error())
-					} else {
-						if wasFirst {
+						return
+					}
+					if isFirst {
+						a.runExclusiveAction(state.ActionSwitchProfile, "激活配置", func() error {
+							if err := a.Deployer.DeployAndApply(ctx, targetRelPath, "激活首个导入配置"); err != nil {
+								return err
+							}
+							a.ProfileHub.SetActiveProfile(targetRelPath)
+							a.ProxyGuard.Sync()
 							a.Panel.ReopenIfActive(a.ForceSyncAPI)
-						}
+							return nil
+						})
+					} else {
 						a.Presenter.PushUIState()
 					}
 				}
@@ -99,32 +117,67 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				if !ok {
 					return
 				}
-				var err error
+
 				if isRemote {
-					err = a.ProfileHub.EditRemoteProfile(ctx, profile.Path, name, url, interval)
+					a.runExclusiveAction(state.ActionReload, "更新订阅", func() error {
+						urlChanged, err := a.ProfileHub.EditRemote(ctx, profile.Path, name, url, interval)
+						if err != nil {
+							return err
+						}
+						if urlChanged && a.ProfileHub.IsActive(profile.Path) {
+							if err := a.Deployer.DeployAndApply(ctx, profile.Path, "应用订阅地址变更"); err != nil {
+								return err
+							}
+							a.ProxyGuard.Sync()
+							a.Panel.ReopenIfActive(a.ForceSyncAPI)
+						}
+						return nil
+					})
 				} else {
-					err = a.ProfileHub.EditLocalProfile(ctx, profile.Path, name)
-				}
-				if err != nil {
-					slog.Error("保存配置信息失败", "err", err)
-					a.ui.ShowError("保存配置", err.Error())
-				} else {
-					a.Presenter.PushUIState()
+					if err := a.ProfileHub.EditLocal(profile.Path, name); err != nil {
+						a.ui.ShowError("保存配置", err.Error())
+					} else {
+						a.Presenter.PushUIState()
+					}
 				}
 			}(p)
 		}
 	case domain.ActionUpdateRemoteProfile:
 		if p, ok := a.ProfileHub.GetProfileInfo(cmd.Payload); ok {
-			a.asyncRun("更新订阅", func() error { return a.ProfileHub.UpdateRemoteProfile(ctx, p.Path, true) })
+			a.runExclusiveAction(state.ActionReload, "更新订阅", func() error {
+				if err := a.ProfileHub.UpdateRemote(ctx, p.Path); err != nil {
+					return err
+				}
+				if a.ProfileHub.IsActive(p.Path) {
+					if err := a.Deployer.DeployAndApply(ctx, p.Path, "应用订阅更新"); err != nil {
+						return err
+					}
+					a.ProxyGuard.Sync()
+					a.Panel.ReopenIfActive(a.ForceSyncAPI)
+				}
+				return nil
+			})
 		}
 	case domain.ActionSetProfileInterval:
 		a.ProfileHub.SetProfileInterval(cmd.Payload)
 		a.Presenter.PushUIState()
 	case domain.ActionSwitchProfile:
 		a.runExclusiveAction(state.ActionSwitchProfile, "切换配置", func() error {
-			if err := a.ProfileHub.SwitchProfile(ctx, cmd.Payload); err != nil {
+			target := cmd.Payload
+			if target == "" {
+				a.FallbackToEmpty(ctx, "用户主动切换为空配置")
+				return nil
+			}
+			if a.ProfileHub.IsActive(target) {
+				return nil
+			}
+			if err := a.ProfileHub.ValidateTarget(target); err != nil {
 				return err
 			}
+			if err := a.Deployer.DeployAndApply(ctx, target, "切换配置"); err != nil {
+				return err
+			}
+			a.ProfileHub.SetActiveProfile(target)
 			a.ProxyGuard.Sync()
 			a.Panel.ReopenIfActive(a.ForceSyncAPI)
 			return nil
@@ -135,7 +188,16 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			if a.ui != nil && !a.ui.ShowConfirm("删除配置", "确认删除该配置文件？本地文件将被清理且不可恢复。") {
 				return
 			}
-			a.asyncRun("删除配置", func() error { return a.ProfileHub.DeleteProfile(ctx, path) })
+			a.asyncRun("删除配置", func() error {
+				wasActive, err := a.ProfileHub.Delete(path)
+				if err != nil {
+					return err
+				}
+				if wasActive {
+					a.FallbackToEmpty(ctx, "正在使用的配置文件被删除")
+				}
+				return nil
+			})
 		}(targetPath)
 	case domain.ActionMoveProfileUp:
 		a.ProfileHub.MoveProfileUp(cmd.Payload)
