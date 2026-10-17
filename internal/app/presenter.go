@@ -72,7 +72,7 @@ func (p *Presenter) CalculateUIState() domain.UIState {
 	}
 
 	if !p.st.IsActionBusy() {
-		if p.st.IsRestarting() || p.st.GetPhase() != domain.PhaseRunning {
+		if p.st.GetPhase() != domain.PhaseRunning {
 			s.IconState = domain.IconStop
 			return s
 		}
