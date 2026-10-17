@@ -18,26 +18,26 @@ import (
 )
 
 type ProfileHub struct {
-	cfg      *config.Manager
-	st       *state.RuntimeState
-	deployer *Deployer
-	guard    *ProxyGuard
+    cfg         *config.Manager
+    st          *state.RuntimeState
+    isProxyLive func() bool
+    guard       *ProxyGuard
 }
 
-func NewProfileHub(cfg *config.Manager, st *state.RuntimeState, deployer *Deployer, guard *ProxyGuard) *ProfileHub {
-	return &ProfileHub{
-		cfg:      cfg,
-		st:       st,
-		deployer: deployer,
-		guard:    guard,
-	}
+func NewProfileHub(cfg *config.Manager, st *state.RuntimeState, isProxyLive func() bool, guard *ProxyGuard) *ProfileHub {
+    return &ProfileHub{
+        cfg:         cfg,
+        st:          st,
+        isProxyLive: isProxyLive,
+        guard:       guard,
+    }
 }
 
 func (h *ProfileHub) getActiveProxyPort() string {
-	if h.deployer != nil && h.deployer.IsKernelRunning() {
-		return h.cfg.GetEffectiveLocalProxyPortStr()
-	}
-	return ""
+    if h.isProxyLive != nil && h.isProxyLive() {
+        return h.cfg.GetEffectiveLocalProxyPortStr()
+    }
+    return ""
 }
 
 func (h *ProfileHub) EnsureActiveValid(ctx context.Context) {
