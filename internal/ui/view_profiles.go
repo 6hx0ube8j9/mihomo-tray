@@ -62,7 +62,7 @@ func (v *ProfileView) Declarative() []Widget {
 				HSpacer{},
 				Label{
 					AssignTo: &v.portsLabel,
-					Font:     Font{Family: "Cascadia Mono, Consolas", PointSize: 9},
+					Font:     Font{Family: "Cascadia Mono, Consolas"},
 				},
 			},
 		},
