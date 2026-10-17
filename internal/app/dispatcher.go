@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/state"
 )
 
 func (a *Application) asyncRun(title string, task func() error) {
