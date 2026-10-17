@@ -81,3 +81,24 @@ func (p *Panel) ClearCache() error {
 	}
 	return nil
 }
+
+func (p *Panel) ReopenIfActive(forceSync func()) {
+	if !p.coreMgr.IsActive() {
+		return
+	}
+	p.coreMgr.Cleanup()
+
+	go func() {
+		for i := 0; i < 60; i++ {
+			if p.st.IsExiting() {
+				return
+			}
+			if p.st.GetPhase() == domain.PhaseRunning {
+				_ = p.Open(forceSync)
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		slog.Warn("等待内核就绪超时，未恢复 Web 面板")
+	}()
+}
