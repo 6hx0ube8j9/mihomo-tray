@@ -9,8 +9,32 @@ import (
 
 func (a *Application) asyncRun(title string, task func() error) {
 	go func() {
-		a.Presenter.ForcePushUIState()
-		defer a.Presenter.ForcePushUIState()
+		defer a.Presenter.PushUIState()
+
+		if err := task(); err != nil {
+			slog.Error(title+"失败", "err", err)
+			if a.ui != nil {
+				a.ui.ShowError(title+"失败", err.Error())
+			}
+		}
+	}()
+}
+
+func (a *Application) runExclusiveAction(action state.KernelAction, title string, task func() error) {
+	if !a.State.TryBeginAction(action) {
+		if a.ui != nil {
+			a.ui.ShowError(title, "系统繁忙，请稍后重试")
+		}
+		return
+	}
+
+	a.Presenter.ForcePushUIState()
+
+	go func() {
+		defer func() {
+			a.State.EndAction()
+			a.Presenter.ForcePushUIState()
+		}()
 
 		if err := task(); err != nil {
 			slog.Error(title+"失败", "err", err)
@@ -97,7 +121,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		a.ProfileHub.SetProfileInterval(cmd.Payload)
 		a.Presenter.PushUIState()
 	case domain.ActionSwitchProfile:
-		a.asyncRun("切换配置", func() error {
+		a.runExclusiveAction(state.ActionSwitchProfile, "切换配置", func() error {
 			if err := a.ProfileHub.SwitchProfile(ctx, cmd.Payload); err != nil {
 				return err
 			}
@@ -216,7 +240,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	// ================= 系统特权与文件资源 (HostBridge / Deployer) =================
 	case domain.ActionReloadConfig:
-		a.asyncRun("重载配置", func() error {
+		a.runExclusiveAction(state.ActionReload, "重载配置", func() error {
 			if err := a.Deployer.ReloadConfig(ctx, func() {
 				a.HostBridge.CheckAndReconcilePrivileges(false)
 			}); err != nil {
