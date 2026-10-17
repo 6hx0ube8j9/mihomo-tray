@@ -256,7 +256,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				cAddr, cSec, cOnline, cSys, cRemoteURL := a.Tuner.GetControllerSnapshot()
 				nAddr, nSec, nOnline, nSys, nRemoteURL, ok := a.ui.ShowControllerEditor(cAddr, cSec, cOnline, cSys, cRemoteURL)
 				if ok {
-					a.asyncRun("面板设置", func() error {
+					a.runExclusiveAction(state.ActionRestart, "面板设置", func() error {
 						coreChanged, appChanged := a.Tuner.ApplyControllerConfig(nAddr, nSec, nOnline, nSys, nRemoteURL)
 						if coreChanged {
 							if err := a.Deployer.RestartKernel(ctx); err != nil {
@@ -314,7 +314,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			return nil
 		})
 	case domain.ActionRestartKernel:
-		a.asyncRun("重启内核", func() error {
+		a.runExclusiveAction(state.ActionRestart, "重启内核", func() error {
 			a.HostBridge.CheckAndReconcilePrivileges(false)
 			if err := a.Deployer.RestartKernel(ctx); err != nil {
 				return err
