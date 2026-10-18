@@ -167,7 +167,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			a.runExclusiveAction(state.ActionReload, "更新订阅", func() error {
 				if err := a.ProfileHub.UpdateRemote(ctx, p.Path); err != nil {
 					if errors.Is(err, ErrProfileUpdating) {
-						a.notifySuccess("更新订阅", "该订阅当前正在更新中，请勿重复操作。")
+						a.notifySuccess("更新订阅", "该订阅正在更新中，请勿重复操作。")
 						return nil
 					}
 					return err
