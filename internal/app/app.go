@@ -66,8 +66,7 @@ func (a *Application) FallbackToEmpty(ctx context.Context, reason string) {
 	if a.Deployer.IsKernelRunning() {
 		_ = a.Deployer.DeployAndApply(ctx, "", "回退空配置")
 	} else {
-		cfg := a.Cfg.GetConfig()
-		_, _ = core.DeployRuntimeConfig(cfg, "", a.Cfg.BaseDir())
+		_ = a.Deployer.SyncRuntimeConfig()
 	}
 
 	a.ProxyGuard.Sync()
