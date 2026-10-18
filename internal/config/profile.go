@@ -182,8 +182,7 @@ func (m *Manager) DeleteProfile(relPath string) error {
 	absPath := m.GetProfileAbsPath(relPath)
 	var removeErr error
 	if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
-		removeErr = err
-		slog.Warn("清理本地物理配置文件受阻", "path", absPath, "err", err)
+		removeErr = err 
 	}
 
 	m.RemoveProfile(relPath)
