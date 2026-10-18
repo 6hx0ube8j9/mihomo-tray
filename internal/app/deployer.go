@@ -90,7 +90,7 @@ func (d *Deployer) DeployAndApply(ctx context.Context, targetRelPath, actionDesc
 			slog.Debug("热重载成功", "target", targetRelPath)
 			return nil
 		}
-		slog.Warn("热重载失败，准备重启内核")
+		slog.Warn("重载配置失败，准备重启内核")
 	}
 
 	d.PhysicalRestart(cfg)
