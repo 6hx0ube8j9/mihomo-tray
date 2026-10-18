@@ -200,14 +200,11 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				return err
 			}
 
-			oldActive := a.ProfileHub.GetActivePath()
-			a.ProfileHub.SetActiveProfile(target)
-
 			if err := a.Deployer.DeployAndApply(ctx, target, "切换配置"); err != nil {
-				a.ProfileHub.SetActiveProfile(oldActive)
 				return err
 			}
-
+			
+			a.ProfileHub.SetActiveProfile(target)
 			a.ProxyGuard.Sync()
 			a.Panel.ReopenIfActive(a.ForceSyncAPI)
 			return nil
