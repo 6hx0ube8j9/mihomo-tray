@@ -58,7 +58,6 @@ func (a *Application) FallbackToEmpty(ctx context.Context, reason string) {
 		c.General.SystemProxy = &bProxy
 		c.Config.Tun.Enable = false
 	})
-
 	a.State.SetTunRequestedTime(time.Time{})
 	a.State.SetTunAlive(false)
 
