@@ -17,6 +17,10 @@ import (
 	"mihomo-tray/internal/state"
 )
 
+var (
+	ErrProfileUpdating = errors.New("订阅正在更新中，请稍候")
+)
+
 type ProfileHub struct {
 	cfg       *config.Manager
 	st        *state.RuntimeState
@@ -112,7 +116,7 @@ func (h *ProfileHub) AddRemote(ctx context.Context, rawName, url string, interva
 
 func (h *ProfileHub) UpdateRemote(ctx context.Context, targetRelPath string) error {
 	if !h.st.TryAcquireProfileLock(targetRelPath) {
-		return nil
+		return ErrProfileUpdating
 	}
 	defer h.st.ReleaseProfileLock(targetRelPath)
 
