@@ -80,7 +80,7 @@ func (h *ProfileHub) ImportLocal(sourcePath string) (targetRelPath string, isFir
 
 	targetRelPath, _, err = h.cfg.SafeCopyUntrustedConfig(sourcePath)
 	if err != nil {
-		return "", false, fmt.Errorf("保存配置失败: %w", err)
+		return "", false, err
 	}
 
 	h.cfg.RegisterNewProfile(targetRelPath)
