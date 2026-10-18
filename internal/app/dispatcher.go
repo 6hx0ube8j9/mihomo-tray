@@ -147,8 +147,15 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		if p, ok := a.ProfileHub.GetProfileInfo(cmd.Payload); ok {
 			a.runExclusiveAction(state.ActionReload, "更新订阅", func() error {
 				if err := a.ProfileHub.UpdateRemote(ctx, p.Path); err != nil {
+					if errors.Is(err, ErrProfileUpdating) {
+						if a.ui != nil {
+							a.ui.ShowNotification("更新订阅", "该订阅当前正在更新中，请勿重复操作。")
+						}
+						return nil
+					}
 					return err
 				}
+
 				if a.ProfileHub.IsActive(p.Path) {
 					if err := a.Deployer.DeployAndApply(ctx, p.Path, "应用订阅更新"); err != nil {
 						return err
