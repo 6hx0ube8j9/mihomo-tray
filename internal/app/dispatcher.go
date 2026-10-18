@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -10,7 +11,6 @@ import (
 	"mihomo-tray/internal/state"
 )
 
-// notifyError 统一记录错误日志并触发 UI 错误弹窗（支持空指针安全与标题自适应）
 func (a *Application) notifyError(actionTitle string, err error) {
 	if err == nil {
 		return
@@ -26,7 +26,6 @@ func (a *Application) notifyError(actionTitle string, err error) {
 	}
 }
 
-// notifySuccess 统一记录信息日志并发送系统通知
 func (a *Application) notifySuccess(title, message string) {
 	slog.Info(title, "detail", message)
 	if a.ui != nil {
@@ -34,7 +33,6 @@ func (a *Application) notifySuccess(title, message string) {
 	}
 }
 
-// runExclusiveAction 声明式互斥任务调度器：统一管理锁生命周期、UI 忙碌状态流与错误兜底
 func (a *Application) runExclusiveAction(action state.KernelAction, title string, task func() error) {
 	if !a.State.TryBeginAction(action) {
 		if a.ui != nil {
@@ -57,7 +55,6 @@ func (a *Application) runExclusiveAction(action state.KernelAction, title string
 	}()
 }
 
-// asyncRun 常规后台异步任务执行器
 func (a *Application) asyncRun(title string, task func() error) {
 	go func() {
 		defer a.Presenter.PushUIState()
@@ -68,13 +65,17 @@ func (a *Application) asyncRun(title string, task func() error) {
 	}()
 }
 
+// handleProfileAdded 采用事务设计：预先确立活跃状态，防止物理重启钩子读取到空配置
 func (a *Application) handleProfileAdded(ctx context.Context, targetRelPath string, isFirst bool) {
 	if isFirst {
 		a.runExclusiveAction(state.ActionSwitchProfile, "激活配置", func() error {
+			a.ProfileHub.SetActiveProfile(targetRelPath)
+
 			if err := a.Deployer.DeployAndApply(ctx, targetRelPath, "激活首个导入配置"); err != nil {
+				a.ProfileHub.ClearActiveProfile()
 				return err
 			}
-			a.ProfileHub.SetActiveProfile(targetRelPath)
+
 			a.ProxyGuard.Sync()
 			a.Panel.ReopenIfActive(a.ForceSyncAPI)
 			return nil
@@ -199,10 +200,15 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			if err := a.ProfileHub.ValidateTarget(target); err != nil {
 				return err
 			}
+
+			oldActive := a.ProfileHub.GetActivePath()
+			a.ProfileHub.SetActiveProfile(target)
+
 			if err := a.Deployer.DeployAndApply(ctx, target, "切换配置"); err != nil {
+				a.ProfileHub.SetActiveProfile(oldActive)
 				return err
 			}
-			a.ProfileHub.SetActiveProfile(target)
+
 			a.ProxyGuard.Sync()
 			a.Panel.ReopenIfActive(a.ForceSyncAPI)
 			return nil
@@ -332,26 +338,42 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			})
 		}()
 
-	// ================= 系统特权与文件资源 (HostBridge / Deployer) =================
+	// ================= 重载与重启 (自愈与静默编排) =================
 	case domain.ActionReloadConfig:
 		a.runExclusiveAction(state.ActionReload, "重载配置", func() error {
-			if err := a.Deployer.ReloadConfig(ctx, func() {
-				a.HostBridge.CheckAndReconcilePrivileges(false)
-			}); err != nil {
-				return err
+			if err := a.Cfg.ReloadFromDisk(); err != nil {
+				a.notifySuccess("配置回退", "主配置文件格式损坏，已自动恢复为上一次保存的设置。")
 			}
-			a.ProxyGuard.Sync()
+
+			a.HostBridge.CheckAndReconcilePrivileges(false)
+
+			if err := a.Deployer.ReloadConfig(ctx); err != nil {
+				a.FallbackToEmpty(ctx, "重载配置校验未通过")
+				a.notifyError("配置错误", fmt.Errorf("配置文件内容校验未通过，已回退空配置"))
+			} else {
+				a.ProxyGuard.Sync()
+			}
+
 			a.Panel.ReopenIfActive(a.ForceSyncAPI)
 			return nil
 		})
 
 	case domain.ActionRestartKernel:
 		a.runExclusiveAction(state.ActionRestart, "重启内核", func() error {
-			a.HostBridge.CheckAndReconcilePrivileges(false)
-			if err := a.Deployer.RestartKernel(ctx); err != nil {
-				return err
+			if err := a.Cfg.ReloadFromDisk(); err != nil {
+				a.notifySuccess("配置回退", "主配置文件格式损坏，已自动恢复为上一次保存的设置。")
 			}
-			a.ProxyGuard.Sync()
+
+			a.HostBridge.CheckAndReconcilePrivileges(false)
+
+			if err := a.Deployer.RestartKernel(ctx); err != nil {
+				a.FallbackToEmpty(ctx, "重启配置校验未通过")
+				a.Deployer.PhysicalRestart(a.Cfg.GetConfig())
+				a.notifyError("配置错误", fmt.Errorf("当前配置校验未通过，已切换为空配置拉起内核"))
+			} else {
+				a.ProxyGuard.Sync()
+			}
+
 			a.Panel.ReopenIfActive(a.ForceSyncAPI)
 			return nil
 		})
