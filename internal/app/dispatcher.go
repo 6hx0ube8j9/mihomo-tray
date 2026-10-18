@@ -218,11 +218,13 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			if a.ui != nil && !a.ui.ShowConfirm("删除配置", "确认删除该配置文件？本地文件将被清理且不可恢复。") {
 				return
 			}
-			a.asyncRun("删除配置", func() error {
+
+			a.runExclusiveAction(state.ActionSwitchProfile, "删除配置", func() error {
 				wasActive, err := a.ProfileHub.Delete(path)
 				if err != nil {
 					return err
 				}
+
 				if wasActive {
 					a.FallbackToEmpty(ctx, "正在使用的配置文件被删除")
 				}
