@@ -84,10 +84,10 @@ func (d *Deployer) DeployAndApply(ctx context.Context, targetRelPath, actionDesc
 	d.st.SetActualTunDevice(deployRes.TunDevice)
 
 	if d.IsKernelRunning() {
-		slog.Debug("执行热重载", "action", actionDesc)
+		slog.Debug("执行重载配置", "action", actionDesc)
 		runtimeAbs := filepath.Join(d.cfg.BaseDir(), domain.RuntimeConfigName)
 		if err := d.hotReload(ctx, runtimeAbs); err == nil {
-			slog.Debug("热重载成功", "target", targetRelPath)
+			slog.Debug("重载配置成功", "target", targetRelPath)
 			return nil
 		}
 		slog.Warn("重载配置失败，准备重启内核")
