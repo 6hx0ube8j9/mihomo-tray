@@ -189,13 +189,15 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	case domain.ActionSwitchProfile:
 		a.runExclusiveAction(state.ActionSwitchProfile, "切换配置", func() error {
 			target := cmd.Payload
+
 			if target == "" {
-				a.FallbackToEmpty(ctx, "用户主动切换为空配置")
-				return nil
+				return errors.New("未指定配置文件")
 			}
+
 			if a.ProfileHub.IsActive(target) {
 				return nil
 			}
+			
 			if err := a.ProfileHub.ValidateTarget(target); err != nil {
 				return err
 			}
