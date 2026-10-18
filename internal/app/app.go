@@ -304,8 +304,12 @@ func (a *Application) processAutoUpdates(ctx context.Context) {
 				return
 			}
 			if p.IsUpdateDue() {
-				_ = a.ProfileHub.UpdateRemote(ctx, p.Path)
-				hasUpdate = true
+				if err := a.ProfileHub.UpdateRemote(ctx, p.Path); err == nil {
+					hasUpdate = true
+				} else if !errors.Is(err, ErrProfileUpdating) {
+					slog.Warn("自动更新订阅失败", "path", p.Path, "err", err)
+				}
+
 				select {
 				case <-ctx.Done():
 					return
