@@ -52,14 +52,13 @@ type Application struct {
 func (a *Application) FallbackToEmpty(ctx context.Context, reason string) {
 	slog.Warn("配置失效，系统安全回退至空配置", "reason", reason)
 
-	a.ProfileHub.ClearActiveProfile()
-
 	a.Cfg.Update(func(c *domain.TrayConfig) {
 		c.Profiles.Active = ""
 		bProxy := false
 		c.General.SystemProxy = &bProxy
 		c.Config.Tun.Enable = false
 	})
+
 	a.State.SetTunRequestedTime(time.Time{})
 	a.State.SetTunAlive(false)
 
