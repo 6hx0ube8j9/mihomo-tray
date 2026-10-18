@@ -50,7 +50,9 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 		return ProbeResult{}
 	}
 
-	res := ProbeResult{}
+	if p.st.IsExiting() || p.st.IsActionBusy() {
+		return ProbeResult{}
+	}
 
 	currentActual := p.st.GetActualTunDevice()
 	if resp.Tun.Device != "" && resp.Tun.Device != currentActual {
