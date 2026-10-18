@@ -40,7 +40,7 @@ func (m *Manager) LoadAndInitMemory() {
 	if f, err := os.Open(cfgPath); err == nil {
 		if err := json.NewDecoder(f).Decode(&m.data); err != nil {
 			_ = f.Close()
-			slog.Warn("主配置解析失败，已重置为默认配置", "path", cfgPath, "err", err)
+			slog.Warn("应用配置解析失败，已重置默认", "path", cfgPath, "err", err)
 
 			corruptPath := cfgPath + fmt.Sprintf(".%d.err", time.Now().Unix())
 			_ = os.Rename(cfgPath, corruptPath)
@@ -50,7 +50,7 @@ func (m *Manager) LoadAndInitMemory() {
 			_ = f.Close()
 		}
 	} else {
-		slog.Debug("主配置不存在，初始化默认配置", "path", cfgPath)
+		slog.Debug("应用配置不存在，初始化默认配置", "path", cfgPath)
 		isTainted = true
 	}
 
@@ -67,7 +67,7 @@ func (m *Manager) ReloadFromDisk() error {
 	content, err := os.ReadFile(jsonPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			slog.Warn("主配置丢失，已从内存自动恢复")
+			slog.Warn("应用配置丢失，已从内存恢复")
 			m.FlushInitialState()
 			return nil
 		}
@@ -76,8 +76,9 @@ func (m *Manager) ReloadFromDisk() error {
 
 	var newCfg domain.TrayConfig
 	if err := json.Unmarshal(content, &newCfg); err != nil {
+		slog.Warn("应用配置损坏，已从内存恢复", "err", err)
 		m.FlushInitialState()
-		return fmt.Errorf("主配置格式损坏，已恢复有效配置: %w", err)
+		return nil
 	}
 
 	isTainted := applyDefaults(&newCfg)
@@ -109,7 +110,7 @@ func (m *Manager) Update(updater func(cfg *domain.TrayConfig)) {
 	m.mu.Unlock()
 
 	if err != nil {
-		slog.Error("配置序列化失败", "err", err)
+		slog.Error("应用配置序列化失败", "err", err)
 		return
 	}
 
@@ -120,7 +121,7 @@ func (m *Manager) Update(updater func(cfg *domain.TrayConfig)) {
 	}
 
 	if err := fs.WriteAtomic(cfgPath, snapshotBytes); err != nil {
-		slog.Error("配置原子落盘失败", "err", err)
+		slog.Error("应用配置落盘失败", "err", err)
 	}
 }
 
