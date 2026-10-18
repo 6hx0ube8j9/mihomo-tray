@@ -2,25 +2,39 @@ package app
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"strings"
 
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
 )
 
-func (a *Application) asyncRun(title string, task func() error) {
-	go func() {
-		defer a.Presenter.PushUIState()
+// notifyError 统一记录错误日志并触发 UI 错误弹窗（支持空指针安全与标题自适应）
+func (a *Application) notifyError(actionTitle string, err error) {
+	if err == nil {
+		return
+	}
+	title := actionTitle
+	if !strings.HasSuffix(title, "失败") {
+		title += "失败"
+	}
 
-		if err := task(); err != nil {
-			slog.Error(title+"失败", "err", err)
-			if a.ui != nil {
-				a.ui.ShowError(title+"失败", err.Error())
-			}
-		}
-	}()
+	slog.Error(title, "err", err)
+	if a.ui != nil {
+		a.ui.ShowError(title, err.Error())
+	}
 }
 
+// notifySuccess 统一记录信息日志并发送系统通知
+func (a *Application) notifySuccess(title, message string) {
+	slog.Info(title, "detail", message)
+	if a.ui != nil {
+		a.ui.ShowNotification(title, message)
+	}
+}
+
+// runExclusiveAction 声明式互斥任务调度器：统一管理锁生命周期、UI 忙碌状态流与错误兜底
 func (a *Application) runExclusiveAction(action state.KernelAction, title string, task func() error) {
 	if !a.State.TryBeginAction(action) {
 		if a.ui != nil {
@@ -38,12 +52,36 @@ func (a *Application) runExclusiveAction(action state.KernelAction, title string
 		}()
 
 		if err := task(); err != nil {
-			slog.Error(title+"失败", "err", err)
-			if a.ui != nil {
-				a.ui.ShowError(title+"失败", err.Error())
-			}
+			a.notifyError(title, err)
 		}
 	}()
+}
+
+// asyncRun 常规后台异步任务执行器
+func (a *Application) asyncRun(title string, task func() error) {
+	go func() {
+		defer a.Presenter.PushUIState()
+
+		if err := task(); err != nil {
+			a.notifyError(title, err)
+		}
+	}()
+}
+
+func (a *Application) handleProfileAdded(ctx context.Context, targetRelPath string, isFirst bool) {
+	if isFirst {
+		a.runExclusiveAction(state.ActionSwitchProfile, "激活配置", func() error {
+			if err := a.Deployer.DeployAndApply(ctx, targetRelPath, "激活首个导入配置"); err != nil {
+				return err
+			}
+			a.ProfileHub.SetActiveProfile(targetRelPath)
+			a.ProxyGuard.Sync()
+			a.Panel.ReopenIfActive(a.ForceSyncAPI)
+			return nil
+		})
+		return
+	}
+	a.Presenter.PushUIState()
 }
 
 func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand) {
@@ -54,59 +92,38 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		if a.ui != nil {
 			a.ui.ShowProfileManager(a.Presenter.GetSnapshot())
 		}
+
 	case domain.ActionRequestAddLocal:
 		go func() {
-			if a.ui != nil {
-				if path, ok := a.ui.OpenYAMLFileDialog(); ok {
-					targetRelPath, isFirst, err := a.ProfileHub.ImportLocal(path)
-					if err != nil {
-						slog.Error("导入本地配置失败", "err", err)
-						a.ui.ShowError("导入配置", err.Error())
-						return
-					}
-					if isFirst {
-						a.runExclusiveAction(state.ActionSwitchProfile, "激活配置", func() error {
-							if err := a.Deployer.DeployAndApply(ctx, targetRelPath, "激活首个导入配置"); err != nil {
-								return err
-							}
-							a.ProfileHub.SetActiveProfile(targetRelPath)
-							a.ProxyGuard.Sync()
-							a.Panel.ReopenIfActive(a.ForceSyncAPI)
-							return nil
-						})
-					} else {
-						a.Presenter.PushUIState()
-					}
-				}
+			if a.ui == nil {
+				return
 			}
-		}()		
-	case domain.ActionRequestAddRemote:
-		go func() {
-			if a.ui != nil {
-				name, url, interval, ok := a.ui.ShowProfileInfoEditor("添加远程订阅", "", "", domain.DefaultUpdateInterval, true)
-				if ok {
-					targetRelPath, isFirst, err := a.ProfileHub.AddRemote(ctx, name, url, interval)
-					if err != nil {
-						slog.Error("添加订阅失败", "err", err)
-						a.ui.ShowError("添加订阅", err.Error())
-						return
-					}
-					if isFirst {
-						a.runExclusiveAction(state.ActionSwitchProfile, "激活配置", func() error {
-							if err := a.Deployer.DeployAndApply(ctx, targetRelPath, "激活首个导入配置"); err != nil {
-								return err
-							}
-							a.ProfileHub.SetActiveProfile(targetRelPath)
-							a.ProxyGuard.Sync()
-							a.Panel.ReopenIfActive(a.ForceSyncAPI)
-							return nil
-						})
-					} else {
-						a.Presenter.PushUIState()
-					}
+			if path, ok := a.ui.OpenYAMLFileDialog(); ok {
+				targetRelPath, isFirst, err := a.ProfileHub.ImportLocal(path)
+				if err != nil {
+					a.notifyError("导入配置", err)
+					return
 				}
+				a.handleProfileAdded(ctx, targetRelPath, isFirst)
 			}
 		}()
+
+	case domain.ActionRequestAddRemote:
+		go func() {
+			if a.ui == nil {
+				return
+			}
+			name, url, interval, ok := a.ui.ShowProfileInfoEditor("添加远程订阅", "", "", domain.DefaultUpdateInterval, true)
+			if ok {
+				targetRelPath, isFirst, err := a.ProfileHub.AddRemote(ctx, name, url, interval)
+				if err != nil {
+					a.notifyError("添加订阅", err)
+					return
+				}
+				a.handleProfileAdded(ctx, targetRelPath, isFirst)
+			}
+		}()
+
 	case domain.ActionEditProfileInfo:
 		if p, ok := a.ProfileHub.GetProfileInfo(cmd.Payload); ok {
 			go func(profile domain.ProfileItem) {
@@ -136,26 +153,24 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 					})
 				} else {
 					if err := a.ProfileHub.EditLocal(profile.Path, name); err != nil {
-						a.ui.ShowError("保存配置", err.Error())
+						a.notifyError("保存配置", err)
 					} else {
 						a.Presenter.PushUIState()
 					}
 				}
 			}(p)
 		}
+
 	case domain.ActionUpdateRemoteProfile:
 		if p, ok := a.ProfileHub.GetProfileInfo(cmd.Payload); ok {
 			a.runExclusiveAction(state.ActionReload, "更新订阅", func() error {
 				if err := a.ProfileHub.UpdateRemote(ctx, p.Path); err != nil {
 					if errors.Is(err, ErrProfileUpdating) {
-						if a.ui != nil {
-							a.ui.ShowNotification("更新订阅", "该订阅当前正在更新中，请勿重复操作。")
-						}
+						a.notifySuccess("更新订阅", "该订阅当前正在更新中，请勿重复操作。")
 						return nil
 					}
 					return err
 				}
-
 				if a.ProfileHub.IsActive(p.Path) {
 					if err := a.Deployer.DeployAndApply(ctx, p.Path, "应用订阅更新"); err != nil {
 						return err
@@ -166,9 +181,11 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				return nil
 			})
 		}
+
 	case domain.ActionSetProfileInterval:
 		a.ProfileHub.SetProfileInterval(cmd.Payload)
 		a.Presenter.PushUIState()
+
 	case domain.ActionSwitchProfile:
 		a.runExclusiveAction(state.ActionSwitchProfile, "切换配置", func() error {
 			target := cmd.Payload
@@ -190,6 +207,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			a.Panel.ReopenIfActive(a.ForceSyncAPI)
 			return nil
 		})
+
 	case domain.ActionRemoveProfile:
 		targetPath := cmd.Payload
 		go func(path string) {
@@ -207,9 +225,11 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				return nil
 			})
 		}(targetPath)
+
 	case domain.ActionMoveProfileUp:
 		a.ProfileHub.MoveProfileUp(cmd.Payload)
 		a.Presenter.PushUIState()
+
 	case domain.ActionMoveProfileDown:
 		a.ProfileHub.MoveProfileDown(cmd.Payload)
 		a.Presenter.PushUIState()
@@ -230,10 +250,13 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			}
 			return err
 		})
+
 	case domain.ActionSwitchMode:
 		a.asyncRun("路由模式", func() error { return a.Tuner.SwitchMode(ctx, cmd.Payload) })
+
 	case domain.ActionToggleAllowLan:
 		a.asyncRun("局域网代理", func() error { return a.Tuner.ToggleAllowLan(ctx, cmd.Payload == "true") })
+
 	case domain.ActionRequestEditPort:
 		go func() {
 			if a.ui != nil {
@@ -257,6 +280,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	// ================= Web 面板管理 (Panel) =================
 	case domain.ActionOpenWebUI:
 		a.asyncRun("打开面板", func() error { return a.Panel.Open(a.ForceSyncAPI) })
+
 	case domain.ActionRequestEditController:
 		go func() {
 			if a.ui != nil {
@@ -278,20 +302,22 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				}
 			}
 		}()
+
 	case domain.ActionToggleSystemBrowser:
 		a.Tuner.ToggleSystemBrowser(cmd.Payload == "true")
 		a.Presenter.PushUIState()
+
 	case domain.ActionToggleRemoteWebUI:
 		a.Tuner.ToggleRemoteWebUI(cmd.Payload == "true")
 		a.Presenter.PushUIState()
+
 	case domain.ActionCopyWebUIPassword:
 		if err := a.Panel.CopyPassword(); err != nil {
-			if a.ui != nil {
-				a.ui.ShowError("复制密码", err.Error())
-			}
-		} else if a.ui != nil {
-			a.ui.ShowNotification("复制成功", "密码已复制到剪贴板。")
+			a.notifyError("复制密码", err)
+		} else {
+			a.notifySuccess("复制成功", "密码已复制到剪贴板。")
 		}
+
 	case domain.ActionClearWebUICache:
 		go func() {
 			if a.ui != nil && !a.ui.ShowConfirm("清理缓存", "将清除面板的本地设置与缓存，是否继续？") {
@@ -301,9 +327,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 				if err := a.Panel.ClearCache(); err != nil {
 					return err
 				}
-				if a.ui != nil {
-					a.ui.ShowNotification("清理完成", "面板缓存已清除。")
-				}
+				a.notifySuccess("清理完成", "面板缓存已清除。")
 				return nil
 			})
 		}()
@@ -320,33 +344,42 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			a.Panel.ReopenIfActive(a.ForceSyncAPI)
 			return nil
 		})
+
 	case domain.ActionRestartKernel:
 		a.runExclusiveAction(state.ActionRestart, "重启内核", func() error {
 			a.HostBridge.CheckAndReconcilePrivileges(false)
 			if err := a.Deployer.RestartKernel(ctx); err != nil {
 				return err
 			}
+			a.ProxyGuard.Sync()
 			a.Panel.ReopenIfActive(a.ForceSyncAPI)
 			return nil
 		})
+
 	case domain.ActionOpenBaseDir:
 		a.HostBridge.OpenBaseDir()
+
 	case domain.ActionOpenAppConfig:
 		a.HostBridge.OpenAppConfig()
+
 	case domain.ActionOpenConfigFile:
 		a.asyncRun("打开配置", func() error { return a.HostBridge.OpenConfigFile(cmd.Payload) })
+
 	case domain.ActionEditCurrentConfig:
 		a.asyncRun("编辑配置", func() error { return a.HostBridge.EditCurrentConfig() })
+
 	case domain.ActionToggleAutoStart:
 		if a.HostBridge.ToggleAutoStart(cmd.Payload == "true") && a.ui != nil {
 			a.ui.Exit()
 		}
 		a.Presenter.PushUIState()
+
 	case domain.ActionToggleRunAsAdmin:
 		if a.HostBridge.ToggleRunAsAdmin(cmd.Payload == "true") && a.ui != nil {
 			a.ui.Exit()
 		}
 		a.Presenter.PushUIState()
+
 	case domain.ActionExitApp:
 		if a.ui != nil {
 			a.ui.Exit()
