@@ -341,14 +341,12 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	// ================= 重载与重启 (自愈与静默编排) =================
 	case domain.ActionReloadConfig:
 		a.runExclusiveAction(state.ActionReload, "重载配置", func() error {
-			if err := a.Cfg.ReloadFromDisk(); err != nil {
-				a.notifySuccess("配置回退", "主配置文件格式损坏，已自动恢复为上一次保存的设置。")
-			}
-
+			_ = a.Cfg.ReloadFromDisk()
+			
 			a.HostBridge.CheckAndReconcilePrivileges(false)
 
 			if err := a.Deployer.ReloadConfig(ctx); err != nil {
-				return fmt.Errorf("配置校验未通过，已维持原有配置运行: %w", err)
+				return err
 			}
 
 			a.ProxyGuard.Sync()
@@ -358,16 +356,14 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionRestartKernel:
 		a.runExclusiveAction(state.ActionRestart, "重启内核", func() error {
-			if err := a.Cfg.ReloadFromDisk(); err != nil {
-				a.notifySuccess("配置回退", "主配置文件格式损坏，已自动恢复为上一次保存的设置。")
-			}
-
+			_ = a.Cfg.ReloadFromDisk()
+			
 			a.HostBridge.CheckAndReconcilePrivileges(false)
 
 			if err := a.Deployer.RestartKernel(ctx); err != nil {
-				a.FallbackToEmpty(ctx, "重启配置校验未通过")
+				a.FallbackToEmpty(ctx, "重启配置校验失败")
 				a.Deployer.PhysicalRestart(a.Cfg.GetConfig())
-				a.notifyError("配置错误", fmt.Errorf("当前配置校验未通过，已切换为空配置拉起内核"))
+				a.notifySuccess("内核已重启", "无法加载当前配置，请检查配置文件")
 			} else {
 				a.ProxyGuard.Sync()
 			}
