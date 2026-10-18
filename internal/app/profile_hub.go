@@ -201,35 +201,24 @@ func (h *ProfileHub) SetProfileInterval(payload string) {
 	}
 }
 
-func (h *ProfileHub) fetchAndCommit(ctx context.Context, targetRelPath, url string, item *domain.ProfileItem) error {
-	res, err := h.cfg.FetchRemoteProfile(ctx, url, h.getActiveProxyPort())
-	if err != nil {
-		return err
+func (h *ProfileHub) validateBytes(content []byte, isActive bool) error {
+	if len(content) == 0 {
+		return errors.New("配置内容为空")
 	}
-	defer os.Remove(res.TempPath)
-
-	tempBytes, err := os.ReadFile(res.TempPath)
-	if err != nil || len(tempBytes) == 0 {
-		return errors.New("订阅文件内容为空")
+	if len(content) > domain.MaxProfileBytes {
+		return fmt.Errorf("配置大小超出限制 (%d MB)", domain.MaxProfileBytes/(1024*1024))
 	}
 
-	if targetRelPath == h.cfg.GetActivePath() {
-		if _, err := core.ValidateRuntimeYAML(h.cfg.GetConfig(), tempBytes, h.cfg.BaseDir()); err != nil {
-			return fmt.Errorf("订阅配置内容校验失败: %w", err)
-		}
+	var err error
+	if isActive {
+		_, err = core.ValidateRuntimeYAML(h.cfg.GetConfig(), content, h.cfg.BaseDir())
 	} else {
-		if _, err := core.ComposeRuntimeYAML(h.cfg.GetConfig(), tempBytes); err != nil {
-			return fmt.Errorf("订阅文件语法错误: %w", err)
-		}
+		_, err = core.ComposeRuntimeYAML(h.cfg.GetConfig(), content)
 	}
-
-	item.Upload = res.Upload
-	item.Download = res.Download
-	item.Total = res.Total
-	item.Expire = res.Expire
-	item.LastUpdate = time.Now().Unix()
-
-	return h.cfg.CommitRemoteProfile(res.TempPath, targetRelPath, *item)
+	if err != nil {
+		return fmt.Errorf("配置校验错误: %w", err)
+	}
+	return nil
 }
 
 func (h *ProfileHub) ValidateSource(sourcePath string) error {
@@ -239,27 +228,41 @@ func (h *ProfileHub) ValidateSource(sourcePath string) error {
 	}
 
 	fileName := filepath.Base(sourcePath)
-	fi, err := os.Stat(absPath)
+	content, err := os.ReadFile(absPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("%s: 目标配置文件不存在", fileName)
+			return fmt.Errorf("%s: 目标文件不存在", fileName)
 		}
 		return fmt.Errorf("%s: 无法读取文件: %w", fileName, err)
 	}
-	if fi.Size() == 0 {
-		return fmt.Errorf("%s: 文件内容为空", fileName)
-	}
-	if fi.Size() > domain.MaxProfileBytes {
-		return fmt.Errorf("%s: 文件超出大小限制", fileName)
-	}
 
-	content, err := os.ReadFile(absPath)
-	if err != nil {
-		return fmt.Errorf("%s: 读取配置内容失败: %w", fileName, err)
-	}
-
-	if _, err := core.ComposeRuntimeYAML(h.cfg.GetConfig(), content); err != nil {
-		return fmt.Errorf("%s: 配置语法错误: %w", fileName, err)
+	if err := h.validateBytes(content, false); err != nil {
+		return fmt.Errorf("%s: %w", fileName, err)
 	}
 	return nil
+}
+
+func (h *ProfileHub) fetchAndCommit(ctx context.Context, targetRelPath, url string, item *domain.ProfileItem) error {
+	res, err := h.cfg.FetchRemoteProfile(ctx, url, h.getActiveProxyPort())
+	if err != nil {
+		return err
+	}
+	defer os.Remove(res.TempPath)
+
+	tempBytes, err := os.ReadFile(res.TempPath)
+	if err != nil {
+		return fmt.Errorf("无法读取订阅配置: %w", err)
+	}
+
+	if err := h.validateBytes(tempBytes, targetRelPath == h.cfg.GetActivePath()); err != nil {
+		return err
+	}
+
+	item.Upload = res.Upload
+	item.Download = res.Download
+	item.Total = res.Total
+	item.Expire = res.Expire
+	item.LastUpdate = time.Now().Unix()
+
+	return h.cfg.CommitRemoteProfile(res.TempPath, targetRelPath, *item)
 }
