@@ -348,12 +348,10 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			a.HostBridge.CheckAndReconcilePrivileges(false)
 
 			if err := a.Deployer.ReloadConfig(ctx); err != nil {
-				a.FallbackToEmpty(ctx, "重载配置校验未通过")
-				a.notifyError("配置错误", fmt.Errorf("配置文件内容校验未通过，已回退空配置"))
-			} else {
-				a.ProxyGuard.Sync()
+				return fmt.Errorf("配置校验未通过，已维持原有配置运行: %w", err)
 			}
 
+			a.ProxyGuard.Sync()
 			a.Panel.ReopenIfActive(a.ForceSyncAPI)
 			return nil
 		})
