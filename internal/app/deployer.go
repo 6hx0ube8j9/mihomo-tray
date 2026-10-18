@@ -33,18 +33,31 @@ func (d *Deployer) IsKernelRunning() bool {
 	return d.st.GetPhase() == domain.PhaseRunning && !d.kernel.IsPaused()
 }
 
+func (d *Deployer) ReloadConfig(ctx context.Context) error {
+	return d.DeployAndApply(ctx, d.cfg.GetActivePath(), "配置重载")
+}
+
+func (d *Deployer) RestartKernel(ctx context.Context) error {
+	slog.Info("准备重启内核")
+	if err := d.SyncRuntimeConfig(); err != nil {
+		return err
+	}
+	d.PhysicalRestart(d.cfg.GetConfig())
+	return nil
+}
+
 func (d *Deployer) SyncRuntimeConfig() error {
 	activePath := d.cfg.GetActivePath()
 	if activePath != "" {
 		if err := d.cfg.ValidatePhysicalFile(activePath); err != nil {
-			return fmt.Errorf("当前配置无效 - %w", err)
+			return fmt.Errorf("当前配置无效 | %w", err)
 		}
 	}
 
 	cfg := d.cfg.GetConfig()
 	deployRes, err := core.DeployRuntimeConfig(cfg, activePath, d.cfg.BaseDir())
 	if err != nil {
-		return fmt.Errorf("生成运行配置失败 - %w", err)
+		return fmt.Errorf("生成运行配置失败 | %w", err)
 	}
 
 	d.st.SetActualTunDevice(deployRes.TunDevice)
@@ -72,7 +85,8 @@ func (d *Deployer) DeployAndApply(ctx context.Context, targetRelPath, actionDesc
 
 	if d.IsKernelRunning() {
 		slog.Debug("执行热重载", "action", actionDesc)
-		if err := d.hotReload(ctx, deployRes.RuntimeAbs); err == nil {
+		runtimeAbs := filepath.Join(d.cfg.BaseDir(), domain.RuntimeConfigName)
+		if err := d.hotReload(ctx, runtimeAbs); err == nil {
 			slog.Debug("热重载成功", "target", targetRelPath)
 			return nil
 		}
@@ -110,24 +124,5 @@ func (d *Deployer) hotReload(ctx context.Context, runtimeAbs string) error {
 		cfg.Config.Tun.Enable,
 		d.st.GetActualTunDevice(),
 	)
-	return nil
-}
-
-func (d *Deployer) ReloadConfig(ctx context.Context, reconcilePrivileges func()) error {
-	if err := d.cfg.ReloadFromDisk(); err != nil {
-		return fmt.Errorf("读取配置失败 - %w", err)
-	}
-
-	if reconcilePrivileges != nil {
-		reconcilePrivileges()
-	}
-
-	return d.DeployAndApply(ctx, d.cfg.GetActivePath(), "配置重载")
-}
-
-func (d *Deployer) RestartKernel(ctx context.Context) error {
-	slog.Info("准备重启内核")
-	_ = d.SyncRuntimeConfig()
-	d.PhysicalRestart(d.cfg.GetConfig())
 	return nil
 }
