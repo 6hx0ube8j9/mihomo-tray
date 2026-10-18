@@ -113,6 +113,11 @@ func (m *Manager) Update(updater func(cfg *domain.TrayConfig)) {
 	}
 
 	cfgPath := filepath.Join(m.baseDir, domain.TrayConfigName)
+
+	if existingBytes, err := os.ReadFile(cfgPath); err == nil && bytes.Equal(existingBytes, snapshotBytes) {
+		return
+	}
+
 	if err := fs.WriteAtomic(cfgPath, snapshotBytes); err != nil {
 		slog.Error("配置原子落盘失败", "err", err)
 	}
