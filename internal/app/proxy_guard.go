@@ -31,14 +31,27 @@ func NewProxyGuard(cfg *config.Manager, st *state.RuntimeState, onAlert func(tit
 }
 
 func (g *ProxyGuard) SetProxy(enable bool) {
+	if g.st.IsExiting() {
+		return
+	}
+
+	if !enable {
+		g.disableInternal()
+		return
+	}
+
 	g.cfg.Update(func(c *domain.TrayConfig) {
-		b := enable
+		b := true
 		c.General.SystemProxy = &b
 	})
 	g.Sync()
 }
 
 func (g *ProxyGuard) Sync() {
+	if g.st.IsExiting() {
+		return
+	}
+
 	wantEnable := g.cfg.IsSystemProxyEnabled()
 	portStr, hasPort := g.cfg.GetEffectiveSystemProxyPortStr()
 
@@ -53,7 +66,7 @@ func (g *ProxyGuard) Sync() {
 
 	if !hasPort {
 		slog.Warn("未检测到有效代理端口，强制关闭系统代理")
-		g.DisableAndClearSetting()
+		g.disableInternal()
 		if g.onAlert != nil {
 			g.onAlert("系统代理", "系统代理已关闭，请检查代理端口配置。")
 		}
@@ -63,6 +76,23 @@ func (g *ProxyGuard) Sync() {
 	slog.Debug("更新系统代理", "enabled", true, "port", portStr)
 	if err := sys.EnableProxy(portStr); err != nil {
 		slog.Error("设置系统代理失败", "err", err)
+	}
+}
+
+func (g *ProxyGuard) disableInternal() {
+	if g.st.IsExiting() {
+		return
+	}
+
+	g.cfg.Update(func(c *domain.TrayConfig) {
+		b := false
+		c.General.SystemProxy = &b
+	})
+
+	if portStr, hasPort := g.cfg.GetEffectiveSystemProxyPortStr(); hasPort {
+		if err := sys.DisableProxy(portStr); err != nil {
+			slog.Error("注销系统代理注册表失败", "err", err)
+		}
 	}
 }
 
@@ -86,7 +116,7 @@ func (g *ProxyGuard) HandleStatusChange(ctx context.Context, status sys.ProxySta
 
 	expectedPort, ok := g.cfg.GetEffectiveSystemProxyPortStr()
 	if !ok {
-		g.DisableAndClearSetting()
+		g.disableInternal()
 		return
 	}
 
@@ -95,7 +125,7 @@ func (g *ProxyGuard) HandleStatusChange(ctx context.Context, status sys.ProxySta
 	if status.Enabled {
 		if status.Server != "" && !status.Matches(expectedServer) {
 			slog.Warn("检测到第三方代理劫持，停用本地接管", "server", status.Server, "expected", expectedServer)
-			g.DisableAndClearSetting()
+			g.disableInternal()
 		}
 		return
 	}
@@ -128,21 +158,5 @@ func (g *ProxyGuard) repairLoop(ctx context.Context, expectedServer string) {
 		}
 	}
 	slog.Warn("系统代理持续被外部修改或自愈超时，自动解除接管")
-	g.DisableAndClearSetting()
-}
-
-func (g *ProxyGuard) DisableAndClearSetting() {
-	if g.st.IsExiting() {
-		return
-	}
-	g.cfg.Update(func(c *domain.TrayConfig) {
-		b := false
-		c.General.SystemProxy = &b
-	})
-
-	if portStr, hasPort := g.cfg.GetEffectiveSystemProxyPortStr(); hasPort {
-		if err := sys.DisableProxy(portStr); err != nil {
-			slog.Error("注销系统代理注册表失败", "err", err)
-		}
-	}
+	g.disableInternal()
 }
