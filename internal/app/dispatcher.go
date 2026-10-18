@@ -64,17 +64,14 @@ func (a *Application) asyncRun(title string, task func() error) {
 	}()
 }
 
-// handleProfileAdded 采用事务设计：预先确立活跃状态，防止物理重启钩子读取到空配置
 func (a *Application) handleProfileAdded(ctx context.Context, targetRelPath string, isFirst bool) {
 	if isFirst {
 		a.runExclusiveAction(state.ActionSwitchProfile, "激活配置", func() error {
-			a.ProfileHub.SetActiveProfile(targetRelPath)
-
 			if err := a.Deployer.DeployAndApply(ctx, targetRelPath, "激活首个导入配置"); err != nil {
-				a.ProfileHub.ClearActiveProfile()
 				return err
 			}
 
+			a.ProfileHub.SetActiveProfile(targetRelPath)
 			a.ProxyGuard.Sync()
 			a.Panel.ReopenIfActive(a.ForceSyncAPI)
 			return nil
@@ -189,15 +186,12 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	case domain.ActionSwitchProfile:
 		a.runExclusiveAction(state.ActionSwitchProfile, "切换配置", func() error {
 			target := cmd.Payload
-
 			if target == "" {
-				return errors.New("未指定配置文件")
+				return errors.New("未指定目标配置文件")
 			}
-
 			if a.ProfileHub.IsActive(target) {
 				return nil
 			}
-			
 			if err := a.ProfileHub.ValidateTarget(target); err != nil {
 				return err
 			}
@@ -342,7 +336,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	case domain.ActionReloadConfig:
 		a.runExclusiveAction(state.ActionReload, "重载配置", func() error {
 			_ = a.Cfg.ReloadFromDisk()
-			
 			a.HostBridge.CheckAndReconcilePrivileges(false)
 
 			if err := a.Deployer.ReloadConfig(ctx); err != nil {
@@ -357,17 +350,15 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	case domain.ActionRestartKernel:
 		a.runExclusiveAction(state.ActionRestart, "重启内核", func() error {
 			_ = a.Cfg.ReloadFromDisk()
-			
 			a.HostBridge.CheckAndReconcilePrivileges(false)
 
 			if err := a.Deployer.RestartKernel(ctx); err != nil {
 				a.FallbackToEmpty(ctx, "重启配置校验失败")
-				a.Deployer.PhysicalRestart(a.Cfg.GetConfig())
 				a.notifySuccess("内核已重启", "无法加载当前配置，请检查配置文件")
-			} else {
-				a.ProxyGuard.Sync()
+				return nil		 
 			}
 
+			a.ProxyGuard.Sync()
 			a.Panel.ReopenIfActive(a.ForceSyncAPI)
 			return nil
 		})
