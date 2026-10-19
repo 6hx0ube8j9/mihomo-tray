@@ -18,13 +18,24 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
+func getSchtasksPath() string {
+	sysRoot := os.Getenv("SystemRoot")
+	if sysRoot == "" {
+		sysRoot = os.Getenv("windir")
+	}
+	if sysRoot == "" {
+		sysRoot = `C:\Windows`
+	}
+	return filepath.Join(sysRoot, "System32", "schtasks.exe")
+}
+
 func ToggleAutoStart(appName, exePath, baseDir string, enable bool) bool {
 	if key, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.SET_VALUE); err == nil {
 		_ = key.DeleteValue(appName)
-		key.Close()
+		_ = key.Close()
 	}
 
-	schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
+	schtasksPath := getSchtasksPath()
 
 	if enable {
 		slog.Debug("注册自启计划任务", "task", appName)
@@ -33,19 +44,26 @@ func ToggleAutoStart(appName, exePath, baseDir string, enable bool) bool {
 		absBase, _ := filepath.Abs(baseDir)
 
 		xmlContent := generateTaskXML(absExe, "--autostart", absBase)
-		tempXML := filepath.Join(os.TempDir(), fmt.Sprintf("%s.xml", appName))
 
-		if err := writeUTF16LE(tempXML, xmlContent); err != nil {
-			slog.Error("写入计划任务临时文件失败", "err", err)
+		tmpFile, err := os.CreateTemp("", fmt.Sprintf("%s-*.xml", appName))
+		if err != nil {
+			slog.Error("创建计划任务临时文件失败", "error", err)
 			return false
 		}
+		tempXML := tmpFile.Name()
+		_ = tmpFile.Close()
 		defer os.Remove(tempXML)
+
+		if err := writeUTF16LE(tempXML, xmlContent); err != nil {
+			slog.Error("写入计划任务临时配置失败", "error", err)
+			return false
+		}
 
 		cmd := exec.Command(schtasksPath, "/Create", "/TN", appName, "/XML", tempXML, "/F")
 		cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 
 		if out, err := cmd.CombinedOutput(); err != nil {
-			slog.Error("导入计划任务失败", "err", err, "output", strings.TrimSpace(string(out)))
+			slog.Error("导入计划任务失败", "error", err, "output", strings.TrimSpace(string(out)))
 			return false
 		}
 		return true
@@ -56,26 +74,24 @@ func ToggleAutoStart(appName, exePath, baseDir string, enable bool) bool {
 	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 
 	if err := cmd.Run(); err != nil {
-		slog.Debug("删除计划任务失败", "task", appName, "err", err)
+		slog.Debug("删除计划任务失败", "task", appName, "error", err)
 	}
 	return !CheckAutoStartStatus(appName)
 }
 
 func CheckAutoStartStatus(appName string) bool {
-	schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
-	cmd := exec.Command(schtasksPath, "/Query", "/TN", appName)
+	cmd := exec.Command(getSchtasksPath(), "/Query", "/TN", appName)
 	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 	return cmd.Run() == nil
 }
 
 func IsTaskPathValid(appName, currentExePath string) bool {
-	schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
-	cmd := exec.Command(schtasksPath, "/Query", "/TN", appName, "/XML")
+	cmd := exec.Command(getSchtasksPath(), "/Query", "/TN", appName, "/XML")
 	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
-	
+
 	out, err := cmd.Output()
 	if err != nil {
-		slog.Debug("读取计划任务配置失败", "task", appName, "err", err)
+		slog.Debug("读取计划任务配置失败", "task", appName, "error", err)
 		return false
 	}
 
@@ -122,7 +138,7 @@ func generateTaskXML(exePath, args, baseDir string) string {
     </Principal>
   </Principals>
   <Settings>
-    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <MultipleInstancesPolicy>Parallel</MultipleInstancesPolicy>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
     <AllowHardTerminate>true</AllowHardTerminate>
@@ -160,8 +176,7 @@ func writeUTF16LE(filename string, s string) error {
 }
 
 func RunScheduledTask(taskName string) error {
-	schtasksPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "schtasks.exe")
-	cmd := exec.Command(schtasksPath, "/Run", "/TN", taskName)
+	cmd := exec.Command(getSchtasksPath(), "/Run", "/TN", taskName)
 	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 	return cmd.Run()
 }
