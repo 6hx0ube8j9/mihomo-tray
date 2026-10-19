@@ -40,7 +40,7 @@ func (d *Deployer) IsKernelRunning() bool {
 
 func (d *Deployer) ReloadConfig(ctx context.Context) error {
 	activePath := d.cfg.GetActivePath()
-	runtimeAbs, err := d.prepare(activePath)
+	runtimeAbs, err := d.prepareRuntimeConfig(activePath)
 	if err != nil {
 		return err
 	}
@@ -49,52 +49,56 @@ func (d *Deployer) ReloadConfig(ctx context.Context) error {
 		return ErrKernelNotRunning
 	}
 
-	if err := d.hotReload(ctx, runtimeAbs); err != nil {
-		return fmt.Errorf("内核拒绝热重载: %w", err)
+	if err := d.reloadViaAPI(ctx, runtimeAbs); err != nil {
+		return fmt.Errorf("内核配置重载失败: %w", err)
 	}
 
-	slog.Debug("配置纯热重载完成", "target", activePath)
+	slog.Debug("内核配置重载成功", "target", activePath)
 	return nil
 }
 
 func (d *Deployer) RestartKernel(ctx context.Context) error {
-	slog.Info("准备重启内核")
-	if _, err := d.prepare(d.cfg.GetActivePath()); err != nil {
+	slog.Info("正在重启内核")
+	if _, err := d.prepareRuntimeConfig(d.cfg.GetActivePath()); err != nil {
 		return err
 	}
-	d.PhysicalRestart(d.cfg.GetConfig())
+	d.RestartProcess(d.cfg.GetConfig())
 	return nil
 }
 
 func (d *Deployer) DeployAndApply(ctx context.Context, targetRelPath, actionDesc string) error {
-	runtimeAbs, err := d.prepare(targetRelPath)
+	runtimeAbs, err := d.prepareRuntimeConfig(targetRelPath)
 	if err != nil {
 		return err
 	}
 
+	commitActiveProfile := func() {
+		if targetRelPath != "" {
+			d.cfg.SetActiveProfile(targetRelPath)
+		}
+	}
+
 	if d.IsKernelRunning() {
-		slog.Debug("执行配置热重载", "action", actionDesc, "target", targetRelPath)
-		if err := d.hotReload(ctx, runtimeAbs); err == nil {
-			slog.Debug("配置热重载完成", "action", actionDesc, "target", targetRelPath)
+		slog.Debug("正在应用配置", "action", actionDesc, "target", targetRelPath)
+		if err := d.reloadViaAPI(ctx, runtimeAbs); err == nil {
+			slog.Debug("配置应用成功", "action", actionDesc, "target", targetRelPath)
+			commitActiveProfile()
 			return nil
 		}
-		slog.Warn("配置热重载受阻，降级物理重启", "action", actionDesc, "target", targetRelPath, "err", err)
+		slog.Warn("热重载失败，正在通过重启内核应用配置", "action", actionDesc, "target", targetRelPath, "err", err)
 	}
 
-	if targetRelPath != "" {
-		d.cfg.SetActiveProfile(targetRelPath)
-	}
-
-	d.PhysicalRestart(d.cfg.GetConfig())
+	commitActiveProfile()
+	d.RestartProcess(d.cfg.GetConfig())
 	return nil
 }
 
 func (d *Deployer) SyncRuntimeConfig() error {
-	_, err := d.prepare(d.cfg.GetActivePath())
+	_, err := d.prepareRuntimeConfig(d.cfg.GetActivePath())
 	return err
 }
 
-func (d *Deployer) prepare(targetRelPath string) (string, error) {
+func (d *Deployer) prepareRuntimeConfig(targetRelPath string) (string, error) {
 	if targetRelPath != "" {
 		if err := d.cfg.ValidatePhysicalFile(targetRelPath); err != nil {
 			return "", fmt.Errorf("配置文件无效: %w", err)
@@ -115,8 +119,8 @@ func (d *Deployer) prepare(targetRelPath string) (string, error) {
 	return filepath.Join(d.cfg.BaseDir(), domain.RuntimeConfigName), nil
 }
 
-func (d *Deployer) PhysicalRestart(cfg domain.TrayConfig) {
-	slog.Debug("重启内核", "tun", cfg.Config.Tun.Enable)
+func (d *Deployer) RestartProcess(cfg domain.TrayConfig) {
+	slog.Debug("重启内核进程", "tun", cfg.Config.Tun.Enable)
 	if cfg.Config.Tun.Enable {
 		d.st.SetTunRequestedTime(time.Now())
 	}
@@ -125,6 +129,10 @@ func (d *Deployer) PhysicalRestart(cfg domain.TrayConfig) {
 	d.kernel.WakeDaemon()
 }
 
-func (d *Deployer) hotReload(ctx context.Context, runtimeAbs string) error {
+func (d *Deployer) PhysicalRestart(cfg domain.TrayConfig) {
+	d.RestartProcess(cfg)
+}
+
+func (d *Deployer) reloadViaAPI(ctx context.Context, runtimeAbs string) error {
 	return d.api.ForceReloadKernel(ctx, runtimeAbs)
 }
