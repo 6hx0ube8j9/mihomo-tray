@@ -12,6 +12,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+const idYes = 6 // Win32 SDK: #define IDYES 6
+
 func ShowElevationPrompt(title, message string) bool {
 	tPtr, _ := windows.UTF16PtrFromString(title)
 	mPtr, _ := windows.UTF16PtrFromString(message)
@@ -19,10 +21,10 @@ func ShowElevationPrompt(title, message string) bool {
 
 	ret, err := windows.MessageBox(0, mPtr, tPtr, flags)
 	if err != nil {
-		slog.Warn("显示提权对话框失败", "err", err)
+		slog.Warn("显示提权对话框失败", "error", err)
 		return false
 	}
-	return ret == windows.IDYES
+	return ret == idYes
 }
 
 func IsUserCancelled(err error) bool {
@@ -33,7 +35,7 @@ func IsAdmin() bool {
 	var token windows.Token
 	err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &token)
 	if err != nil {
-		slog.Error("打开进程访问令牌失败", "err", err)
+		slog.Error("打开进程访问令牌失败", "error", err)
 		return false
 	}
 	defer token.Close()
