@@ -14,6 +14,10 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+var (
+	procAllowSetForegroundWnd = modUser32.NewProc("AllowSetForegroundWindow")
+)
+
 const (
 	asfwAny                      = 0xFFFFFFFF
 	restartingProcessWaitTimeout = 10 * time.Second
