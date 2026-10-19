@@ -193,7 +193,7 @@ func (km *KernelManager) WaitForReady(ctx context.Context) error {
 				return ErrKernelExitedEarly
 			}
 
-			reqCtx, cancel := context.WithTimeout(ctx, readyPollInterval)
+			reqCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			err := km.client.Ping(reqCtx)
 			cancel()
 
