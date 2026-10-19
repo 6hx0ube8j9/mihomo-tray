@@ -56,7 +56,14 @@ func NormalizeProxyServer(server string) string {
 			break
 		}
 	}
-	s = strings.TrimSpace(s)
+	s = strings.TrimRight(strings.TrimSpace(s), "/")
+	if s == "" {
+		return ""
+	}
+
+	if strings.HasPrefix(strings.ToLower(s), "localhost:") {
+		s = "127.0.0.1" + s[len("localhost"):]
+	}
 
 	if strings.HasPrefix(s, ":") {
 		return "127.0.0.1" + s
