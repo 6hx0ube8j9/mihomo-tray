@@ -150,11 +150,14 @@ func main() {
 	application.SetUIPort(uiEngine)
 
 	uiEngine.SetOnShutdown(func() {
+		application.State.ForceExitPhase()
+		cancel()
+	
 		if application.ProxyGuard != nil {
 			application.ProxyGuard.SafeShutdownCleanup()
 		}
 	})
-
+		
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
