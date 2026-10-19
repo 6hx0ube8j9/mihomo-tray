@@ -16,24 +16,53 @@ func (p ProxyStatus) Matches(expected string) bool {
 }
 
 func IsServerMatch(currServer, expected string) bool {
-	if strings.EqualFold(currServer, expected) {
+	curr := NormalizeProxyServer(currServer)
+	exp := NormalizeProxyServer(expected)
+
+	if curr == "" || exp == "" {
+		return false
+	}
+
+	if strings.EqualFold(curr, exp) {
 		return true
 	}
+
 	for _, part := range strings.Split(currServer, ";") {
 		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
 		if _, after, ok := strings.Cut(part, "="); ok {
-			if strings.EqualFold(strings.TrimSpace(after), expected) {
-				return true
-			}
+			part = after
+		}
+		if strings.EqualFold(NormalizeProxyServer(part), exp) {
+			return true
 		}
 	}
+
 	return false
 }
 
 func NormalizeProxyServer(server string) string {
-	server = strings.TrimSpace(server)
-	if server != "" && !strings.Contains(server, ":") {
-		return "127.0.0.1:" + server
+	s := strings.TrimSpace(server)
+	if s == "" {
+		return ""
 	}
-	return server
+
+	lower := strings.ToLower(s)
+	for _, scheme := range []string{"http://", "https://", "socks://", "socks5://"} {
+		if strings.HasPrefix(lower, scheme) {
+			s = s[len(scheme):]
+			break
+		}
+	}
+	s = strings.TrimSpace(s)
+
+	if strings.HasPrefix(s, ":") {
+		return "127.0.0.1" + s
+	}
+	if !strings.Contains(s, ":") {
+		return "127.0.0.1:" + s
+	}
+	return s
 }
