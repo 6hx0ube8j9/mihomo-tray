@@ -8,7 +8,6 @@ import (
 
 	"github.com/tailscale/walk"
 	"github.com/tailscale/win"
-	"golang.org/x/sys/windows"
 
 	"mihomo-tray/internal/domain"
 )
@@ -18,13 +17,6 @@ const (
 	baseIconSize     = 16
 	dpiProbeInterval = 1500 * time.Millisecond
 )
-
-var trayGUID = windows.GUID{
-	Data1: 0x6a1b2c3d,
-	Data2: 0x4e5f,
-	Data3: 0x7a8b,
-	Data4: [8]byte{0x9c, 0x0d, 0x1e, 0x2f, 0x3a, 0x4b, 0x5c, 0x6d},
-}
 
 var (
 	trayClassName = syscall.StringToUTF16Ptr("Shell_TrayWnd")
@@ -62,13 +54,9 @@ func NewTrayIconController(e *Engine, ni *walk.NotifyIcon) *TrayIconController {
 }
 
 func CreateNotifyIcon() (*walk.NotifyIcon, error) {
-	ni, err := walk.NewNotifyIconWithGUID(trayGUID)
+	ni, err := walk.NewNotifyIcon()
 	if err != nil {
-		slog.Warn("注册 GUID 托盘失败，降级为普通模式", "err", err)
-		ni, err = walk.NewNotifyIcon()
-		if err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
 	_ = ni.SetVisible(true)
 	_ = ni.SetToolTip(domain.AppName)
