@@ -102,23 +102,23 @@ func EnableProxy(serverStr string, bypassStr ...string) error {
 		return err
 	}
 
+	defer func() {
+		runtime.KeepAlive(serverPtr)
+		runtime.KeepAlive(bypassPtr)
+	}()
+
 	options := []internetPerConnOption{
 		{dwOption: INTERNET_PER_CONN_FLAGS, dwValue: uintptr(PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY)},
 		{dwOption: INTERNET_PER_CONN_PROXY_SERVER, dwValue: uintptr(unsafe.Pointer(serverPtr))},
 		{dwOption: INTERNET_PER_CONN_PROXY_BYPASS, dwValue: uintptr(unsafe.Pointer(bypassPtr))},
 	}
 
-	defer func() {
-		runtime.KeepAlive(serverPtr)
-		runtime.KeepAlive(bypassPtr)
-	}()
-
 	if err := applyProxyOptions(options); err != nil {
-		slog.Error("启用系统代理失败", "err", err)
+		slog.Error("failed to enable proxy", "err", err)
 		return err
 	}
 
-	slog.Info("系统代理已开启", "server", server)
+	slog.Info("proxy enabled", "server", server)
 	return nil
 }
 
@@ -131,7 +131,7 @@ func DisableProxy(expectedServer string) error {
 			return nil
 		}
 		if expected != "" && !curr.Matches(expected) {
-			slog.Warn("跳过注销代理", "reason", "代理地址被外部修改", "current", curr.Server, "expected", expected)
+			slog.Warn("skip proxy disable", "reason", "address mismatch", "current", curr.Server, "expected", expected)
 			return nil
 		}
 	}
@@ -141,11 +141,11 @@ func DisableProxy(expectedServer string) error {
 	}
 
 	if err := applyProxyOptions(options); err != nil {
-		slog.Error("停用系统代理失败", "err", err)
+		slog.Error("failed to disable proxy", "err", err)
 		return err
 	}
 
-	slog.Info("系统代理已注销")
+	slog.Info("proxy disabled")
 	return nil
 }
 
@@ -158,7 +158,7 @@ func setPerConnectionOption(list *internetPerConnOptionList, connName *uint16) e
 		uintptr(list.dwSize),
 	)
 	if r == 0 {
-		return fmt.Errorf("InternetSetOptionW 失败: %w", err)
+		return fmt.Errorf("InternetSetOptionW failed: %w", err)
 	}
 	return nil
 }
@@ -168,9 +168,11 @@ func applyProxyToList(list *internetPerConnOptionList) error {
 		return err
 	}
 
-	var cb uint32 = uint32(unsafe.Sizeof(RasEntryName{}))
-	var cEntries uint32 = 0
-	entry := RasEntryName{dwSize: cb}
+	var entrySize uint32 = uint32(unsafe.Sizeof(RasEntryName{}))
+	var cb uint32 = entrySize
+	var cEntries uint32
+	var entry RasEntryName
+	entry.dwSize = entrySize
 
 	ret, _, _ := procRasEnumEntries.Call(
 		0, 0,
@@ -179,26 +181,42 @@ func applyProxyToList(list *internetPerConnOptionList) error {
 		uintptr(unsafe.Pointer(&cEntries)),
 	)
 
-	if ret == uintptr(ERROR_BUFFER_TOO_SMALL) && cEntries > 0 {
-		entries := make([]RasEntryName, cEntries)
-		for i := range entries {
-			entries[i].dwSize = cb
-		}
-		ret, _, _ = procRasEnumEntries.Call(
-			0, 0,
-			uintptr(unsafe.Pointer(&entries[0])),
-			uintptr(unsafe.Pointer(&cb)),
-			uintptr(unsafe.Pointer(&cEntries)),
-		)
-		if ret == uintptr(ERROR_SUCCESS) {
+	if ret == uintptr(ERROR_SUCCESS) && cEntries == 0 {
+		return nil
+	}
+
+	if ret == uintptr(ERROR_SUCCESS) && cEntries == 1 {
+		_ = setPerConnectionOption(list, &entry.szEntryName[0])
+		runtime.KeepAlive(&entry)
+		return nil
+	}
+
+	if ret == uintptr(ERROR_BUFFER_TOO_SMALL) {
+		reqCount := cb / entrySize
+		if reqCount > 0 {
+			entries := make([]RasEntryName, reqCount)
 			for i := range entries {
-				_ = setPerConnectionOption(list, &entries[i].szEntryName[0])
+				entries[i].dwSize = entrySize
+			}
+
+			ret, _, _ = procRasEnumEntries.Call(
+				0, 0,
+				uintptr(unsafe.Pointer(&entries[0])),
+				uintptr(unsafe.Pointer(&cb)),
+				uintptr(unsafe.Pointer(&cEntries)),
+			)
+
+			if ret == uintptr(ERROR_SUCCESS) {
+				limit := int(cEntries)
+				if limit > len(entries) {
+					limit = len(entries)
+				}
+				for i := 0; i < limit; i++ {
+					_ = setPerConnectionOption(list, &entries[i].szEntryName[0])
+				}
 			}
 			runtime.KeepAlive(entries)
 		}
-	} else if ret == uintptr(ERROR_SUCCESS) && cEntries == 1 {
-		_ = setPerConnectionOption(list, &entry.szEntryName[0])
-		runtime.KeepAlive(&entry)
 	}
 
 	return nil
@@ -214,7 +232,11 @@ func applyProxyOptions(options []internetPerConnOption) error {
 	list.dwOptionCount = uint32(len(options))
 	list.pOptions = uintptr(unsafe.Pointer(&options[0]))
 
-	if err := applyProxyToList(&list); err != nil {
+	err := applyProxyToList(&list)
+
+	runtime.KeepAlive(options)
+
+	if err != nil {
 		return err
 	}
 
@@ -223,89 +245,68 @@ func applyProxyOptions(options []internetPerConnOption) error {
 }
 
 func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
-	paths := []string{internetSettingsPath, connectionsPath}
-	var keys []registry.Key
-	var handles []windows.Handle
-
-	defer func() {
-		for _, h := range handles {
-			if h != 0 {
-				_ = windows.CloseHandle(h)
-			}
-		}
-		for _, k := range keys {
-			_ = k.Close()
-		}
-	}()
-
-	for _, path := range paths {
-		k, err := registry.OpenKey(registry.CURRENT_USER, path, registry.NOTIFY|registry.QUERY_VALUE)
-		if err != nil {
-			slog.Warn("打开代理注册表监听失败", "path", path, "err", err)
-			continue
-		}
-		keys = append(keys, k)
-
-		event, err := windows.CreateEvent(nil, 0, 0, nil)
-		if err != nil {
-			return
-		}
-		handles = append(handles, event)
-	}
-
-	if len(handles) == 0 {
+	k, err := registry.OpenKey(registry.CURRENT_USER, internetSettingsPath, registry.NOTIFY|registry.QUERY_VALUE)
+	if err != nil {
+		slog.Warn("打开代理注册表监听失败", "err", err)
 		return
 	}
+	defer k.Close()
+
+	notifyEvent, err := windows.CreateEvent(nil, 0, 0, nil)
+	if err != nil {
+		return
+	}
+	defer windows.CloseHandle(notifyEvent)
 
 	cancelEvent, err := windows.CreateEvent(nil, 0, 0, nil)
 	if err != nil {
 		return
 	}
-	handles = append(handles, cancelEvent)
-	cancelIdx := uint32(len(handles) - 1)
+	defer windows.CloseHandle(cancelEvent)
 
-	stopCtxNotify := make(chan struct{})
-	defer close(stopCtxNotify)
+	stopCancel := context.AfterFunc(ctx, func() {
+		_ = windows.SetEvent(cancelEvent)
+	})
+	defer stopCancel()
 
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = windows.SetEvent(cancelEvent)
-		case <-stopCtxNotify:
-		}
-	}()
-
-	armKey := func(idx int) {
+	arm := func() {
 		filter := uint32(windows.REG_NOTIFY_CHANGE_LAST_SET | windows.REG_NOTIFY_CHANGE_NAME | windows.REG_NOTIFY_THREAD_AGNOSTIC)
-		if err := windows.RegNotifyChangeKeyValue(windows.Handle(keys[idx]), false, filter, handles[idx], true); err != nil {
+		if err := windows.RegNotifyChangeKeyValue(windows.Handle(k), true, filter, notifyEvent, true); err != nil {
 			filter &^= windows.REG_NOTIFY_THREAD_AGNOSTIC
-			_ = windows.RegNotifyChangeKeyValue(windows.Handle(keys[idx]), false, filter, handles[idx], true)
+			_ = windows.RegNotifyChangeKeyValue(windows.Handle(k), true, filter, notifyEvent, true)
 		}
 	}
 
-	for i := range keys {
-		armKey(i)
-	}
+	arm()
+
+	handles := [2]windows.Handle{notifyEvent, cancelEvent}
+
+	const debounceMs = 150
+	waitTimeout := uint32(windows.INFINITE)
+	hasPendingUpdate := false
 
 	for {
-		index, err := windows.WaitForMultipleObjects(handles, false, windows.INFINITE)
-		if err != nil || index == windows.WAIT_OBJECT_0+cancelIdx {
+		event, err := windows.WaitForMultipleObjects(handles[:], false, waitTimeout)
+		if err != nil || event == windows.WAIT_OBJECT_0+1 {
 			return
 		}
 
-		triggeredIdx := int(index - windows.WAIT_OBJECT_0)
-		if triggeredIdx >= 0 && triggeredIdx < len(keys) {
-			armKey(triggeredIdx)
-		} else {
-			for i := range keys {
-				armKey(i)
-			}
-		}
+		switch event {
+		case windows.WAIT_OBJECT_0:
+			arm()
+			waitTimeout = debounceMs
+			hasPendingUpdate = true
 
-		if status, err := GetProxyStatus(); err == nil {
-			select {
-			case statusCh <- status:
-			default:
+		case uint32(windows.WAIT_TIMEOUT):
+			waitTimeout = windows.INFINITE
+			if hasPendingUpdate {
+				hasPendingUpdate = false
+				if status, err := GetProxyStatus(); err == nil {
+					select {
+					case statusCh <- status:
+					default:
+					}
+				}
 			}
 		}
 	}
