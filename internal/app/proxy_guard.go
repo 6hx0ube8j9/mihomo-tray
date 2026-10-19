@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	"mihomo-tray/internal/config"
@@ -20,6 +21,9 @@ type ProxyGuard struct {
 	cfg     *config.Manager
 	st      *state.RuntimeState
 	onAlert func(title, msg string)
+
+	mu              sync.Mutex
+	lastAppliedPort string
 }
 
 func NewProxyGuard(cfg *config.Manager, st *state.RuntimeState, onAlert func(title, msg string)) *ProxyGuard {
@@ -56,24 +60,48 @@ func (g *ProxyGuard) Sync() {
 	portStr, hasPort := g.cfg.GetEffectiveSystemProxyPortStr()
 
 	if !wantEnable {
-		if err := sys.DisableProxy(portStr); err != nil {
-			slog.Error("关闭系统代理失败", "err", err)
-		}
+		g.cleanupRegistryProxy(portStr)
 		return
 	}
 
 	if !hasPort {
-		slog.Warn("未检测到有效代理端口，强制关闭系统代理")
+		slog.Warn("未检测到有效代理端口，已停用系统代理")
 		g.disableInternal()
 		if g.onAlert != nil {
-			g.onAlert("系统代理", "未检测到有效代理端口，系统代理已自动关闭。")
+			g.onAlert("系统代理", "未检测到有效代理端口，系统代理已关闭")
 		}
 		return
 	}
 
-	slog.Debug("更新系统代理", "enabled", true, "port", portStr)
+	slog.Debug("设置系统代理", "enabled", true, "port", portStr)
 	if err := sys.EnableProxy(portStr); err != nil {
 		slog.Error("设置系统代理失败", "err", err)
+		return
+	}
+
+	g.mu.Lock()
+	g.lastAppliedPort = portStr
+	g.mu.Unlock()
+}
+
+func (g *ProxyGuard) cleanupRegistryProxy(currentPortStr string) {
+	g.mu.Lock()
+	targetPort := g.lastAppliedPort
+	if targetPort == "" {
+		targetPort = currentPortStr
+	}
+	g.mu.Unlock()
+
+	if targetPort == "" {
+		return
+	}
+
+	if err := sys.DisableProxy(targetPort); err != nil {
+		slog.Error("注销系统代理失败", "port", targetPort, "err", err)
+	} else {
+		g.mu.Lock()
+		g.lastAppliedPort = ""
+		g.mu.Unlock()
 	}
 }
 
@@ -82,24 +110,21 @@ func (g *ProxyGuard) disableInternal() {
 		return
 	}
 
-	g.cfg.Update(func(c *domain.TrayConfig) {
-		b := false
-		c.General.SystemProxy = &b
-	})
+	if g.cfg.IsSystemProxyEnabled() {
+		g.cfg.Update(func(c *domain.TrayConfig) {
+			b := false
+			c.General.SystemProxy = &b
+		})
+	}
 
 	portStr, _ := g.cfg.GetEffectiveSystemProxyPortStr()
-	if err := sys.DisableProxy(portStr); err != nil {
-		slog.Error("注销系统代理注册表失败", "err", err)
-	}
+	g.cleanupRegistryProxy(portStr)
 }
 
 func (g *ProxyGuard) SafeShutdownCleanup() {
 	portStr, _ := g.cfg.GetEffectiveSystemProxyPortStr()
-	if err := sys.DisableProxy(portStr); err != nil {
-		slog.Error("退出时注销系统代理失败", "err", err)
-	} else {
-		slog.Debug("退出时系统代理安全清理完成")
-	}
+	g.cleanupRegistryProxy(portStr)
+	slog.Debug("退出清理完成")
 }
 
 func (g *ProxyGuard) HandleStatusChange(ctx context.Context, status sys.ProxyStatus) {
@@ -117,7 +142,7 @@ func (g *ProxyGuard) HandleStatusChange(ctx context.Context, status sys.ProxySta
 
 	if status.Enabled {
 		if status.Server != "" && !status.Matches(expectedServer) {
-			slog.Warn("检测到第三方代理劫持，停用本地接管", "server", status.Server, "expected", expectedServer)
+			slog.Warn("检测到外部代理配置变更，停止接管", "server", status.Server, "expected", expectedServer)
 			g.disableInternal()
 		}
 		return
@@ -146,10 +171,10 @@ func (g *ProxyGuard) repairLoop(ctx context.Context, expectedServer string) {
 
 		cur, err := sys.GetProxyStatus()
 		if err == nil && cur.Enabled && cur.Matches(expectedServer) {
-			slog.Debug("系统代理自愈成功", "attempt", i)
+			slog.Debug("系统代理同步完成", "attempt", i)
 			return
 		}
 	}
-	slog.Warn("系统代理持续被外部修改或自愈超时，自动解除接管")
+	slog.Warn("系统代理持续被外部修改或同步超时，已解除接管")
 	g.disableInternal()
 }
