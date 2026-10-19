@@ -108,15 +108,17 @@ func EnableProxy(serverStr string, bypassStr ...string) error {
 		{dwOption: INTERNET_PER_CONN_PROXY_BYPASS, dwValue: uintptr(unsafe.Pointer(bypassPtr))},
 	}
 
+	defer func() {
+		runtime.KeepAlive(serverPtr)
+		runtime.KeepAlive(bypassPtr)
+	}()
+
 	if err := applyProxyOptions(options); err != nil {
-		slog.Error("failed to enable proxy", "err", err)
+		slog.Error("启用系统代理失败", "err", err)
 		return err
 	}
 
-	runtime.KeepAlive(serverPtr)
-	runtime.KeepAlive(bypassPtr)
-
-	slog.Info("proxy enabled", "server", server)
+	slog.Info("系统代理已开启", "server", server)
 	return nil
 }
 
@@ -129,7 +131,7 @@ func DisableProxy(expectedServer string) error {
 			return nil
 		}
 		if expected != "" && !curr.Matches(expected) {
-			slog.Warn("skip proxy disable", "reason", "address mismatch", "current", curr.Server, "expected", expected)
+			slog.Warn("跳过注销代理", "reason", "代理地址被外部修改", "current", curr.Server, "expected", expected)
 			return nil
 		}
 	}
@@ -139,11 +141,11 @@ func DisableProxy(expectedServer string) error {
 	}
 
 	if err := applyProxyOptions(options); err != nil {
-		slog.Error("failed to disable proxy", "err", err)
+		slog.Error("停用系统代理失败", "err", err)
 		return err
 	}
 
-	slog.Info("proxy disabled")
+	slog.Info("系统代理已注销")
 	return nil
 }
 
@@ -156,7 +158,7 @@ func setPerConnectionOption(list *internetPerConnOptionList, connName *uint16) e
 		uintptr(list.dwSize),
 	)
 	if r == 0 {
-		return fmt.Errorf("InternetSetOptionW failed: %w", err)
+		return fmt.Errorf("InternetSetOptionW 失败: %w", err)
 	}
 	return nil
 }
@@ -177,27 +179,27 @@ func applyProxyToList(list *internetPerConnOptionList) error {
 		uintptr(unsafe.Pointer(&cEntries)),
 	)
 
-	var entries []RasEntryName
-	if ret == uintptr(ERROR_SUCCESS) && cEntries == 1 {
-		entries = []RasEntryName{entry}
-	} else if ret == uintptr(ERROR_BUFFER_TOO_SMALL) && cEntries > 0 {
-		entries = make([]RasEntryName, cEntries)
-		entries[0].dwSize = uint32(unsafe.Sizeof(RasEntryName{}))
+	if ret == uintptr(ERROR_BUFFER_TOO_SMALL) && cEntries > 0 {
+		entries := make([]RasEntryName, cEntries)
+		for i := range entries {
+			entries[i].dwSize = cb
+		}
 		ret, _, _ = procRasEnumEntries.Call(
 			0, 0,
 			uintptr(unsafe.Pointer(&entries[0])),
 			uintptr(unsafe.Pointer(&cb)),
 			uintptr(unsafe.Pointer(&cEntries)),
 		)
-		if ret != uintptr(ERROR_SUCCESS) {
-			entries = nil
+		if ret == uintptr(ERROR_SUCCESS) {
+			for i := range entries {
+				_ = setPerConnectionOption(list, &entries[i].szEntryName[0])
+			}
+			runtime.KeepAlive(entries)
 		}
+	} else if ret == uintptr(ERROR_SUCCESS) && cEntries == 1 {
+		_ = setPerConnectionOption(list, &entry.szEntryName[0])
+		runtime.KeepAlive(&entry)
 	}
-
-	for i := range entries {
-		_ = setPerConnectionOption(list, &entries[i].szEntryName[0])
-	}
-	runtime.KeepAlive(entries)
 
 	return nil
 }
@@ -216,7 +218,6 @@ func applyProxyOptions(options []internetPerConnOption) error {
 		return err
 	}
 
-	runtime.KeepAlive(&options)
 	RefreshWininet()
 	return nil
 }
@@ -240,7 +241,7 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 	for _, path := range paths {
 		k, err := registry.OpenKey(registry.CURRENT_USER, path, registry.NOTIFY|registry.QUERY_VALUE)
 		if err != nil {
-			slog.Warn("failed to open registry key", "path", path, "err", err)
+			slog.Warn("打开代理注册表监听失败", "path", path, "err", err)
 			continue
 		}
 		keys = append(keys, k)
