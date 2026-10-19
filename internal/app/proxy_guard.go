@@ -122,6 +122,11 @@ func (g *ProxyGuard) disableInternal() {
 }
 
 func (g *ProxyGuard) SafeShutdownCleanup() {
+	g.cfg.Update(func(c *domain.TrayConfig) {
+		b := false
+		c.General.SystemProxy = &b
+	})
+
 	portStr, _ := g.cfg.GetEffectiveSystemProxyPortStr()
 	g.cleanupRegistryProxy(portStr)
 	slog.Debug("退出清理完成")
