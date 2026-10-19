@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -37,6 +38,13 @@ type ProbeResult struct {
 	PortChanged bool
 }
 
+func checkPortDiff(cfgPort *int, kernelPort int) bool {
+	if cfgPort == nil {
+		return true
+	}
+	return *cfgPort != kernelPort
+}
+
 func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 	if p.st.IsExiting() || p.st.IsActionBusy() {
 		return ProbeResult{}
@@ -46,13 +54,15 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 	defer cancel()
 
 	resp, err := p.api.GetKernelStatus(qCtx)
-	if err != nil {
+	if err != nil || resp == nil {
 		return ProbeResult{}
 	}
 
 	if p.st.IsExiting() || p.st.IsActionBusy() {
 		return ProbeResult{}
 	}
+
+	res := ProbeResult{}
 
 	currentActual := p.st.GetActualTunDevice()
 	if resp.Tun.Device != "" && resp.Tun.Device != currentActual {
@@ -84,9 +94,13 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 		hasConfigChange = true
 	}
 
-	unifiedDelayChanged := cfg.Config.UnifiedDelay != nil && resp.UnifiedDelay != *cfg.Config.UnifiedDelay
+	unifiedDelayChanged := cfg.Config.UnifiedDelay == nil || *cfg.Config.UnifiedDelay != resp.UnifiedDelay
 	if unifiedDelayChanged {
-		slog.Info("内核统一延迟更新", "from", *cfg.Config.UnifiedDelay, "to", resp.UnifiedDelay)
+		fromStr := "未设置"
+		if cfg.Config.UnifiedDelay != nil {
+			fromStr = fmt.Sprintf("%v", *cfg.Config.UnifiedDelay)
+		}
+		slog.Info("内核统一延迟更新", "from", fromStr, "to", resp.UnifiedDelay)
 		res.Changed = true
 		hasConfigChange = true
 	}
@@ -98,27 +112,27 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 		hasConfigChange = true
 	}
 
-	mixedPortChanged := cfg.Config.MixedPort == nil || *cfg.Config.MixedPort != resp.MixedPort
+	mixedPortChanged := checkPortDiff(cfg.Config.MixedPort, resp.MixedPort)
 	if mixedPortChanged {
 		res.Changed = true
 		res.PortChanged = true
 		hasConfigChange = true
 	}
 
-	portChanged := cfg.Config.Port == nil || *cfg.Config.Port != resp.Port
+	portChanged := checkPortDiff(cfg.Config.Port, resp.Port)
 	if portChanged {
 		res.Changed = true
 		res.PortChanged = true
 		hasConfigChange = true
 	}
 
-	socksPortChanged := cfg.Config.SocksPort == nil || *cfg.Config.SocksPort != resp.SocksPort
+	socksPortChanged := checkPortDiff(cfg.Config.SocksPort, resp.SocksPort)
 	if socksPortChanged {
 		res.Changed = true
 		hasConfigChange = true
 	}
 
-	tunChanged := p.checkTunDiff(cfg.Config.Tun.Enable, resp.Tun.Enable)
+	tunChanged := p.reconcileTunStatus(cfg.Config.Tun.Enable, resp.Tun.Enable)
 	if tunChanged {
 		res.Changed = true
 		hasConfigChange = true
@@ -158,18 +172,18 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 		})
 	}
 
-	wantTun := cfg.Config.Tun.Enable
+	effectiveTun := cfg.Config.Tun.Enable
 	if tunChanged {
-		wantTun = resp.Tun.Enable
+		effectiveTun = resp.Tun.Enable
 	}
-	if res.Changed && wantTun && !realAlive && !p.st.IsTunInGracePeriod() {
+	if res.Changed && effectiveTun && !realAlive && !p.st.IsTunInGracePeriod() {
 		slog.Warn("TUN 网卡未就绪", "device", currentActual)
 	}
 
 	return res
 }
 
-func (p *KernelProbe) checkTunDiff(wantTun, kernelTunEnabled bool) bool {
+func (p *KernelProbe) reconcileTunStatus(wantTun, kernelTunEnabled bool) bool {
 	if wantTun && kernelTunEnabled && p.st.IsTunAlive() && p.st.IsTunInGracePeriod() {
 		p.st.SetTunRequestedTime(time.Time{})
 		slog.Debug("TUN 网卡已进入就绪状态")
@@ -203,13 +217,19 @@ func (p *KernelProbe) HandleTunChange(ctx context.Context, forceSync func(), pus
 		}
 
 		go func() {
+			ticker := time.NewTicker(tunProbeBurstInterval)
+			defer ticker.Stop()
+
 			for i := 0; i < tunProbeBurstTimes; i++ {
 				select {
 				case <-ctx.Done():
 					return
-				case <-time.After(tunProbeBurstInterval):
+				case <-ticker.C:
+					if p.st.IsExiting() || p.st.IsActionBusy() {
+						return
+					}
+					forceSync()
 				}
-				forceSync()
 			}
 		}()
 		pushUI()
