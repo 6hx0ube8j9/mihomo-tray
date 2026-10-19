@@ -109,7 +109,7 @@ func main() {
 			c.General.Autostart = &b
 		})
 	}
-	
+
 	needsAdminStartup := finalAutostart || cfg.General.RunAsAdmin
 
 	if !admin && !isAutostart {
@@ -148,6 +148,12 @@ func main() {
 	slog.Debug("初始化托盘引擎")
 	uiEngine := ui.NewEngine(ctx, cancel, application.UICommandCh, application.UIStateNotifyCh, application.Presenter.GetSnapshot)
 	application.SetUIPort(uiEngine)
+
+	uiEngine.SetOnShutdown(func() {
+		if application.ProxyGuard != nil {
+			application.ProxyGuard.SafeShutdownCleanup()
+		}
+	})
 
 	go func() {
 		sigCh := make(chan os.Signal, 1)
