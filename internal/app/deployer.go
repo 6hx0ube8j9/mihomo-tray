@@ -126,21 +126,5 @@ func (d *Deployer) PhysicalRestart(cfg domain.TrayConfig) {
 }
 
 func (d *Deployer) hotReload(ctx context.Context, runtimeAbs string) error {
-	reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-
-	if err := d.api.ForceReloadKernel(reqCtx, runtimeAbs); err != nil {
-		return err
-	}
-
-	time.Sleep(200 * time.Millisecond)
-	cfg := d.cfg.GetConfig()
-	_ = d.api.SyncAllRuntime(
-		ctx,
-		cfg.Config.Mode,
-		d.cfg.GetEffectiveAllowLan(),
-		cfg.Config.Tun.Enable,
-		d.st.GetActualTunDevice(),
-	)
-	return nil
+	return d.api.ForceReloadKernel(ctx, runtimeAbs)
 }
