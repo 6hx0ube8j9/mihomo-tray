@@ -382,7 +382,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			}
 			return nil
 		})
-		
+
 	case domain.ActionToggleRunAsAdmin:
 		a.asyncRun("以管理员运行", func() error {
 			if a.HostBridge.ToggleRunAsAdmin(cmd.Payload == "true") && a.ui != nil {
