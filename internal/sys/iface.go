@@ -11,6 +11,11 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+const (
+	networkDebounceInterval = 250 * time.Millisecond
+	fallbackPollInterval    = 2 * time.Second
+)
+
 func IsTunActive(targetDevice string) bool {
 	target := strings.ToLower(strings.TrimSpace(targetDevice))
 	if target == "" {
@@ -19,7 +24,7 @@ func IsTunActive(targetDevice string) bool {
 
 	ifaces, err := net.Interfaces()
 	if err != nil {
-		slog.Error("获取系统网卡列表失败", "err", err)
+		slog.Warn("获取系统网卡列表失败", "err", err)
 		return false
 	}
 
@@ -37,7 +42,7 @@ func IsTunActive(targetDevice string) bool {
 func WatchNetworkInterfaces(ctx context.Context, eventCh chan<- struct{}) {
 	fd, err := windows.Socket(windows.AF_INET, windows.SOCK_DGRAM, windows.IPPROTO_UDP)
 	if err != nil {
-		slog.Warn("创建网络监听 Socket 失败，转为定时轮询", "err", err)
+		slog.Warn("创建网络监听 Socket 失败，自动降级为定时轮询", "err", err)
 		fallbackWatch(ctx, eventCh)
 		return
 	}
@@ -64,7 +69,7 @@ func WatchNetworkInterfaces(ctx context.Context, eventCh chan<- struct{}) {
 		for {
 			err := windows.WSAIoctl(fd, SIO_ADDRESS_LIST_CHANGE, nil, 0, nil, 0, &bytesReturned, nil, 0)
 			if err != nil {
-				slog.Debug("网络接口监听退出", "err", err)
+				slog.Debug("网络底层监听退出", "err", err)
 				break
 			}
 
@@ -92,13 +97,25 @@ func WatchNetworkInterfaces(ctx context.Context, eventCh chan<- struct{}) {
 		case _, ok := <-notifyCh:
 			if !ok {
 				safeCloseSocket()
+				if ctx.Err() == nil {
+					slog.Warn("网络底层事件通道中断，正在降级为定时轮询保底")
+					fallbackWatch(ctx, eventCh)
+				}
 				return
 			}
-			if timer != nil {
-				timer.Stop()
+
+			if timer == nil {
+				timer = time.NewTimer(networkDebounceInterval)
+				timerCh = timer.C
+			} else {
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				timer.Reset(networkDebounceInterval)
 			}
-			timer = time.NewTimer(250 * time.Millisecond)
-			timerCh = timer.C
 
 		case <-timerCh:
 			timerCh = nil
@@ -121,8 +138,9 @@ func fallbackWatch(ctx context.Context, eventCh chan<- struct{}) {
 	default:
 	}
 
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(fallbackPollInterval)
 	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
