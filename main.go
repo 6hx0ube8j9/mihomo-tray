@@ -29,16 +29,17 @@ func main() {
 	baseDir := filepath.Dir(exePath)
 	_ = os.Chdir(baseDir)
 
-	isAutostart, isRestarting := parseArgs()
+	isAutostart := parseIsAutostart()
+	restartingPID := sys.ParseRestartingPID(os.Args[1:])
 
-	guard, isOwner := sys.TryAcquireSingleInstance(domain.AppMutexName, domain.ShowUIEventName, isRestarting)
+	guard, isOwner := sys.TryAcquireSingleInstance(domain.AppMutexName, domain.ShowUIEventName, restartingPID)
 	if !isOwner {
 		sys.NotifyExistingInstance(domain.ShowUIEventName)
 		return
 	}
 	defer guard.Close()
 
-	logWriter := logger.Init(baseDir, isRestarting)
+	logWriter := logger.Init(baseDir, restartingPID > 0)
 	if logWriter != nil {
 		defer logWriter.Close()
 	}
@@ -56,11 +57,10 @@ func main() {
 	cfgMgr.LoadAndInitMemory()
 	logger.SyncLogLevel(cfgMgr.GetConfig().General.TrayLogLevel)
 
-	slog.Info("程序启动", "admin", admin)
-	slog.Debug("进程信息", "pid", os.Getpid(), "dir", baseDir)
+	slog.Info("程序启动", "admin", admin, "pid", os.Getpid())
 
-	finalAutostart := syncAutostart(cfgMgr, exePath, baseDir)
-	handleElevation(cfgMgr, exePath, baseDir, isAutostart, finalAutostart, exitProcess)
+	taskInSync, needElevate := inspectAndSyncAutostart(cfgMgr, exePath, baseDir, admin)
+	handleElevation(cfgMgr, exePath, baseDir, isAutostart, taskInSync, needElevate, exitProcess)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -70,13 +70,11 @@ func main() {
 
 	defer func() {
 		if r := recover(); r != nil {
-			slog.Error("捕获未处理异常，执行清理", "recover", r)
+			slog.Error("程序异常退出", "error", r)
 		}
-		slog.Info("托盘事件循环结束，开始清理资源")
 		application.SafeShutdown(cancel)
 	}()
 
-	slog.Debug("初始化托盘引擎")
 	uiEngine := ui.NewEngine(ctx, cancel, application.UICommandCh, application.UIStateNotifyCh, application.Presenter.GetSnapshot)
 	application.SetUIPort(uiEngine)
 
@@ -94,107 +92,97 @@ func main() {
 		defer signal.Stop(sigCh)
 		select {
 		case sig := <-sigCh:
-			slog.Info("接收到系统终止信号", "signal", sig)
+			slog.Info("收到终止信号", "signal", sig)
 			cancel()
 		case <-ctx.Done():
-			return
 		}
 	}()
 
 	guard.ListenWakeEvent(ctx, func() {
-		application.UICommandCh <- domain.UICommand{Action: domain.ActionOpenWebUI}
+		select {
+		case application.UICommandCh <- domain.UICommand{Action: domain.ActionOpenWebUI}:
+		default:
+		}
 	})
 
-	slog.Debug("启动后台业务服务")
 	go func() {
 		<-uiEngine.ReadyCh
-		slog.Debug("托盘引擎已就绪，开始初始化")
 		application.Bootstrap(ctx)
 	}()
 
-	slog.Debug("启动托盘事件循环")
 	if err := uiEngine.Run(); err != nil {
-		slog.Error("托盘引擎运行异常", "err", err)
+		slog.Error("界面运行异常", "error", err)
 	}
 }
 
-func parseArgs() (isAutostart, isRestarting bool) {
+func parseIsAutostart() bool {
 	for _, arg := range os.Args[1:] {
-		clean := strings.ToLower(strings.TrimLeft(arg, "-"))
-		if clean == "autostart" {
-			isAutostart = true
-		} else if strings.Contains(clean, "restarting") {
-			isRestarting = true
+		if strings.EqualFold(strings.TrimLeft(arg, "-"), "autostart") {
+			return true
 		}
 	}
-	return
+	return false
 }
 
-func syncAutostart(cfgMgr *config.Manager, exePath, baseDir string) bool {
+func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, isAdmin bool) (taskInSync bool, needElevate bool) {
 	osTaskExists := sys.CheckAutoStartStatus(domain.AppTaskName)
-	isMine := false
-	if osTaskExists {
-		isMine = sys.IsTaskPathValid(domain.AppTaskName, exePath)
-	}
-
+	isMine := osTaskExists && sys.IsTaskPathValid(domain.AppTaskName, exePath)
+	taskInSync = isMine
 	cfgAutostart := cfgMgr.IsAutostartEnabled()
-	finalAutostart := cfgAutostart
 
-	if osTaskExists {
-		if isMine {
-			if !cfgAutostart {
-				slog.Info("开机自启动已禁用，移除计划任务")
-				sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, false)
-				finalAutostart = false
-			}
-		} else if cfgAutostart {
-			slog.Warn("计划任务路径不匹配，跳过自动同步")
-			finalAutostart = false
+	if !isAdmin {
+		needElevate = (cfgAutostart && !taskInSync) || (!cfgAutostart && isMine)
+		return taskInSync, needElevate
+	}
+
+	if cfgAutostart {
+		if !taskInSync {
+			slog.Info("注册自启动任务")
+			taskInSync = sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
 		}
-	} else if cfgAutostart {
-		slog.Info("开机自启动已启用，注册计划任务")
-		sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
+	} else if isMine {
+		slog.Info("移除自启动任务")
+		if sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, false) {
+			taskInSync = false
+		}
 	}
 
-	if cfgAutostart != finalAutostart {
-		cfgMgr.Update(func(c *domain.TrayConfig) {
-			b := finalAutostart
-			c.General.Autostart = &b
-		})
-	}
-	return finalAutostart
+	return taskInSync, false
 }
 
-func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostart, finalAutostart bool, exitProcess func(int)) {
+func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostart, taskInSync, needElevate bool, exitProcess func(int)) {
 	if sys.IsAdmin() || isAutostart {
 		return
 	}
 
-	cfg := cfgMgr.GetConfig()
-	if !finalAutostart && !cfg.General.RunAsAdmin {
+	runAsAdmin := cfgMgr.GetConfig().General.RunAsAdmin
+	if !needElevate && !taskInSync && !runAsAdmin {
 		return
 	}
 
-	slog.Info("当前配置需要管理员权限，执行提权流程")
-	osTaskExists := sys.CheckAutoStartStatus(domain.AppTaskName)
-	if finalAutostart && osTaskExists && sys.IsTaskPathValid(domain.AppTaskName, exePath) {
-		slog.Debug("尝试通过计划任务静默提权")
+	if taskInSync {
 		if err := sys.RunScheduledTask(domain.AppTaskName); err == nil {
-			slog.Info("计划任务提权成功，退出当前实例")
+			slog.Info("已通过计划任务启动新进程")
 			exitProcess(0)
-		} else {
-			slog.Warn("计划任务提权失败，尝试请求系统提权", "err", err)
+			return
 		}
+		slog.Warn("计划任务启动失败，准备降级处理", "error", err)
 	}
 
-	err := sys.RunAsAdmin(exePath, baseDir, "--restarting")
-	if sys.IsUserCancelled(err) {
-		slog.Info("用户取消授权，程序退出")
-		exitProcess(0)
-	} else if err == nil {
-		slog.Info("提权授权成功，退出当前实例")
-		exitProcess(0)
-	} else {
-		slog.Error("提权启动失败", "err", err)
+	if !needElevate && !runAsAdmin {
+		return
 	}
+
+	slog.Info("正在请求管理员权限")
+	err := sys.RunAsAdmin(exePath, baseDir)
+	if sys.IsUserCancelled(err) {
+		slog.Info("用户取消授权，以普通权限运行")
+		return
+	}
+	if err == nil {
+		slog.Info("授权成功，退出当前进程")
+		exitProcess(0)
+		return
+	}
+	slog.Error("请求管理员权限失败，以普通权限运行", "error", err)
 }
