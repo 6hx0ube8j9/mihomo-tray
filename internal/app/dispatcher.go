@@ -376,16 +376,20 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		a.asyncRun("编辑配置", func() error { return a.HostBridge.EditCurrentConfig() })
 
 	case domain.ActionToggleAutoStart:
-		if a.HostBridge.ToggleAutoStart(cmd.Payload == "true") && a.ui != nil {
-			a.ui.Exit()
-		}
-		a.Presenter.PushUIState()
-
+		a.asyncRun("开机自启", func() error {
+			if a.HostBridge.ToggleAutoStart(cmd.Payload == "true") && a.ui != nil {
+				a.ui.Exit()
+			}
+			return nil
+		})
+		
 	case domain.ActionToggleRunAsAdmin:
-		if a.HostBridge.ToggleRunAsAdmin(cmd.Payload == "true") && a.ui != nil {
-			a.ui.Exit()
-		}
-		a.Presenter.PushUIState()
+		a.asyncRun("以管理员运行", func() error {
+			if a.HostBridge.ToggleRunAsAdmin(cmd.Payload == "true") && a.ui != nil {
+				a.ui.Exit()
+			}
+			return nil
+		})
 
 	case domain.ActionExitApp:
 		if a.ui != nil {
