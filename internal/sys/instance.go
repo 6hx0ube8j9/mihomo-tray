@@ -24,8 +24,9 @@ const (
 )
 
 type SingleInstanceGuard struct {
-	hMutex windows.Handle
-	hEvent windows.Handle
+	hMutex  windows.Handle
+	hEvent  windows.Handle
+	hCancel windows.Handle
 }
 
 func GrantForegroundPrivilege() {
@@ -43,9 +44,8 @@ func getPermissiveSecAttr() *windows.SecurityAttributes {
 	return &sa
 }
 
-func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (guard *SingleInstanceGuard, isOwner bool) {
+func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (*SingleInstanceGuard, bool) {
 	sa := getPermissiveSecAttr()
-	mName, _ := windows.UTF16PtrFromString(mutexName)
 
 	if oldPID > 1 {
 		waitForOldProcessExit(oldPID, restartingProcessWaitTimeout)
@@ -53,25 +53,28 @@ func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (guard
 		time.Sleep(200 * time.Millisecond)
 	}
 
+	mName, _ := windows.UTF16PtrFromString(mutexName)
 	hMutex, err := windows.CreateMutex(sa, false, mName)
-	isAlreadyExist := errors.Is(err, windows.ERROR_ALREADY_EXISTS) ||
-		errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
-		err == windows.ERROR_ALREADY_EXISTS ||
-		err == windows.ERROR_ACCESS_DENIED
-
-	if isAlreadyExist {
+	
+	if errors.Is(err, windows.ERROR_ALREADY_EXISTS) || errors.Is(err, windows.ERROR_ACCESS_DENIED) {
 		if hMutex != 0 {
 			_ = windows.CloseHandle(hMutex)
 		}
 		return nil, false
 	}
+	if err != nil || hMutex == 0 {
+		slog.Error("创建全局单实例互斥体失败", "error", err)
+		return nil, false
+	}
 
 	eName, _ := windows.UTF16PtrFromString(eventName)
 	hEvent, _ := windows.CreateEvent(sa, 0, 0, eName)
+	hCancel, _ := windows.CreateEvent(nil, 0, 0, nil)
 
 	return &SingleInstanceGuard{
-		hMutex: hMutex,
-		hEvent: hEvent,
+		hMutex:  hMutex,
+		hEvent:  hEvent,
+		hCancel: hCancel,
 	}, true
 }
 
@@ -82,9 +85,8 @@ func waitForOldProcessExit(pid uint32, timeout time.Duration) {
 	}
 	defer windows.CloseHandle(hProcess)
 
-	millis := uint32(timeout.Milliseconds())
-	slog.Debug("等待旧进程释放资源", "pid", pid)
-	_, _ = windows.WaitForSingleObject(hProcess, millis)
+	slog.Debug("等待旧进程释放系统资源", "pid", pid)
+	_, _ = windows.WaitForSingleObject(hProcess, uint32(timeout.Milliseconds()))
 }
 
 func NotifyExistingInstance(eventName string) {
@@ -98,18 +100,28 @@ func NotifyExistingInstance(eventName string) {
 }
 
 func (g *SingleInstanceGuard) ListenWakeEvent(ctx context.Context, onWake func()) {
-	if g == nil || g.hEvent == 0 {
+	if g == nil || g.hEvent == 0 || g.hCancel == 0 {
 		return
 	}
+
+	stopCancel := context.AfterFunc(ctx, func() {
+		_ = windows.SetEvent(g.hCancel)
+	})
+
 	go func() {
-		slog.Debug("监听进程唤醒事件")
+		defer stopCancel()
+		handles := [2]windows.Handle{g.hEvent, g.hCancel}
+
 		for {
-			s, _ := windows.WaitForSingleObject(g.hEvent, windows.INFINITE)
-			if s != windows.WAIT_OBJECT_0 || ctx.Err() != nil {
+			event, err := windows.WaitForMultipleObjects(handles[:], false, windows.INFINITE)
+			if err != nil || event != windows.WAIT_OBJECT_0 {
 				return
 			}
-			slog.Info("捕获唤醒信号")
-			onWake()
+
+			if ctx.Err() == nil {
+				slog.Info("收到外部唤醒信号")
+				onWake()
+			}
 		}
 	}()
 }
@@ -118,8 +130,12 @@ func (g *SingleInstanceGuard) Close() {
 	if g == nil {
 		return
 	}
+	if g.hCancel != 0 {
+		_ = windows.SetEvent(g.hCancel)
+		_ = windows.CloseHandle(g.hCancel)
+		g.hCancel = 0
+	}
 	if g.hEvent != 0 {
-		_ = windows.SetEvent(g.hEvent)
 		_ = windows.CloseHandle(g.hEvent)
 		g.hEvent = 0
 	}
