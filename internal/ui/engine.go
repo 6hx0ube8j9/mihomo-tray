@@ -4,12 +4,20 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
 	"github.com/tailscale/win"
+	"golang.org/x/sys/windows"
 
 	"mihomo-tray/internal/domain"
+)
+
+const (
+	wmQueryEndSession = 0x0011
+	wmEndSession      = 0x0016
+	gwlpWndProc       = -4
 )
 
 type Engine struct {
@@ -26,6 +34,8 @@ type Engine struct {
 	Tray      *Tray
 	Dashboard *Dashboard
 	modalMgr  *ModalManager
+
+	onShutdown func()
 }
 
 func NewEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- domain.UICommand, notifyCh <-chan struct{}, getState func() domain.UIState) *Engine {
@@ -37,6 +47,10 @@ func NewEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- doma
 		getState:      getState,
 		ReadyCh:       make(chan struct{}),
 	}
+}
+
+func (e *Engine) SetOnShutdown(fn func()) {
+	e.onShutdown = fn
 }
 
 func (e *Engine) Run() error {
@@ -56,6 +70,8 @@ func (e *Engine) Run() error {
 		return fmt.Errorf("创建后台宿主窗口失败: %w", err)
 	}
 
+	e.hookShutdown()
+
 	e.modalMgr = NewModalManager()
 	e.Tray = NewTray(e)
 	e.Dashboard = NewDashboard(e)
@@ -71,6 +87,39 @@ func (e *Engine) Run() error {
 	e.disposeAll()
 
 	return nil
+}
+
+func (e *Engine) hookShutdown() {
+	if e.mw == nil || e.mw.Handle() == 0 {
+		return
+	}
+
+	hwnd := e.mw.Handle()
+	var prevWndProc uintptr
+	var shutdownOnce sync.Once
+
+	newWndProc := windows.NewCallback(func(h win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
+		switch msg {
+		case wmQueryEndSession:
+			return 1
+
+		case wmEndSession:
+			if wParam != 0 {
+				shutdownOnce.Do(func() {
+					slog.Info("捕获系统关机广播，执行清理")
+					if e.onShutdown != nil {
+						e.onShutdown()
+					}
+				})
+				win.PostQuitMessage(0)
+			}
+			return 0
+		}
+
+		return win.CallWindowProc(prevWndProc, h, msg, wParam, lParam)
+	})
+
+	prevWndProc = win.SetWindowLongPtr(hwnd, gwlpWndProc, newWndProc)
 }
 
 func (e *Engine) RunOnUI(fn func()) {
