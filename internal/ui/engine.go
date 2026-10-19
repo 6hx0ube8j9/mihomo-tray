@@ -116,7 +116,10 @@ func (e *Engine) hookShutdown() {
 			return 0
 		}
 
-		return win.CallWindowProc(prevWndProc, h, msg, wParam, lParam)
+		if prevWndProc != 0 {
+			return win.CallWindowProc(prevWndProc, h, msg, wParam, lParam)
+		}
+		return win.DefWindowProc(h, msg, wParam, lParam)
 	})
 
 	prevWndProc = win.SetWindowLongPtr(hwnd, gwlpWndProc, newWndProc)
