@@ -14,8 +14,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-var (
-	procAllowSetForegroundWnd = modUser32.NewProc("AllowSetForegroundWindow")
+const (
+	asfwAny                      = 0xFFFFFFFF
+	restartingProcessWaitTimeout = 10 * time.Second
 )
 
 type SingleInstanceGuard struct {
@@ -24,7 +25,6 @@ type SingleInstanceGuard struct {
 }
 
 func GrantForegroundPrivilege() {
-	const asfwAny = 0xFFFFFFFF // Win32 SDK: ASFW_ANY
 	procAllowSetForegroundWnd.Call(asfwAny)
 }
 
@@ -39,37 +39,26 @@ func getPermissiveSecAttr() *windows.SecurityAttributes {
 	return &sa
 }
 
-func TryAcquireSingleInstance(mutexName, eventName string, isRestarting bool) (guard *SingleInstanceGuard, isOwner bool) {
+func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (guard *SingleInstanceGuard, isOwner bool) {
 	sa := getPermissiveSecAttr()
 	mName, _ := windows.UTF16PtrFromString(mutexName)
 
-	maxRetries := 1
-	if isRestarting {
-		maxRetries = 50
-	}
-
-	var hMutex windows.Handle
-	var isAlreadyExist bool
-
-	for i := 0; i < maxRetries; i++ {
-		var err error
-		hMutex, err = windows.CreateMutex(sa, false, mName)
-		isAlreadyExist = errors.Is(err, windows.ERROR_ALREADY_EXISTS) ||
-			errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
-			err == windows.ERROR_ALREADY_EXISTS ||
-			err == windows.ERROR_ACCESS_DENIED
-
-		if !isAlreadyExist {
-			break
-		}
-		if hMutex != 0 {
-			_ = windows.CloseHandle(hMutex)
-			hMutex = 0
-		}
+	if oldPID > 1 {
+		waitForOldProcessExit(oldPID, restartingProcessWaitTimeout)
+	} else if oldPID == 1 {
 		time.Sleep(200 * time.Millisecond)
 	}
 
+	hMutex, err := windows.CreateMutex(sa, false, mName)
+	isAlreadyExist := errors.Is(err, windows.ERROR_ALREADY_EXISTS) ||
+		errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+		err == windows.ERROR_ALREADY_EXISTS ||
+		err == windows.ERROR_ACCESS_DENIED
+
 	if isAlreadyExist {
+		if hMutex != 0 {
+			_ = windows.CloseHandle(hMutex)
+		}
 		return nil, false
 	}
 
@@ -82,6 +71,18 @@ func TryAcquireSingleInstance(mutexName, eventName string, isRestarting bool) (g
 	}, true
 }
 
+func waitForOldProcessExit(pid uint32, timeout time.Duration) {
+	hProcess, err := windows.OpenProcess(windows.SYNCHRONIZE, false, pid)
+	if err != nil {
+		return
+	}
+	defer windows.CloseHandle(hProcess)
+
+	millis := uint32(timeout.Milliseconds())
+	slog.Debug("等待旧进程释放资源", "pid", pid)
+	_, _ = windows.WaitForSingleObject(hProcess, millis)
+}
+
 func NotifyExistingInstance(eventName string) {
 	eName, _ := windows.UTF16PtrFromString(eventName)
 	hEvent, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName)
@@ -89,7 +90,6 @@ func NotifyExistingInstance(eventName string) {
 		GrantForegroundPrivilege()
 		_ = windows.SetEvent(hEvent)
 		_ = windows.CloseHandle(hEvent)
-		time.Sleep(50 * time.Millisecond)
 	}
 }
 
