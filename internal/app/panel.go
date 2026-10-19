@@ -98,11 +98,11 @@ func (p *Panel) ReopenIfActive(forceSync func()) {
 func (p *Panel) CopyPassword() error {
 	_, secret, _, _, _ := p.getControllerSnapshot()
 	if secret == "" {
-		return errors.New("外部控制未设置访问密码")
+		return errors.New("Web 面板未设置访问密码")
 	}
 
 	if err := sys.WriteToClipboard(secret); err != nil {
-		return fmt.Errorf("写入系统剪贴板失败: %w", err)
+		return fmt.Errorf("写入剪贴板失败: %w", err)
 	}
 	return nil
 }
