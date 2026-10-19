@@ -49,7 +49,7 @@ func (t *Tuner) ToggleTun(ctx context.Context, enable bool, elevate func(rollbac
 		return false, nil
 	}
 
-	rollback := func() {
+	rollbackConfig := func() {
 		t.cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = originalTun })
 		if enable {
 			t.st.SetTunRequestedTime(time.Time{})
@@ -61,18 +61,18 @@ func (t *Tuner) ToggleTun(ctx context.Context, enable bool, elevate func(rollbac
 		t.st.SetTunRequestedTime(time.Now())
 	}
 
-	restarted = elevate(rollback)
+	restarted = elevate(rollbackConfig)
 	if restarted {
 		return true, nil
 	}
 
 	if t.st.GetPhase() != domain.PhaseRunning {
-		rollback()
+		rollbackConfig()
 		return false, ErrKernelNotReady
 	}
 
 	if !t.st.TryBeginAction(state.ActionSyncAPI) {
-		rollback()
+		rollbackConfig()
 		return false, ErrSystemBusy
 	}
 	defer t.st.EndAction()
@@ -82,7 +82,6 @@ func (t *Tuner) ToggleTun(ctx context.Context, enable bool, elevate func(rollbac
 	defer cancel()
 
 	if syncErr := t.api.UpdateTun(reqCtx, enable, t.st.GetActualTunDevice()); syncErr != nil {
-		rollback()
 		if ctx.Err() == nil {
 			if errors.Is(syncErr, context.DeadlineExceeded) || errors.Is(syncErr, context.Canceled) {
 				return false, ErrAPITimeout
