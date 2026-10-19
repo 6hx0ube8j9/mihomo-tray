@@ -12,25 +12,17 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const (
-	mbYesNo         = 0x00000004
-	mbIconWarning   = 0x00000030
-	mbTopmost       = 0x00040000
-	mbSetForeground = 0x00010000
-	idYes           = 6
-)
-
 func ShowElevationPrompt(title, message string) bool {
 	tPtr, _ := windows.UTF16PtrFromString(title)
 	mPtr, _ := windows.UTF16PtrFromString(message)
-	flags := uint32(mbYesNo | mbIconWarning | mbTopmost | mbSetForeground)
+	flags := uint32(windows.MB_YESNO | windows.MB_ICONWARNING | windows.MB_TOPMOST | windows.MB_SETFOREGROUND)
 
 	ret, err := windows.MessageBox(0, mPtr, tPtr, flags)
 	if err != nil {
 		slog.Warn("显示提权对话框失败", "err", err)
 		return false
 	}
-	return ret == idYes
+	return ret == windows.IDYES
 }
 
 func IsUserCancelled(err error) bool {
