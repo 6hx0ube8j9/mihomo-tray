@@ -56,10 +56,8 @@ func (g *ProxyGuard) Sync() {
 	portStr, hasPort := g.cfg.GetEffectiveSystemProxyPortStr()
 
 	if !wantEnable {
-		if hasPort {
-			if err := sys.DisableProxy(portStr); err != nil {
-				slog.Error("关闭系统代理失败", "err", err)
-			}
+		if err := sys.DisableProxy(portStr); err != nil {
+			slog.Error("关闭系统代理失败", "err", err)
 		}
 		return
 	}
@@ -68,7 +66,7 @@ func (g *ProxyGuard) Sync() {
 		slog.Warn("未检测到有效代理端口，强制关闭系统代理")
 		g.disableInternal()
 		if g.onAlert != nil {
-			g.onAlert("系统代理", "系统代理已关闭，请检查代理端口配置。")
+			g.onAlert("系统代理", "未检测到有效代理端口，系统代理已自动关闭。")
 		}
 		return
 	}
@@ -89,19 +87,14 @@ func (g *ProxyGuard) disableInternal() {
 		c.General.SystemProxy = &b
 	})
 
-	if portStr, hasPort := g.cfg.GetEffectiveSystemProxyPortStr(); hasPort {
-		if err := sys.DisableProxy(portStr); err != nil {
-			slog.Error("注销系统代理注册表失败", "err", err)
-		}
+	portStr, _ := g.cfg.GetEffectiveSystemProxyPortStr()
+	if err := sys.DisableProxy(portStr); err != nil {
+		slog.Error("注销系统代理注册表失败", "err", err)
 	}
 }
 
 func (g *ProxyGuard) SafeShutdownCleanup() {
-	portStr, hasPort := g.cfg.GetEffectiveSystemProxyPortStr()
-	if !hasPort {
-		return
-	}
-
+	portStr, _ := g.cfg.GetEffectiveSystemProxyPortStr()
 	if err := sys.DisableProxy(portStr); err != nil {
 		slog.Error("退出时注销系统代理失败", "err", err)
 	} else {
