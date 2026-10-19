@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -14,6 +15,10 @@ var (
 	procAttachConsole         = modKernel32.NewProc("AttachConsole")
 	procFreeConsole           = modKernel32.NewProc("FreeConsole")
 	procSetConsoleCtrlHandler = modKernel32.NewProc("SetConsoleCtrlHandler")
+)
+
+const (
+	processTerminateWaitTimeout = 2 * time.Second
 )
 
 type Job struct {
@@ -67,16 +72,18 @@ func createKillOnCloseJob() (windows.Handle, error) {
 }
 
 func assignProcessToJob(hJob windows.Handle, pid int) {
-	if hJob == 0 {
+	if hJob == 0 || pid <= 0 {
 		return
 	}
-	if hp, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(pid)); err == nil {
-		if err := windows.AssignProcessToJobObject(hJob, hp); err != nil {
-			slog.Error("进程绑定 Job Object 失败", "pid", pid, "err", err)
-		}
-		windows.CloseHandle(hp)
-	} else {
+	hp, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(pid))
+	if err != nil {
 		slog.Error("获取进程句柄失败", "pid", pid, "err", err)
+		return
+	}
+	defer windows.CloseHandle(hp)
+
+	if err := windows.AssignProcessToJobObject(hJob, hp); err != nil {
+		slog.Error("进程绑定 Job Object 失败", "pid", pid, "err", err)
 	}
 }
 
@@ -95,6 +102,7 @@ func KillOtherProcessesByName(name string, excludePid uint32) {
 	}
 
 	currentPid := windows.GetCurrentProcessId()
+	waitMs := uint32(processTerminateWaitTimeout.Milliseconds())
 
 	for {
 		exeName := windows.UTF16ToString(pe.ExeFile[:])
@@ -103,7 +111,7 @@ func KillOtherProcessesByName(name string, excludePid uint32) {
 			h, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, pe.ProcessID)
 			if err == nil {
 				_ = windows.TerminateProcess(h, 9)
-				_, _ = windows.WaitForSingleObject(h, 2000)
+				_, _ = windows.WaitForSingleObject(h, waitMs)
 				windows.CloseHandle(h)
 				slog.Debug("已终止同名残留进程", "pid", pe.ProcessID)
 			} else {
