@@ -83,14 +83,22 @@ func CheckAutoStartStatus(appName string) bool {
 	return cmd.Run() == nil
 }
 
-func IsTaskPathValid(appName, currentExePath string) bool {
+func CheckPathExists(path string) bool {
+	cleanPath := strings.Trim(strings.TrimSpace(path), `"`)
+	if cleanPath == "" {
+		return false
+	}
+	info, err := os.Stat(cleanPath)
+	return err == nil && !info.IsDir()
+}
+
+func GetTaskPath(appName string) string {
 	cmd := exec.Command(getSchtasksPath(), "/Query", "/TN", appName, "/XML")
 	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 
 	out, err := cmd.Output()
 	if err != nil {
-		slog.Debug("读取计划任务配置失败", "task", appName, "error", err)
-		return false
+		return ""
 	}
 
 	utf8Out := out
@@ -109,15 +117,21 @@ func IsTaskPathValid(appName, currentExePath string) bool {
 	endIdx := bytes.Index(utf8Out, endTag)
 
 	if startIdx == -1 || endIdx == -1 || startIdx >= endIdx {
-		return false
+		return ""
 	}
 
 	rawCommand := string(bytes.TrimSpace(utf8Out[startIdx+len(startTag) : endIdx]))
 	registeredPath := html.UnescapeString(rawCommand)
-	registeredPath = strings.Trim(registeredPath, `"`)
-	currentExePath = strings.Trim(currentExePath, `"`)
+	return filepath.Clean(strings.Trim(registeredPath, `"`))
+}
 
-	return strings.EqualFold(filepath.Clean(registeredPath), filepath.Clean(currentExePath))
+func IsTaskPathValid(appName, currentExePath string) bool {
+	registered := GetTaskPath(appName)
+	if registered == "" {
+		return false
+	}
+	current := filepath.Clean(strings.Trim(currentExePath, `"`))
+	return strings.EqualFold(registered, current)
 }
 
 func generateTaskXML(exePath, args, baseDir string) string {
