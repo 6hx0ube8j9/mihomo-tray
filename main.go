@@ -177,29 +177,28 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 		return
 	}
 
+	cfgAutostart := cfgMgr.IsAutostartEnabled()
 	runAsAdmin := cfgMgr.GetConfig().General.RunAsAdmin
-	if !needElevate && !taskInSync && !runAsAdmin {
-		return
-	}
 
-	if taskInSync && (runAsAdmin || needElevate) {
+	if taskInSync && (cfgAutostart || runAsAdmin) {
+		slog.Info("检测到自启动任务已就绪，通过计划任务执行静默提权")
 		err := sys.RunScheduledTask(domain.AppTaskName)
 		if err == nil {
-			slog.Info("已通过计划任务启动新进程")
+			slog.Info("计划任务静默提权成功，受限实例退出")
 			exitProcess(0)
 			return
 		}
-		slog.Warn("计划任务启动失败，准备降级处理", "error", err)
+		slog.Warn("计划任务静默提权失败，准备降级为 UAC 授权", "error", err)
 	}
 
-	if !runAsAdmin && !needElevate {
+	if !needElevate && !runAsAdmin {
 		return
 	}
 
 	slog.Info("正在请求管理员权限")
 	err := sys.RunAsAdmin(exePath, baseDir)
 	if err == nil {
-		slog.Info("授权成功，退出当前进程")
+		slog.Info("UAC 授权成功，受限实例退出")
 		exitProcess(0)
 		return
 	}
