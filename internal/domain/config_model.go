@@ -11,6 +11,14 @@ type TrayConfig struct {
 	Profiles ProfileManager `json:"profiles"`
 }
 
+type ControllerSnapshot struct {
+	Address        string
+	Secret         string
+	RemoteWebUI    bool
+	SystemBrowser  bool
+	RemoteWebUIURL string
+}
+
 type GeneralConfig struct {
 	Autostart      *bool   `json:"autostart"`
 	RunAsAdmin     bool    `json:"run_as_admin"`
