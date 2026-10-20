@@ -3,7 +3,6 @@
 package sys
 
 import (
-	"bytes"
 	"encoding/xml"
 	"fmt"
 	"html"
@@ -13,16 +12,20 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode/utf16"
+	"unicode/utf8"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
 
+var (
+	kernel32DLL             = windows.NewLazySystemDLL("kernel32.dll")
+	procMultiByteToWideChar = kernel32DLL.NewProc("MultiByteToWideChar")
+)
+
 func getSchtasksPath() string {
 	sysRoot := os.Getenv("SystemRoot")
-	if sysRoot == "" {
-		sysRoot = os.Getenv("windir")
-	}
 	if sysRoot == "" {
 		sysRoot = `C:\Windows`
 	}
@@ -32,7 +35,7 @@ func getSchtasksPath() string {
 func ToggleAutoStart(appName, exePath, baseDir string, enable bool) bool {
 	if key, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.SET_VALUE); err == nil {
 		_ = key.DeleteValue(appName)
-		_ = key.Close()
+		key.Close()
 	}
 
 	schtasksPath := getSchtasksPath()
@@ -44,26 +47,19 @@ func ToggleAutoStart(appName, exePath, baseDir string, enable bool) bool {
 		absBase, _ := filepath.Abs(baseDir)
 
 		xmlContent := generateTaskXML(absExe, "--autostart", absBase)
-
-		tmpFile, err := os.CreateTemp("", fmt.Sprintf("%s-*.xml", appName))
-		if err != nil {
-			slog.Error("创建计划任务临时文件失败", "error", err)
-			return false
-		}
-		tempXML := tmpFile.Name()
-		_ = tmpFile.Close()
-		defer os.Remove(tempXML)
+		tempXML := filepath.Join(os.TempDir(), fmt.Sprintf("%s.xml", appName))
 
 		if err := writeUTF16LE(tempXML, xmlContent); err != nil {
-			slog.Error("写入计划任务临时配置失败", "error", err)
+			slog.Error("写入计划任务临时文件失败", "err", err)
 			return false
 		}
+		defer os.Remove(tempXML)
 
 		cmd := exec.Command(schtasksPath, "/Create", "/TN", appName, "/XML", tempXML, "/F")
 		cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 
 		if out, err := cmd.CombinedOutput(); err != nil {
-			slog.Error("导入计划任务失败", "error", err, "output", strings.TrimSpace(string(out)))
+			slog.Error("导入计划任务失败", "err", err, "output", strings.TrimSpace(decodeConsole(out)))
 			return false
 		}
 		return true
@@ -74,7 +70,7 @@ func ToggleAutoStart(appName, exePath, baseDir string, enable bool) bool {
 	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 
 	if err := cmd.Run(); err != nil {
-		slog.Debug("删除计划任务失败", "task", appName, "error", err)
+		slog.Debug("删除计划任务失败", "task", appName, "err", err)
 	}
 	return !CheckAutoStartStatus(appName)
 }
@@ -86,11 +82,11 @@ func CheckAutoStartStatus(appName string) bool {
 }
 
 func CheckPathExists(path string) bool {
-	cleanPath := strings.Trim(strings.TrimSpace(path), `"`)
-	if cleanPath == "" {
+	clean := strings.Trim(strings.TrimSpace(path), `"`)
+	if clean == "" {
 		return false
 	}
-	info, err := os.Stat(cleanPath)
+	info, err := os.Stat(clean)
 	return err == nil && !info.IsDir()
 }
 
@@ -103,26 +99,19 @@ func GetTaskPath(appName string) string {
 		return ""
 	}
 
-	utf8Out := out
-	if len(out) >= 2 && out[0] == 0xFF && out[1] == 0xFE {
-		utf16Vals := make([]uint16, (len(out)-2)/2)
-		for i := 0; i < len(utf16Vals); i++ {
-			utf16Vals[i] = uint16(out[2+i*2]) | (uint16(out[2+i*2+1]) << 8)
-		}
-		utf8Out = []byte(windows.UTF16ToString(utf16Vals))
-	}
+	content := decodeConsole(out)
 
-	startTag := []byte("<Command>")
-	endTag := []byte("</Command>")
+	startTag := "<Command>"
+	endTag := "</Command>"
 
-	startIdx := bytes.Index(utf8Out, startTag)
-	endIdx := bytes.Index(utf8Out, endTag)
+	startIdx := strings.Index(content, startTag)
+	endIdx := strings.Index(content, endTag)
 
 	if startIdx == -1 || endIdx == -1 || startIdx >= endIdx {
 		return ""
 	}
 
-	rawCommand := string(bytes.TrimSpace(utf8Out[startIdx+len(startTag) : endIdx]))
+	rawCommand := strings.TrimSpace(content[startIdx+len(startTag) : endIdx])
 	registeredPath := html.UnescapeString(rawCommand)
 	return filepath.Clean(strings.Trim(registeredPath, `"`))
 }
@@ -134,6 +123,24 @@ func IsTaskPathValid(appName, currentExePath string) bool {
 	}
 	current := filepath.Clean(strings.Trim(currentExePath, `"`))
 	return strings.EqualFold(registered, current)
+}
+
+func decodeConsole(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
+	if utf8.Valid(b) {
+		return string(b)
+	}
+
+	n, _, _ := procMultiByteToWideChar.Call(0, 0, uintptr(unsafe.Pointer(&b[0])), uintptr(len(b)), 0, 0)
+	if n == 0 {
+		return string(b)
+	}
+
+	buf := make([]uint16, n)
+	procMultiByteToWideChar.Call(0, 0, uintptr(unsafe.Pointer(&b[0])), uintptr(len(b)), uintptr(unsafe.Pointer(&buf[0])), n)
+	return windows.UTF16ToString(buf)
 }
 
 func generateTaskXML(exePath, args, baseDir string) string {
