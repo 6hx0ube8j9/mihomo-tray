@@ -20,7 +20,7 @@ var (
 
 const (
 	asfwAny                      = 0xFFFFFFFF
-	restartingProcessWaitTimeout = 5 * time.Second
+	restartingProcessWaitTimeout = 3 * time.Second
 	waitObject0                  = 0x00000000
 	waitAbandoned                = 0x00000080
 )
