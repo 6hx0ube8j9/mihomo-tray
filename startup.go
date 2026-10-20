@@ -159,6 +159,7 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 
 	if taskInSync && (cfgAutostart || runAsAdmin) {
 		slog.Info("检测到自启动任务已就绪，通过计划任务执行静默提权")
+		
 		guard.Close()
 		err := sys.RunScheduledTask(domain.AppTaskName)
 		if err == nil {
@@ -166,7 +167,16 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 			exitProcess(0)
 			return
 		}
-		slog.Warn("计划任务静默提权失败，降级为系统 UAC 弹窗", "error", err)
+
+		slog.Warn("计划任务静默提权失败，重新抢占锁并降级为 UAC 弹窗", "error", err)
+
+		reacquiredGuard, isOwner := sys.TryAcquireSingleInstance(domain.AppMutexName, domain.ShowUIEventName, 0)
+		if !isOwner {
+			slog.Warn("锁已被其他实例接管，当前进程安全退出")
+			exitProcess(0)
+			return
+		}
+		*guard = *reacquiredGuard
 	}
 
 	if !needElevate && !runAsAdmin {
@@ -181,7 +191,7 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 		exitProcess(0)
 		return
 	}
-
+	
 	if sys.IsUserCancelled(err) {
 		if runAsAdmin {
 			slog.Info("用户取消授权，程序退出")
