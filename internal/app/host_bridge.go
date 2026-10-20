@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 
 	"mihomo-tray/internal/config"
@@ -31,12 +32,14 @@ func (h *HostBridge) ElevatePrivilege(rollback func()) (restarted bool) {
 		return false
 	}
 	slog.Debug("请求管理员提权")
-	err := sys.RunAsAdmin(h.cfg.ExePath(), h.cfg.BaseDir())
+
+	restartingArg := fmt.Sprintf("--restarting=%d", os.Getpid())
+	err := sys.RunAsAdmin(h.cfg.ExePath(), h.cfg.BaseDir(), restartingArg)
 	if err == nil {
 		slog.Info("提权进程已启动")
 		return true
 	}
-	slog.Warn("提权取消或失败，已执行回滚", "error", err)
+	slog.Warn("提权取消或失败，已回滚设置", "error", err)
 	if rollback != nil {
 		rollback()
 	}
@@ -50,10 +53,8 @@ func (h *HostBridge) ReconcileRuntimePrivileges() {
 	if sys.IsAdmin() {
 		return
 	}
-
-	cfg := h.cfg.GetConfig()
-	if cfg.Config.Tun.Enable {
-		slog.Warn("非管理员权限运行，关闭 TUN 模式回退普通权限运行")
+	if h.cfg.GetConfig().Config.Tun.Enable {
+		slog.Warn("非管理员权限运行，停用 TUN 模式回退普通权限运行")
 		h.cfg.Update(func(c *domain.TrayConfig) {
 			c.Config.Tun.Enable = false
 		})
