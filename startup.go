@@ -113,11 +113,19 @@ func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, is
 		taskInSync = true
 
 		if !cfgAutostart {
-			slog.Info("检测到系统已存在有效自启动任务，自动认领并同步本地配置为开启")
-			cfgMgr.Update(func(c *domain.TrayConfig) {
-				b := true
-				c.General.Autostart = &b
-			})
+			if !isAdmin {
+				slog.Info("检测到系统已存在有效自启动任务，自动认领并同步本地配置为开启")
+				cfgMgr.Update(func(c *domain.TrayConfig) {
+					b := true
+					c.General.Autostart = &b
+				})
+				return true, false
+			}
+
+			slog.Info("用户主动关闭自启动，执行计划任务注销")
+			if sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, false) {
+				taskInSync = false
+			}
 		}
 		return taskInSync, false
 	}
@@ -137,7 +145,14 @@ func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, is
 	}
 
 	if cfgAutostart {
-		slog.Warn("已有自启动任务指向其他存活程序，当前副本放弃自启动", "path", oldPath)
+
+		if isAdmin {
+			slog.Info("用户显式授权管理员权限，强制覆写自启动任务指向当前路径", "old", oldPath, "new", exePath)
+			taskInSync = sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
+			return taskInSync, false
+		}
+
+		slog.Warn("已有自启动任务指向其他存活程序，当前普通权限副本放弃自启动", "path", oldPath)
 		cfgMgr.Update(func(c *domain.TrayConfig) {
 			b := false
 			c.General.Autostart = &b
