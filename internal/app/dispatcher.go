@@ -199,7 +199,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			if err := a.Deployer.DeployAndApply(ctx, target, "切换配置"); err != nil {
 				return err
 			}
-			
+
 			a.ProfileHub.SetActiveProfile(target)
 			a.ProxyGuard.Sync()
 			a.Panel.ReopenIfActive(a.ForceSyncAPI)
@@ -245,8 +245,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	case domain.ActionToggleTun:
 		a.asyncRun("TUN 模式", func() error {
 			restarted, err := a.Tuner.ToggleTun(ctx, cmd.Payload == "true", a.HostBridge.ElevatePrivilege)
-			if err == nil && restarted && a.ui != nil {
-				a.ui.Exit()
+			if err == nil && restarted {
+				a.ExitForRestart()
 			}
 			return err
 		})
@@ -332,11 +332,11 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			})
 		}()
 
-	// ================= 重载与重启 (自愈与静默编排) =================
+	// ================= 系统与生命周期 =================
 	case domain.ActionReloadConfig:
 		a.runExclusiveAction(state.ActionReload, "重载配置", func() error {
 			_ = a.Cfg.ReloadFromDisk()
-			a.HostBridge.CheckAndReconcilePrivileges(false)
+			a.HostBridge.ReconcileRuntimePrivileges()
 
 			if err := a.Deployer.ReloadConfig(ctx); err != nil {
 				return err
@@ -350,12 +350,12 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	case domain.ActionRestartKernel:
 		a.runExclusiveAction(state.ActionRestart, "重启内核", func() error {
 			_ = a.Cfg.ReloadFromDisk()
-			a.HostBridge.CheckAndReconcilePrivileges(false)
+			a.HostBridge.ReconcileRuntimePrivileges()
 
 			if err := a.Deployer.RestartKernel(ctx); err != nil {
 				a.FallbackToEmpty(ctx, "重启配置校验失败")
 				a.notifySuccess("内核已重启", "无法加载当前配置，请检查配置文件")
-				return nil		 
+				return nil
 			}
 
 			a.ProxyGuard.Sync()
@@ -377,16 +377,16 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	case domain.ActionToggleAutoStart:
 		a.asyncRun("开机自启", func() error {
-			if a.HostBridge.ToggleAutoStart(cmd.Payload == "true") && a.ui != nil {
-				a.ui.Exit()
+			if a.HostBridge.ToggleAutoStart(cmd.Payload == "true") {
+				a.ExitForRestart()
 			}
 			return nil
 		})
 
 	case domain.ActionToggleRunAsAdmin:
 		a.asyncRun("以管理员运行", func() error {
-			if a.HostBridge.ToggleRunAsAdmin(cmd.Payload == "true") && a.ui != nil {
-				a.ui.Exit()
+			if a.HostBridge.ToggleRunAsAdmin(cmd.Payload == "true") {
+				a.ExitForRestart()
 			}
 			return nil
 		})
