@@ -290,7 +290,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 					a.runExclusiveAction(state.ActionRestart, "面板设置", func() error {
 						coreChanged, appChanged := a.Tuner.ApplyControllerConfig(nAddr, nSec, nOnline, nSys, nRemoteURL)
 						if coreChanged {
-							if err := a.Deployer.RestartKernel(ctx); err != nil {
+							if err := a.Deployer.RestartKernel(); err != nil {
 								return err
 							}
 						}
@@ -352,7 +352,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 			_ = a.Cfg.ReloadFromDisk()
 			a.HostBridge.ReconcileRuntimePrivileges()
 
-			if err := a.Deployer.RestartKernel(ctx); err != nil {
+			if err := a.Deployer.RestartKernel(); err != nil {
 				a.FallbackToEmpty(ctx, "重启配置校验失败")
 				a.notifySuccess("内核已重启", "无法加载当前配置，请检查配置文件")
 				return nil
