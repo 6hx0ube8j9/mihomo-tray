@@ -14,9 +14,7 @@ import (
 	"mihomo-tray/internal/state"
 )
 
-var (
-	ErrKernelNotRunning = errors.New("内核未运行")
-)
+var ErrKernelNotRunning = errors.New("内核未运行")
 
 type Deployer struct {
 	cfg    *config.Manager
@@ -49,7 +47,7 @@ func (d *Deployer) ReloadConfig(ctx context.Context) error {
 		return ErrKernelNotRunning
 	}
 
-	if err := d.reloadViaAPI(ctx, runtimeAbs); err != nil {
+	if err := d.api.ForceReloadKernel(ctx, runtimeAbs); err != nil {
 		return fmt.Errorf("内核配置重载失败: %w", err)
 	}
 
@@ -57,12 +55,12 @@ func (d *Deployer) ReloadConfig(ctx context.Context) error {
 	return nil
 }
 
-func (d *Deployer) RestartKernel(ctx context.Context) error {
+func (d *Deployer) RestartKernel() error {
 	slog.Info("正在重启内核")
 	if _, err := d.prepareRuntimeConfig(d.cfg.GetActivePath()); err != nil {
 		return err
 	}
-	d.RestartProcess(d.cfg.GetConfig())
+	d.RestartProcess()
 	return nil
 }
 
@@ -72,24 +70,20 @@ func (d *Deployer) DeployAndApply(ctx context.Context, targetRelPath, actionDesc
 		return err
 	}
 
-	commitActiveProfile := func() {
-		if targetRelPath != "" {
-			d.cfg.SetActiveProfile(targetRelPath)
-		}
+	if targetRelPath != "" {
+		d.cfg.SetActiveProfile(targetRelPath)
 	}
 
 	if d.IsKernelRunning() {
 		slog.Debug("正在应用配置", "action", actionDesc, "target", targetRelPath)
-		if err := d.reloadViaAPI(ctx, runtimeAbs); err == nil {
+		if err := d.api.ForceReloadKernel(ctx, runtimeAbs); err == nil {
 			slog.Debug("配置应用成功", "action", actionDesc, "target", targetRelPath)
-			commitActiveProfile()
 			return nil
 		}
 		slog.Warn("热重载失败，正在通过重启内核应用配置", "action", actionDesc, "target", targetRelPath, "err", err)
 	}
 
-	commitActiveProfile()
-	d.RestartProcess(d.cfg.GetConfig())
+	d.RestartProcess()
 	return nil
 }
 
@@ -116,10 +110,11 @@ func (d *Deployer) prepareRuntimeConfig(targetRelPath string) (string, error) {
 	}
 
 	d.st.SetActualTunDevice(deployRes.TunDevice)
-	return filepath.Join(d.cfg.BaseDir(), domain.RuntimeConfigName), nil
+	return deployRes.RuntimeAbs, nil
 }
 
-func (d *Deployer) RestartProcess(cfg domain.TrayConfig) {
+func (d *Deployer) RestartProcess() {
+	cfg := d.cfg.GetConfig()
 	slog.Debug("重启内核进程", "tun", cfg.Config.Tun.Enable)
 	if cfg.Config.Tun.Enable {
 		d.st.SetTunRequestedTime(time.Now())
@@ -127,12 +122,4 @@ func (d *Deployer) RestartProcess(cfg domain.TrayConfig) {
 	d.st.SetPhase(domain.PhaseInitializing)
 	d.kernel.HaltDaemon()
 	d.kernel.WakeDaemon()
-}
-
-func (d *Deployer) PhysicalRestart(cfg domain.TrayConfig) {
-	d.RestartProcess(cfg)
-}
-
-func (d *Deployer) reloadViaAPI(ctx context.Context, runtimeAbs string) error {
-	return d.api.ForceReloadKernel(ctx, runtimeAbs)
 }
