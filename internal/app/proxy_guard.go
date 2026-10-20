@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	proxyRepairMaxAttempts  = 10
-	proxyRepairPollInterval = 1000 * time.Millisecond
+	proxyQuickReconcileMaxAttempts = 3
+	proxyQuickReconcileInterval    = 500 * time.Millisecond
 )
 
 type ProxyGuard struct {
@@ -124,7 +124,6 @@ func (g *ProxyGuard) disableInternal() {
 func (g *ProxyGuard) SafeShutdownCleanup() {
 	portStr, _ := g.cfg.GetEffectiveSystemProxyPortStr()
 	g.cleanupRegistryProxy(portStr)
-
 	slog.Debug("系统代理退出清理完成")
 }
 
@@ -145,6 +144,9 @@ func (g *ProxyGuard) HandleStatusChange(ctx context.Context, status sys.ProxySta
 		if status.Server != "" && !status.Matches(expectedServer) {
 			slog.Warn("检测到外部代理配置变更，停止接管", "server", status.Server, "expected", expectedServer)
 			g.disableInternal()
+			if g.onAlert != nil {
+				g.onAlert("系统代理变更", "检测到系统代理已被其他程序修改，已自动停用接管。")
+			}
 		}
 		return
 	}
@@ -152,30 +154,41 @@ func (g *ProxyGuard) HandleStatusChange(ctx context.Context, status sys.ProxySta
 	if !g.st.TryAcquireProxyRepair() {
 		return
 	}
-	go g.repairLoop(ctx, expectedServer)
+	go g.reconcileDisconnection(ctx, expectedServer)
 }
 
-func (g *ProxyGuard) repairLoop(ctx context.Context, expectedServer string) {
+func (g *ProxyGuard) reconcileDisconnection(ctx context.Context, expectedServer string) {
 	defer g.st.ReleaseProxyRepair()
 
-	for i := 1; i <= proxyRepairMaxAttempts; i++ {
-		if g.st.IsExiting() || ctx.Err() != nil || !g.cfg.IsSystemProxyEnabled() {
-			return
-		}
-		g.Sync()
-
+	for attempt := 1; attempt <= proxyQuickReconcileMaxAttempts; attempt++ {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(proxyRepairPollInterval):
+		case <-time.After(proxyQuickReconcileInterval):
+		}
+
+		if g.st.IsExiting() || !g.cfg.IsSystemProxyEnabled() {
+			return
 		}
 
 		cur, err := sys.GetProxyStatus()
 		if err == nil && cur.Enabled && cur.Matches(expectedServer) {
-			slog.Debug("系统代理同步完成", "attempt", i)
+			slog.Debug("系统代理状态已恢复正常", "attempt", attempt)
+			return
+		}
+
+		g.Sync()
+
+		cur, err = sys.GetProxyStatus()
+		if err == nil && cur.Enabled && cur.Matches(expectedServer) {
+			slog.Info("系统代理断线自愈成功", "attempt", attempt)
 			return
 		}
 	}
-	slog.Warn("系统代理持续被外部修改或同步超时，已解除接管")
+
+	slog.Warn("系统代理被外部明确关闭，主动解除接管")
 	g.disableInternal()
+	if g.onAlert != nil {
+		g.onAlert("系统代理已关闭", "检测到系统代理被外部关闭，已停止接管。")
+	}
 }
