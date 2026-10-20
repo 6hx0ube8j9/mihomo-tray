@@ -32,7 +32,7 @@ func main() {
 	isAutostart := parseIsAutostart()
 	restartingPID := sys.ParseRestartingPID(os.Args[1:])
 
-	guard, isOwner := sys.TryAcquireSingleInstance(domain.AppMutexName, domain.ShowUIEventName, restartingPID)
+	guard, isOwner := sys.TryAcquireSingleInstance(domain.AppMutexName, domain.ShowUIEventName, restartingPID, isAutostart)
 	if !isOwner {
 		sys.NotifyExistingInstance(domain.ShowUIEventName)
 		return
@@ -126,28 +126,50 @@ func parseIsAutostart() bool {
 
 func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, isAdmin bool) (taskInSync bool, needElevate bool) {
 	osTaskExists := sys.CheckAutoStartStatus(domain.AppTaskName)
-	isMine := osTaskExists && sys.IsTaskPathValid(domain.AppTaskName, exePath)
-	taskInSync = isMine
 	cfgAutostart := cfgMgr.IsAutostartEnabled()
 
-	if !isAdmin {
-		needElevate = (cfgAutostart && !taskInSync) || (!cfgAutostart && isMine)
+	if !osTaskExists {
+		if cfgAutostart {
+			if isAdmin {
+				slog.Info("注册自启动任务")
+				taskInSync = sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
+			} else {
+				needElevate = true
+			}
+		}
 		return taskInSync, needElevate
 	}
 
-	if cfgAutostart {
-		if !taskInSync {
-			slog.Info("注册自启动任务")
-			taskInSync = sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
+	if sys.IsTaskPathValid(domain.AppTaskName, exePath) {
+		taskInSync = true
+		if !cfgAutostart {
+			if isAdmin {
+				slog.Info("移除自启动任务")
+				if sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, false) {
+					taskInSync = false
+				}
+			} else {
+				needElevate = true
+			}
 		}
-	} else if isMine {
-		slog.Info("移除自启动任务")
-		if sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, false) {
-			taskInSync = false
-		}
+		return taskInSync, needElevate
 	}
 
-	return taskInSync, false
+	oldPath := sys.GetTaskPath(domain.AppTaskName)
+	if !sys.CheckPathExists(oldPath) {
+		if cfgAutostart {
+			if isAdmin {
+				slog.Info("检测到旧路径已失效，更新自启动任务", "old", oldPath, "new", exePath)
+				taskInSync = sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
+			} else {
+				needElevate = true
+			}
+		}
+	} else {
+		slog.Warn("已有自启动任务指向其他有效路径，跳过同步", "path", oldPath)
+	}
+
+	return taskInSync, needElevate
 }
 
 func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostart, taskInSync, needElevate bool, exitProcess func(int)) {
@@ -156,7 +178,6 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 	}
 
 	runAsAdmin := cfgMgr.GetConfig().General.RunAsAdmin
-
 	if !needElevate && !taskInSync && !runAsAdmin {
 		return
 	}
@@ -164,13 +185,13 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 	if taskInSync && (runAsAdmin || needElevate) {
 		err := sys.RunScheduledTask(domain.AppTaskName)
 		if err == nil {
-			slog.Info("已通过计划任务启动管理员进程")
+			slog.Info("已通过计划任务启动新进程")
 			exitProcess(0)
 			return
 		}
-		slog.Warn("计划任务启动失败，准备降级为 UAC 授权", "error", err)
+		slog.Warn("计划任务启动失败，准备降级处理", "error", err)
 	}
-	
+
 	if !runAsAdmin && !needElevate {
 		return
 	}
@@ -185,12 +206,11 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 
 	if sys.IsUserCancelled(err) {
 		if runAsAdmin {
-			slog.Info("用户取消管理员授权，程序退出")
+			slog.Info("用户取消授权，程序退出")
 			exitProcess(0)
 			return
 		}
-
-		slog.Warn("用户取消自启动同步授权，以普通权限继续运行")
+		slog.Warn("用户取消授权，以当前权限运行")
 		return
 	}
 
