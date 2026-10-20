@@ -142,7 +142,7 @@ func Init(baseDir string, isRestarting bool) *RollingLogWriter {
 	logPath := filepath.Join(logDir, domain.AppLogFile)
 	writer := NewRollingWriter(logPath, MaxAppLogSize)
 
-	GlobalLogLevel.Set(slog.LevelInfo)
+	GlobalLogLevel.Set(slog.LevelError)
 
 	logTarget := &sessionWriter{
 		target:       writer,
