@@ -186,16 +186,11 @@ func (t *Tuner) ApplyPortConfig(ctx context.Context, mixed, socks, httpPort int)
 
 func (t *Tuner) GetControllerSnapshot() (addr, sec string, online, sys bool, remoteURL string) {
 	cfg := t.cfg.GetConfig()
-	addr = cfg.Config.ExternalController
-	if addr == "" {
-		addr = domain.DefaultExternalController
-	}
+	addr = t.cfg.GetEffectiveExternalController()
 	sec = t.cfg.GetEffectiveSecret(cfg.Config.Secret)
 	online = t.cfg.IsRemoteWebUIEnabled()
 	sys = t.cfg.IsSystemBrowserEnabled()
-	if cfg.General.RemoteWebUIURL != nil {
-		remoteURL = *cfg.General.RemoteWebUIURL
-	}
+	remoteURL = t.cfg.GetEffectiveRemoteWebUIURL()
 	return
 }
 
