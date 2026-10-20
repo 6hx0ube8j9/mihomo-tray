@@ -14,9 +14,7 @@ import (
 )
 
 const (
-	tunProbeBurstInterval = 300 * time.Millisecond
-	tunProbeBurstTimes    = 3
-	kernelAPIPollTimeout  = 1500 * time.Millisecond
+	kernelAPIPollTimeout = 1500 * time.Millisecond
 )
 
 type KernelProbe struct {
@@ -201,37 +199,31 @@ func (p *KernelProbe) reconcileTunStatus(wantTun, kernelTunEnabled bool) bool {
 	return false
 }
 
-func (p *KernelProbe) HandleTunChange(ctx context.Context, forceSync func(), pushUI func()) {
+func (p *KernelProbe) HandleTunChange(pushUI func(), forceSync func()) {
 	if p.st.IsExiting() || p.st.IsActionBusy() {
 		return
 	}
+
 	tunDev := p.st.GetActualTunDevice()
 	alive := sys.IsTunActive(tunDev)
-	if p.st.IsTunAlive() != alive {
-		slog.Info("TUN 网卡状态变更", "device", tunDev, "active", alive)
-		p.st.SetTunAlive(alive)
-		if !alive {
-			p.st.SetTunLostTime(time.Now())
-		} else {
-			p.st.SetTunLostTime(time.Time{})
-		}
 
-		go func() {
-			ticker := time.NewTicker(tunProbeBurstInterval)
-			defer ticker.Stop()
+	if p.st.IsTunAlive() == alive {
+		return
+	}
 
-			for i := 0; i < tunProbeBurstTimes; i++ {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					if p.st.IsExiting() || p.st.IsActionBusy() {
-						return
-					}
-					forceSync()
-				}
-			}
-		}()
+	slog.Info("TUN 网卡物理状态变更", "device", tunDev, "active", alive)
+	p.st.SetTunAlive(alive)
+	if !alive {
+		p.st.SetTunLostTime(time.Now())
+	} else {
+		p.st.SetTunLostTime(time.Time{})
+	}
+
+	if pushUI != nil {
 		pushUI()
+	}
+
+	if forceSync != nil {
+		forceSync()
 	}
 }
