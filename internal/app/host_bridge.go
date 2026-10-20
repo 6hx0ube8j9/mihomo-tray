@@ -90,6 +90,12 @@ func (h *HostBridge) ToggleRunAsAdmin(enable bool) (restarted bool) {
 	h.cfg.Update(func(c *domain.TrayConfig) {
 		c.General.RunAsAdmin = enable
 	})
+
+	if !enable {
+		slog.Info("已关闭以管理员身份运行")
+		return false
+	}
+
 	return h.ElevatePrivilege(func() {
 		h.cfg.Update(func(c *domain.TrayConfig) {
 			c.General.RunAsAdmin = false
