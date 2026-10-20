@@ -79,11 +79,7 @@ func main() {
 	application.SetUIPort(uiEngine)
 
 	uiEngine.SetOnShutdown(func() {
-		application.State.ForceExitPhase()
 		cancel()
-		if application.ProxyGuard != nil {
-			application.ProxyGuard.SafeShutdownCleanup()
-		}
 	})
 
 	go func() {
@@ -156,6 +152,7 @@ func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, is
 	}
 
 	oldPath := sys.GetTaskPath(domain.AppTaskName)
+
 	if !sys.CheckPathExists(oldPath) {
 		if cfgAutostart {
 			if isAdmin {
@@ -165,11 +162,18 @@ func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, is
 				needElevate = true
 			}
 		}
-	} else {
-		slog.Warn("已有自启动任务指向其他有效路径，跳过同步", "path", oldPath)
+		return taskInSync, needElevate
 	}
 
-	return taskInSync, needElevate
+	if cfgAutostart {
+		slog.Warn("已有自启动任务指向其他存活程序，当前副本放弃自启动", "path", oldPath)
+		cfgMgr.Update(func(c *domain.TrayConfig) {
+			b := false
+			c.General.Autostart = &b
+		})
+	}
+
+	return false, false
 }
 
 func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostart, taskInSync, needElevate bool, exitProcess func(int)) {
@@ -209,7 +213,11 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 			exitProcess(0)
 			return
 		}
-		slog.Warn("用户取消授权，以当前权限运行")
+		slog.Warn("用户取消授权，以当前权限运行，并重置自启配置为 false")
+		cfgMgr.Update(func(c *domain.TrayConfig) {
+			b := false
+			c.General.Autostart = &b
+		})
 		return
 	}
 
