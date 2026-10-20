@@ -7,7 +7,6 @@ package sys
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"time"
 	"unsafe"
 
