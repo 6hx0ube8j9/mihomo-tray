@@ -15,7 +15,6 @@ import (
 )
 
 var (
-	modUser32                 = windows.NewLazySystemDLL("user32.dll")
 	procAllowSetForegroundWnd = modUser32.NewProc("AllowSetForegroundWindow")
 )
 
