@@ -48,6 +48,7 @@ type Application struct {
 	UIStateNotifyCh chan struct{}
 
 	isAutoUpdating atomic.Bool
+	shutdownOnce sync.Once
 }
 
 func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
@@ -142,20 +143,22 @@ func (a *Application) ExitForRestart() {
 }
 
 func (a *Application) SafeShutdown(cancel context.CancelFunc) {
-	slog.Info("执行退出流程")
-	a.State.ForceExitPhase()
-	a.WebUI.Cleanup()
+    a.shutdownOnce.Do(func() {
+        slog.Info("执行退出流程")
+        a.State.ForceExitPhase()
+        a.WebUI.Cleanup()
 
-	slog.Debug("退出清理：安全比对并注销系统代理")
-	a.ProxyGuard.SafeShutdownCleanup()
+        slog.Debug("退出清理：安全比对并注销系统代理")
+        a.ProxyGuard.SafeShutdownCleanup()
 
-	if cancel != nil {
-		cancel()
-	}
+        if cancel != nil {
+            cancel()
+        }
 
-	a.Kernel.KillCurrent()
-	a.Kernel.Close()
-	slog.Info("应用已安全退出")
+        a.Kernel.KillCurrent()
+        a.Kernel.Close()
+        slog.Info("应用已安全退出")
+    })
 }
 
 func (a *Application) FallbackToEmpty(ctx context.Context, reason string) {
