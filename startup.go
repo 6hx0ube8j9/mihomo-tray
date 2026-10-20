@@ -111,17 +111,15 @@ func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, is
 
 	if sys.IsTaskPathValid(domain.AppTaskName, exePath) {
 		taskInSync = true
+
 		if !cfgAutostart {
-			if isAdmin {
-				slog.Info("移除自启动任务")
-				if sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, false) {
-					taskInSync = false
-				}
-			} else {
-				needElevate = true
-			}
+			slog.Info("检测到系统已存在有效自启动任务，自动认领并同步本地配置为开启")
+			cfgMgr.Update(func(c *domain.TrayConfig) {
+				b := true
+				c.General.Autostart = &b
+			})
 		}
-		return taskInSync, needElevate
+		return taskInSync, false
 	}
 
 	oldPath := sys.GetTaskPath(domain.AppTaskName)
