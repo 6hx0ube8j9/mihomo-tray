@@ -136,10 +136,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 
 func (a *Application) ExitForRestart() {
 	slog.Info("准备交接至管理员实例，执行前置快速清理")
-	a.State.ForceExitPhase()
-	a.ProxyGuard.SafeShutdownCleanup()
-	a.Kernel.KillCurrent()
-	a.Kernel.Close()
+	a.SafeShutdown(nil)
 	os.Exit(0)
 }
 
