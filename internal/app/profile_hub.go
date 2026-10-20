@@ -145,6 +145,11 @@ func (h *ProfileHub) EditRemote(ctx context.Context, oldPath, newName, newURL st
 
 	urlChanged = (newURL != p.URL)
 	if urlChanged {
+		if !h.st.TryAcquireProfileLock(oldPath) {
+			return false, ErrProfileUpdating
+		}
+		defer h.st.ReleaseProfileLock(oldPath)
+
 		if err := h.fetchAndCommit(ctx, p.Path, newURL, &p); err != nil {
 			return false, err
 		}
