@@ -112,21 +112,21 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 		hasConfigChange = true
 	}
 
-	mixedPortChanged := checkPortDiff(cfg.Config.MixedPort, resp.MixedPort)
+	mixedPortChanged := resp.MixedPort > 0 && checkPortDiff(cfg.Config.MixedPort, resp.MixedPort)
 	if mixedPortChanged {
 		res.Changed = true
 		res.PortChanged = true
 		hasConfigChange = true
 	}
 
-	portChanged := checkPortDiff(cfg.Config.Port, resp.Port)
+	portChanged := resp.Port > 0 && checkPortDiff(cfg.Config.Port, resp.Port)
 	if portChanged {
 		res.Changed = true
 		res.PortChanged = true
 		hasConfigChange = true
 	}
 
-	socksPortChanged := checkPortDiff(cfg.Config.SocksPort, resp.SocksPort)
+	socksPortChanged := resp.SocksPort > 0 && checkPortDiff(cfg.Config.SocksPort, resp.SocksPort)
 	if socksPortChanged {
 		res.Changed = true
 		hasConfigChange = true
