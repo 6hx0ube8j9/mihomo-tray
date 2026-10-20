@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 	"sync/atomic"
 	"time"
 
@@ -49,28 +50,6 @@ type Application struct {
 	isAutoUpdating atomic.Bool
 }
 
-func (a *Application) FallbackToEmpty(ctx context.Context, reason string) {
-	slog.Warn("配置失效，系统安全回退至空配置", "reason", reason)
-
-	a.Cfg.Update(func(c *domain.TrayConfig) {
-		c.Profiles.Active = ""
-		bProxy := false
-		c.General.SystemProxy = &bProxy
-		c.Config.Tun.Enable = false
-	})
-	a.State.SetTunRequestedTime(time.Time{})
-	a.State.SetTunAlive(false)
-
-	if a.Deployer.IsKernelRunning() {
-		_ = a.Deployer.DeployAndApply(ctx, "", "回退空配置")
-	} else {
-		_ = a.Deployer.SyncRuntimeConfig()
-	}
-
-	a.ProxyGuard.Sync()
-	a.Presenter.PushUIState()
-}
-
 func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	api := core.NewAPIClient(domain.IPCNamedPipe)
 	kernel := core.NewKernelManager(cm, st, api)
@@ -97,7 +76,7 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	})
 
 	app.Deployer = NewDeployer(cm, st, kernel, api)
-	
+
 	app.ProfileHub = NewProfileHub(cm, st, func() string {
 		if app.Deployer.IsKernelRunning() {
 			return app.Cfg.GetEffectiveLocalProxyPortStr()
@@ -131,7 +110,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 		a.FallbackToEmpty(ctx, "活跃配置物理文件无效且无法恢复")
 	}
 
-	a.HostBridge.CheckAndReconcilePrivileges(true)
+	a.HostBridge.ReconcileRuntimePrivileges()
 
 	if err := a.Deployer.SyncRuntimeConfig(); err != nil {
 		slog.Warn("启动时底稿配置校验失败，执行安全回退", "err", err)
@@ -153,6 +132,15 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	go a.eventLoop(ctx)
 }
 
+func (a *Application) ExitForRestart() {
+	slog.Info("准备交接至管理员实例，执行前置快速清理")
+	a.State.ForceExitPhase()
+	a.ProxyGuard.SafeShutdownCleanup()
+	a.Kernel.KillCurrent()
+	a.Kernel.Close()
+	os.Exit(0)
+}
+
 func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	slog.Info("执行退出流程")
 	a.State.ForceExitPhase()
@@ -170,6 +158,28 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	slog.Info("应用已安全退出")
 }
 
+func (a *Application) FallbackToEmpty(ctx context.Context, reason string) {
+	slog.Warn("配置失效，系统安全回退至空配置", "reason", reason)
+
+	a.Cfg.Update(func(c *domain.TrayConfig) {
+		c.Profiles.Active = ""
+		bProxy := false
+		c.General.SystemProxy = &bProxy
+		c.Config.Tun.Enable = false
+	})
+	a.State.SetTunRequestedTime(time.Time{})
+	a.State.SetTunAlive(false)
+
+	if a.Deployer.IsKernelRunning() {
+		_ = a.Deployer.DeployAndApply(ctx, "", "回退空配置")
+	} else {
+		_ = a.Deployer.SyncRuntimeConfig()
+	}
+
+	a.ProxyGuard.Sync()
+	a.Presenter.PushUIState()
+}
+
 func (a *Application) eventLoop(ctx context.Context) {
 	slog.Debug("启动主事件循环")
 
@@ -183,17 +193,17 @@ func (a *Application) eventLoop(ctx context.Context) {
 	lastUserAction := time.Now()
 
 	tryPollAPI := func() {
-        res := a.Probe.PollStatus(ctx)
+		res := a.Probe.PollStatus(ctx)
 
-        if res.PortChanged && a.Cfg.IsSystemProxyEnabled() {
-            a.ProxyGuard.Sync()
-        }
+		if res.PortChanged && a.Cfg.IsSystemProxyEnabled() {
+			a.ProxyGuard.Sync()
+		}
 
-        if res.Changed {
-            a.Presenter.PushUIState()
-        }
-    }
-	
+		if res.Changed {
+			a.Presenter.PushUIState()
+		}
+	}
+
 	adjustPollInterval := func() {
 		isUserActive := time.Since(lastUserAction) < pollIdleThreshold
 		isWebActive := a.WebUI.IsActive()
