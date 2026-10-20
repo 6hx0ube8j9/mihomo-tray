@@ -1,6 +1,5 @@
 // instance.go manages application single-instance enforcement, cross-integrity IPC
 // wake-up signaling, and foreground privilege delegation.
-// Primarily invoked by main.go during process bootstrapping and secondary instance dispatch.
 
 package sys
 
@@ -47,10 +46,10 @@ func getPermissiveSecAttr() *windows.SecurityAttributes {
 	return &sa
 }
 
-func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32, isAutostart bool) (*SingleInstanceGuard, bool) {
+func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (*SingleInstanceGuard, bool) {
 	sa := getPermissiveSecAttr()
 	mName, _ := windows.UTF16PtrFromString(mutexName)
-	canWait := oldPID > 0 || isAutostart
+	isRestarting := oldPID > 0
 
 	hMutex, err := windows.CreateMutex(sa, true, mName)
 	isAlreadyExist := errors.Is(err, windows.ERROR_ALREADY_EXISTS) || errors.Is(err, windows.ERROR_ACCESS_DENIED)
@@ -59,14 +58,14 @@ func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32, isAuto
 		return buildGuard(sa, eventName, hMutex)
 	}
 
-	if !canWait {
+	if !isRestarting {
 		if hMutex != 0 {
 			_ = windows.CloseHandle(hMutex)
 		}
 		return nil, false
 	}
 
-	slog.Debug("等待旧进程释放单实例锁", "pid", oldPID, "autostart", isAutostart)
+	slog.Debug("等待旧进程释放单实例锁", "pid", oldPID)
 
 	if hMutex != 0 {
 		if oldPID > 1 {
@@ -81,7 +80,7 @@ func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32, isAuto
 		_ = windows.CloseHandle(hMutex)
 	}
 
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(1 * time.Second)
 	for time.Now().Before(deadline) {
 		time.Sleep(50 * time.Millisecond)
 
