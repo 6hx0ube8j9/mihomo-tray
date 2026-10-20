@@ -156,34 +156,47 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 	}
 
 	runAsAdmin := cfgMgr.GetConfig().General.RunAsAdmin
+
 	if !needElevate && !taskInSync && !runAsAdmin {
 		return
 	}
-	
-	if taskInSync {
+
+	if taskInSync && (runAsAdmin || needElevate) {
 		err := sys.RunScheduledTask(domain.AppTaskName)
 		if err == nil {
-			slog.Info("已通过计划任务启动新进程")
+			slog.Info("已通过计划任务启动管理员进程")
 			exitProcess(0)
 			return
 		}
-		slog.Warn("计划任务启动失败，准备降级处理", "error", err)
+		slog.Warn("计划任务启动失败，准备降级为 UAC 授权", "error", err)
 	}
-
-	if !needElevate && !runAsAdmin {
+	
+	if !runAsAdmin && !needElevate {
 		return
 	}
 
 	slog.Info("正在请求管理员权限")
 	err := sys.RunAsAdmin(exePath, baseDir)
-	if sys.IsUserCancelled(err) {
-		slog.Info("用户取消授权，以当前权限运行")
-		return
-	}
 	if err == nil {
 		slog.Info("授权成功，退出当前进程")
 		exitProcess(0)
 		return
 	}
-	slog.Error("请求管理员权限失败，以当前权限运行", "error", err)
+
+	if sys.IsUserCancelled(err) {
+		if runAsAdmin {
+			slog.Info("用户取消管理员授权，程序退出")
+			exitProcess(0)
+			return
+		}
+
+		slog.Warn("用户取消自启动同步授权，以普通权限继续运行")
+		return
+	}
+
+	slog.Error("请求管理员权限失败", "error", err)
+	if runAsAdmin {
+		exitProcess(1)
+		return
+	}
 }
