@@ -68,6 +68,10 @@ func main() {
 	runtimeState := state.NewRuntimeState()
 	application := app.NewApplication(cfgMgr, runtimeState)
 
+	uiEngine.SetOnShutdown(func() {
+		application.SafeShutdown(cancel)
+	})
+	
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("程序异常退出", "error", r)
