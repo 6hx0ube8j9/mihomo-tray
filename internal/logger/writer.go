@@ -8,6 +8,8 @@ import (
 	"mihomo-tray/internal/fs"
 )
 
+var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
+
 type RollingLogWriter struct {
 	mu       sync.Mutex
 	logPath  string
@@ -38,7 +40,12 @@ func (w *RollingLogWriter) open() {
 	} else {
 		w.currSize = 0
 	}
+
 	w.file, _ = os.OpenFile(w.logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if w.file != nil && w.currSize == 0 {
+		n, _ := w.file.Write(utf8BOM)
+		w.currSize += int64(n)
+	}
 }
 
 func (w *RollingLogWriter) rotate() {
@@ -54,10 +61,15 @@ func (w *RollingLogWriter) rotate() {
 	w.file, _ = os.OpenFile(w.logPath, flags, 0666)
 	w.currSize = 0
 
-	if err != nil && w.file != nil {
-		msg := []byte("[Warning] Log rotation failed (file locked). Old logs were truncated to prevent I/O deadlock.\n")
-		n, _ := w.file.Write(msg)
+	if w.file != nil {
+		n, _ := w.file.Write(utf8BOM)
 		w.currSize += int64(n)
+
+		if err != nil {
+			msg := []byte("[Warning] Log rotation failed (file locked). Old logs were truncated to prevent I/O deadlock.\r\n")
+			wn, _ := w.file.Write(msg)
+			w.currSize += int64(wn)
+		}
 	}
 }
 
