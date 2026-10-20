@@ -184,6 +184,24 @@ func (m *Manager) GetEffectiveAllowLan() bool {
 	return *m.data.Config.AllowLan
 }
 
+func (m *Manager) GetEffectiveExternalController() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.data.Config.ExternalController == "" {
+		return domain.DefaultExternalController
+	}
+	return m.data.Config.ExternalController
+}
+
+func (m *Manager) GetEffectiveRemoteWebUIURL() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.data.General.RemoteWebUIURL != nil && *m.data.General.RemoteWebUIURL != "" {
+		return *m.data.General.RemoteWebUIURL
+	}
+	return domain.DefaultRemoteWebUIURL
+}
+	
 func (m *Manager) IsSystemProxyEnabled() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
