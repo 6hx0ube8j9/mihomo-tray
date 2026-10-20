@@ -159,9 +159,10 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 	if !needElevate && !taskInSync && !runAsAdmin {
 		return
 	}
-
+	
 	if taskInSync {
-		if err := sys.RunScheduledTask(domain.AppTaskName); err == nil {
+		err := sys.RunScheduledTask(domain.AppTaskName)
+		if err == nil {
 			slog.Info("已通过计划任务启动新进程")
 			exitProcess(0)
 			return
@@ -176,7 +177,7 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 	slog.Info("正在请求管理员权限")
 	err := sys.RunAsAdmin(exePath, baseDir)
 	if sys.IsUserCancelled(err) {
-		slog.Info("用户取消授权，以普通权限运行")
+		slog.Info("用户取消授权，以当前权限运行")
 		return
 	}
 	if err == nil {
@@ -184,5 +185,5 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 		exitProcess(0)
 		return
 	}
-	slog.Error("请求管理员权限失败，以普通权限运行", "error", err)
+	slog.Error("请求管理员权限失败，以当前权限运行", "error", err)
 }
