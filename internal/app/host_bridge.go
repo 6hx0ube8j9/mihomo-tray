@@ -31,12 +31,12 @@ func (h *HostBridge) ElevatePrivilege(rollback func()) (restarted bool) {
 		return false
 	}
 	slog.Debug("请求管理员提权")
-	err := sys.RunAsAdmin(h.cfg.ExePath(), h.cfg.BaseDir(), "--restarting")
+	err := sys.RunAsAdmin(h.cfg.ExePath(), h.cfg.BaseDir())
 	if err == nil {
-		slog.Info("提权进程已启动，当前受限进程即将退出")
+		slog.Info("提权进程已启动")
 		return true
 	}
-	slog.Warn("提权取消或失败，已回滚设置", "err", err)
+	slog.Warn("提权取消或失败，已执行回滚", "error", err)
 	if rollback != nil {
 		rollback()
 	}
@@ -46,54 +46,53 @@ func (h *HostBridge) ElevatePrivilege(rollback func()) (restarted bool) {
 	return false
 }
 
-func (h *HostBridge) CheckAndReconcilePrivileges(isStartup bool) {
-	cfg := h.cfg.GetConfig()
-	needsAdmin := cfg.General.RunAsAdmin || cfg.Config.Tun.Enable || h.cfg.IsAutostartEnabled()
+func (h *HostBridge) ReconcileRuntimePrivileges() {
+	if sys.IsAdmin() {
+		return
+	}
 
-	if needsAdmin && !sys.IsAdmin() {
-		if isStartup {
-			slog.Warn("非管理员权限运行，停用特权项以保证基础服务启动")
-			h.revertPrivilegedConfig()
-			return
-		}
-		if restarted := h.ElevatePrivilege(h.revertPrivilegedConfig); restarted {
-			h.st.ForceExitPhase()
-		}
+	cfg := h.cfg.GetConfig()
+	if cfg.Config.Tun.Enable {
+		slog.Warn("非管理员权限运行，关闭 TUN 模式回退普通权限运行")
+		h.cfg.Update(func(c *domain.TrayConfig) {
+			c.Config.Tun.Enable = false
+		})
 	}
 }
 
-func (h *HostBridge) revertPrivilegedConfig() {
-	h.cfg.Update(func(c *domain.TrayConfig) {
-		c.General.RunAsAdmin = false
-		c.Config.Tun.Enable = false
-		b := false
-		c.General.Autostart = &b
-	})
-}
-
 func (h *HostBridge) ToggleAutoStart(enable bool) (restarted bool) {
+	if sys.IsAdmin() {
+		if sys.ToggleAutoStart(domain.AppTaskName, h.cfg.ExePath(), h.cfg.BaseDir(), enable) {
+			h.cfg.Update(func(c *domain.TrayConfig) {
+				b := enable
+				c.General.Autostart = &b
+			})
+			slog.Info("已直接同步自启动状态", "enabled", enable)
+		}
+		return false
+	}
+
 	h.cfg.Update(func(c *domain.TrayConfig) {
 		b := enable
 		c.General.Autostart = &b
 	})
 
-	restarted = h.ElevatePrivilege(func() {
+	return h.ElevatePrivilege(func() {
 		h.cfg.Update(func(c *domain.TrayConfig) {
 			b := !enable
 			c.General.Autostart = &b
 		})
 	})
-
-	if !restarted && sys.IsAdmin() {
-		sys.ToggleAutoStart(domain.AppTaskName, h.cfg.ExePath(), h.cfg.BaseDir(), enable)
-	}
-	return restarted
 }
 
 func (h *HostBridge) ToggleRunAsAdmin(enable bool) (restarted bool) {
-	h.cfg.Update(func(c *domain.TrayConfig) { c.General.RunAsAdmin = enable })
+	h.cfg.Update(func(c *domain.TrayConfig) {
+		c.General.RunAsAdmin = enable
+	})
 	return h.ElevatePrivilege(func() {
-		h.cfg.Update(func(c *domain.TrayConfig) { c.General.RunAsAdmin = false })
+		h.cfg.Update(func(c *domain.TrayConfig) {
+			c.General.RunAsAdmin = false
+		})
 	})
 }
 
