@@ -22,20 +22,34 @@ const (
 var GlobalLogLevel = new(slog.LevelVar)
 
 type sessionWriter struct {
-	target  io.Writer
-	logPath string
-	once    sync.Once
+	target       io.Writer
+	logPath      string
+	isRestarting bool
+	once         sync.Once
 }
 
 func (w *sessionWriter) Write(p []byte) (n int, err error) {
 	w.once.Do(func() {
-		header := sessionHeader + "\n"
+		fi, statErr := os.Stat(w.logPath)
+		isEmpty := statErr != nil || fi.Size() == 0
 
-		if fi, err := os.Stat(w.logPath); err == nil && fi.Size() > 0 && fi.Size() < MaxAppLogSize {
-			header = "\n" + sessionHeader + "\n"
+		var buf bytes.Buffer
+
+		if isEmpty {
+			buf.Write([]byte{0xEF, 0xBB, 0xBF})
 		}
 
-		_, _ = w.target.Write([]byte(header))
+		if !w.isRestarting {
+			if !isEmpty && fi.Size() < MaxAppLogSize {
+				buf.WriteString("\r\n" + sessionHeader + "\r\n")
+			} else {
+				buf.WriteString(sessionHeader + "\r\n")
+			}
+		}
+
+		if buf.Len() > 0 {
+			_, _ = w.target.Write(buf.Bytes())
+		}
 	})
 	return w.target.Write(p)
 }
@@ -84,7 +98,7 @@ func (h *customConsoleHandler) Handle(_ context.Context, r slog.Record) error {
 		return true
 	})
 
-	buf.WriteByte('\n')
+	buf.WriteString("\r\n")
 	_, err := h.w.Write(buf.Bytes())
 	return err
 }
@@ -122,17 +136,18 @@ func (h *customConsoleHandler) WithGroup(name string) slog.Handler {
 }
 
 func Init(baseDir string, isRestarting bool) *RollingLogWriter {
-	logPath := filepath.Join(baseDir, domain.LogsDir, domain.AppLogFile)
+	logDir := filepath.Join(baseDir, domain.LogsDir)
+	_ = os.MkdirAll(logDir, 0755)
+
+	logPath := filepath.Join(logDir, domain.AppLogFile)
 	writer := NewRollingWriter(logPath, MaxAppLogSize)
 
-	GlobalLogLevel.Set(slog.LevelError)
+	GlobalLogLevel.Set(slog.LevelInfo)
 
-	var logTarget io.Writer = writer
-	if !isRestarting {
-		logTarget = &sessionWriter{
-			target:  writer,
-			logPath: logPath,
-		}
+	logTarget := &sessionWriter{
+		target:       writer,
+		logPath:      logPath,
+		isRestarting: isRestarting,
 	}
 
 	handler := &customConsoleHandler{
@@ -158,7 +173,7 @@ func ParseLevel(s string) slog.Level {
 	case s == "silent":
 		return slog.Level(100)
 	default:
-		return slog.LevelError
+		return slog.LevelInfo
 	}
 }
 
