@@ -149,9 +149,9 @@ func (p *Presenter) hasStateChanged(curr, last *domain.UIState) bool {
 		curr.Mode != last.Mode || curr.AllowLan != last.AllowLan ||
 		curr.AutoStart != last.AutoStart || curr.RunAsAdmin != last.RunAsAdmin ||
 		curr.UseSystemBrowser != last.UseSystemBrowser || curr.RemoteWebUI != last.RemoteWebUI ||
-		curr.IsAdmin != last.IsAdmin || curr.MixedPort != last.MixedPort ||
-		curr.SocksPort != last.SocksPort || curr.HttpPort != last.HttpPort ||
-		len(curr.ProfileItems) != len(last.ProfileItems) {
+		curr.IsAdmin != last.IsAdmin || curr.CanAddProfile != last.CanAddProfile ||
+		curr.MixedPort != last.MixedPort || curr.SocksPort != last.SocksPort ||
+		curr.HttpPort != last.HttpPort || len(curr.ProfileItems) != len(last.ProfileItems) {
 		return true
 	}
 
