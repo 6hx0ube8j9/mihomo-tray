@@ -50,6 +50,25 @@ func superviseStartup(exePath, baseDir string) (*sys.SingleInstanceGuard, io.Clo
 	return guard, logWriter, cfgMgr
 }
 
+func BuildSelfElevationArgs(extraArgs ...string) []string {
+	var cleanArgs []string
+	for _, arg := range os.Args[1:] {
+		argLower := strings.ToLower(arg)
+		if !strings.Contains(argLower, "restarting") && !strings.Contains(argLower, "enable-tun") {
+			cleanArgs = append(cleanArgs, arg)
+		}
+	}
+
+	cleanArgs = append(cleanArgs, fmt.Sprintf("--restarting=%d", os.Getpid()))
+
+	for _, extra := range extraArgs {
+		if strings.TrimSpace(extra) != "" {
+			cleanArgs = append(cleanArgs, extra)
+		}
+	}
+	return cleanArgs
+}
+
 func parseIsAutostart(args []string) bool {
 	for _, arg := range args {
 		if strings.EqualFold(strings.TrimLeft(arg, "-"), "autostart") {
@@ -72,18 +91,6 @@ func parseRestartingPID(args []string) uint32 {
 		}
 	}
 	return 0
-}
-
-func buildCleanElevationArgs() []string {
-	var cleanArgs []string
-	for _, arg := range os.Args[1:] {
-		argLower := strings.ToLower(arg)
-		if !strings.Contains(argLower, "enable-tun") && !strings.Contains(argLower, "restarting") {
-			cleanArgs = append(cleanArgs, arg)
-		}
-	}
-	cleanArgs = append(cleanArgs, fmt.Sprintf("--restarting=%d", os.Getpid()))
-	return cleanArgs
 }
 
 func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, isAdmin bool) (taskInSync bool, needElevate bool) {
@@ -167,8 +174,8 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 	}
 
 	slog.Info("正在请求管理员权限")
-	cleanArgs := buildCleanElevationArgs()
-	err := sys.RunAsAdmin(exePath, baseDir, cleanArgs)
+	args := BuildSelfElevationArgs()
+	err := sys.RunAsAdmin(exePath, baseDir, args...)
 	if err == nil {
 		slog.Info("UAC 授权成功，受限实例退出")
 		exitProcess(0)
