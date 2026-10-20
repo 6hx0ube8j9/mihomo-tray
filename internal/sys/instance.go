@@ -7,6 +7,7 @@ package sys
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 	"unsafe"
 
@@ -23,7 +24,6 @@ const (
 
 	waitObject0   = 0x00000000
 	waitAbandoned = 0x00000080
-	waitTimeout   = 0x00000102
 )
 
 type SingleInstanceGuard struct {
@@ -39,6 +39,7 @@ func GrantForegroundPrivilege() {
 func getPermissiveSecAttr() *windows.SecurityAttributes {
 	sd, err := windows.SecurityDescriptorFromString("D:(A;;GA;;;WD)S:(ML;;NW;;;LW)")
 	if err != nil {
+		slog.Warn("创建安全描述符失败", "error", err)
 		return nil
 	}
 	var sa windows.SecurityAttributes
@@ -53,10 +54,7 @@ func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (*Sing
 	isRestarting := oldPID > 0
 
 	hMutex, err := windows.CreateMutex(sa, true, mName)
-	isAlreadyExist := errors.Is(err, windows.ERROR_ALREADY_EXISTS) ||
-		errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
-		err == windows.ERROR_ALREADY_EXISTS ||
-		err == windows.ERROR_ACCESS_DENIED
+	isAlreadyExist := errors.Is(err, windows.ERROR_ALREADY_EXISTS) || errors.Is(err, windows.ERROR_ACCESS_DENIED)
 
 	if !isAlreadyExist && err == nil && hMutex != 0 {
 		return buildGuard(sa, eventName, hMutex)
@@ -69,6 +67,8 @@ func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (*Sing
 		return nil, false
 	}
 
+	slog.Debug("等待旧进程释放单实例锁", "pid", oldPID)
+
 	if hMutex != 0 {
 		if oldPID > 1 {
 			waitForOldProcessHandle(oldPID, 2*time.Second)
@@ -76,10 +76,9 @@ func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (*Sing
 
 		waitStatus, waitErr := windows.WaitForSingleObject(hMutex, uint32(restartingProcessWaitTimeout.Milliseconds()))
 		if waitErr == nil && (waitStatus == waitObject0 || waitStatus == waitAbandoned) {
-
+			slog.Info("已接管单实例锁")
 			return buildGuard(sa, eventName, hMutex)
 		}
-
 		_ = windows.CloseHandle(hMutex)
 	}
 
@@ -89,6 +88,7 @@ func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (*Sing
 
 		retryMutex, retryErr := windows.CreateMutex(sa, true, mName)
 		if !errors.Is(retryErr, windows.ERROR_ALREADY_EXISTS) && retryErr == nil && retryMutex != 0 {
+			slog.Info("已接管单实例锁")
 			return buildGuard(sa, eventName, retryMutex)
 		}
 		if retryMutex != 0 {
@@ -96,6 +96,7 @@ func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (*Sing
 		}
 	}
 
+	slog.Warn("等待旧进程释放单实例锁超时", "pid", oldPID)
 	return nil, false
 }
 
@@ -117,6 +118,8 @@ func waitForOldProcessHandle(pid uint32, timeout time.Duration) {
 		return
 	}
 	defer windows.CloseHandle(hProcess)
+
+	slog.Debug("等待旧进程退出", "pid", pid)
 	_, _ = windows.WaitForSingleObject(hProcess, uint32(timeout.Milliseconds()))
 }
 
@@ -127,6 +130,7 @@ func NotifyExistingInstance(eventName string) {
 		GrantForegroundPrivilege()
 		_ = windows.SetEvent(hEvent)
 		_ = windows.CloseHandle(hEvent)
+		slog.Debug("已通知已有实例")
 	}
 }
 
@@ -150,6 +154,7 @@ func (g *SingleInstanceGuard) ListenWakeEvent(ctx context.Context, onWake func()
 			}
 
 			if ctx.Err() == nil {
+				slog.Info("收到外部唤醒请求")
 				onWake()
 			}
 		}
