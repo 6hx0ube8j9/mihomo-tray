@@ -130,6 +130,7 @@ func NotifyExistingInstance(eventName string) {
 		_ = windows.SetEvent(hEvent)
 		_ = windows.CloseHandle(hEvent)
 		slog.Debug("已通知已有实例")
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
