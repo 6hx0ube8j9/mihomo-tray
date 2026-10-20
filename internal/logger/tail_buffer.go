@@ -22,15 +22,30 @@ func NewTailBuffer(size ...int) *TailBuffer {
 }
 
 func (t *TailBuffer) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	t.buf = append(t.buf, p...)
-	if len(t.buf) > t.max {
-		overflow := len(t.buf) - t.max
-		copy(t.buf, t.buf[overflow:])
-		t.buf = t.buf[:t.max]
+	needed := len(t.buf) + len(p)
+	if needed > t.max {
+		overflow := needed - t.max
+		if overflow >= len(t.buf) {
+			t.buf = t.buf[:0]
+			p = p[len(p)-t.max:]
+		} else {
+			copy(t.buf, t.buf[overflow:])
+			t.buf = t.buf[:len(t.buf)-overflow]
+
+			for len(t.buf) > 0 && (t.buf[0]&0xC0) == 0x80 {
+				t.buf = t.buf[1:]
+			}
+		}
 	}
+
+	t.buf = append(t.buf, p...)
 	return len(p), nil
 }
 
@@ -38,4 +53,10 @@ func (t *TailBuffer) String() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return string(t.buf)
+}
+
+func (t *TailBuffer) Reset() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.buf = t.buf[:0]
 }
