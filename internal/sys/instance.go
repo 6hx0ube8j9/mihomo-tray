@@ -20,7 +20,11 @@ var (
 
 const (
 	asfwAny                      = 0xFFFFFFFF
-	restartingProcessWaitTimeout = 10 * time.Second
+	restartingProcessWaitTimeout = 5 * time.Second
+
+	waitObject0   = 0x00000000
+	waitAbandoned = 0x00000080
+	waitTimeout   = 0x00000102
 )
 
 type SingleInstanceGuard struct {
@@ -46,27 +50,57 @@ func getPermissiveSecAttr() *windows.SecurityAttributes {
 
 func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (*SingleInstanceGuard, bool) {
 	sa := getPermissiveSecAttr()
+	mName, _ := windows.UTF16PtrFromString(mutexName)
+	isRestarting := oldPID > 0
 
-	if oldPID > 1 {
-		waitForOldProcessExit(oldPID, restartingProcessWaitTimeout)
-	} else if oldPID == 1 {
-		time.Sleep(200 * time.Millisecond)
+	hMutex, err := windows.CreateMutex(sa, true, mName)
+	isAlreadyExist := errors.Is(err, windows.ERROR_ALREADY_EXISTS) ||
+		errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+		err == windows.ERROR_ALREADY_EXISTS ||
+		err == windows.ERROR_ACCESS_DENIED
+
+	if !isAlreadyExist && err == nil && hMutex != 0 {
+		return buildGuard(sa, eventName, hMutex)
 	}
 
-	mName, _ := windows.UTF16PtrFromString(mutexName)
-	hMutex, err := windows.CreateMutex(sa, false, mName)
-	
-	if errors.Is(err, windows.ERROR_ALREADY_EXISTS) || errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+	if !isRestarting {
 		if hMutex != 0 {
 			_ = windows.CloseHandle(hMutex)
 		}
 		return nil, false
 	}
-	if err != nil || hMutex == 0 {
-		slog.Error("创建全局单实例互斥体失败", "error", err)
-		return nil, false
+
+	if hMutex != 0 {
+		if oldPID > 1 {
+			waitForOldProcessHandle(oldPID, 2*time.Second)
+		}
+
+		waitStatus, waitErr := windows.WaitForSingleObject(hMutex, uint32(restartingProcessWaitTimeout.Milliseconds()))
+		if waitErr == nil && (waitStatus == waitObject0 || waitStatus == waitAbandoned) {
+
+			return buildGuard(sa, eventName, hMutex)
+		}
+
+		_ = windows.CloseHandle(hMutex)
 	}
 
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+
+		retryMutex, retryErr := windows.CreateMutex(sa, true, mName)
+		if !errors.Is(retryErr, windows.ERROR_ALREADY_EXISTS) && retryErr == nil && retryMutex != 0 {
+			return buildGuard(sa, eventName, retryMutex)
+		}
+		if retryMutex != 0 {
+			_ = windows.CloseHandle(retryMutex)
+		}
+	}
+
+	return nil, false
+}
+
+func buildGuard(sa *windows.SecurityAttributes, eventName string, hMutex windows.Handle) (*SingleInstanceGuard, bool) {
 	eName, _ := windows.UTF16PtrFromString(eventName)
 	hEvent, _ := windows.CreateEvent(sa, 0, 0, eName)
 	hCancel, _ := windows.CreateEvent(nil, 0, 0, nil)
@@ -78,14 +112,12 @@ func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (*Sing
 	}, true
 }
 
-func waitForOldProcessExit(pid uint32, timeout time.Duration) {
+func waitForOldProcessHandle(pid uint32, timeout time.Duration) {
 	hProcess, err := windows.OpenProcess(windows.SYNCHRONIZE, false, pid)
 	if err != nil {
 		return
 	}
 	defer windows.CloseHandle(hProcess)
-
-	slog.Debug("等待旧进程释放系统资源", "pid", pid)
 	_, _ = windows.WaitForSingleObject(hProcess, uint32(timeout.Milliseconds()))
 }
 
@@ -119,7 +151,6 @@ func (g *SingleInstanceGuard) ListenWakeEvent(ctx context.Context, onWake func()
 			}
 
 			if ctx.Err() == nil {
-				slog.Info("收到外部唤醒信号")
 				onWake()
 			}
 		}
@@ -140,6 +171,7 @@ func (g *SingleInstanceGuard) Close() {
 		g.hEvent = 0
 	}
 	if g.hMutex != 0 {
+		_ = windows.ReleaseMutex(g.hMutex)
 		_ = windows.CloseHandle(g.hMutex)
 		g.hMutex = 0
 	}
