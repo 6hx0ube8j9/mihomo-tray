@@ -2,6 +2,7 @@ package sys
 
 import (
 	"errors"
+
 	"golang.org/x/sys/windows"
 )
 
@@ -19,7 +20,7 @@ func IsUserCancelled(err error) bool {
 	return errors.Is(err, windows.ERROR_CANCELLED)
 }
 
-func RunAsAdmin(exe, dir string, args []string) error {
+func RunAsAdmin(exe, dir string, args ...string) error {
 	verb, _ := windows.UTF16PtrFromString("runas")
 	exePtr, _ := windows.UTF16PtrFromString(exe)
 	cwdPtr, _ := windows.UTF16PtrFromString(dir)
