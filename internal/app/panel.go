@@ -31,28 +31,17 @@ func NewPanel(cfg *config.Manager, st *state.RuntimeState, coreMgr *webui.Manage
 	}
 }
 
-func (p *Panel) getControllerSnapshot() (addr, sec string, online, sys bool, remoteURL string) {
-	cfg := p.cfg.GetConfig()
-	addr = cfg.Config.ExternalController
-	if addr == "" {
-		addr = domain.DefaultExternalController
-	}
-	sec = p.cfg.GetEffectiveSecret(cfg.Config.Secret)
-	online = p.cfg.IsRemoteWebUIEnabled()
-	sys = p.cfg.IsSystemBrowserEnabled()
-	if cfg.General.RemoteWebUIURL != nil {
-		remoteURL = *cfg.General.RemoteWebUIURL
-	}
-	return
-}
-
 func (p *Panel) Open(forceSync func()) error {
 	if p.st.GetPhase() != domain.PhaseRunning {
 		return errors.New("内核尚未就绪，请稍候")
 	}
 
-	addr, secret, online, sysBrowser, remoteURL := p.getControllerSnapshot()
 	cfg := p.cfg.GetConfig()
+	addr := p.cfg.GetEffectiveExternalController()
+	secret := p.cfg.GetEffectiveSecret(cfg.Config.Secret)
+	online := p.cfg.IsRemoteWebUIEnabled()
+	sysBrowser := p.cfg.IsSystemBrowserEnabled()
+	remoteURL := p.cfg.GetEffectiveRemoteWebUIURL()
 
 	slog.Info("启动 Web 面板", "addr", addr, "sys_browser", sysBrowser, "remote", online)
 
@@ -96,7 +85,8 @@ func (p *Panel) ReopenIfActive(forceSync func()) {
 }
 
 func (p *Panel) CopyPassword() error {
-	_, secret, _, _, _ := p.getControllerSnapshot()
+	cfg := p.cfg.GetConfig()
+	secret := p.cfg.GetEffectiveSecret(cfg.Config.Secret)
 	if secret == "" {
 		return errors.New("Web 面板未设置访问密码")
 	}
