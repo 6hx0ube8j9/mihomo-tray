@@ -15,15 +15,15 @@ import (
 )
 
 var (
+	modUser32                 = windows.NewLazySystemDLL("user32.dll")
 	procAllowSetForegroundWnd = modUser32.NewProc("AllowSetForegroundWindow")
 )
 
 const (
 	asfwAny                      = 0xFFFFFFFF
 	restartingProcessWaitTimeout = 5 * time.Second
-
-	waitObject0   = 0x00000000
-	waitAbandoned = 0x00000080
+	waitObject0                  = 0x00000000
+	waitAbandoned                = 0x00000080
 )
 
 type SingleInstanceGuard struct {
@@ -48,10 +48,10 @@ func getPermissiveSecAttr() *windows.SecurityAttributes {
 	return &sa
 }
 
-func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (*SingleInstanceGuard, bool) {
+func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32, isAutostart bool) (*SingleInstanceGuard, bool) {
 	sa := getPermissiveSecAttr()
 	mName, _ := windows.UTF16PtrFromString(mutexName)
-	isRestarting := oldPID > 0
+	canWait := oldPID > 0 || isAutostart
 
 	hMutex, err := windows.CreateMutex(sa, true, mName)
 	isAlreadyExist := errors.Is(err, windows.ERROR_ALREADY_EXISTS) || errors.Is(err, windows.ERROR_ACCESS_DENIED)
@@ -60,14 +60,14 @@ func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (*Sing
 		return buildGuard(sa, eventName, hMutex)
 	}
 
-	if !isRestarting {
+	if !canWait {
 		if hMutex != 0 {
 			_ = windows.CloseHandle(hMutex)
 		}
 		return nil, false
 	}
 
-	slog.Debug("等待旧进程释放单实例锁", "pid", oldPID)
+	slog.Debug("等待旧进程释放单实例锁", "pid", oldPID, "autostart", isAutostart)
 
 	if hMutex != 0 {
 		if oldPID > 1 {
