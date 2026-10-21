@@ -200,6 +200,16 @@ func (p *KernelProbe) reconcileTunStatus(wantTun, kernelEnable bool, kernelDevic
 			return false, "", false
 		}
 
+		if !kernelEnable && !realAlive && !p.st.IsTunStarting() {
+			slog.Info("检测到外部已关闭 TUN 模式，同步至本地状态", "device", targetDev)
+			p.cfg.Update(func(c *domain.TrayConfig) {
+				c.Config.Tun.Enable = false
+			})
+			p.st.ClearTunStarting()
+			p.st.ClearTunLost()
+			return false, "", true
+		}
+
 		if !kernelEnable && kernelDevice != "" && realAlive {
 			p.st.ClearTunStarting()
 			slog.Warn("检测到虚拟网卡已被占用冲突", "device", targetDev)
