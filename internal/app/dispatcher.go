@@ -56,10 +56,17 @@ func (a *Application) runExclusiveAction(action state.KernelAction, title string
 
 func (a *Application) asyncRun(title string, task func() error) {
 	go func() {
-		defer a.Presenter.PushUIState()
+		defer a.Presenter.ForcePushUIState()
 
 		if err := task(); err != nil {
-			a.notifyError(title, err)
+			actionTitle := title
+			if !strings.HasSuffix(actionTitle, "失败") {
+				actionTitle += "失败"
+			}
+			slog.Warn(actionTitle, "err", err)
+			if a.ui != nil {
+				a.ui.ShowNotification(actionTitle, err.Error())
+			}
 		}
 	}()
 }
