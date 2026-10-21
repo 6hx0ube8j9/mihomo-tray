@@ -211,10 +211,12 @@ func (a *Application) eventLoop(ctx context.Context) {
 			a.State.ClearTunStarting()
 			a.State.ClearTunLost()
 		}
-		
-		if res.ApplyPatch != nil {
-			a.Cfg.Update(res.ApplyPatch)
-		}	
+
+		if res.Diff.HasChanges() {
+			a.Cfg.Update(func(c *domain.TrayConfig) {
+				res.Diff.Apply(c)
+			})
+		}
 
 		if res.PortChanged && a.Cfg.IsSystemProxyEnabled() {
 			a.ProxyGuard.Sync()
