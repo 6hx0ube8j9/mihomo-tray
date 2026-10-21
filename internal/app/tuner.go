@@ -231,17 +231,3 @@ func (t *Tuner) ApplyControllerConfig(addr, sec string, online, sys bool, remote
 	})
 	return coreChanged, appChanged
 }
-
-func (t *Tuner) ToggleSystemBrowser(enable bool) {
-	t.cfg.Update(func(c *domain.TrayConfig) {
-		b := enable
-		c.General.SystemBrowser = &b
-	})
-}
-
-func (t *Tuner) ToggleRemoteWebUI(enable bool) {
-	t.cfg.Update(func(c *domain.TrayConfig) {
-		b := enable
-		c.General.RemoteWebUI = &b
-	})
-}
