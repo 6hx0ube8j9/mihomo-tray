@@ -203,6 +203,16 @@ func (a *Application) eventLoop(ctx context.Context) {
 	tryPollAPI := func() {
 		res := a.Probe.PollStatus(ctx)
 
+		if res.TunRollback {
+			slog.Warn("执行 TUN 模式安全回滚", "reason", res.RollbackReason)
+			a.Cfg.Update(func(c *domain.TrayConfig) {
+				c.Config.Tun.Enable = false
+			})
+			a.State.ClearTunStarting()
+			a.State.ClearTunLost()
+			a.Presenter.PushUIState()
+		}	
+			
 		if res.PortChanged && a.Cfg.IsSystemProxyEnabled() {
 			a.ProxyGuard.Sync()
 		}
