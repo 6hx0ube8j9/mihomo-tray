@@ -192,46 +192,35 @@ func (p *KernelProbe) reconcileTunStatus(wantTun, kernelEnable bool, kernelDevic
 		if kernelEnable && realAlive {
 			if p.st.IsTunStarting() {
 				p.st.ClearTunStarting()
-				p.st.ClearTunLost()
 				slog.Info("TUN 模式已成功就绪", "device", targetDev)
 				return false, "", true
 			}
-			p.st.ClearTunLost()
 			return false, "", false
 		}
 
-		if !kernelEnable && !realAlive && !p.st.IsTunStarting() {
+		if p.st.IsTunStartingTimedOut() {
+			slog.Warn("TUN 模式启动流程超时", "device", targetDev)
+			return true, "TUN 模式启动超时 (20s)", true
+		}
+
+		if p.st.IsTunStarting() {
+			if !kernelEnable && kernelDevice != "" && realAlive {
+				slog.Warn("检测到虚拟网卡已被占用冲突", "device", targetDev)
+				return true, fmt.Sprintf("虚拟网卡 [%s] 已被其他程序占用或冲突", targetDev), true
+			}
+			return false, "", false
+		}
+
+		if !kernelEnable && !realAlive {
 			slog.Info("检测到外部已关闭 TUN 模式，同步至本地状态", "device", targetDev)
 			p.cfg.Update(func(c *domain.TrayConfig) {
 				c.Config.Tun.Enable = false
 			})
-			p.st.ClearTunStarting()
 			p.st.ClearTunLost()
 			return false, "", true
 		}
 
-		if !kernelEnable && kernelDevice != "" && realAlive {
-			p.st.ClearTunStarting()
-			slog.Warn("检测到虚拟网卡已被占用冲突", "device", targetDev)
-			return true, fmt.Sprintf("虚拟网卡 [%s] 已被其他程序占用或冲突", targetDev), true
-		}
-
-		if !kernelEnable && kernelDevice == "" {
-			if p.st.IsTunStartingTimedOut() {
-				p.st.ClearTunStarting()
-				slog.Warn("TUN 网卡加载超时", "device", targetDev)
-				return true, "TUN 模式初始化超时 (20s)", true
-			}
-			return false, "", false
-		}
-
-		if !kernelEnable && p.st.IsTunStartingTimedOut() {
-			p.st.ClearTunStarting()
-			slog.Warn("TUN 启动流程超时", "device", targetDev)
-			return true, "TUN 模式启动超时 (20s)", true
-		}
-
-		if kernelEnable && !realAlive && !p.st.IsTunStarting() {
+		if kernelEnable && !realAlive {
 			if !p.st.IsTunDropDebouncing() {
 				slog.Warn("TUN 虚拟网卡掉线已超过 6 秒", "device", targetDev)
 			}
