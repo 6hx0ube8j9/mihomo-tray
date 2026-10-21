@@ -190,20 +190,15 @@ func (h *ProfileHub) GetProfileInfo(path string) (domain.ProfileItem, bool) { re
 func (h *ProfileHub) MoveProfileUp(path string)             { h.cfg.MoveProfile(path, -1) }
 func (h *ProfileHub) MoveProfileDown(path string)           { h.cfg.MoveProfile(path, 1) }
 
-func (h *ProfileHub) SetProfileInterval(payload string) {
-	parts := strings.SplitN(payload, "|", 2)
-	if len(parts) != 2 {
-		return
+func (h *ProfileHub) SetInterval(path string, interval int) bool {
+	p, ok := h.cfg.GetProfileByPath(path)
+	if !ok {
+		return false
 	}
-	interval, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return
-	}
-	if p, ok := h.cfg.GetProfileByPath(parts[0]); ok {
-		p.Interval = interval
-		p.AutoUpdate = interval > 0
-		h.cfg.UpsertProfile(p)
-	}
+	p.Interval = interval
+	p.AutoUpdate = interval > 0
+	h.cfg.UpsertProfile(p)
+	return true
 }
 
 func (h *ProfileHub) validateBytes(content []byte, isActive bool) error {
