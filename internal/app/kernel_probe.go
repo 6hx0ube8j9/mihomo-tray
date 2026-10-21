@@ -253,33 +253,11 @@ func (p *KernelProbe) reconcileTunStatus(wantTun, kernelEnable bool, kernelDevic
 	return false, "", false
 }
 
-func (p *KernelProbe) HandleTunChange(pushUI func(), forceSync func()) {
+func (p *KernelProbe) HandleTunChange(forceSync func()) {
 	if p.st.IsExiting() || p.st.IsActionBusy() {
 		return
 	}
-
-	tunDev := p.st.GetActualTunDevice()
-	if tunDev == "" {
-		tunDev = domain.DefaultTunDevice
-	}
-	alive := sys.IsTunActive(tunDev)
-
-	if p.st.IsTunAlive() == alive {
-		return
-	}
-
-	slog.Info("TUN 网卡物理状态变更", "device", tunDev, "active", alive)
-	p.st.SetTunAlive(alive)
-	if !alive {
-		p.st.SetTunLostTime(time.Now())
-	} else {
-		p.st.ClearTunLost()
-	}
-
-	if pushUI != nil {
-		pushUI()
-	}
-
+	
 	if forceSync != nil {
 		forceSync()
 	}
