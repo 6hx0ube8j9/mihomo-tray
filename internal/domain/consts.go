@@ -75,6 +75,7 @@ const (
 	DefaultUnifiedDelay        = true
 	DefaultAllowPrivateNetwork = true
 	DefaultTunEnable           = false
+	DefaultTunDevice           = "Meta"
 
 	// 控制平面默认值
 	DefaultExternalController = "127.0.0.1:9090"
