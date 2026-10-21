@@ -210,14 +210,13 @@ func (a *Application) eventLoop(ctx context.Context) {
 			})
 			a.State.ClearTunStarting()
 			a.State.ClearTunLost()
-			a.Presenter.PushUIState()
 		}	
 			
 		if res.PortChanged && a.Cfg.IsSystemProxyEnabled() {
 			a.ProxyGuard.Sync()
 		}
 
-		if res.Changed {
+		if res.Changed || res.TunRollback {
 			a.Presenter.PushUIState()
 		}
 	}
