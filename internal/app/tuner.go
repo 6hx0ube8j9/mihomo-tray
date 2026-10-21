@@ -1,15 +1,17 @@
 package app
 
 import (
-	"context"
-	"errors"
-	"time"
+    "context"
+    "errors"
+    "log/slog"
+    "time"
 
-	"mihomo-tray/internal/config"
-	"mihomo-tray/internal/core"
-	"mihomo-tray/internal/domain"
-	"mihomo-tray/internal/netutil"
-	"mihomo-tray/internal/state"
+    "mihomo-tray/internal/config"
+    "mihomo-tray/internal/core"
+    "mihomo-tray/internal/domain"
+    "mihomo-tray/internal/netutil"
+    "mihomo-tray/internal/state"
+    "mihomo-tray/internal/sys"
 )
 
 const apiSyncTimeout = 2 * time.Second
