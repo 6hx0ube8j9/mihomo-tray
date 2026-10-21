@@ -289,7 +289,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 			a.Presenter.PushUIState()
 
 		case <-a.tunEventCh:
-			a.Probe.HandleTunChange(a.Presenter.PushUIState, a.ForceSyncAPI)
+			a.Probe.HandleTunChange(a.ForceSyncAPI)
 
 		case status := <-a.proxyStatusCh:
 			a.ProxyGuard.HandleStatusChange(ctx, status)
