@@ -32,8 +32,10 @@ func NewKernelProbe(cfg *config.Manager, st *state.RuntimeState, api *core.APICl
 }
 
 type ProbeResult struct {
-	Changed     bool
-	PortChanged bool
+	Changed        bool
+	PortChanged    bool
+	TunRollback    bool
+	RollbackReason string
 }
 
 func checkPortDiff(cfgPort *int, kernelPort int) bool {
@@ -62,20 +64,41 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 
 	res := ProbeResult{}
 
-	currentActual := p.st.GetActualTunDevice()
-	if resp.Tun.Device != "" && resp.Tun.Device != currentActual {
-		p.st.SetActualTunDevice(resp.Tun.Device)
-		currentActual = resp.Tun.Device
+	targetDev := resp.Tun.Device
+	if targetDev == "" {
+		targetDev = p.st.GetActualTunDevice()
+		if targetDev == "" {
+			targetDev = domain.DefaultTunDevice
+		}
+	} else if targetDev != p.st.GetActualTunDevice() {
+		p.st.SetActualTunDevice(targetDev)
 		res.Changed = true
 	}
 
-	realAlive := sys.IsTunActive(currentActual)
+	realAlive := sys.IsTunActive(targetDev)
 	if p.st.IsTunAlive() != realAlive {
 		p.st.SetTunAlive(realAlive)
+		if !realAlive {
+			p.st.SetTunLostTime(time.Now())
+		} else {
+			p.st.ClearTunLost()
+		}
 		res.Changed = true
 	}
 
 	cfg := p.cfg.GetConfig()
+	wantTun := cfg.Config.Tun.Enable
+
+	tunRollback, reason, tunChanged := p.reconcileTunStatus(wantTun, resp.Tun.Enable, resp.Tun.Device, targetDev, realAlive)
+	if tunRollback {
+		res.TunRollback = true
+		res.RollbackReason = reason
+		res.Changed = true
+	}
+	if tunChanged {
+		res.Changed = true
+	}
+
 	hasConfigChange := false
 
 	modeChanged := resp.Mode != "" && resp.Mode != cfg.Config.Mode
@@ -130,12 +153,6 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 		hasConfigChange = true
 	}
 
-	tunChanged := p.reconcileTunStatus(cfg.Config.Tun.Enable, resp.Tun.Enable)
-	if tunChanged {
-		res.Changed = true
-		hasConfigChange = true
-	}
-
 	if hasConfigChange {
 		p.cfg.Update(func(c *domain.TrayConfig) {
 			if modeChanged {
@@ -164,39 +181,66 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 				val := resp.SocksPort
 				c.Config.SocksPort = &val
 			}
-			if tunChanged {
-				c.Config.Tun.Enable = resp.Tun.Enable
-			}
 		})
-	}
-
-	effectiveTun := cfg.Config.Tun.Enable
-	if tunChanged {
-		effectiveTun = resp.Tun.Enable
-	}
-	if res.Changed && effectiveTun && !realAlive && !p.st.IsTunInGracePeriod() {
-		slog.Warn("TUN 网卡未就绪", "device", currentActual)
 	}
 
 	return res
 }
 
-func (p *KernelProbe) reconcileTunStatus(wantTun, kernelTunEnabled bool) bool {
-	if wantTun && kernelTunEnabled && p.st.IsTunAlive() && p.st.IsTunInGracePeriod() {
-		p.st.SetTunRequestedTime(time.Time{})
-		slog.Debug("TUN 网卡已进入就绪状态")
-	}
+func (p *KernelProbe) reconcileTunStatus(wantTun, kernelEnable bool, kernelDevice, targetDev string, realAlive bool) (rollback bool, reason string, changed bool) {
+	if wantTun {
+		if kernelEnable && realAlive {
+			if p.st.IsTunStarting() {
+				p.st.ClearTunStarting()
+				p.st.ClearTunLost()
+				slog.Info("TUN 模式已成功就绪", "device", targetDev)
+				return false, "", true
+			}
+			p.st.ClearTunLost()
+			return false, "", false
+		}
 
-	if kernelTunEnabled != wantTun {
-		if wantTun && !kernelTunEnabled && p.st.IsTunInGracePeriod() {
-			if time.Since(p.st.GetTunRequestedTime()) < state.TunInitGracePeriod {
-				return false
+		if !kernelEnable && kernelDevice != "" && realAlive {
+			p.st.ClearTunStarting()
+			slog.Warn("检测到虚拟网卡已被占用冲突", "device", targetDev)
+			return true, fmt.Sprintf("虚拟网卡 [%s] 已被其他程序占用或冲突", targetDev), true
+		}
+
+		if !kernelEnable && kernelDevice == "" {
+			if p.st.IsTunStartingTimedOut() {
+				p.st.ClearTunStarting()
+				slog.Warn("TUN 网卡加载超时", "device", targetDev)
+				return true, "TUN 模式初始化超时 (20s)", true
+			}
+			return false, "", false
+		}
+
+		if !kernelEnable && p.st.IsTunStartingTimedOut() {
+			p.st.ClearTunStarting()
+			slog.Warn("TUN 启动流程超时", "device", targetDev)
+			return true, "TUN 模式启动超时 (20s)", true
+		}
+
+		if kernelEnable && !realAlive && !p.st.IsTunStarting() {
+			if !p.st.IsTunDropDebouncing() {
+				slog.Warn("TUN 虚拟网卡掉线已超过 6 秒", "device", targetDev)
 			}
 		}
-		slog.Info("同步 TUN 状态变更", "expected", wantTun, "actual", kernelTunEnabled)
-		return true
+
+		return false, "", false
 	}
-	return false
+
+	if !wantTun && kernelEnable && realAlive {
+		slog.Info("检测到外部面板已开启 TUN 模式，同步至本地状态", "device", targetDev)
+		p.cfg.Update(func(c *domain.TrayConfig) {
+			c.Config.Tun.Enable = true
+		})
+		p.st.ClearTunStarting()
+		p.st.ClearTunLost()
+		return false, "", true
+	}
+
+	return false, "", false
 }
 
 func (p *KernelProbe) HandleTunChange(pushUI func(), forceSync func()) {
@@ -205,6 +249,9 @@ func (p *KernelProbe) HandleTunChange(pushUI func(), forceSync func()) {
 	}
 
 	tunDev := p.st.GetActualTunDevice()
+	if tunDev == "" {
+		tunDev = domain.DefaultTunDevice
+	}
 	alive := sys.IsTunActive(tunDev)
 
 	if p.st.IsTunAlive() == alive {
@@ -216,7 +263,7 @@ func (p *KernelProbe) HandleTunChange(pushUI func(), forceSync func()) {
 	if !alive {
 		p.st.SetTunLostTime(time.Now())
 	} else {
-		p.st.SetTunLostTime(time.Time{})
+		p.st.ClearTunLost()
 	}
 
 	if pushUI != nil {
