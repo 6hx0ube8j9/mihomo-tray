@@ -87,7 +87,7 @@ func (p *Presenter) CalculateUIState() domain.UIState {
 		return s
 	}
 
-	if p.st.IsTunAlive() || p.st.IsTunInGracePeriod() {
+	if p.st.IsTunAlive() || p.st.IsTunStarting() || p.st.IsTunDropDebouncing() {
 		s.IconState = domain.IconTun
 	} else {
 		s.IconState = domain.IconError
