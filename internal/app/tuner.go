@@ -19,6 +19,7 @@ var (
 	ErrSystemBusy     = errors.New("系统繁忙，请稍后重试")
 	ErrInvalidPort    = errors.New("端口超出合法范围 (0-65535)")
 	ErrAPITimeout     = errors.New("与内核通信超时")
+	ErrTunDeviceBusy  = errors.New("TUN 虚拟网卡已被占用")
 )
 
 type Tuner struct {
@@ -47,6 +48,18 @@ func (t *Tuner) ToggleTun(ctx context.Context, enable bool, elevate func(rollbac
 	originalTun := t.cfg.GetConfig().Config.Tun.Enable
 	if originalTun == enable {
 		return false, nil
+	}
+
+	if enable {
+		targetDev := t.st.GetActualTunDevice()
+		if targetDev == "" {
+			targetDev = domain.DefaultTunDevice
+		}
+
+		if sys.IsTunActive(targetDev) {
+			slog.Warn("检测到虚拟网卡已被占用，拦截启动请求", "device", targetDev)
+			return false, ErrTunDeviceBusy
+		}
 	}
 
 	rollbackConfig := func() {
