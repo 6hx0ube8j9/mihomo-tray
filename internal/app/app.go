@@ -2,11 +2,9 @@ package app
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"mihomo-tray/internal/config"
@@ -31,14 +29,15 @@ type Application struct {
 	WebUI  *webui.Manager
 	ui     UIPort
 
-	Deployer   *Deployer
-	ProxyGuard *ProxyGuard
-	Probe      *KernelProbe
-	ProfileHub *ProfileHub
-	Tuner      *Tuner
-	HostBridge *HostBridge
-	Panel      *Panel
-	Presenter  *Presenter
+	Deployer       *Deployer
+	ProxyGuard     *ProxyGuard
+	Probe          *KernelProbe
+	ProfileHub     *ProfileHub
+	ProfileUpdater *ProfileUpdater
+	Tuner          *Tuner
+	HostBridge     *HostBridge
+	Panel          *Panel
+	Presenter      *Presenter
 
 	kernelEventCh   chan domain.KernelEvent
 	tunEventCh      chan struct{}
@@ -48,8 +47,7 @@ type Application struct {
 	webuiEventCh    chan webui.Event
 	UIStateNotifyCh chan struct{}
 
-	isAutoUpdating atomic.Bool
-	shutdownOnce   sync.Once
+	shutdownOnce sync.Once
 }
 
 func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
@@ -87,6 +85,7 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	})
 
 	app.Presenter = NewPresenter(cm, st, app.UIStateNotifyCh)
+	app.ProfileUpdater = NewProfileUpdater(cm, st, app.ProfileHub, app.Presenter.PushUIState)
 	app.Probe = NewKernelProbe(cm, st, api)
 
 	app.HostBridge = NewHostBridge(cm, st, func() {
@@ -175,7 +174,8 @@ func (a *Application) FallbackToEmpty(ctx context.Context, reason string) {
 		c.General.SystemProxy = &bProxy
 		c.Config.Tun.Enable = false
 	})
-	a.State.SetTunRequestedTime(time.Time{})
+	a.State.ClearTunStarting()
+	a.State.ClearTunLost()
 	a.State.SetTunAlive(false)
 
 	if a.Deployer.IsKernelRunning() {
@@ -210,8 +210,12 @@ func (a *Application) eventLoop(ctx context.Context) {
 			})
 			a.State.ClearTunStarting()
 			a.State.ClearTunLost()
+		}
+		
+		if res.ApplyPatch != nil {
+			a.Cfg.Update(res.ApplyPatch)
 		}	
-			
+
 		if res.PortChanged && a.Cfg.IsSystemProxyEnabled() {
 			a.ProxyGuard.Sync()
 		}
@@ -304,7 +308,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 			tryPollAPI()
 
 		case <-subTicker.C:
-			a.processAutoUpdates(ctx)
+			a.ProfileUpdater.Trigger(ctx)
 		}
 	}
 }
@@ -314,37 +318,4 @@ func (a *Application) ForceSyncAPI() {
 	case a.apiPollCh <- struct{}{}:
 	default:
 	}
-}
-
-func (a *Application) processAutoUpdates(ctx context.Context) {
-	if !a.isAutoUpdating.CompareAndSwap(false, true) {
-		return
-	}
-	go func() {
-		defer a.isAutoUpdating.Store(false)
-		hasUpdate := false
-
-		for _, p := range a.Cfg.GetProfiles() {
-			if a.State.IsExiting() || ctx.Err() != nil {
-				return
-			}
-			if p.IsUpdateDue() {
-				if err := a.ProfileHub.UpdateRemote(ctx, p.Path); err == nil {
-					hasUpdate = true
-				} else if !errors.Is(err, ErrProfileUpdating) {
-					slog.Warn("自动更新订阅失败", "path", p.Path, "err", err)
-				}
-
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(3 * time.Second):
-				}
-			}
-		}
-
-		if hasUpdate {
-			a.Presenter.PushUIState()
-		}
-	}()
 }
