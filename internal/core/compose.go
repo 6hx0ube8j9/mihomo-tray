@@ -165,6 +165,10 @@ func patchTunNode(rootMap *yaml.Node, enable bool) (tunDevice string, extraTop [
 	tunIdx, tunV := findKey(rootMap, "tun")
 	if tunIdx > 0 && tunV.Kind == yaml.MappingNode {
 		tunDevice = getString(tunV, "device")
+		if tunDevice == "" {
+			tunDevice = domain.DefaultTunDevice
+		}
+		
 		enableIdx, _ := findKey(tunV, "enable")
 		if enableIdx > 0 {
 			var newVal yaml.Node
@@ -190,7 +194,7 @@ func patchTunNode(rootMap *yaml.Node, enable bool) (tunDevice string, extraTop [
 	_ = ev.Encode(enable)
 	tunV.Content = []*yaml.Node{ek, &ev}
 
-	return "", []*yaml.Node{tunK, tunV}
+	return domain.DefaultTunDevice, []*yaml.Node{tunK, tunV}
 }
 
 func clearComments(node *yaml.Node) {
