@@ -36,6 +36,8 @@ type ProbeResult struct {
 	PortChanged    bool
 	TunRollback    bool
 	RollbackReason string
+
+	ApplyPatch func(c *domain.TrayConfig)
 }
 
 func checkPortDiff(cfgPort *int, kernelPort int) bool {
@@ -63,6 +65,7 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 	}
 
 	res := ProbeResult{}
+	var patches []func(c *domain.TrayConfig)
 
 	targetDev := resp.Tun.Device
 	if targetDev == "" {
@@ -89,7 +92,7 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 	cfg := p.cfg.GetConfig()
 	wantTun := cfg.Config.Tun.Enable
 
-	tunRollback, reason, tunChanged := p.reconcileTunStatus(wantTun, resp.Tun.Enable, resp.Tun.Device, targetDev, realAlive)
+	tunRollback, reason, tunPatch, tunChanged := p.reconcileTunStatus(wantTun, resp.Tun.Enable, resp.Tun.Device, targetDev, realAlive)
 	if tunRollback {
 		res.TunRollback = true
 		res.RollbackReason = reason
@@ -98,21 +101,20 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 	if tunChanged {
 		res.Changed = true
 	}
-
-	hasConfigChange := false
+	if tunPatch != nil {
+		patches = append(patches, tunPatch)
+	}
 
 	modeChanged := resp.Mode != "" && resp.Mode != cfg.Config.Mode
 	if modeChanged {
 		slog.Info("内核路由模式更新", "from", cfg.Config.Mode, "to", resp.Mode)
 		res.Changed = true
-		hasConfigChange = true
 	}
 
 	logLevelChanged := resp.LogLevel != "" && resp.LogLevel != cfg.Config.LogLevel
 	if logLevelChanged {
 		slog.Info("内核日志等级更新", "from", cfg.Config.LogLevel, "to", resp.LogLevel)
 		res.Changed = true
-		hasConfigChange = true
 	}
 
 	unifiedDelayChanged := cfg.Config.UnifiedDelay == nil || *cfg.Config.UnifiedDelay != resp.UnifiedDelay
@@ -123,101 +125,118 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 		}
 		slog.Info("内核统一延迟更新", "from", fromStr, "to", resp.UnifiedDelay)
 		res.Changed = true
-		hasConfigChange = true
 	}
 
 	allowLanChanged := resp.AllowLan != p.cfg.GetEffectiveAllowLan()
 	if allowLanChanged {
 		slog.Info("内核局域网共享更新", "to", resp.AllowLan)
 		res.Changed = true
-		hasConfigChange = true
 	}
 
 	mixedPortChanged := resp.MixedPort > 0 && checkPortDiff(cfg.Config.MixedPort, resp.MixedPort)
 	if mixedPortChanged {
 		res.Changed = true
 		res.PortChanged = true
-		hasConfigChange = true
 	}
 
 	portChanged := resp.Port > 0 && checkPortDiff(cfg.Config.Port, resp.Port)
 	if portChanged {
 		res.Changed = true
 		res.PortChanged = true
-		hasConfigChange = true
 	}
 
 	socksPortChanged := resp.SocksPort > 0 && checkPortDiff(cfg.Config.SocksPort, resp.SocksPort)
 	if socksPortChanged {
 		res.Changed = true
-		hasConfigChange = true
 	}
 
-	if hasConfigChange {
-		p.cfg.Update(func(c *domain.TrayConfig) {
+	hasConfigDiff := modeChanged || logLevelChanged || unifiedDelayChanged ||
+		allowLanChanged || mixedPortChanged || portChanged || socksPortChanged
+
+	if hasConfigDiff {
+		mode := resp.Mode
+		logLevel := resp.LogLevel
+		unifiedDelay := resp.UnifiedDelay
+		allowLan := resp.AllowLan
+		mixedPort := resp.MixedPort
+		port := resp.Port
+		socksPort := resp.SocksPort
+
+		patches = append(patches, func(c *domain.TrayConfig) {
 			if modeChanged {
-				c.Config.Mode = resp.Mode
+				c.Config.Mode = mode
 			}
 			if logLevelChanged {
-				c.Config.LogLevel = resp.LogLevel
+				c.Config.LogLevel = logLevel
 			}
 			if unifiedDelayChanged {
-				b := resp.UnifiedDelay
+				b := unifiedDelay
 				c.Config.UnifiedDelay = &b
 			}
 			if allowLanChanged {
-				b := resp.AllowLan
+				b := allowLan
 				c.Config.AllowLan = &b
 			}
 			if mixedPortChanged {
-				val := resp.MixedPort
+				val := mixedPort
 				c.Config.MixedPort = &val
 			}
 			if portChanged {
-				val := resp.Port
+				val := port
 				c.Config.Port = &val
 			}
 			if socksPortChanged {
-				val := resp.SocksPort
+				val := socksPort
 				c.Config.SocksPort = &val
 			}
 		})
 	}
 
+	if len(patches) > 0 {
+		res.ApplyPatch = func(c *domain.TrayConfig) {
+			for _, patch := range patches {
+				patch(c)
+			}
+		}
+	}
+
 	return res
 }
 
-func (p *KernelProbe) reconcileTunStatus(wantTun, kernelEnable bool, kernelDevice, targetDev string, realAlive bool) (rollback bool, reason string, changed bool) {
+func (p *KernelProbe) reconcileTunStatus(
+	wantTun, kernelEnable bool,
+	kernelDevice, targetDev string,
+	realAlive bool,
+) (rollback bool, reason string, patch func(c *domain.TrayConfig), changed bool) {
 	if wantTun {
 		if kernelEnable && realAlive {
 			if p.st.IsTunStarting() {
 				p.st.ClearTunStarting()
 				slog.Info("TUN 模式已成功就绪", "device", targetDev)
-				return false, "", true
+				return false, "", nil, true
 			}
-			return false, "", false
+			return false, "", nil, false
 		}
 
 		if p.st.IsTunStartingTimedOut() {
 			slog.Warn("TUN 模式启动流程超时", "device", targetDev)
-			return true, "TUN 模式启动超时 (20s)", true
+			return true, "TUN 模式启动超时 (20s)", nil, true
 		}
 
 		if p.st.IsTunStarting() {
 			if !kernelEnable && kernelDevice != "" && realAlive {
 				slog.Warn("检测到虚拟网卡已被占用冲突", "device", targetDev)
-				return true, fmt.Sprintf("虚拟网卡 [%s] 已被其他程序占用或冲突", targetDev), true
+				return true, fmt.Sprintf("虚拟网卡 [%s] 已被其他程序占用或冲突", targetDev), nil, true
 			}
-			return false, "", false
+			return false, "", nil, false
 		}
 
 		if !kernelEnable && !realAlive {
-			slog.Info("检测到外部已关闭 TUN 模式，同步至本地状态", "device", targetDev)
-			p.cfg.Update(func(c *domain.TrayConfig) {
-				c.Config.Tun.Enable = false
-			})
+			slog.Info("检测到外部已关闭 TUN 模式，生成同步闭包", "device", targetDev)
 			p.st.ClearTunLost()
-			return false, "", true
+			return false, "", func(c *domain.TrayConfig) {
+				c.Config.Tun.Enable = false
+			}, true
 		}
 
 		if kernelEnable && !realAlive {
@@ -226,27 +245,26 @@ func (p *KernelProbe) reconcileTunStatus(wantTun, kernelEnable bool, kernelDevic
 			}
 		}
 
-		return false, "", false
+		return false, "", nil, false
 	}
 
 	if !wantTun && kernelEnable && realAlive {
-		slog.Info("检测到外部面板已开启 TUN 模式，同步至本地状态", "device", targetDev)
-		p.cfg.Update(func(c *domain.TrayConfig) {
-			c.Config.Tun.Enable = true
-		})
+		slog.Info("检测到外部面板已开启 TUN 模式，生成同步闭包", "device", targetDev)
 		p.st.ClearTunStarting()
 		p.st.ClearTunLost()
-		return false, "", true
+		return false, "", func(c *domain.TrayConfig) {
+			c.Config.Tun.Enable = true
+		}, true
 	}
 
-	return false, "", false
+	return false, "", nil, false
 }
 
 func (p *KernelProbe) HandleTunChange(forceSync func()) {
 	if p.st.IsExiting() || p.st.IsActionBusy() {
 		return
 	}
-	
+
 	if forceSync != nil {
 		forceSync()
 	}
