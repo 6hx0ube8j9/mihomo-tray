@@ -102,7 +102,7 @@ func (r *RuntimeState) IsExiting() bool {
 	return r.GetPhase() == domain.PhaseExiting
 }
 
-// ---------------- TUN 状态与保护计时 ----------------
+// ---------------- TUN 物理状态与精确生命周期 ----------------
 
 func (r *RuntimeState) SetTunAlive(alive bool) { r.tunAlive.Store(alive) }
 func (r *RuntimeState) IsTunAlive() bool       { return r.tunAlive.Load() }
@@ -123,25 +123,35 @@ func (r *RuntimeState) loadTime(target *atomic.Int64) time.Time {
 	return time.Unix(0, nano).Local()
 }
 
+// 启动收敛控制
 func (r *RuntimeState) SetTunRequestedTime(t time.Time) { r.storeTime(&r.tunReqTime, t) }
 func (r *RuntimeState) GetTunRequestedTime() time.Time  { return r.loadTime(&r.tunReqTime) }
-func (r *RuntimeState) SetTunLostTime(t time.Time)      { r.storeTime(&r.tunLostTime, t) }
-func (r *RuntimeState) GetTunLostTime() time.Time       { return r.loadTime(&r.tunLostTime) }
+func (r *RuntimeState) ClearTunStarting()              { r.storeTime(&r.tunReqTime, time.Time{}) }
+func (r *RuntimeState) IsTunStarting() bool {
+	reqTime := r.GetTunRequestedTime()
+	return !reqTime.IsZero() && time.Since(reqTime) < TunInitGracePeriod
+}
+func (r *RuntimeState) IsTunStartingTimedOut() bool {
+	reqTime := r.GetTunRequestedTime()
+	return !reqTime.IsZero() && time.Since(reqTime) >= TunInitGracePeriod
+}
 
+// 掉线防抖控制 (6s 掉线报警缓冲)
+func (r *RuntimeState) SetTunLostTime(t time.Time) { r.storeTime(&r.tunLostTime, t) }
+func (r *RuntimeState) GetTunLostTime() time.Time  { return r.loadTime(&r.tunLostTime) }
+func (r *RuntimeState) ClearTunLost()              { r.storeTime(&r.tunLostTime, time.Time{}) }
+func (r *RuntimeState) IsTunDropDebouncing() bool {
+	lostTime := r.GetTunLostTime()
+	return !lostTime.IsZero() && time.Since(lostTime) < TunLostAlarmDelay
+}
+
+// 设备名称绑定
 func (r *RuntimeState) SetActualTunDevice(dev string) { r.tunDevName.Store(dev) }
 func (r *RuntimeState) GetActualTunDevice() string {
 	if v := r.tunDevName.Load(); v != nil {
 		return v.(string)
 	}
 	return ""
-}
-
-func (r *RuntimeState) IsTunInGracePeriod() bool {
-	reqTime := r.GetTunRequestedTime()
-	lostTime := r.GetTunLostTime()
-	reqActive := !reqTime.IsZero() && time.Since(reqTime) < TunInitGracePeriod
-	lostActive := !lostTime.IsZero() && time.Since(lostTime) < TunLostAlarmDelay
-	return reqActive || lostActive
 }
 
 // ---------------- 系统代理自动修复锁与探测代际 ----------------
