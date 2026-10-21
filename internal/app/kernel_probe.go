@@ -13,9 +13,7 @@ import (
 	"mihomo-tray/internal/sys"
 )
 
-const (
-	kernelAPIPollTimeout = 1500 * time.Millisecond
-)
+const kernelAPIPollTimeout = 1500 * time.Millisecond
 
 type KernelProbe struct {
 	cfg *config.Manager
@@ -31,13 +29,56 @@ func NewKernelProbe(cfg *config.Manager, st *state.RuntimeState, api *core.APICl
 	}
 }
 
+type KernelDiff struct {
+	Mode         *string
+	LogLevel     *string
+	UnifiedDelay *bool
+	AllowLan     *bool
+	MixedPort    *int
+	Port         *int
+	SocksPort    *int
+	TunEnable    *bool
+}
+
+func (d *KernelDiff) HasChanges() bool {
+	return d.Mode != nil || d.LogLevel != nil || d.UnifiedDelay != nil ||
+		d.AllowLan != nil || d.MixedPort != nil || d.Port != nil ||
+		d.SocksPort != nil || d.TunEnable != nil
+}
+
+func (d *KernelDiff) Apply(c *domain.TrayConfig) {
+	if d.Mode != nil {
+		c.Config.Mode = *d.Mode
+	}
+	if d.LogLevel != nil {
+		c.Config.LogLevel = *d.LogLevel
+	}
+	if d.UnifiedDelay != nil {
+		c.Config.UnifiedDelay = d.UnifiedDelay
+	}
+	if d.AllowLan != nil {
+		c.Config.AllowLan = d.AllowLan
+	}
+	if d.MixedPort != nil {
+		c.Config.MixedPort = d.MixedPort
+	}
+	if d.Port != nil {
+		c.Config.Port = d.Port
+	}
+	if d.SocksPort != nil {
+		c.Config.SocksPort = d.SocksPort
+	}
+	if d.TunEnable != nil {
+		c.Config.Tun.Enable = *d.TunEnable
+	}
+}
+
 type ProbeResult struct {
 	Changed        bool
 	PortChanged    bool
 	TunRollback    bool
 	RollbackReason string
-
-	ApplyPatch func(c *domain.TrayConfig)
+	Diff           KernelDiff
 }
 
 func checkPortDiff(cfgPort *int, kernelPort int) bool {
@@ -65,7 +106,6 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 	}
 
 	res := ProbeResult{}
-	var patches []func(c *domain.TrayConfig)
 
 	targetDev := resp.Tun.Device
 	if targetDev == "" {
@@ -92,7 +132,7 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 	cfg := p.cfg.GetConfig()
 	wantTun := cfg.Config.Tun.Enable
 
-	tunRollback, reason, tunPatch, tunChanged := p.reconcileTunStatus(wantTun, resp.Tun.Enable, resp.Tun.Device, targetDev, realAlive)
+	tunRollback, reason, tunEnableDiff, tunChanged := p.reconcileTunStatus(wantTun, resp.Tun.Enable, resp.Tun.Device, targetDev, realAlive)
 	if tunRollback {
 		res.TunRollback = true
 		res.RollbackReason = reason
@@ -101,103 +141,55 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 	if tunChanged {
 		res.Changed = true
 	}
-	if tunPatch != nil {
-		patches = append(patches, tunPatch)
+	if tunEnableDiff != nil {
+		res.Diff.TunEnable = tunEnableDiff
 	}
 
-	modeChanged := resp.Mode != "" && resp.Mode != cfg.Config.Mode
-	if modeChanged {
+	if resp.Mode != "" && resp.Mode != cfg.Config.Mode {
 		slog.Info("内核路由模式更新", "from", cfg.Config.Mode, "to", resp.Mode)
+		m := resp.Mode
+		res.Diff.Mode = &m
 		res.Changed = true
 	}
 
-	logLevelChanged := resp.LogLevel != "" && resp.LogLevel != cfg.Config.LogLevel
-	if logLevelChanged {
+	if resp.LogLevel != "" && resp.LogLevel != cfg.Config.LogLevel {
 		slog.Info("内核日志等级更新", "from", cfg.Config.LogLevel, "to", resp.LogLevel)
+		l := resp.LogLevel
+		res.Diff.LogLevel = &l
 		res.Changed = true
 	}
 
-	unifiedDelayChanged := cfg.Config.UnifiedDelay == nil || *cfg.Config.UnifiedDelay != resp.UnifiedDelay
-	if unifiedDelayChanged {
-		fromStr := "未设置"
-		if cfg.Config.UnifiedDelay != nil {
-			fromStr = fmt.Sprintf("%v", *cfg.Config.UnifiedDelay)
-		}
-		slog.Info("内核统一延迟更新", "from", fromStr, "to", resp.UnifiedDelay)
+	if cfg.Config.UnifiedDelay == nil || *cfg.Config.UnifiedDelay != resp.UnifiedDelay {
+		u := resp.UnifiedDelay
+		res.Diff.UnifiedDelay = &u
 		res.Changed = true
 	}
 
-	allowLanChanged := resp.AllowLan != p.cfg.GetEffectiveAllowLan()
-	if allowLanChanged {
+	if resp.AllowLan != p.cfg.GetEffectiveAllowLan() {
 		slog.Info("内核局域网共享更新", "to", resp.AllowLan)
+		a := resp.AllowLan
+		res.Diff.AllowLan = &a
 		res.Changed = true
 	}
 
-	mixedPortChanged := resp.MixedPort > 0 && checkPortDiff(cfg.Config.MixedPort, resp.MixedPort)
-	if mixedPortChanged {
-		res.Changed = true
-		res.PortChanged = true
-	}
-
-	portChanged := resp.Port > 0 && checkPortDiff(cfg.Config.Port, resp.Port)
-	if portChanged {
+	if resp.MixedPort > 0 && checkPortDiff(cfg.Config.MixedPort, resp.MixedPort) {
+		mp := resp.MixedPort
+		res.Diff.MixedPort = &mp
 		res.Changed = true
 		res.PortChanged = true
 	}
 
-	socksPortChanged := resp.SocksPort > 0 && checkPortDiff(cfg.Config.SocksPort, resp.SocksPort)
-	if socksPortChanged {
+	if resp.Port > 0 && checkPortDiff(cfg.Config.Port, resp.Port) {
+		pt := resp.Port
+		res.Diff.Port = &pt
 		res.Changed = true
+		res.PortChanged = true
 	}
 
-	hasConfigDiff := modeChanged || logLevelChanged || unifiedDelayChanged ||
-		allowLanChanged || mixedPortChanged || portChanged || socksPortChanged
-
-	if hasConfigDiff {
-		mode := resp.Mode
-		logLevel := resp.LogLevel
-		unifiedDelay := resp.UnifiedDelay
-		allowLan := resp.AllowLan
-		mixedPort := resp.MixedPort
-		port := resp.Port
-		socksPort := resp.SocksPort
-
-		patches = append(patches, func(c *domain.TrayConfig) {
-			if modeChanged {
-				c.Config.Mode = mode
-			}
-			if logLevelChanged {
-				c.Config.LogLevel = logLevel
-			}
-			if unifiedDelayChanged {
-				b := unifiedDelay
-				c.Config.UnifiedDelay = &b
-			}
-			if allowLanChanged {
-				b := allowLan
-				c.Config.AllowLan = &b
-			}
-			if mixedPortChanged {
-				val := mixedPort
-				c.Config.MixedPort = &val
-			}
-			if portChanged {
-				val := port
-				c.Config.Port = &val
-			}
-			if socksPortChanged {
-				val := socksPort
-				c.Config.SocksPort = &val
-			}
-		})
-	}
-
-	if len(patches) > 0 {
-		res.ApplyPatch = func(c *domain.TrayConfig) {
-			for _, patch := range patches {
-				patch(c)
-			}
-		}
+	if resp.SocksPort > 0 && checkPortDiff(cfg.Config.SocksPort, resp.SocksPort) {
+		sp := resp.SocksPort
+		res.Diff.SocksPort = &sp
+		res.Changed = true
 	}
 
 	return res
@@ -207,7 +199,9 @@ func (p *KernelProbe) reconcileTunStatus(
 	wantTun, kernelEnable bool,
 	kernelDevice, targetDev string,
 	realAlive bool,
-) (rollback bool, reason string, patch func(c *domain.TrayConfig), changed bool) {
+) (rollback bool, reason string, tunDiff *bool, changed bool) {
+	bTrue, bFalse := true, false
+
 	if wantTun {
 		if kernelEnable && realAlive {
 			if p.st.IsTunStarting() {
@@ -226,17 +220,15 @@ func (p *KernelProbe) reconcileTunStatus(
 		if p.st.IsTunStarting() {
 			if !kernelEnable && kernelDevice != "" && realAlive {
 				slog.Warn("检测到虚拟网卡已被占用冲突", "device", targetDev)
-				return true, fmt.Sprintf("虚拟网卡 [%s] 已被其他程序占用或冲突", targetDev), nil, true
+				return true, fmt.Sprintf("虚拟网卡 [%s] 已被其他程序占用", targetDev), nil, true
 			}
 			return false, "", nil, false
 		}
 
 		if !kernelEnable && !realAlive {
-			slog.Info("检测到外部已关闭 TUN 模式，生成同步闭包", "device", targetDev)
+			slog.Info("检测到外部已关闭 TUN 模式，同步本地配置", "device", targetDev)
 			p.st.ClearTunLost()
-			return false, "", func(c *domain.TrayConfig) {
-				c.Config.Tun.Enable = false
-			}, true
+			return false, "", &bFalse, true
 		}
 
 		if kernelEnable && !realAlive {
@@ -249,12 +241,10 @@ func (p *KernelProbe) reconcileTunStatus(
 	}
 
 	if !wantTun && kernelEnable && realAlive {
-		slog.Info("检测到外部面板已开启 TUN 模式，生成同步闭包", "device", targetDev)
+		slog.Info("检测到外部面板已开启 TUN 模式，同步本地配置", "device", targetDev)
 		p.st.ClearTunStarting()
 		p.st.ClearTunLost()
-		return false, "", func(c *domain.TrayConfig) {
-			c.Config.Tun.Enable = true
-		}, true
+		return false, "", &bTrue, true
 	}
 
 	return false, "", nil, false
@@ -264,7 +254,6 @@ func (p *KernelProbe) HandleTunChange(forceSync func()) {
 	if p.st.IsExiting() || p.st.IsActionBusy() {
 		return
 	}
-
 	if forceSync != nil {
 		forceSync()
 	}
