@@ -14,7 +14,7 @@ import (
     "mihomo-tray/internal/sys"
 )
 
-const apiSyncTimeout = 2 * time.Second
+const apiSyncTimeout = 3 * time.Second
 
 var (
 	ErrKernelNotReady = errors.New("内核尚未就绪")
@@ -99,7 +99,8 @@ func (t *Tuner) ToggleTun(ctx context.Context, enable bool, elevate func(rollbac
 	if syncErr := t.api.UpdateTun(reqCtx, enable, t.st.GetActualTunDevice()); syncErr != nil {
 		if ctx.Err() == nil {
 			if errors.Is(syncErr, context.DeadlineExceeded) || errors.Is(syncErr, context.Canceled) {
-				return false, ErrAPITimeout
+				slog.Warn("下发 TUN 指令响应超时（Windows网络栈重构瞬态），交由后台探针继续观测", "err", syncErr)
+				return false, nil
 			}
 			return false, syncErr
 		}
