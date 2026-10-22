@@ -71,7 +71,7 @@ func (d *KernelDeployer) DeployAndApply(ctx context.Context, targetRelPath, acti
 			slog.Debug("配置应用成功", "action", actionDesc, "target", targetRelPath)
 			return nil
 		}
-		slog.Info("重载配置失败，回退重启内核", "action", actionDesc, "target", targetRelPath)
+		slog.Warn("重载配置失败，回退重启内核", "action", actionDesc, "target", targetRelPath, "err", err)
 	}
 
 	d.restartProcess()
@@ -111,8 +111,10 @@ func (d *KernelDeployer) restartProcess() {
 	d.kernel.WakeDaemon()
 }
 
-// RestartKernelViaAPI triggers an in-place restart of the kernel process via RESTful API (POST /restart).
-// Note: This bypasses the supervisor daemon and Windows Job Object lifecycle tracking.  
+
+
+// KEEP: DO NOT REMOVE. Reserved for future in-process kernel restart via REST API (POST /restart).
+// Note: Bypasses supervisor daemon and Windows Job Object tracking.
 // func (d *KernelDeployer) RestartKernelViaAPI(ctx context.Context) error {
 // 	if !d.IsKernelRunning() {
 // 		return domain.ErrKernelNotReady
