@@ -13,7 +13,7 @@ import (
 
 func (a *Application) handleOpenWebUI(_ context.Context, _ domain.UICommand) {
 	a.asyncRun("打开面板", func() error {
-		return a.Panel.Open(a.ForceSyncAPI)
+		return a.WebUIService.Open(a.ForceSyncAPI)
 	})
 }
 
@@ -31,7 +31,7 @@ func (a *Application) handleRequestEditController(_ context.Context, _ domain.UI
 						}
 					}
 					if coreChanged || appChanged {
-						a.Panel.ReopenIfActive(a.ForceSyncAPI)
+						a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
 					}
 					return nil
 				})
@@ -51,7 +51,7 @@ func (a *Application) handleToggleRemoteWebUI(_ context.Context, cmd domain.UICo
 }
 
 func (a *Application) handleCopyWebUIPassword(_ context.Context, _ domain.UICommand) {
-	if err := a.Panel.CopyPassword(); err != nil {
+	if err := a.WebUIService.CopyPassword(); err != nil {
 		a.notifyWarn("复制密码", err)
 	} else {
 		a.notifySuccess("复制成功", "密码已复制到剪贴板。")
@@ -64,7 +64,7 @@ func (a *Application) handleClearWebUICache(_ context.Context, _ domain.UIComman
 			return
 		}
 		a.asyncRun("清理缓存", func() error {
-			if err := a.Panel.ClearCache(); err != nil {
+			if err := a.WebUIService.ClearCache(); err != nil {
 				return err
 			}
 			a.notifySuccess("清理完成", "面板缓存已清除。")
