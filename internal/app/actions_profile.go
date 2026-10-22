@@ -192,33 +192,23 @@ func (a *Application) handleMoveProfileDown(_ context.Context, cmd domain.UIComm
 	}
 }
 
+func (a *Application) openProfile(targetRelPath string) error {
+    if targetRelPath == "" {
+        targetRelPath = a.Cfg.GetActivePath()
+    }
+    if targetRelPath == "" {
+        return errors.New("未指定配置文件路径")
+    }
+    if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
+        return fmt.Errorf("配置文件不可用: %w", err)
+    }
+    return a.Platform.OpenFile(a.Cfg.GetProfileAbsPath(targetRelPath))
+}
+
 func (a *Application) handleOpenConfigFile(_ context.Context, cmd domain.UICommand) {
-	a.asyncRun("打开配置", func() error {
-		targetRelPath := cmd.Payload
-		if targetRelPath == "" {
-			targetRelPath = a.Cfg.GetActivePath()
-		}
-		if targetRelPath == "" {
-			return errors.New("未指定配置文件路径")
-		}
-		if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
-			return fmt.Errorf("配置文件不可用: %w", err)
-		}
-		absPath := a.Cfg.GetProfileAbsPath(targetRelPath)
-		return a.Platform.OpenFile(absPath)
-	})
+    a.asyncRun("打开配置", func() error { return a.openProfile(cmd.Payload) })
 }
 
 func (a *Application) handleEditCurrentConfig(_ context.Context, _ domain.UICommand) {
-	a.asyncRun("编辑配置", func() error {
-		targetRelPath := a.Cfg.GetActivePath()
-		if targetRelPath == "" {
-			return errors.New("未选中任何运行配置")
-		}
-		if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
-			return fmt.Errorf("当前配置文件不可用: %w", err)
-		}
-		absPath := a.Cfg.GetProfileAbsPath(targetRelPath)
-		return a.Platform.OpenFile(absPath)
-	})
+    a.asyncRun("编辑配置", func() error { return a.openProfile("") })
 }
