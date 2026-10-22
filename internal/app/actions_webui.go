@@ -19,24 +19,52 @@ func (a *Application) handleOpenWebUI(_ context.Context, _ domain.UICommand) {
 
 func (a *Application) handleRequestEditController(_ context.Context, _ domain.UICommand) {
 	go func() {
-		if a.ui != nil {
-			cAddr, cSec, cOnline, cSys, cRemoteURL := a.Tuner.GetControllerSnapshot()
-			nAddr, nSec, nOnline, nSys, nRemoteURL, ok := a.ui.ShowControllerEditor(cAddr, cSec, cOnline, cSys, cRemoteURL)
-			if ok {
-				a.runExclusiveAction(state.ActionRestart, "面板设置", func() error {
-					coreChanged, appChanged := a.Tuner.ApplyControllerConfig(nAddr, nSec, nOnline, nSys, nRemoteURL)
-					if coreChanged {
-						if err := a.Deployer.RestartKernel(); err != nil {
-							return err
-						}
-					}
-					if coreChanged || appChanged {
-						a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
-					}
-					return nil
-				})
-			}
+		if a.ui == nil {
+			return
 		}
+
+		cfg := a.Cfg.GetConfig()
+		cAddr := a.Cfg.GetEffectiveExternalController()
+		cSec := a.Cfg.GetEffectiveSecret(cfg.Config.Secret)
+		cOnline := a.Cfg.IsRemoteWebUIEnabled()
+		cSys := a.Cfg.IsSystemBrowserEnabled()
+		cRemoteURL := a.Cfg.GetEffectiveRemoteWebUIURL()
+
+		nAddr, nSec, nOnline, nSys, nRemoteURL, ok := a.ui.ShowControllerEditor(cAddr, cSec, cOnline, cSys, cRemoteURL)
+		if !ok {
+			return
+		}
+
+		a.runExclusiveAction(state.ActionRestart, "面板设置", func() error {
+			coreChanged := (cAddr != nAddr) || (cSec != nSec)
+			appChanged := (cOnline != nOnline) || (cSys != nSys) || (cRemoteURL != nRemoteURL)
+
+			if !coreChanged && !appChanged {
+				return nil
+			}
+
+			a.Cfg.Update(func(c *domain.TrayConfig) {
+				if coreChanged {
+					c.Config.ExternalController = nAddr
+					c.Config.Secret = &nSec
+				}
+				bOnline, bSys, bRemoteURL := nOnline, nSys, nRemoteURL
+				c.General.RemoteWebUI = &bOnline
+				c.General.SystemBrowser = &bSys
+				c.General.RemoteWebUIURL = &bRemoteURL
+			})
+
+			if coreChanged {
+				if err := a.Deployer.RestartKernel(); err != nil {
+					return err
+				}
+			}
+
+			if coreChanged || appChanged {
+				a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
+			}
+			return nil
+		})
 	}()
 }
 
