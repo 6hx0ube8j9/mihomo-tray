@@ -249,12 +249,3 @@ func (p *KernelProbe) reconcileTunStatus(
 
 	return false, "", nil, false
 }
-
-func (p *KernelProbe) HandleTunChange(forceSync func()) {
-	if p.st.IsExiting() || p.st.IsActionBusy() {
-		return
-	}
-	if forceSync != nil {
-		forceSync()
-	}
-}
