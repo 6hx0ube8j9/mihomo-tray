@@ -48,14 +48,14 @@ func (a *Application) handleRestartKernel(ctx context.Context, _ domain.UIComman
 
 func (a *Application) handleOpenBaseDir(_ context.Context, _ domain.UICommand) {
 	a.asyncRun("打开主目录", func() error {
-		return a.HostBridge.OpenFolder(a.Cfg.BaseDir())
+		return a.Platform.OpenFolder(a.Cfg.BaseDir())
 	})
 }
 
 func (a *Application) handleOpenAppConfig(_ context.Context, _ domain.UICommand) {
 	a.asyncRun("打开程序配置", func() error {
 		jsonPath := filepath.Join(a.Cfg.BaseDir(), domain.TrayConfigName)
-		return a.HostBridge.OpenFile(jsonPath)
+		return a.Platform.OpenFile(jsonPath)
 	})
 }
 
@@ -63,7 +63,7 @@ func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UIComm
 	enable := cmd.Payload == "true"
 	a.asyncRun("开机自启", func() error {
 		if sys.IsAdmin() {
-			if a.HostBridge.SetAutoStartTask(enable) {
+			if a.Platform.SetAutoStartTask(enable) {
 				a.Cfg.Update(func(c *domain.TrayConfig) {
 					b := enable
 					c.General.Autostart = &b
@@ -77,7 +77,7 @@ func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UIComm
 			c.General.Autostart = &b
 		})
 
-		restarted, err := a.HostBridge.Elevate()
+		restarted, err := a.Platform.Elevate()
 		if err != nil || !restarted {
 			a.Cfg.Update(func(c *domain.TrayConfig) {
 				b := !enable
@@ -105,9 +105,8 @@ func (a *Application) handleToggleRunAsAdmin(_ context.Context, cmd domain.UICom
 			return nil
 		}
 
-		restarted, err := a.HostBridge.Elevate()
+		restarted, err := a.Platform.Elevate()
 		if err != nil || !restarted {
-			// 取消提权，重置开关
 			a.Cfg.Update(func(c *domain.TrayConfig) {
 				c.General.RunAsAdmin = false
 			})
