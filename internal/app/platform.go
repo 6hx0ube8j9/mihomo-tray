@@ -1,3 +1,4 @@
+// internal/app/platform.go
 package app
 
 import (
@@ -10,14 +11,9 @@ import (
 	"mihomo-tray/internal/sys"
 )
 
-// Platform 纯净的操作系统基础设施适配器（无业务状态，无配置写权限）
 type Platform struct {
 	exePath string
 	baseDir string
-}
-
-func (p *Platform) IsAdmin() bool {
-    return sys.IsAdmin()
 }
 
 func NewPlatform(exePath, baseDir string) *Platform {
@@ -27,7 +23,12 @@ func NewPlatform(exePath, baseDir string) *Platform {
 	}
 }
 
-// OpenFile 调用系统默认关联程序打开指定文件
+// IsAdmin 检查当前进程是否具备管理员权限
+func (p *Platform) IsAdmin() bool {
+	return sys.IsAdmin()
+}
+
+// OpenFile 调用默认程序打开文件
 func (p *Platform) OpenFile(filePath string) error {
 	if filePath == "" {
 		return errors.New("目标文件路径不能为空")
@@ -35,11 +36,7 @@ func (p *Platform) OpenFile(filePath string) error {
 	return sys.ExecuteSystemCommand(filePath)
 }
 
-func (p *Platform) WriteClipboard(text string) error {
-    return sys.WriteToClipboard(text)
-}
-
-// OpenFolder 调用文件资源管理器打开指定目录
+// OpenFolder 打开指定目录
 func (p *Platform) OpenFolder(dirPath string) error {
 	if dirPath == "" {
 		return errors.New("目标目录路径不能为空")
@@ -47,7 +44,12 @@ func (p *Platform) OpenFolder(dirPath string) error {
 	return sys.ExecuteSystemCommand(dirPath)
 }
 
-// SetAutoStartTask 注册或注销 Windows 任务计划程序开机自启
+// WriteClipboard 写入系统剪贴板
+func (p *Platform) WriteClipboard(text string) error {
+	return sys.WriteToClipboard(text)
+}
+
+// SetAutoStartTask 注册或注销 Windows 计划任务开机自启
 func (p *Platform) SetAutoStartTask(enable bool) bool {
 	return sys.ToggleAutoStart(domain.AppTaskName, p.exePath, p.baseDir, enable)
 }
@@ -67,16 +69,4 @@ func (p *Platform) Elevate() (restarted bool, err error) {
 
 	slog.Info("提权子进程已成功唤起")
 	return true, nil
-}
-
-// ElevateWithRollback 带有回滚闭包的高级提权辅助函数，方便与 Tuner 协同
-func (p *Platform) ElevateWithRollback(rollback func()) (restarted bool) {
-	restarted, err := p.Elevate()
-	if err != nil || !restarted {
-		if rollback != nil {
-			rollback()
-		}
-		return false
-	}
-	return true
 }
