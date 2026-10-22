@@ -7,7 +7,6 @@ import (
 
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
-	"mihomo-tray/internal/sys"
 )
 
 // ============================================================================
@@ -62,13 +61,14 @@ func (a *Application) handleOpenAppConfig(_ context.Context, _ domain.UICommand)
 func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UICommand) {
 	enable := cmd.Payload == "true"
 	a.asyncRun("开机自启", func() error {
-		if sys.IsAdmin() {
-			if a.Platform.SetAutoStartTask(enable) {
-				a.Cfg.Update(func(c *domain.TrayConfig) {
-					b := enable
-					c.General.Autostart = &b
-				})
+		if a.Platform.IsAdmin() {
+			if !a.Platform.SetAutoStartTask(enable) {
+				return errors.New("写入开机自启动计划任务失败，请检查系统 Task Scheduler 服务")
 			}
+			a.Cfg.Update(func(c *domain.TrayConfig) {
+				b := enable
+				c.General.Autostart = &b
+			})
 			return nil
 		}
 
