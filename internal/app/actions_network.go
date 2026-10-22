@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 
 	"mihomo-tray/internal/domain"
 )
@@ -32,10 +33,12 @@ func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand)
 				a.Cfg.Update(func(c *domain.TrayConfig) {
 					c.Config.Tun.Enable = false
 				})
+
 				if err != nil {
-					return err
+					return fmt.Errorf("提权调用失败: %w", err)
 				}
-				return errors.New("已取消提权操作，无法开启 TUN 模式")
+
+				return nil
 			}
 
 			a.ExitForRestart()
