@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"errors"
+	"fmt"
 
 	"mihomo-tray/internal/domain"
 )
