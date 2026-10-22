@@ -69,12 +69,18 @@ func (a *Application) handleRequestEditController(_ context.Context, _ domain.UI
 }
 
 func (a *Application) handleToggleSystemBrowser(_ context.Context, cmd domain.UICommand) {
-	a.Panel.ToggleSystemBrowser(cmd.Payload == "true")
+	b := (cmd.Payload == "true")
+	a.Cfg.Update(func(c *domain.TrayConfig) {
+		c.General.SystemBrowser = &b
+	})
 	a.Presenter.PushUIState()
 }
 
 func (a *Application) handleToggleRemoteWebUI(_ context.Context, cmd domain.UICommand) {
-	a.Panel.ToggleRemoteWebUI(cmd.Payload == "true")
+	b := (cmd.Payload == "true")
+	a.Cfg.Update(func(c *domain.TrayConfig) {
+		c.General.RemoteWebUI = &b
+	})
 	a.Presenter.PushUIState()
 }
 
