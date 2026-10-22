@@ -17,7 +17,7 @@ import (
 func (a *Application) handleProfileAdded(ctx context.Context, targetRelPath string, isFirst bool) {
 	if isFirst {
 		a.runExclusiveAction(state.ActionSwitchProfile, "激活配置", func() error {
-			if err := a.Deployer.DeployAndApply(ctx, targetRelPath, "激活首个导入配置"); err != nil {
+			if err := a.KernelDeployer.DeployAndApply(ctx, targetRelPath, "激活首个导入配置"); err != nil {
 				return err
 			}
 
@@ -89,7 +89,7 @@ func (a *Application) handleEditProfileInfo(ctx context.Context, cmd domain.UICo
 						return err
 					}
 					if urlChanged && a.ProfileHub.IsActive(profile.Path) {
-						if err := a.Deployer.DeployAndApply(ctx, profile.Path, "应用订阅地址变更"); err != nil {
+						if err := a.KernelDeployer.DeployAndApply(ctx, profile.Path, "应用订阅地址变更"); err != nil {
 							return err
 						}
 						a.ProxyGuard.Sync()
@@ -119,7 +119,7 @@ func (a *Application) handleUpdateRemoteProfile(ctx context.Context, cmd domain.
 				return err
 			}
 			if a.ProfileHub.IsActive(p.Path) {
-				if err := a.Deployer.DeployAndApply(ctx, p.Path, "应用订阅更新"); err != nil {
+				if err := a.KernelDeployer.DeployAndApply(ctx, p.Path, "应用订阅更新"); err != nil {
 					return err
 				}
 				a.ProxyGuard.Sync()
@@ -158,7 +158,7 @@ func (a *Application) handleSwitchProfile(ctx context.Context, cmd domain.UIComm
 			return err
 		}
 
-		if err := a.Deployer.DeployAndApply(ctx, target, "切换配置"); err != nil {
+		if err := a.KernelDeployer.DeployAndApply(ctx, target, "切换配置"); err != nil {
 			return err
 		}
 
