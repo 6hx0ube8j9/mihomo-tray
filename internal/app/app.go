@@ -36,7 +36,7 @@ type Application struct {
 	ProfileUpdater *ProfileUpdater
 	Tuner          *Tuner
 	Platform       *Platform
-	Panel          *Panel
+	WebUIService   *WebUIService
 	Presenter      *Presenter
 
 	kernelEventCh   chan domain.KernelEvent
@@ -91,7 +91,7 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	app.Platform = NewPlatform(cm.ExePath(), cm.BaseDir())
 
 	app.Tuner = NewTuner(cm, st, api, app.ForceSyncAPI)
-	app.Panel = NewPanel(cm, st, app.WebUI, app.webuiEventCh)
+	app.WebUIService = NewWebUIService(cm, st, app.WebUI, app.webuiEventCh)
 
 	return app
 }
