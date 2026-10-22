@@ -34,7 +34,7 @@ type Application struct {
 	Probe          *KernelProbe
 	ProfileHub     *ProfileHub
 	ProfileUpdater *ProfileUpdater
-	Tuner          *Tuner
+	KernelTuner    *KernelTuner
 	Platform       *Platform
 	WebUIService   *WebUIService
 	Presenter      *Presenter
@@ -90,7 +90,7 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 
 	app.Platform = NewPlatform(cm.ExePath(), cm.BaseDir())
 
-	app.Tuner = NewTuner(cm, st, api, app.ForceSyncAPI)
+	app.KernelTuner = NewKernelTuner(cm, st, api, app.ForceSyncAPI)
 	app.WebUIService = NewWebUIService(cm, st, app.WebUI, app.webuiEventCh)
 
 	return app
@@ -107,7 +107,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 		a.FallbackToEmpty(ctx, "活跃配置物理文件无效且无法恢复")
 	}
 
-	a.Tuner.ReconcilePrivilege()
+	a.KernelTuner.ReconcilePrivilege()
 
 	if err := a.Deployer.SyncRuntimeConfig(); err != nil {
 		slog.Warn("启动时底稿配置校验失败，执行安全回退", "err", err)
