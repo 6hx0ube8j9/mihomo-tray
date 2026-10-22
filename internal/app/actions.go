@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -115,16 +114,14 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	case domain.ActionMoveProfileUp:       a.handleMoveProfileUp(ctx, cmd)
 	case domain.ActionMoveProfileDown:     a.handleMoveProfileDown(ctx, cmd)
 
-	// --- 系统代理控制 (Domain: ProxyGuard) ---
+	// --- 系统代理与网络调优 (Domain: ProxyGuard & Tuner in actions_network.go) ---
 	case domain.ActionToggleProxy:         a.handleToggleProxy(ctx, cmd)
-
-	// --- 运行参数调优 (Domain: Tuner) ---
 	case domain.ActionToggleTun:           a.handleToggleTun(ctx, cmd)
 	case domain.ActionSwitchMode:          a.handleSwitchMode(ctx, cmd)
 	case domain.ActionToggleAllowLan:      a.handleToggleAllowLan(ctx, cmd)
 	case domain.ActionRequestEditPort:     a.handleRequestEditPort(ctx, cmd)
 
-	// --- Web 面板管理 (Domain: Panel in actions_panel.go) ---
+	// --- Web 面板管理 (Domain: Panel in actions_webui.go) ---
 	case domain.ActionOpenWebUI:             a.handleOpenWebUI(ctx, cmd)
 	case domain.ActionRequestEditController: a.handleRequestEditController(ctx, cmd)
 	case domain.ActionToggleSystemBrowser:   a.handleToggleSystemBrowser(ctx, cmd)
@@ -132,7 +129,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	case domain.ActionCopyWebUIPassword:     a.handleCopyWebUIPassword(ctx, cmd)
 	case domain.ActionClearWebUICache:       a.handleClearWebUICache(ctx, cmd)
 
-	// --- 系统与生命周期 (Domain: Sys & Lifecycle) ---
+	// --- 系统与生命周期 (Domain: Sys & Lifecycle in actions_runtime.go) ---
 	case domain.ActionReloadConfig:        a.handleReloadConfig(ctx, cmd)
 	case domain.ActionRestartKernel:       a.handleRestartKernel(ctx, cmd)
 	case domain.ActionOpenBaseDir:         a.handleOpenBaseDir(ctx, cmd)
@@ -145,139 +142,5 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 
 	default:
 		slog.Warn("未识别的 UI 指令", "action", cmd.Action)
-	}
-}
-
-// ============================================================================
-// 3. 系统代理与核心参数调优 (Domain: ProxyGuard & Tuner)
-// ============================================================================
-
-func (a *Application) handleToggleProxy(_ context.Context, cmd domain.UICommand) {
-	a.asyncRun("系统代理", func() error {
-		a.ProxyGuard.SetProxy(cmd.Payload == "true")
-		return nil
-	})
-}
-
-func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand) {
-	a.asyncRun("TUN 模式", func() error {
-		restarted, err := a.Tuner.ToggleTun(ctx, cmd.Payload == "true", a.HostBridge.ElevatePrivilege)
-		if err == nil && restarted {
-			a.ExitForRestart()
-		}
-		return err
-	})
-}
-
-func (a *Application) handleSwitchMode(ctx context.Context, cmd domain.UICommand) {
-	a.asyncRun("路由模式", func() error {
-		return a.Tuner.SwitchMode(ctx, cmd.Payload)
-	})
-}
-
-func (a *Application) handleToggleAllowLan(ctx context.Context, cmd domain.UICommand) {
-	a.asyncRun("局域网代理", func() error {
-		return a.Tuner.ToggleAllowLan(ctx, cmd.Payload == "true")
-	})
-}
-
-func (a *Application) handleRequestEditPort(ctx context.Context, _ domain.UICommand) {
-	go func() {
-		if a.ui != nil {
-			cMixed, cSocks, cHttp := a.Tuner.GetPortSnapshot()
-			nMixed, nSocks, nHttp, ok := a.ui.ShowPortEditor(cMixed, cSocks, cHttp)
-			if ok {
-				a.asyncRun("端口设置", func() error {
-					changed, err := a.Tuner.ApplyPortConfig(ctx, nMixed, nSocks, nHttp)
-					if err != nil {
-						return err
-					}
-					if changed && a.Cfg.IsSystemProxyEnabled() {
-						a.ProxyGuard.Sync()
-					}
-					return nil
-				})
-			}
-		}
-	}()
-}
-
-// ============================================================================
-// 4. 系统与生命周期 (Domain: Sys & Lifecycle)
-// ============================================================================
-
-func (a *Application) handleReloadConfig(ctx context.Context, _ domain.UICommand) {
-	a.runExclusiveAction(state.ActionReload, "重载配置", func() error {
-		_ = a.Cfg.ReloadFromDisk()
-		a.HostBridge.ReconcileRuntimePrivileges()
-
-		if err := a.Deployer.ReloadConfig(ctx); err != nil {
-			return err
-		}
-
-		a.ProxyGuard.Sync()
-		a.Panel.ReopenIfActive(a.ForceSyncAPI)
-		return nil
-	})
-}
-
-func (a *Application) handleRestartKernel(ctx context.Context, _ domain.UICommand) {
-	a.runExclusiveAction(state.ActionRestart, "重启内核", func() error {
-		_ = a.Cfg.ReloadFromDisk()
-		a.HostBridge.ReconcileRuntimePrivileges()
-
-		if err := a.Deployer.RestartKernel(); err != nil {
-			a.FallbackToEmpty(ctx, "重启配置校验失败")
-			a.notifyWarn("重启内核", errors.New("配置校验失败，已自动回退至空配置运行"))
-			return nil
-		}
-
-		a.ProxyGuard.Sync()
-		a.Panel.ReopenIfActive(a.ForceSyncAPI)
-		return nil
-	})
-}
-
-func (a *Application) handleOpenBaseDir(_ context.Context, _ domain.UICommand) {
-	a.HostBridge.OpenBaseDir()
-}
-
-func (a *Application) handleOpenAppConfig(_ context.Context, _ domain.UICommand) {
-	a.HostBridge.OpenAppConfig()
-}
-
-func (a *Application) handleOpenConfigFile(_ context.Context, cmd domain.UICommand) {
-	a.asyncRun("打开配置", func() error {
-		return a.HostBridge.OpenConfigFile(cmd.Payload)
-	})
-}
-
-func (a *Application) handleEditCurrentConfig(_ context.Context, _ domain.UICommand) {
-	a.asyncRun("编辑配置", func() error {
-		return a.HostBridge.EditCurrentConfig()
-	})
-}
-
-func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UICommand) {
-	a.asyncRun("开机自启", func() error {
-		if a.HostBridge.ToggleAutoStart(cmd.Payload == "true") {
-			a.ExitForRestart()
-		}
-		return nil
-	})
-}
-
-func (a *Application) handleToggleRunAsAdmin(_ context.Context, cmd domain.UICommand) {
-	a.asyncRun("以管理员运行", func() error {
-		if a.HostBridge.ToggleRunAsAdmin(cmd.Payload == "true") {
-			a.ExitForRestart()
-		}
-		return nil
-	})
-}
-
-func (a *Application) handleExitApp(_ context.Context, _ domain.UICommand) {
-	if a.ui != nil {
-		a.ui.Exit()
 	}
 }
