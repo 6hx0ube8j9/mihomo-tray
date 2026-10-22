@@ -11,24 +11,17 @@ import (
 	"mihomo-tray/internal/state"
 )
 
-// ============================================================================
-// 1. 运行态级联调度辅助原语 (Runtime Cascade Helper)
-// ============================================================================
-
+// applyAndSyncRuntime 
 func (a *Application) applyAndSyncRuntime(ctx context.Context, targetRelPath, actionDesc string) error {
 	if err := a.KernelDeployer.DeployAndApply(ctx, targetRelPath, actionDesc); err != nil {
 		return err
 	}
 
-	a.ProfileHub.SetActiveProfile(targetRelPath)
+	a.Cfg.SetActiveProfile(targetRelPath)
 	a.ProxyGuard.Sync()
 	a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
 	return nil
 }
-
-// ============================================================================
-// 2. 订阅与配置管理指令分发 (Domain: ProfileHub Actions)
-// ============================================================================
 
 func (a *Application) handleProfileAdded(ctx context.Context, targetRelPath string, isFirst bool) {
 	if isFirst {
@@ -80,7 +73,7 @@ func (a *Application) handleRequestAddRemote(ctx context.Context, _ domain.UICom
 }
 
 func (a *Application) handleEditProfileInfo(ctx context.Context, cmd domain.UICommand) {
-	if p, ok := a.ProfileHub.GetProfileInfo(cmd.Payload); ok {
+	if p, ok := a.Cfg.GetProfileByPath(cmd.Payload); ok {
 		go func(profile domain.ProfileItem) {
 			if a.ui == nil {
 				return
@@ -97,24 +90,24 @@ func (a *Application) handleEditProfileInfo(ctx context.Context, cmd domain.UICo
 					if err != nil {
 						return err
 					}
-					if urlChanged && a.ProfileHub.IsActive(profile.Path) {
+					if urlChanged && a.Cfg.GetActivePath() == profile.Path {
 						return a.applyAndSyncRuntime(ctx, profile.Path, "应用订阅地址变更")
 					}
 					return nil
 				})
 			} else {
-				if err := a.ProfileHub.EditLocal(profile.Path, name); err != nil {
-					a.notifyError("保存配置", err)
-				} else {
-					a.Presenter.PushUIState()
+				if profile.Name != name {
+					profile.Name = name
+					a.Cfg.UpsertProfile(profile)
 				}
+				a.Presenter.PushUIState()
 			}
 		}(p)
 	}
 }
 
 func (a *Application) handleUpdateRemoteProfile(ctx context.Context, cmd domain.UICommand) {
-	if p, ok := a.ProfileHub.GetProfileInfo(cmd.Payload); ok {
+	if p, ok := a.Cfg.GetProfileByPath(cmd.Payload); ok {
 		a.runExclusiveAction(state.ActionReload, "更新订阅", func() error {
 			if err := a.ProfileHub.UpdateRemote(ctx, p.Path); err != nil {
 				if errors.Is(err, ErrProfileUpdating) {
@@ -123,7 +116,7 @@ func (a *Application) handleUpdateRemoteProfile(ctx context.Context, cmd domain.
 				}
 				return err
 			}
-			if a.ProfileHub.IsActive(p.Path) {
+			if a.Cfg.GetActivePath() == p.Path {
 				return a.applyAndSyncRuntime(ctx, p.Path, "应用订阅更新")
 			}
 			return nil
@@ -141,7 +134,10 @@ func (a *Application) handleSetProfileInterval(_ context.Context, cmd domain.UIC
 		return
 	}
 
-	if a.ProfileHub.SetInterval(parts[0], interval) {
+	if p, ok := a.Cfg.GetProfileByPath(parts[0]); ok {
+		p.Interval = interval
+		p.AutoUpdate = interval > 0
+		a.Cfg.UpsertProfile(p)
 		a.Presenter.PushUIState()
 	}
 }
@@ -152,10 +148,10 @@ func (a *Application) handleSwitchProfile(ctx context.Context, cmd domain.UIComm
 		if target == "" {
 			return errors.New("未指定目标配置文件")
 		}
-		if a.ProfileHub.IsActive(target) {
+		if a.Cfg.GetActivePath() == target {
 			return nil
 		}
-		if err := a.ProfileHub.ValidateTarget(target); err != nil {
+		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
 			return err
 		}
 
@@ -185,42 +181,44 @@ func (a *Application) handleRemoveProfile(ctx context.Context, cmd domain.UIComm
 }
 
 func (a *Application) handleMoveProfileUp(_ context.Context, cmd domain.UICommand) {
-	a.ProfileHub.MoveProfileUp(cmd.Payload)
-	a.Presenter.PushUIState()
+	if a.Cfg.MoveProfile(cmd.Payload, -1) {
+		a.Presenter.PushUIState()
+	}
 }
 
 func (a *Application) handleMoveProfileDown(_ context.Context, cmd domain.UICommand) {
-	a.ProfileHub.MoveProfileDown(cmd.Payload)
-	a.Presenter.PushUIState()
+	if a.Cfg.MoveProfile(cmd.Payload, 1) {
+		a.Presenter.PushUIState()
+	}
 }
 
 func (a *Application) handleOpenConfigFile(_ context.Context, cmd domain.UICommand) {
 	a.asyncRun("打开配置", func() error {
 		targetRelPath := cmd.Payload
 		if targetRelPath == "" {
-			targetRelPath = a.ProfileHub.GetActiveProfile()
+			targetRelPath = a.Cfg.GetActivePath()
 		}
 		if targetRelPath == "" {
 			return errors.New("未指定配置文件路径")
 		}
-		if err := a.ProfileHub.ValidateTarget(targetRelPath); err != nil {
+		if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
 			return fmt.Errorf("配置文件不可用: %w", err)
 		}
-		absPath := a.ProfileHub.GetProfileAbsPath(targetRelPath)
+		absPath := a.Cfg.GetProfileAbsPath(targetRelPath)
 		return a.Platform.OpenFile(absPath)
 	})
 }
 
 func (a *Application) handleEditCurrentConfig(_ context.Context, _ domain.UICommand) {
 	a.asyncRun("编辑配置", func() error {
-		targetRelPath := a.ProfileHub.GetActiveProfile()
+		targetRelPath := a.Cfg.GetActivePath()
 		if targetRelPath == "" {
 			return errors.New("未选中任何运行配置")
 		}
-		if err := a.ProfileHub.ValidateTarget(targetRelPath); err != nil {
+		if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
 			return fmt.Errorf("当前配置文件不可用: %w", err)
 		}
-		absPath := a.ProfileHub.GetProfileAbsPath(targetRelPath)
+		absPath := a.Cfg.GetProfileAbsPath(targetRelPath)
 		return a.Platform.OpenFile(absPath)
 	})
 }
