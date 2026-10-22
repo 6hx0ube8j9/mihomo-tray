@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -11,7 +10,6 @@ import (
 	"mihomo-tray/internal/state"
 )
 
-// applyAndSyncRuntime 
 func (a *Application) applyAndSyncRuntime(ctx context.Context, targetRelPath, actionDesc string) error {
 	if err := a.KernelDeployer.DeployAndApply(ctx, targetRelPath, actionDesc); err != nil {
 		return err
@@ -88,6 +86,10 @@ func (a *Application) handleEditProfileInfo(ctx context.Context, cmd domain.UICo
 				a.runExclusiveAction(state.ActionReload, "更新订阅", func() error {
 					urlChanged, err := a.ProfileHub.EditRemote(ctx, profile.Path, name, url, interval)
 					if err != nil {
+						if errors.Is(err, ErrProfileUpdating) {
+							a.notifyWarn("更新订阅", ErrProfileUpdating)
+							return nil
+						}
 						return err
 					}
 					if urlChanged && a.Cfg.GetActivePath() == profile.Path {
@@ -111,7 +113,7 @@ func (a *Application) handleUpdateRemoteProfile(ctx context.Context, cmd domain.
 		a.runExclusiveAction(state.ActionReload, "更新订阅", func() error {
 			if err := a.ProfileHub.UpdateRemote(ctx, p.Path); err != nil {
 				if errors.Is(err, ErrProfileUpdating) {
-					a.notifyWarn("更新订阅", errors.New("该订阅正在更新中，请勿重复操作"))
+					a.notifyWarn("更新订阅", ErrProfileUpdating)
 					return nil
 				}
 				return err
@@ -146,7 +148,7 @@ func (a *Application) handleSwitchProfile(ctx context.Context, cmd domain.UIComm
 	a.runExclusiveAction(state.ActionSwitchProfile, "切换配置", func() error {
 		target := cmd.Payload
 		if target == "" {
-			return errors.New("未指定目标配置文件")
+			return errors.New("未指定目标配置")
 		}
 		if a.Cfg.GetActivePath() == target {
 			return nil
@@ -161,8 +163,12 @@ func (a *Application) handleSwitchProfile(ctx context.Context, cmd domain.UIComm
 
 func (a *Application) handleRemoveProfile(ctx context.Context, cmd domain.UICommand) {
 	targetPath := cmd.Payload
+	if targetPath == "" {
+		return
+	}
+
 	go func(path string) {
-		if a.ui != nil && !a.ui.ShowConfirm("删除配置", "确认删除该配置文件？本地文件将被清理且不可恢复。") {
+		if a.ui != nil && !a.ui.ShowConfirm("删除配置", "确认删除该配置？本地文件将被永久删除。") {
 			return
 		}
 
@@ -173,7 +179,7 @@ func (a *Application) handleRemoveProfile(ctx context.Context, cmd domain.UIComm
 			}
 
 			if wasActive {
-				a.FallbackToEmpty(ctx, "正在使用的配置文件被删除")
+				a.FallbackToEmpty(ctx, "当前配置已被删除")
 			}
 			return nil
 		})
@@ -193,15 +199,15 @@ func (a *Application) handleMoveProfileDown(_ context.Context, cmd domain.UIComm
 }
 
 func (a *Application) openProfile(targetRelPath string) error {
-    if targetRelPath == "" {
-        targetRelPath = a.Cfg.GetActivePath()
-    }
-    if targetRelPath == "" {
-        return errors.New("未指定配置文件路径")
-    }
-    if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
-        return fmt.Errorf("配置文件不可用: %w", err)
-    }
+	if targetRelPath == "" {
+		targetRelPath = a.Cfg.GetActivePath()
+	}
+	if targetRelPath == "" {
+		return errors.New("未选择任何配置文件")
+	}
+	if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
+		return err
+	}
     return a.Platform.OpenFile(a.Cfg.GetProfileAbsPath(targetRelPath))
 }
 
