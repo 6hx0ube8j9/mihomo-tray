@@ -40,14 +40,13 @@ func NewKernelTuner(cfg *config.Manager, st *state.RuntimeState, api *core.APICl
 	}
 }
 
-func (t *Tuner) triggerForceSync() {
+func (t *KernelTuner) triggerForceSync() {
 	if t.forceSync != nil {
 		t.forceSync()
 	}
 }
 
-// ToggleTun 切换 TUN 虚拟网卡模式（具备占用拦截、提权回滚与超时防抖）
-func (t *Tuner) ToggleTun(ctx context.Context, enable bool, elevate func(rollback func()) bool) (restarted bool, err error) {
+func (t *KernelTuner) ToggleTun(ctx context.Context, enable bool, elevate func(rollback func()) bool) (restarted bool, err error) {
 	originalTun := t.cfg.GetConfig().Config.Tun.Enable
 	if originalTun == enable {
 		return false, nil
@@ -109,8 +108,7 @@ func (t *Tuner) ToggleTun(ctx context.Context, enable bool, elevate func(rollbac
 	return false, nil
 }
 
-// SwitchMode 切换路由运行模式 (Rule / Global / Direct)
-func (t *Tuner) SwitchMode(ctx context.Context, mode string) error {
+func (t *KernelTuner) SwitchMode(ctx context.Context, mode string) error {
 	if t.st.GetPhase() != domain.PhaseRunning {
 		return ErrKernelNotReady
 	}
@@ -133,8 +131,7 @@ func (t *Tuner) SwitchMode(ctx context.Context, mode string) error {
 	return nil
 }
 
-// ToggleAllowLan 切换局域网设备接入共享
-func (t *Tuner) ToggleAllowLan(ctx context.Context, enable bool) error {
+func (t *KernelTuner) ToggleAllowLan(ctx context.Context, enable bool) error {
 	if t.st.GetPhase() != domain.PhaseRunning {
 		return ErrKernelNotReady
 	}
@@ -160,8 +157,7 @@ func (t *Tuner) ToggleAllowLan(ctx context.Context, enable bool) error {
 	return nil
 }
 
-// GetPortSnapshot 获取代理端口快照
-func (t *Tuner) GetPortSnapshot() (mixed, socks, httpPort int) {
+func (t *KernelTuner) GetPortSnapshot() (mixed, socks, httpPort int) {
 	cfg := t.cfg.GetConfig()
 	mixed = t.cfg.GetEffectiveMixedPort()
 	socks = t.cfg.GetEffectivePort(cfg.Config.SocksPort, domain.DefaultSocksPort)
@@ -169,8 +165,7 @@ func (t *Tuner) GetPortSnapshot() (mixed, socks, httpPort int) {
 	return
 }
 
-// ApplyPortConfig 校验并热应用端口配置
-func (t *Tuner) ApplyPortConfig(ctx context.Context, mixed, socks, httpPort int) (changed bool, err error) {
+func (t *KernelTuner) ApplyPortConfig(ctx context.Context, mixed, socks, httpPort int) (changed bool, err error) {
 	if !netutil.IsValidPort(mixed) || !netutil.IsValidPort(socks) || !netutil.IsValidPort(httpPort) {
 		return false, ErrInvalidPort
 	}
@@ -205,8 +200,7 @@ func (t *Tuner) ApplyPortConfig(ctx context.Context, mixed, socks, httpPort int)
 	return true, nil
 }
 
-// ReconcilePrivilege 校验当前系统权限与 TUN 模式的匹配度，非管理员强制降级
-func (t *Tuner) ReconcilePrivilege() {
+func (t *KernelTuner) ReconcilePrivilege() {
 	if sys.IsAdmin() {
 		return
 	}
