@@ -213,7 +213,7 @@ func (a *Application) handleOpenConfigFile(_ context.Context, cmd domain.UIComma
 			return fmt.Errorf("配置文件不可用: %w", err)
 		}
 		absPath := a.Cfg.GetProfileAbsPath(targetRelPath)
-		return a.HostBridge.OpenFile(absPath)
+		return a.Platform.OpenFile(absPath)
 	})
 }
 
@@ -227,6 +227,6 @@ func (a *Application) handleEditCurrentConfig(_ context.Context, _ domain.UIComm
 			return fmt.Errorf("当前配置文件不可用: %w", err)
 		}
 		absPath := a.Cfg.GetProfileAbsPath(targetRelPath)
-		return a.HostBridge.OpenFile(absPath)
+		return a.Platform.OpenFile(absPath)
 	})
 }
