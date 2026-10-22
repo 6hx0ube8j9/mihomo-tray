@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"errors"
+	"path/filepath"
 
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
+	"mihomo-tray/internal/sys"
 )
 
 // ============================================================================
@@ -45,27 +47,77 @@ func (a *Application) handleRestartKernel(ctx context.Context, _ domain.UIComman
 }
 
 func (a *Application) handleOpenBaseDir(_ context.Context, _ domain.UICommand) {
-	a.HostBridge.OpenBaseDir()
+	a.asyncRun("打开主目录", func() error {
+		return a.HostBridge.OpenFolder(a.Cfg.BaseDir())
+	})
 }
 
 func (a *Application) handleOpenAppConfig(_ context.Context, _ domain.UICommand) {
-	a.HostBridge.OpenAppConfig()
+	a.asyncRun("打开程序配置", func() error {
+		jsonPath := filepath.Join(a.Cfg.BaseDir(), domain.TrayConfigName)
+		return a.HostBridge.OpenFile(jsonPath)
+	})
 }
 
 func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UICommand) {
+	enable := cmd.Payload == "true"
 	a.asyncRun("开机自启", func() error {
-		if a.HostBridge.ToggleAutoStart(cmd.Payload == "true") {
-			a.ExitForRestart()
+		if sys.IsAdmin() {
+			if a.HostBridge.SetAutoStartTask(enable) {
+				a.Cfg.Update(func(c *domain.TrayConfig) {
+					b := enable
+					c.General.Autostart = &b
+				})
+			}
+			return nil
 		}
+
+		a.Cfg.Update(func(c *domain.TrayConfig) {
+			b := enable
+			c.General.Autostart = &b
+		})
+
+		restarted, err := a.HostBridge.Elevate()
+		if err != nil || !restarted {
+			a.Cfg.Update(func(c *domain.TrayConfig) {
+				b := !enable
+				c.General.Autostart = &b
+			})
+			if err != nil {
+				return err
+			}
+			return errors.New("已取消提权操作")
+		}
+
+		a.ExitForRestart()
 		return nil
 	})
 }
 
 func (a *Application) handleToggleRunAsAdmin(_ context.Context, cmd domain.UICommand) {
+	enable := cmd.Payload == "true"
 	a.asyncRun("以管理员运行", func() error {
-		if a.HostBridge.ToggleRunAsAdmin(cmd.Payload == "true") {
-			a.ExitForRestart()
+		a.Cfg.Update(func(c *domain.TrayConfig) {
+			c.General.RunAsAdmin = enable
+		})
+
+		if !enable {
+			return nil
 		}
+
+		restarted, err := a.HostBridge.Elevate()
+		if err != nil || !restarted {
+			// 取消提权，重置开关
+			a.Cfg.Update(func(c *domain.TrayConfig) {
+				c.General.RunAsAdmin = false
+			})
+			if err != nil {
+				return err
+			}
+			return errors.New("已取消提权操作")
+		}
+
+		a.ExitForRestart()
 		return nil
 	})
 }
