@@ -63,7 +63,7 @@ func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UIComm
 	a.asyncRun("开机自启", func() error {
 		if a.Platform.IsAdmin() {
 			if !a.Platform.SetAutoStartTask(enable) {
-				return errors.New("写入开机自启动计划任务失败，请检查系统 Task Scheduler 服务")
+				return errors.New("写入开机自启动计划任务失败，请检查 Task Scheduler 服务")
 			}
 			a.Cfg.Update(func(c *domain.TrayConfig) {
 				b := enable
@@ -101,7 +101,7 @@ func (a *Application) handleToggleRunAsAdmin(_ context.Context, cmd domain.UICom
 			c.General.RunAsAdmin = enable
 		})
 
-		if !enable {
+		if !enable || a.Platform.IsAdmin() {
 			return nil
 		}
 
