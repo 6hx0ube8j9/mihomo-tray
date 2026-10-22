@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
@@ -88,7 +90,7 @@ func (a *Application) handleCopyWebUIPassword(_ context.Context, _ domain.UIComm
     cfg := a.Cfg.GetConfig()
     secret := a.Cfg.GetEffectiveSecret(cfg.Config.Secret)
     if secret == "" {
-        a.notifyWarn("复制密码", errors.New("Web 面板未设置访问密码"))
+        a.notifyWarn("复制密码", errors.New("当前面板未设置密码"))
         return
     }
     if err := a.Platform.WriteClipboard(secret); err != nil {
@@ -100,7 +102,7 @@ func (a *Application) handleCopyWebUIPassword(_ context.Context, _ domain.UIComm
 
 func (a *Application) handleClearWebUICache(_ context.Context, _ domain.UICommand) {
 	go func() {
-		if a.ui != nil && !a.ui.ShowConfirm("清理缓存", "将清除面板的本地设置与缓存，是否继续？") {
+		if a.ui != nil && !a.ui.ShowConfirm("清理缓存", "将清除面板的本地设置与网页缓存，是否继续？") {
 			return
 		}
 		a.asyncRun("清理缓存", func() error {
