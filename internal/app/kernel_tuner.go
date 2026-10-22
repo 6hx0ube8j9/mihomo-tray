@@ -38,9 +38,38 @@ func (t *KernelTuner) triggerForceSync() {
 	}
 }
 
+func (t *KernelTuner) syncAPI(ctx context.Context, action string, call func(context.Context) error, commit func()) error {
+	if t.st.GetPhase() != domain.PhaseRunning {
+		return domain.ErrKernelNotReady
+	}
+
+	if !t.st.TryBeginAction(state.ActionSyncAPI) {
+		return domain.ErrSystemBusy
+	}
+	defer func() {
+		t.st.EndAction()
+		t.triggerForceSync()
+	}()
+
+	reqCtx, cancel := context.WithTimeout(ctx, apiSyncTimeout)
+	defer cancel()
+
+	if err := call(reqCtx); err != nil {
+		if ctx.Err() == nil && (errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)) {
+			slog.Warn("下发参数响应超时，由后台探针继续同步", "action", action)
+		} else {
+			return err
+		}
+	}
+
+	if commit != nil {
+		commit()
+	}
+	return nil
+}
+
 func (t *KernelTuner) ToggleTun(ctx context.Context, enable bool) error {
-	originalTun := t.cfg.GetConfig().Config.Tun.Enable
-	if originalTun == enable {
+	if t.cfg.GetConfig().Config.Tun.Enable == enable {
 		return nil
 	}
 
@@ -51,90 +80,48 @@ func (t *KernelTuner) ToggleTun(ctx context.Context, enable bool) error {
 		}
 
 		if sys.IsTunActive(targetDev) {
-			slog.Warn("检测到虚拟网卡已被占用，拦截启动请求", "device", targetDev)
+			slog.Warn("虚拟网卡已被占用，无法开启 TUN", "device", targetDev)
 			return domain.ErrTunDeviceBusy
 		}
 	}
 
-	t.cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = enable })
-	if enable {
-		t.st.SetTunRequestedTime(time.Now())
-	} else {
-		t.st.SetTunRequestedTime(time.Time{})
-	}
-
-	if t.st.GetPhase() != domain.PhaseRunning {
-		return domain.ErrKernelNotReady
-	}
-
-	if !t.st.TryBeginAction(state.ActionSyncAPI) {
-		return domain.ErrSystemBusy
-	}
-	defer t.st.EndAction()
-	defer t.triggerForceSync()
-
-	reqCtx, cancel := context.WithTimeout(ctx, apiSyncTimeout)
-	defer cancel()
-
-	if syncErr := t.api.UpdateTun(reqCtx, enable, t.st.GetActualTunDevice()); syncErr != nil {
-		if ctx.Err() == nil {
-			if errors.Is(syncErr, context.DeadlineExceeded) || errors.Is(syncErr, context.Canceled) {
-				slog.Warn("下发 TUN 指令响应超时（Windows 网络栈重构瞬态），交由后台探针继续观测", "err", syncErr)
-				return nil
-			}
-			return syncErr
+	return t.syncAPI(ctx, "切换 TUN 模式", func(reqCtx context.Context) error {
+		return t.api.UpdateTun(reqCtx, enable, t.st.GetActualTunDevice())
+	}, func() {
+		t.cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = enable })
+		if enable {
+			t.st.SetTunRequestedTime(time.Now())
+		} else {
+			t.st.SetTunRequestedTime(time.Time{})
 		}
-	}
-	return nil
+	})
 }
 
 func (t *KernelTuner) SwitchMode(ctx context.Context, mode string) error {
-	if t.st.GetPhase() != domain.PhaseRunning {
-		return domain.ErrKernelNotReady
-	}
 	if mode == t.cfg.GetConfig().Config.Mode {
 		return nil
 	}
-	if !t.st.TryBeginAction(state.ActionSyncAPI) {
-		return domain.ErrSystemBusy
-	}
-	defer t.st.EndAction()
-	defer t.triggerForceSync()
 
-	reqCtx, cancel := context.WithTimeout(ctx, apiSyncTimeout)
-	defer cancel()
-
-	if err := t.api.UpdateMode(reqCtx, mode); err != nil {
-		return err
-	}
-	t.cfg.Update(func(c *domain.TrayConfig) { c.Config.Mode = mode })
-	return nil
+	return t.syncAPI(ctx, "切换运行模式", func(reqCtx context.Context) error {
+		return t.api.UpdateMode(reqCtx, mode)
+	}, func() {
+		t.cfg.Update(func(c *domain.TrayConfig) { c.Config.Mode = mode })
+	})
 }
 
 func (t *KernelTuner) ToggleAllowLan(ctx context.Context, enable bool) error {
-	if t.st.GetPhase() != domain.PhaseRunning {
-		return domain.ErrKernelNotReady
-	}
 	if enable == t.cfg.GetEffectiveAllowLan() {
 		return nil
 	}
-	if !t.st.TryBeginAction(state.ActionSyncAPI) {
-		return domain.ErrSystemBusy
-	}
-	defer t.st.EndAction()
-	defer t.triggerForceSync()
 
-	reqCtx, cancel := context.WithTimeout(ctx, apiSyncTimeout)
-	defer cancel()
-
-	if err := t.api.UpdateAllowLan(reqCtx, enable); err != nil {
-		return err
-	}
-	t.cfg.Update(func(c *domain.TrayConfig) {
-		b := enable
-		c.Config.AllowLan = &b
+	return t.syncAPI(ctx, "切换局域网共享", func(reqCtx context.Context) error {
+		return t.api.UpdateAllowLan(reqCtx, enable)
+	}, func() {
+		t.cfg.Update(func(c *domain.TrayConfig) {
+			b := enable
+			c.Config.AllowLan = &b
+		})
 	})
-	return nil
 }
 
 func (t *KernelTuner) GetPortSnapshot() (mixed, socks, httpPort int) {
@@ -145,38 +132,37 @@ func (t *KernelTuner) GetPortSnapshot() (mixed, socks, httpPort int) {
 	return
 }
 
-func (t *KernelTuner) ApplyPortConfig(ctx context.Context, mixed, socks, httpPort int) (changed bool, err error) {
+func (t *KernelTuner) ApplyPortConfig(ctx context.Context, mixed, socks, httpPort int) (bool, error) {
 	if !netutil.IsValidPort(mixed) || !netutil.IsValidPort(socks) || !netutil.IsValidPort(httpPort) {
 		return false, domain.ErrInvalidPort
 	}
+
 	cMixed, cSocks, cHttp := t.GetPortSnapshot()
 	if mixed == cMixed && socks == cSocks && httpPort == cHttp {
 		return false, nil
 	}
 
-	t.cfg.Update(func(c *domain.TrayConfig) {
-		m, sk, h := mixed, socks, httpPort
-		c.Config.MixedPort = &m
-		c.Config.SocksPort = &sk
-		c.Config.Port = &h
-	})
-
-	if t.st.GetPhase() == domain.PhaseRunning {
-		if !t.st.TryBeginAction(state.ActionSyncAPI) {
-			return true, domain.ErrSystemBusy
-		}
-		defer t.st.EndAction()
-		defer t.triggerForceSync()
-
-		reqCtx, cancel := context.WithTimeout(ctx, apiSyncTimeout)
-		defer cancel()
-
-		if err := t.api.UpdatePorts(reqCtx, mixed, socks, httpPort); err != nil {
-			if ctx.Err() == nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
-				return true, err
-			}
-		}
+	commit := func() {
+		t.cfg.Update(func(c *domain.TrayConfig) {
+			m, sk, h := mixed, socks, httpPort
+			c.Config.MixedPort = &m
+			c.Config.SocksPort = &sk
+			c.Config.Port = &h
+		})
 	}
+
+	if t.st.GetPhase() != domain.PhaseRunning {
+		commit()
+		return true, nil
+	}
+
+	err := t.syncAPI(ctx, "修改监听端口", func(reqCtx context.Context) error {
+		return t.api.UpdatePorts(reqCtx, mixed, socks, httpPort)
+	}, commit)
+	if err != nil {
+		return false, err
+	}
+
 	return true, nil
 }
 
@@ -185,7 +171,7 @@ func (t *KernelTuner) ReconcilePrivilege() {
 		return
 	}
 	if t.cfg.GetConfig().Config.Tun.Enable {
-		slog.Warn("非管理员权限运行，停用 TUN 模式并回退普通权限")
+		slog.Warn("当前无管理员权限，自动停用 TUN 模式")
 		t.cfg.Update(func(c *domain.TrayConfig) {
 			c.Config.Tun.Enable = false
 		})
