@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -11,20 +12,28 @@ import (
 )
 
 // ============================================================================
-// 订阅与配置管理指令分发 (Domain: ProfileHub Actions)
+// 1. 运行态级联调度辅助原语 (Runtime Cascade Helper)
+// ============================================================================
+
+func (a *Application) applyAndSyncRuntime(ctx context.Context, targetRelPath, actionDesc string) error {
+	if err := a.KernelDeployer.DeployAndApply(ctx, targetRelPath, actionDesc); err != nil {
+		return err
+	}
+
+	a.ProfileHub.SetActiveProfile(targetRelPath)
+	a.ProxyGuard.Sync()
+	a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
+	return nil
+}
+
+// ============================================================================
+// 2. 订阅与配置管理指令分发 (Domain: ProfileHub Actions)
 // ============================================================================
 
 func (a *Application) handleProfileAdded(ctx context.Context, targetRelPath string, isFirst bool) {
 	if isFirst {
 		a.runExclusiveAction(state.ActionSwitchProfile, "激活配置", func() error {
-			if err := a.KernelDeployer.DeployAndApply(ctx, targetRelPath, "激活首个导入配置"); err != nil {
-				return err
-			}
-
-			a.ProfileHub.SetActiveProfile(targetRelPath)
-			a.ProxyGuard.Sync()
-			a.Panel.ReopenIfActive(a.ForceSyncAPI)
-			return nil
+			return a.applyAndSyncRuntime(ctx, targetRelPath, "激活首个导入配置")
 		})
 		return
 	}
@@ -89,11 +98,7 @@ func (a *Application) handleEditProfileInfo(ctx context.Context, cmd domain.UICo
 						return err
 					}
 					if urlChanged && a.ProfileHub.IsActive(profile.Path) {
-						if err := a.KernelDeployer.DeployAndApply(ctx, profile.Path, "应用订阅地址变更"); err != nil {
-							return err
-						}
-						a.ProxyGuard.Sync()
-						a.Panel.ReopenIfActive(a.ForceSyncAPI)
+						return a.applyAndSyncRuntime(ctx, profile.Path, "应用订阅地址变更")
 					}
 					return nil
 				})
@@ -119,11 +124,7 @@ func (a *Application) handleUpdateRemoteProfile(ctx context.Context, cmd domain.
 				return err
 			}
 			if a.ProfileHub.IsActive(p.Path) {
-				if err := a.KernelDeployer.DeployAndApply(ctx, p.Path, "应用订阅更新"); err != nil {
-					return err
-				}
-				a.ProxyGuard.Sync()
-				a.Panel.ReopenIfActive(a.ForceSyncAPI)
+				return a.applyAndSyncRuntime(ctx, p.Path, "应用订阅更新")
 			}
 			return nil
 		})
@@ -158,14 +159,7 @@ func (a *Application) handleSwitchProfile(ctx context.Context, cmd domain.UIComm
 			return err
 		}
 
-		if err := a.KernelDeployer.DeployAndApply(ctx, target, "切换配置"); err != nil {
-			return err
-		}
-
-		a.ProfileHub.SetActiveProfile(target)
-		a.ProxyGuard.Sync()
-		a.Panel.ReopenIfActive(a.ForceSyncAPI)
-		return nil
+		return a.applyAndSyncRuntime(ctx, target, "切换配置")
 	})
 }
 
@@ -209,10 +203,10 @@ func (a *Application) handleOpenConfigFile(_ context.Context, cmd domain.UIComma
 		if targetRelPath == "" {
 			return errors.New("未指定配置文件路径")
 		}
-		if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
+		if err := a.ProfileHub.ValidateTarget(targetRelPath); err != nil {
 			return fmt.Errorf("配置文件不可用: %w", err)
 		}
-		absPath := a.Cfg.GetProfileAbsPath(targetRelPath)
+		absPath := a.ProfileHub.GetProfileAbsPath(targetRelPath)
 		return a.Platform.OpenFile(absPath)
 	})
 }
@@ -223,10 +217,10 @@ func (a *Application) handleEditCurrentConfig(_ context.Context, _ domain.UIComm
 		if targetRelPath == "" {
 			return errors.New("未选中任何运行配置")
 		}
-		if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
+		if err := a.ProfileHub.ValidateTarget(targetRelPath); err != nil {
 			return fmt.Errorf("当前配置文件不可用: %w", err)
 		}
-		absPath := a.Cfg.GetProfileAbsPath(targetRelPath)
+		absPath := a.ProfileHub.GetProfileAbsPath(targetRelPath)
 		return a.Platform.OpenFile(absPath)
 	})
 }
