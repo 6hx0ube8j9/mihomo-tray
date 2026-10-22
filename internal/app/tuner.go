@@ -231,3 +231,15 @@ func (t *Tuner) ApplyControllerConfig(addr, sec string, online, sys bool, remote
 	})
 	return coreChanged, appChanged
 }
+
+func (t *Tuner) ReconcilePrivilege() {
+	if sys.IsAdmin() {
+		return
+	}
+	if t.cfg.GetConfig().Config.Tun.Enable {
+		slog.Warn("非管理员权限运行，停用 TUN 模式并回退普通权限")
+		t.cfg.Update(func(c *domain.TrayConfig) {
+			c.Config.Tun.Enable = false
+		})
+	}
+}
