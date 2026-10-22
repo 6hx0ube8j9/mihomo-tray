@@ -2,10 +2,7 @@ package app
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"log/slog"
-	"path/filepath"
 	"time"
 
 	"mihomo-tray/internal/config"
@@ -13,8 +10,6 @@ import (
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
 )
-
-var ErrKernelNotRunning = errors.New("内核未运行")
 
 type KernelDeployer struct {
 	cfg    *config.Manager
@@ -44,14 +39,14 @@ func (d *KernelDeployer) ReloadConfig(ctx context.Context) error {
 	}
 
 	if !d.IsKernelRunning() {
-		return ErrKernelNotRunning
+		return domain.ErrKernelNotReady
 	}
 
 	if err := d.api.ForceReloadKernel(ctx, runtimeAbs); err != nil {
-		return fmt.Errorf("内核配置重载失败: %w", err)
+		return err
 	}
 
-	slog.Debug("内核配置重载成功", "target", activePath)
+	slog.Debug("重载配置成功", "target", activePath)
 	return nil
 }
 
@@ -76,7 +71,7 @@ func (d *KernelDeployer) DeployAndApply(ctx context.Context, targetRelPath, acti
 			slog.Debug("配置应用成功", "action", actionDesc, "target", targetRelPath)
 			return nil
 		}
-		slog.Warn("热重载失败，正在通过重启内核应用配置", "action", actionDesc, "target", targetRelPath, "err", err)
+		slog.Info("重载配置失败，回退重启内核", "action", actionDesc, "target", targetRelPath)
 	}
 
 	d.restartProcess()
@@ -91,18 +86,14 @@ func (d *KernelDeployer) SyncRuntimeConfig() error {
 func (d *KernelDeployer) prepareRuntimeConfig(targetRelPath string) (string, error) {
 	if targetRelPath != "" {
 		if err := d.cfg.ValidatePhysicalFile(targetRelPath); err != nil {
-			return "", fmt.Errorf("配置文件无效: %w", err)
+			return "", err
 		}
 	}
 
 	cfg := d.cfg.GetConfig()
 	deployRes, err := core.DeployRuntimeConfig(cfg, targetRelPath, d.cfg.BaseDir())
 	if err != nil {
-		name := filepath.Base(targetRelPath)
-		if name == "." || name == "" {
-			name = "空配置"
-		}
-		return "", fmt.Errorf("%s 生成失败: %w", name, err)
+		return "", err
 	}
 
 	d.st.SetActualTunDevice(deployRes.TunDevice)
