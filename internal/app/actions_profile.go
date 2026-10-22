@@ -202,12 +202,31 @@ func (a *Application) handleMoveProfileDown(_ context.Context, cmd domain.UIComm
 
 func (a *Application) handleOpenConfigFile(_ context.Context, cmd domain.UICommand) {
 	a.asyncRun("打开配置", func() error {
-		return a.HostBridge.OpenConfigFile(cmd.Payload)
+		targetRelPath := cmd.Payload
+		if targetRelPath == "" {
+			targetRelPath = a.ProfileHub.GetActiveProfile()
+		}
+		if targetRelPath == "" {
+			return errors.New("未指定配置文件路径")
+		}
+		if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
+			return fmt.Errorf("配置文件不可用: %w", err)
+		}
+		absPath := a.Cfg.GetProfileAbsPath(targetRelPath)
+		return a.HostBridge.OpenFile(absPath)
 	})
 }
 
 func (a *Application) handleEditCurrentConfig(_ context.Context, _ domain.UICommand) {
 	a.asyncRun("编辑配置", func() error {
-		return a.HostBridge.EditCurrentConfig()
+		targetRelPath := a.ProfileHub.GetActiveProfile()
+		if targetRelPath == "" {
+			return errors.New("未选中任何运行配置")
+		}
+		if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
+			return fmt.Errorf("当前配置文件不可用: %w", err)
+		}
+		absPath := a.Cfg.GetProfileAbsPath(targetRelPath)
+		return a.HostBridge.OpenFile(absPath)
 	})
 }
