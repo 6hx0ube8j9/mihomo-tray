@@ -13,7 +13,6 @@ import (
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
-	"mihomo-tray/internal/sys"
 	"mihomo-tray/internal/webui"
 )
 
