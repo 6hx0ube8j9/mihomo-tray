@@ -35,7 +35,7 @@ type Application struct {
 	ProfileHub     *ProfileHub
 	ProfileUpdater *ProfileUpdater
 	Tuner          *Tuner
-	HostBridge     *HostBridge
+	Platform       *Platform
 	Panel          *Panel
 	Presenter      *Presenter
 
@@ -88,11 +88,7 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	app.ProfileUpdater = NewProfileUpdater(cm, st, app.ProfileHub, app.Presenter.PushUIState)
 	app.Probe = NewKernelProbe(cm, st, api)
 
-	app.HostBridge = NewHostBridge(cm, st, func() {
-		if app.Presenter != nil {
-			app.Presenter.ForcePushUIState()
-		}
-	})
+	app.Platform = NewPlatform(cm.ExePath(), cm.BaseDir())
 
 	app.Tuner = NewTuner(cm, st, api, app.ForceSyncAPI)
 	app.Panel = NewPanel(cm, st, app.WebUI, app.webuiEventCh)
@@ -111,7 +107,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 		a.FallbackToEmpty(ctx, "活跃配置物理文件无效且无法恢复")
 	}
 
-	a.HostBridge.ReconcileRuntimePrivileges()
+	a.Tuner.ReconcilePrivilege()
 
 	if err := a.Deployer.SyncRuntimeConfig(); err != nil {
 		slog.Warn("启动时底稿配置校验失败，执行安全回退", "err", err)
@@ -210,6 +206,10 @@ func (a *Application) eventLoop(ctx context.Context) {
 			})
 			a.State.ClearTunStarting()
 			a.State.ClearTunLost()
+
+			if a.ui != nil && !a.State.IsExiting() {
+				a.ui.ShowNotification("TUN 模式已关闭", res.RollbackReason)
+			}
 		}
 
 		if res.Diff.HasChanges() {
