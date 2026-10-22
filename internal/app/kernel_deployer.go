@@ -16,15 +16,15 @@ import (
 
 var ErrKernelNotRunning = errors.New("内核未运行")
 
-type Deployer struct {
+type KernelDeployer struct {
 	cfg    *config.Manager
 	st     *state.RuntimeState
 	kernel *core.KernelManager
 	api    *core.APIClient
 }
 
-func NewDeployer(cfg *config.Manager, st *state.RuntimeState, kernel *core.KernelManager, api *core.APIClient) *Deployer {
-	return &Deployer{
+func NewKernelDeployer(cfg *config.Manager, st *state.RuntimeState, kernel *core.KernelManager, api *core.APIClient) *KernelDeployer {
+	return &KernelDeployer{
 		cfg:    cfg,
 		st:     st,
 		kernel: kernel,
