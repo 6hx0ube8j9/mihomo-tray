@@ -9,22 +9,42 @@ import (
 
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/domain"
-	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
 )
 
 type HostBridge struct {
 	cfg             *config.Manager
-	st              *state.RuntimeState
 	onElevateRevert func()
 }
 
-func NewHostBridge(cfg *config.Manager, st *state.RuntimeState, onElevateRevert func()) *HostBridge {
+func NewHostBridge(cfg *config.Manager, onElevateRevert func()) *HostBridge {
 	return &HostBridge{
 		cfg:             cfg,
-		st:              st,
 		onElevateRevert: onElevateRevert,
 	}
+}
+
+func (h *HostBridge) OpenFile(filePath string) error {
+	if filePath == "" {
+		return errors.New("目标文件路径不能为空")
+	}
+	return sys.ExecuteSystemCommand(filePath)
+}
+
+func (h *HostBridge) OpenFolder(dirPath string) error {
+	if dirPath == "" {
+		return errors.New("目标目录路径不能为空")
+	}
+	return sys.ExecuteSystemCommand(dirPath)
+}
+
+func (h *HostBridge) OpenBaseDir() error {
+	return h.OpenFolder(h.cfg.BaseDir())
+}
+
+func (h *HostBridge) OpenAppConfig() error {
+	jsonPath := filepath.Join(h.cfg.BaseDir(), domain.TrayConfigName)
+	return h.OpenFile(jsonPath)
 }
 
 func (h *HostBridge) ElevatePrivilege(rollback func()) (restarted bool) {
@@ -39,6 +59,7 @@ func (h *HostBridge) ElevatePrivilege(rollback func()) (restarted bool) {
 		slog.Info("提权进程已启动")
 		return true
 	}
+
 	slog.Warn("提权取消或失败，已回滚设置", "error", err)
 	if rollback != nil {
 		rollback()
@@ -47,18 +68,6 @@ func (h *HostBridge) ElevatePrivilege(rollback func()) (restarted bool) {
 		h.onElevateRevert()
 	}
 	return false
-}
-
-func (h *HostBridge) ReconcileRuntimePrivileges() {
-	if sys.IsAdmin() {
-		return
-	}
-	if h.cfg.GetConfig().Config.Tun.Enable {
-		slog.Warn("非管理员权限运行，停用 TUN 模式回退普通权限运行")
-		h.cfg.Update(func(c *domain.TrayConfig) {
-			c.Config.Tun.Enable = false
-		})
-	}
 }
 
 func (h *HostBridge) ToggleAutoStart(enable bool) (restarted bool) {
@@ -101,32 +110,4 @@ func (h *HostBridge) ToggleRunAsAdmin(enable bool) (restarted bool) {
 			c.General.RunAsAdmin = false
 		})
 	})
-}
-
-func (h *HostBridge) OpenBaseDir() {
-	_ = sys.ExecuteSystemCommand(h.cfg.BaseDir())
-}
-
-func (h *HostBridge) OpenAppConfig() {
-	jsonPath := filepath.Join(h.cfg.BaseDir(), domain.TrayConfigName)
-	_ = sys.ExecuteSystemCommand(jsonPath)
-}
-
-func (h *HostBridge) OpenConfigFile(targetRelPath string) error {
-	if targetRelPath == "" {
-		targetRelPath = h.cfg.GetActivePath()
-	}
-	if err := h.cfg.ValidatePhysicalFile(targetRelPath); err != nil {
-		return fmt.Errorf("配置文件不可用: %w", err)
-	}
-	absPath := h.cfg.GetProfileAbsPath(targetRelPath)
-	_ = sys.ExecuteSystemCommand(absPath)
-	return nil
-}
-
-func (h *HostBridge) OpenInEditor(filePath string) error {
-	if filePath == "" {
-		return errors.New("文件路径不能为空")
-	}
-	return sys.OpenFileWithEditor(filePath)
 }
