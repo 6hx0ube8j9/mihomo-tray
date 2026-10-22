@@ -78,7 +78,7 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	app.KernelDeployer = NewKernelDeployer(cm, st, kernel, api)
 
 	app.ProfileHub = NewProfileHub(cm, st, func() string {
-		if app.Deployer.IsKernelRunning() {
+		if app.KernelDeployer.IsKernelRunning() {
 			return app.Cfg.GetEffectiveLocalProxyPortStr()
 		}
 		return ""
@@ -109,7 +109,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 
 	a.KernelTuner.ReconcilePrivilege()
 
-	if err := a.Deployer.SyncRuntimeConfig(); err != nil {
+	if err := a.KernelDeployer.SyncRuntimeConfig(); err != nil {
 		slog.Warn("启动时底稿配置校验失败，执行安全回退", "err", err)
 		a.FallbackToEmpty(ctx, "配置语法校验失败")
 	}
@@ -122,7 +122,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	a.Presenter.PushUIState()
 
 	slog.Debug("启动事件监听")
-	a.Kernel.SetPreStartHook(func() { _ = a.Deployer.SyncRuntimeConfig() })
+	a.Kernel.SetPreStartHook(func() { _ = a.KernelDeployer.SyncRuntimeConfig() })
 	go a.Kernel.RunDaemon(ctx, a.kernelEventCh)
 	go sys.WatchNetworkInterfaces(ctx, a.tunEventCh)
 	go sys.WatchProxyRegistry(ctx, a.proxyStatusCh)
@@ -175,9 +175,9 @@ func (a *Application) FallbackToEmpty(ctx context.Context, reason string) {
 	a.State.SetTunAlive(false)
 
 	if a.Deployer.IsKernelRunning() {
-		_ = a.Deployer.DeployAndApply(ctx, "", "回退空配置")
+		_ = a.KernelDeployer.DeployAndApply(ctx, "", "回退空配置")
 	} else {
-		_ = a.Deployer.SyncRuntimeConfig()
+		_ = a.KernelDeployer.SyncRuntimeConfig()
 	}
 
 	a.ProxyGuard.Sync()
