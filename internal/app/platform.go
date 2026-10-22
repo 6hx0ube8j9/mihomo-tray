@@ -31,6 +31,10 @@ func (p *Platform) OpenFile(filePath string) error {
 	return sys.ExecuteSystemCommand(filePath)
 }
 
+func (p *Platform) WriteClipboard(text string) error {
+    return sys.WriteToClipboard(text)
+}
+
 // OpenFolder 调用文件资源管理器打开指定目录
 func (p *Platform) OpenFolder(dirPath string) error {
 	if dirPath == "" {
