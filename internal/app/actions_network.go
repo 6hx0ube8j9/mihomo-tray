@@ -19,7 +19,7 @@ func (a *Application) handleToggleProxy(_ context.Context, cmd domain.UICommand)
 
 func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand) {
 	a.asyncRun("TUN 模式", func() error {
-		restarted, err := a.Tuner.ToggleTun(ctx, cmd.Payload == "true", a.Platform.ElevateWithRollback)
+		restarted, err := a.KernelTuner.ToggleTun(ctx, cmd.Payload == "true", a.Platform.ElevateWithRollback)
 		if err == nil && restarted {
 			a.ExitForRestart()
 		}
@@ -29,24 +29,24 @@ func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand)
 
 func (a *Application) handleSwitchMode(ctx context.Context, cmd domain.UICommand) {
 	a.asyncRun("路由模式", func() error {
-		return a.Tuner.SwitchMode(ctx, cmd.Payload)
+		return a.KernelTuner.SwitchMode(ctx, cmd.Payload)
 	})
 }
 
 func (a *Application) handleToggleAllowLan(ctx context.Context, cmd domain.UICommand) {
 	a.asyncRun("局域网代理", func() error {
-		return a.Tuner.ToggleAllowLan(ctx, cmd.Payload == "true")
+		return a.KernelTuner.ToggleAllowLan(ctx, cmd.Payload == "true")
 	})
 }
 
 func (a *Application) handleRequestEditPort(ctx context.Context, _ domain.UICommand) {
 	go func() {
 		if a.ui != nil {
-			cMixed, cSocks, cHttp := a.Tuner.GetPortSnapshot()
+			cMixed, cSocks, cHttp := a.KernelTuner.GetPortSnapshot()
 			nMixed, nSocks, nHttp, ok := a.ui.ShowPortEditor(cMixed, cSocks, cHttp)
 			if ok {
 				a.asyncRun("端口设置", func() error {
-					changed, err := a.Tuner.ApplyPortConfig(ctx, nMixed, nSocks, nHttp)
+					changed, err := a.KernelTuner.ApplyPortConfig(ctx, nMixed, nSocks, nHttp)
 					if err != nil {
 						return err
 					}
