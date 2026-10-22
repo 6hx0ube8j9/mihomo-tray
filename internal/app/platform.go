@@ -16,6 +16,10 @@ type Platform struct {
 	baseDir string
 }
 
+func (p *Platform) IsAdmin() bool {
+    return sys.IsAdmin()
+}
+
 func NewPlatform(exePath, baseDir string) *Platform {
 	return &Platform{
 		exePath: exePath,
