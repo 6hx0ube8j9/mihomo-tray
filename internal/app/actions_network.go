@@ -19,7 +19,7 @@ func (a *Application) handleToggleProxy(_ context.Context, cmd domain.UICommand)
 
 func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand) {
 	a.asyncRun("TUN 模式", func() error {
-		restarted, err := a.Tuner.ToggleTun(ctx, cmd.Payload == "true", a.HostBridge.ElevatePrivilege)
+		restarted, err := a.Tuner.ToggleTun(ctx, cmd.Payload == "true", a.Platform.ElevateWithRollback)
 		if err == nil && restarted {
 			a.ExitForRestart()
 		}
