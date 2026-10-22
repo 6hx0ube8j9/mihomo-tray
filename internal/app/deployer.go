@@ -60,7 +60,7 @@ func (d *Deployer) RestartKernel() error {
 	if _, err := d.prepareRuntimeConfig(d.cfg.GetActivePath()); err != nil {
 		return err
 	}
-	d.RestartProcess()
+	d.restartProcess()
 	return nil
 }
 
@@ -68,10 +68,6 @@ func (d *Deployer) DeployAndApply(ctx context.Context, targetRelPath, actionDesc
 	runtimeAbs, err := d.prepareRuntimeConfig(targetRelPath)
 	if err != nil {
 		return err
-	}
-
-	if targetRelPath != "" {
-		d.cfg.SetActiveProfile(targetRelPath)
 	}
 
 	if d.IsKernelRunning() {
@@ -83,7 +79,7 @@ func (d *Deployer) DeployAndApply(ctx context.Context, targetRelPath, actionDesc
 		slog.Warn("热重载失败，正在通过重启内核应用配置", "action", actionDesc, "target", targetRelPath, "err", err)
 	}
 
-	d.RestartProcess()
+	d.restartProcess()
 	return nil
 }
 
@@ -113,7 +109,7 @@ func (d *Deployer) prepareRuntimeConfig(targetRelPath string) (string, error) {
 	return deployRes.RuntimeAbs, nil
 }
 
-func (d *Deployer) RestartProcess() {
+func (d *Deployer) restartProcess() {
 	cfg := d.cfg.GetConfig()
 	slog.Debug("重启内核进程", "tun", cfg.Config.Tun.Enable)
 	if cfg.Config.Tun.Enable {
