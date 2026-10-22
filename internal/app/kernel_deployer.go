@@ -110,3 +110,19 @@ func (d *KernelDeployer) restartProcess() {
 	d.kernel.HaltDaemon()
 	d.kernel.WakeDaemon()
 }
+
+// RestartKernelViaAPI triggers an in-place restart of the kernel process via RESTful API (POST /restart).
+// Note: This bypasses the supervisor daemon and Windows Job Object lifecycle tracking.  
+// func (d *KernelDeployer) RestartKernelViaAPI(ctx context.Context) error {
+// 	if !d.IsKernelRunning() {
+// 		return domain.ErrKernelNotReady
+// 	}
+// 	if err := d.api.RestartKernel(ctx); err != nil {
+// 		return err
+// 	}
+// 	if err := d.kernel.WaitForReady(ctx); err != nil {
+// 		return err
+// 	}
+// 	slog.Debug("内核热重启成功")
+// 	return nil
+// }
