@@ -16,14 +16,6 @@ import (
 
 const apiSyncTimeout = 3 * time.Second
 
-var (
-	ErrKernelNotReady = errors.New("内核尚未就绪")
-	ErrSystemBusy     = errors.New("系统繁忙，请稍后重试")
-	ErrInvalidPort    = errors.New("端口超出合法范围 (0-65535)")
-	ErrAPITimeout     = errors.New("与内核通信超时")
-	ErrTunDeviceBusy  = errors.New("TUN 虚拟网卡已被占用")
-)
-
 type KernelTuner struct {
 	cfg       *config.Manager
 	st        *state.RuntimeState
@@ -60,7 +52,7 @@ func (t *KernelTuner) ToggleTun(ctx context.Context, enable bool) error {
 
 		if sys.IsTunActive(targetDev) {
 			slog.Warn("检测到虚拟网卡已被占用，拦截启动请求", "device", targetDev)
-			return ErrTunDeviceBusy
+			return domain.ErrTunDeviceBusy
 		}
 	}
 
@@ -72,11 +64,11 @@ func (t *KernelTuner) ToggleTun(ctx context.Context, enable bool) error {
 	}
 
 	if t.st.GetPhase() != domain.PhaseRunning {
-		return ErrKernelNotReady
+		return domain.ErrKernelNotReady
 	}
 
 	if !t.st.TryBeginAction(state.ActionSyncAPI) {
-		return ErrSystemBusy
+		return domain.ErrSystemBusy
 	}
 	defer t.st.EndAction()
 	defer t.triggerForceSync()
@@ -98,13 +90,13 @@ func (t *KernelTuner) ToggleTun(ctx context.Context, enable bool) error {
 
 func (t *KernelTuner) SwitchMode(ctx context.Context, mode string) error {
 	if t.st.GetPhase() != domain.PhaseRunning {
-		return ErrKernelNotReady
+		return domain.ErrKernelNotReady
 	}
 	if mode == t.cfg.GetConfig().Config.Mode {
 		return nil
 	}
 	if !t.st.TryBeginAction(state.ActionSyncAPI) {
-		return ErrSystemBusy
+		return domain.ErrSystemBusy
 	}
 	defer t.st.EndAction()
 	defer t.triggerForceSync()
@@ -121,13 +113,13 @@ func (t *KernelTuner) SwitchMode(ctx context.Context, mode string) error {
 
 func (t *KernelTuner) ToggleAllowLan(ctx context.Context, enable bool) error {
 	if t.st.GetPhase() != domain.PhaseRunning {
-		return ErrKernelNotReady
+		return domain.ErrKernelNotReady
 	}
 	if enable == t.cfg.GetEffectiveAllowLan() {
 		return nil
 	}
 	if !t.st.TryBeginAction(state.ActionSyncAPI) {
-		return ErrSystemBusy
+		return domain.ErrSystemBusy
 	}
 	defer t.st.EndAction()
 	defer t.triggerForceSync()
@@ -155,7 +147,7 @@ func (t *KernelTuner) GetPortSnapshot() (mixed, socks, httpPort int) {
 
 func (t *KernelTuner) ApplyPortConfig(ctx context.Context, mixed, socks, httpPort int) (changed bool, err error) {
 	if !netutil.IsValidPort(mixed) || !netutil.IsValidPort(socks) || !netutil.IsValidPort(httpPort) {
-		return false, ErrInvalidPort
+		return false, domain.ErrInvalidPort
 	}
 	cMixed, cSocks, cHttp := t.GetPortSnapshot()
 	if mixed == cMixed && socks == cSocks && httpPort == cHttp {
@@ -171,7 +163,7 @@ func (t *KernelTuner) ApplyPortConfig(ctx context.Context, mixed, socks, httpPor
 
 	if t.st.GetPhase() == domain.PhaseRunning {
 		if !t.st.TryBeginAction(state.ActionSyncAPI) {
-			return true, ErrSystemBusy
+			return true, domain.ErrSystemBusy
 		}
 		defer t.st.EndAction()
 		defer t.triggerForceSync()
