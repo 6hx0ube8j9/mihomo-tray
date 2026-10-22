@@ -46,10 +46,10 @@ func (t *KernelTuner) triggerForceSync() {
 	}
 }
 
-func (t *KernelTuner) ToggleTun(ctx context.Context, enable bool, elevate func(rollback func()) bool) (restarted bool, err error) {
+func (t *KernelTuner) ToggleTun(ctx context.Context, enable bool) error {
 	originalTun := t.cfg.GetConfig().Config.Tun.Enable
 	if originalTun == enable {
-		return false, nil
+		return nil
 	}
 
 	if enable {
@@ -60,35 +60,23 @@ func (t *KernelTuner) ToggleTun(ctx context.Context, enable bool, elevate func(r
 
 		if sys.IsTunActive(targetDev) {
 			slog.Warn("检测到虚拟网卡已被占用，拦截启动请求", "device", targetDev)
-			return false, ErrTunDeviceBusy
-		}
-	}
-
-	rollbackConfig := func() {
-		t.cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = originalTun })
-		if enable {
-			t.st.SetTunRequestedTime(time.Time{})
+			return ErrTunDeviceBusy
 		}
 	}
 
 	t.cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = enable })
 	if enable {
 		t.st.SetTunRequestedTime(time.Now())
-	}
-
-	restarted = elevate(rollbackConfig)
-	if restarted {
-		return true, nil
+	} else {
+		t.st.SetTunRequestedTime(time.Time{})
 	}
 
 	if t.st.GetPhase() != domain.PhaseRunning {
-		rollbackConfig()
-		return false, ErrKernelNotReady
+		return ErrKernelNotReady
 	}
 
 	if !t.st.TryBeginAction(state.ActionSyncAPI) {
-		rollbackConfig()
-		return false, ErrSystemBusy
+		return ErrSystemBusy
 	}
 	defer t.st.EndAction()
 	defer t.triggerForceSync()
@@ -99,13 +87,13 @@ func (t *KernelTuner) ToggleTun(ctx context.Context, enable bool, elevate func(r
 	if syncErr := t.api.UpdateTun(reqCtx, enable, t.st.GetActualTunDevice()); syncErr != nil {
 		if ctx.Err() == nil {
 			if errors.Is(syncErr, context.DeadlineExceeded) || errors.Is(syncErr, context.Canceled) {
-				slog.Warn("下发 TUN 指令响应超时（Windows网络栈重构瞬态），交由后台探针继续观测", "err", syncErr)
-				return false, nil
+				slog.Warn("下发 TUN 指令响应超时（Windows 网络栈重构瞬态），交由后台探针继续观测", "err", syncErr)
+				return nil
 			}
-			return false, syncErr
+			return syncErr
 		}
 	}
-	return false, nil
+	return nil
 }
 
 func (t *KernelTuner) SwitchMode(ctx context.Context, mode string) error {
