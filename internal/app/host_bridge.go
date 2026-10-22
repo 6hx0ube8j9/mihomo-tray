@@ -124,10 +124,9 @@ func (h *HostBridge) OpenConfigFile(targetRelPath string) error {
 	return nil
 }
 
-func (h *HostBridge) EditCurrentConfig() error {
-	targetRelPath := h.cfg.GetActivePath()
-	if targetRelPath == "" {
-		return errors.New("未选中任何运行配置")
+func (h *HostBridge) OpenInEditor(filePath string) error {
+	if filePath == "" {
+		return errors.New("文件路径不能为空")
 	}
-	return h.OpenConfigFile(targetRelPath)
+	return sys.OpenFileWithEditor(filePath)
 }
