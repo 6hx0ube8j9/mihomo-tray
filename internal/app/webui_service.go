@@ -144,7 +144,8 @@ func (s *WebUIService) ClearCache() error {
 
 	var lastErr error
 	for i := 0; i < 3; i++ {
-		if err := os.RemoveAll(cacheDir); err == nil {
+		err := os.RemoveAll(cacheDir)
+		if err == nil {
 			return nil
 		}
 		lastErr = err
