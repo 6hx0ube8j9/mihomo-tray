@@ -85,11 +85,17 @@ func (a *Application) handleToggleRemoteWebUI(_ context.Context, cmd domain.UICo
 }
 
 func (a *Application) handleCopyWebUIPassword(_ context.Context, _ domain.UICommand) {
-	if err := a.WebUIService.CopyPassword(); err != nil {
-		a.notifyWarn("复制密码", err)
-	} else {
-		a.notifySuccess("复制成功", "密码已复制到剪贴板。")
-	}
+    cfg := a.Cfg.GetConfig()
+    secret := a.Cfg.GetEffectiveSecret(cfg.Config.Secret)
+    if secret == "" {
+        a.notifyWarn("复制密码", errors.New("Web 面板未设置访问密码"))
+        return
+    }
+    if err := a.Platform.WriteClipboard(secret); err != nil {
+        a.notifyWarn("复制密码", fmt.Errorf("写入剪贴板失败: %w", err))
+        return
+    }
+    a.notifySuccess("复制成功", "密码已复制到剪贴板。")
 }
 
 func (a *Application) handleClearWebUICache(_ context.Context, _ domain.UICommand) {
