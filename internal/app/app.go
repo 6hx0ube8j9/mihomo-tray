@@ -29,11 +29,11 @@ type Application struct {
 	WebUI  *webui.Manager
 	ui     UIPort
 
-	Deployer       *Deployer
 	ProxyGuard     *ProxyGuard
 	Probe          *KernelProbe
 	ProfileHub     *ProfileHub
 	ProfileUpdater *ProfileUpdater
+	KernelDeployer *KernelDeployer
 	KernelTuner    *KernelTuner
 	Platform       *Platform
 	WebUIService   *WebUIService
@@ -75,7 +75,7 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 		}
 	})
 
-	app.Deployer = NewDeployer(cm, st, kernel, api)
+	app.KernelDeployer = NewKernelDeployer(cm, st, kernel, api)
 
 	app.ProfileHub = NewProfileHub(cm, st, func() string {
 		if app.Deployer.IsKernelRunning() {
