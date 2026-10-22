@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 
 	"mihomo-tray/internal/domain"
@@ -34,8 +35,8 @@ func (a *Application) handleRestartKernel(ctx context.Context, _ domain.UIComman
 		a.KernelTuner.ReconcilePrivilege()
 
 		if err := a.KernelDeployer.RestartKernel(); err != nil {
-			a.FallbackToEmpty(ctx, "重启配置校验失败")
-			a.notifyWarn("重启内核", errors.New("配置校验失败，已自动回退至空配置运行"))
+			a.FallbackToEmpty(ctx, "配置校验失败")
+			a.notifyWarn("配置加载", errors.New("当前配置存在错误，请检查文件内容"))
 			return nil
 		}
 
@@ -63,7 +64,7 @@ func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UIComm
 	a.asyncRun("开机自启", func() error {
 		if a.Platform.IsAdmin() {
 			if !a.Platform.SetAutoStartTask(enable) {
-				return errors.New("写入开机自启动计划任务失败，请检查 Task Scheduler 服务")
+				return errors.New("写入计划任务失败，请检查系统任务服务是否正常")
 			}
 			a.Cfg.Update(func(c *domain.TrayConfig) {
 				b := enable
@@ -84,9 +85,9 @@ func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UIComm
 				c.General.Autostart = &b
 			})
 			if err != nil {
-				return err
+				return fmt.Errorf("提权调用失败: %w", err)
 			}
-			return errors.New("已取消提权操作")
+			return nil
 		}
 
 		a.ExitForRestart()
@@ -96,7 +97,7 @@ func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UIComm
 
 func (a *Application) handleToggleRunAsAdmin(_ context.Context, cmd domain.UICommand) {
 	enable := cmd.Payload == "true"
-	a.asyncRun("以管理员运行", func() error {
+	a.asyncRun("管理员模式", func() error {
 		a.Cfg.Update(func(c *domain.TrayConfig) {
 			c.General.RunAsAdmin = enable
 		})
@@ -111,9 +112,9 @@ func (a *Application) handleToggleRunAsAdmin(_ context.Context, cmd domain.UICom
 				c.General.RunAsAdmin = false
 			})
 			if err != nil {
-				return err
+				return fmt.Errorf("提权调用失败: %w", err)
 			}
-			return errors.New("已取消提权操作")
+			return nil
 		}
 
 		a.ExitForRestart()
