@@ -15,7 +15,7 @@ import (
 func (a *Application) handleReloadConfig(ctx context.Context, _ domain.UICommand) {
 	a.runExclusiveAction(state.ActionReload, "重载配置", func() error {
 		_ = a.Cfg.ReloadFromDisk()
-		a.HostBridge.ReconcileRuntimePrivileges()
+		a.Tuner.ReconcilePrivilege()
 
 		if err := a.Deployer.ReloadConfig(ctx); err != nil {
 			return err
@@ -30,7 +30,7 @@ func (a *Application) handleReloadConfig(ctx context.Context, _ domain.UICommand
 func (a *Application) handleRestartKernel(ctx context.Context, _ domain.UICommand) {
 	a.runExclusiveAction(state.ActionRestart, "重启内核", func() error {
 		_ = a.Cfg.ReloadFromDisk()
-		a.HostBridge.ReconcileRuntimePrivileges()
+		a.Tuner.ReconcilePrivilege()
 
 		if err := a.Deployer.RestartKernel(); err != nil {
 			a.FallbackToEmpty(ctx, "重启配置校验失败")
