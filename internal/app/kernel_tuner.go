@@ -56,7 +56,7 @@ func (t *KernelTuner) syncAPI(ctx context.Context, action string, call func(cont
 
 	if err := call(reqCtx); err != nil {
 		if ctx.Err() == nil && (errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)) {
-			slog.Warn("下发参数响应超时，由后台探针继续同步", "action", action)
+			slog.Debug("下发参数响应超时，由后台探针继续同步", "action", action)
 		} else {
 			return err
 		}
