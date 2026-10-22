@@ -199,3 +199,15 @@ func (a *Application) handleMoveProfileDown(_ context.Context, cmd domain.UIComm
 	a.ProfileHub.MoveProfileDown(cmd.Payload)
 	a.Presenter.PushUIState()
 }
+
+func (a *Application) handleOpenConfigFile(_ context.Context, cmd domain.UICommand) {
+	a.asyncRun("打开配置", func() error {
+		return a.HostBridge.OpenConfigFile(cmd.Payload)
+	})
+}
+
+func (a *Application) handleEditCurrentConfig(_ context.Context, _ domain.UICommand) {
+	a.asyncRun("编辑配置", func() error {
+		return a.HostBridge.EditCurrentConfig()
+	})
+}
