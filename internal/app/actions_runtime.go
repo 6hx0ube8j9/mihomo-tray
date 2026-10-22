@@ -19,7 +19,7 @@ func (a *Application) handleReloadConfig(ctx context.Context, _ domain.UICommand
 		_ = a.Cfg.ReloadFromDisk()
 		a.Tuner.ReconcilePrivilege()
 
-		if err := a.Deployer.ReloadConfig(ctx); err != nil {
+		if err := a.KernelDeployer.ReloadConfig(ctx); err != nil {
 			return err
 		}
 
@@ -34,7 +34,7 @@ func (a *Application) handleRestartKernel(ctx context.Context, _ domain.UIComman
 		_ = a.Cfg.ReloadFromDisk()
 		a.Tuner.ReconcilePrivilege()
 
-		if err := a.Deployer.RestartKernel(); err != nil {
+		if err := a.KernelDeployer.RestartKernel(); err != nil {
 			a.FallbackToEmpty(ctx, "重启配置校验失败")
 			a.notifyWarn("重启内核", errors.New("配置校验失败，已自动回退至空配置运行"))
 			return nil
