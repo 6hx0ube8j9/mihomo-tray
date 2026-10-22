@@ -32,11 +32,11 @@ func NewKernelDeployer(cfg *config.Manager, st *state.RuntimeState, kernel *core
 	}
 }
 
-func (d *Deployer) IsKernelRunning() bool {
+func (d *KernelDeployer) IsKernelRunning() bool {
 	return d.st.GetPhase() == domain.PhaseRunning && !d.kernel.IsPaused()
 }
 
-func (d *Deployer) ReloadConfig(ctx context.Context) error {
+func (d *KernelDeployer) ReloadConfig(ctx context.Context) error {
 	activePath := d.cfg.GetActivePath()
 	runtimeAbs, err := d.prepareRuntimeConfig(activePath)
 	if err != nil {
@@ -55,7 +55,7 @@ func (d *Deployer) ReloadConfig(ctx context.Context) error {
 	return nil
 }
 
-func (d *Deployer) RestartKernel() error {
+func (d *KernelDeployer) RestartKernel() error {
 	slog.Info("正在重启内核")
 	if _, err := d.prepareRuntimeConfig(d.cfg.GetActivePath()); err != nil {
 		return err
@@ -64,7 +64,7 @@ func (d *Deployer) RestartKernel() error {
 	return nil
 }
 
-func (d *Deployer) DeployAndApply(ctx context.Context, targetRelPath, actionDesc string) error {
+func (d *KernelDeployer) DeployAndApply(ctx context.Context, targetRelPath, actionDesc string) error {
 	runtimeAbs, err := d.prepareRuntimeConfig(targetRelPath)
 	if err != nil {
 		return err
@@ -83,12 +83,12 @@ func (d *Deployer) DeployAndApply(ctx context.Context, targetRelPath, actionDesc
 	return nil
 }
 
-func (d *Deployer) SyncRuntimeConfig() error {
+func (d *KernelDeployer) SyncRuntimeConfig() error {
 	_, err := d.prepareRuntimeConfig(d.cfg.GetActivePath())
 	return err
 }
 
-func (d *Deployer) prepareRuntimeConfig(targetRelPath string) (string, error) {
+func (d *KernelDeployer) prepareRuntimeConfig(targetRelPath string) (string, error) {
 	if targetRelPath != "" {
 		if err := d.cfg.ValidatePhysicalFile(targetRelPath); err != nil {
 			return "", fmt.Errorf("配置文件无效: %w", err)
@@ -109,7 +109,7 @@ func (d *Deployer) prepareRuntimeConfig(targetRelPath string) (string, error) {
 	return deployRes.RuntimeAbs, nil
 }
 
-func (d *Deployer) restartProcess() {
+func (d *KernelDeployer) restartProcess() {
 	cfg := d.cfg.GetConfig()
 	slog.Debug("重启内核进程", "tun", cfg.Config.Tun.Enable)
 	if cfg.Config.Tun.Enable {
