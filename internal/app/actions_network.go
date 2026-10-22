@@ -17,13 +17,32 @@ func (a *Application) handleToggleProxy(_ context.Context, cmd domain.UICommand)
 	})
 }
 
+
 func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand) {
+	enable := (cmd.Payload == "true")
+
 	a.asyncRun("TUN 模式", func() error {
-		restarted, err := a.KernelTuner.ToggleTun(ctx, cmd.Payload == "true", a.Platform.ElevateWithRollback)
-		if err == nil && restarted {
+		if enable && !a.Platform.IsAdmin() {
+			a.Cfg.Update(func(c *domain.TrayConfig) {
+				c.Config.Tun.Enable = true
+			})
+
+			restarted, err := a.Platform.Elevate()
+			if err != nil || !restarted {
+				a.Cfg.Update(func(c *domain.TrayConfig) {
+					c.Config.Tun.Enable = false
+				})
+				if err != nil {
+					return err
+				}
+				return errors.New("已取消提权操作，无法开启 TUN 模式")
+			}
+
 			a.ExitForRestart()
+			return nil
 		}
-		return err
+
+		return a.KernelTuner.ToggleTun(ctx, enable)
 	})
 }
 
