@@ -56,17 +56,20 @@ func (g *ProxyGuard) Sync() {
 		return
 	}
 
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
 	wantEnable := g.cfg.IsSystemProxyEnabled()
 	portStr, hasPort := g.cfg.GetEffectiveSystemProxyPortStr()
 
 	if !wantEnable {
-		g.cleanupRegistryProxy(portStr)
+		g.cleanupRegistryProxyLocked(portStr)
 		return
 	}
 
 	if !hasPort {
 		slog.Warn("未检测到有效代理端口，已停用系统代理")
-		g.disableInternal()
+		g.disableInternalLocked()
 		if g.onAlert != nil {
 			g.onAlert("系统代理", "未检测到有效代理端口，系统代理已关闭")
 		}
@@ -79,18 +82,14 @@ func (g *ProxyGuard) Sync() {
 		return
 	}
 
-	g.mu.Lock()
 	g.lastAppliedPort = portStr
-	g.mu.Unlock()
 }
 
-func (g *ProxyGuard) cleanupRegistryProxy(currentPortStr string) {
-	g.mu.Lock()
+func (g *ProxyGuard) cleanupRegistryProxyLocked(currentPortStr string) {
 	targetPort := g.lastAppliedPort
 	if targetPort == "" {
 		targetPort = currentPortStr
 	}
-	g.mu.Unlock()
 
 	if targetPort == "" {
 		return
@@ -99,9 +98,7 @@ func (g *ProxyGuard) cleanupRegistryProxy(currentPortStr string) {
 	if err := sys.DisableProxy(targetPort); err != nil {
 		slog.Error("注销系统代理失败", "port", targetPort, "err", err)
 	} else {
-		g.mu.Lock()
 		g.lastAppliedPort = ""
-		g.mu.Unlock()
 	}
 }
 
@@ -110,6 +107,12 @@ func (g *ProxyGuard) disableInternal() {
 		return
 	}
 
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.disableInternalLocked()
+}
+
+func (g *ProxyGuard) disableInternalLocked() {
 	if g.cfg.IsSystemProxyEnabled() {
 		g.cfg.Update(func(c *domain.TrayConfig) {
 			b := false
@@ -118,12 +121,15 @@ func (g *ProxyGuard) disableInternal() {
 	}
 
 	portStr, _ := g.cfg.GetEffectiveSystemProxyPortStr()
-	g.cleanupRegistryProxy(portStr)
+	g.cleanupRegistryProxyLocked(portStr)
 }
 
 func (g *ProxyGuard) SafeShutdownCleanup() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
 	portStr, _ := g.cfg.GetEffectiveSystemProxyPortStr()
-	g.cleanupRegistryProxy(portStr)
+	g.cleanupRegistryProxyLocked(portStr)
 	slog.Debug("系统代理退出清理完成")
 }
 
