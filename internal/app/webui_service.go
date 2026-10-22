@@ -119,19 +119,6 @@ func (s *WebUIService) ReopenIfActive(forceSync func()) {
 	}()
 }
 
-func (s *WebUIService) CopyPassword() error {
-	cfg := s.cfg.GetConfig()
-	secret := s.cfg.GetEffectiveSecret(cfg.Config.Secret)
-	if secret == "" {
-		return errors.New("Web 面板未设置访问密码")
-	}
-
-	if err := sys.WriteToClipboard(secret); err != nil {
-		return fmt.Errorf("写入剪贴板失败: %w", err)
-	}
-	return nil
-}
-
 func (s *WebUIService) ClearCache() error {
 	if s.coreMgr.IsActive() {
 		return errors.New("Web 面板当前正在运行中，请先关闭面板")
