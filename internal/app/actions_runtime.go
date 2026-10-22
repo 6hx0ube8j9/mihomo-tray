@@ -52,18 +52,6 @@ func (a *Application) handleOpenAppConfig(_ context.Context, _ domain.UICommand)
 	a.HostBridge.OpenAppConfig()
 }
 
-func (a *Application) handleOpenConfigFile(_ context.Context, cmd domain.UICommand) {
-	a.asyncRun("打开配置", func() error {
-		return a.HostBridge.OpenConfigFile(cmd.Payload)
-	})
-}
-
-func (a *Application) handleEditCurrentConfig(_ context.Context, _ domain.UICommand) {
-	a.asyncRun("编辑配置", func() error {
-		return a.HostBridge.EditCurrentConfig()
-	})
-}
-
 func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UICommand) {
 	a.asyncRun("开机自启", func() error {
 		if a.HostBridge.ToggleAutoStart(cmd.Payload == "true") {
