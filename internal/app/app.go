@@ -174,7 +174,7 @@ func (a *Application) FallbackToEmpty(ctx context.Context, reason string) {
 	a.State.ClearTunLost()
 	a.State.SetTunAlive(false)
 
-	if a.Deployer.IsKernelRunning() {
+	if a.KernelDeployer.IsKernelRunning() {
 		_ = a.KernelDeployer.DeployAndApply(ctx, "", "回退空配置")
 	} else {
 		_ = a.KernelDeployer.SyncRuntimeConfig()
@@ -294,7 +294,9 @@ func (a *Application) eventLoop(ctx context.Context) {
 			a.Presenter.PushUIState()
 
 		case <-a.tunEventCh:
-			a.Probe.HandleTunChange(a.ForceSyncAPI)
+			if !a.State.IsExiting() && !a.State.IsActionBusy() {
+				a.ForceSyncAPI()
+			}
 
 		case status := <-a.proxyStatusCh:
 			a.ProxyGuard.HandleStatusChange(ctx, status)
