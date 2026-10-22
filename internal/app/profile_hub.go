@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +18,7 @@ import (
 
 var (
 	ErrProfileUpdating = errors.New("订阅正在更新中，请稍候")
+	ErrInvalidYAML     = errors.New("配置内容为空或非合法 YAML")
 )
 
 type ProfileHub struct {
@@ -52,16 +52,24 @@ func (h *ProfileHub) EnsureActiveValid(ctx context.Context) bool {
 		return true
 	}
 
-	if p, ok := h.cfg.GetProfileByPath(activePath); ok && p.URL != "" {
-		slog.Info("当前活跃配置物理文件丢失，尝试拉取远程订阅恢复", "path", activePath)
-		fCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-		err := h.fetchAndCommit(fCtx, activePath, p.URL, &p)
-		cancel()
+	p, ok := h.cfg.GetProfileByPath(activePath)
+	if !ok || p.URL == "" {
+		return false
+	}
 
-		if err == nil {
-			slog.Info("配置已成功拉取恢复")
-			return true
-		}
+	if !h.st.TryAcquireProfileLock(activePath) {
+		return false
+	}
+	defer h.st.ReleaseProfileLock(activePath)
+
+	slog.Info("当前活跃配置物理文件丢失，尝试拉取远程订阅恢复", "path", activePath)
+	fCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	if err := h.fetchAndCommit(fCtx, activePath, p.URL, &p); err == nil {
+		slog.Info("配置已成功拉取恢复")
+		return true
+	} else {
 		slog.Warn("拉取恢复失败", "err", err)
 	}
 
@@ -163,62 +171,10 @@ func (h *ProfileHub) EditRemote(ctx context.Context, oldPath, newName, newURL st
 	return urlChanged, nil
 }
 
-func (h *ProfileHub) EditLocal(targetPath, newName string) error {
-	p, ok := h.cfg.GetProfileByPath(targetPath)
-	if !ok {
-		return errors.New("配置不存在")
-	}
-	if p.Name != newName {
-		p.Name = newName
-		h.cfg.UpsertProfile(p)
-	}
-	return nil
-}
-
 func (h *ProfileHub) Delete(targetPath string) (wasActive bool, err error) {
 	wasActive = (targetPath == h.cfg.GetActivePath())
 	err = h.cfg.DeleteProfile(targetPath)
 	return wasActive, err
-}
-
-func (h *ProfileHub) GetActivePath() string                 { return h.cfg.GetActivePath() }
-func (h *ProfileHub) SetActiveProfile(path string)          { h.cfg.SetActiveProfile(path) }
-func (h *ProfileHub) ClearActiveProfile()                   { h.cfg.SetActiveProfile("") }
-func (h *ProfileHub) IsActive(path string) bool             { return path != "" && path == h.cfg.GetActivePath() }
-func (h *ProfileHub) ValidateTarget(path string) error      { return h.cfg.ValidatePhysicalFile(path) }
-func (h *ProfileHub) GetProfileInfo(path string) (domain.ProfileItem, bool) { return h.cfg.GetProfileByPath(path) }
-func (h *ProfileHub) MoveProfileUp(path string)             { h.cfg.MoveProfile(path, -1) }
-func (h *ProfileHub) MoveProfileDown(path string)           { h.cfg.MoveProfile(path, 1) }
-
-func (h *ProfileHub) SetInterval(path string, interval int) bool {
-	p, ok := h.cfg.GetProfileByPath(path)
-	if !ok {
-		return false
-	}
-	p.Interval = interval
-	p.AutoUpdate = interval > 0
-	h.cfg.UpsertProfile(p)
-	return true
-}
-
-func (h *ProfileHub) validateBytes(content []byte, isActive bool) error {
-	if len(content) == 0 {
-		return errors.New("配置内容为空")
-	}
-	if len(content) > domain.MaxProfileBytes {
-		return fmt.Errorf("配置大小超出限制 (%d MB)", domain.MaxProfileBytes/(1024*1024))
-	}
-
-	var err error
-	if isActive {
-		_, err = core.ValidateRuntimeYAML(h.cfg.GetConfig(), content, h.cfg.BaseDir())
-	} else {
-		_, err = core.ComposeRuntimeYAML(h.cfg.GetConfig(), content)
-	}
-	if err != nil {
-		return fmt.Errorf("配置校验错误: %w", err)
-	}
-	return nil
 }
 
 func (h *ProfileHub) ValidateSource(sourcePath string) error {
@@ -251,10 +207,11 @@ func (h *ProfileHub) fetchAndCommit(ctx context.Context, targetRelPath, url stri
 
 	tempBytes, err := os.ReadFile(res.TempPath)
 	if err != nil {
-		return fmt.Errorf("无法读取订阅配置: %w", err)
+		return fmt.Errorf("无法读取订阅临时文件: %w", err)
 	}
 
-	if err := h.validateBytes(tempBytes, targetRelPath == h.cfg.GetActivePath()); err != nil {
+	isActive := (targetRelPath == h.cfg.GetActivePath())
+	if err := h.validateBytes(tempBytes, isActive); err != nil {
 		return err
 	}
 
@@ -265,4 +222,24 @@ func (h *ProfileHub) fetchAndCommit(ctx context.Context, targetRelPath, url stri
 	item.LastUpdate = time.Now().Unix()
 
 	return h.cfg.CommitRemoteProfile(res.TempPath, targetRelPath, *item)
+}
+
+func (h *ProfileHub) validateBytes(content []byte, isActive bool) error {
+	if len(content) == 0 {
+		return ErrInvalidYAML
+	}
+	if len(content) > domain.MaxProfileBytes {
+		return fmt.Errorf("配置大小超出限制 (%d MB)", domain.MaxProfileBytes/(1024*1024))
+	}
+
+	var err error
+	if isActive {
+		_, err = core.ValidateRuntimeYAML(h.cfg.GetConfig(), content, h.cfg.BaseDir())
+	} else {
+		_, err = core.ComposeRuntimeYAML(h.cfg.GetConfig(), content)
+	}
+	if err != nil {
+		return fmt.Errorf("配置校验错误: %w", err)
+	}
+	return nil
 }
