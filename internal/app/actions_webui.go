@@ -55,7 +55,7 @@ func (a *Application) handleRequestEditController(_ context.Context, _ domain.UI
 			})
 
 			if coreChanged {
-				if err := a.Deployer.RestartKernel(); err != nil {
+				if err := a.KernelDeployer.RestartKernel(); err != nil {
 					return err
 				}
 			}
