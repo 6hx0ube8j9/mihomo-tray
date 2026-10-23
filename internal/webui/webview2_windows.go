@@ -137,7 +137,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 
 		isDark := sys.IsSystemDarkMode()
 
-		// 1. 注册深色底板窗口类（画刷直接使用 #181818 或 #F8F9FA）
 		var hinstance windows.Handle
 		_ = windows.GetModuleHandleEx(0, nil, &hinstance)
 
