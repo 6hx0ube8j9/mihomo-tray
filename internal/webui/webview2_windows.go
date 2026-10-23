@@ -5,10 +5,9 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"reflect"
 	"runtime"
-	"syscall"
-	"unsafe"
+	"sync"
+	"time"
 
 	"github.com/jchv/go-webview2"
 	"golang.org/x/sys/windows"
@@ -17,21 +16,14 @@ import (
 	"mihomo-tray/internal/sys"
 )
 
-const webview2Tag = "webview2"
-
-var (
-	iidICoreWebView2Controller2 = windows.GUID{
-		Data1: 0xc979903e,
-		Data2: 0xd4ca,
-		Data3: 0x4228,
-		Data4: [8]byte{0x92, 0xeb, 0x47, 0xee, 0x3f, 0xa9, 0x6e, 0x42},
-	}
+const (
+	webview2Tag = "webview2"
+	swHide      = 0 // Win32 SW_HIDE
 )
 
-const (
-	vtableIdxQueryInterface           = 0
-	vtableIdxRelease                  = 2
-	vtableIdxPutDefaultBackgroundColor = 27
+var (
+	modUser32      = windows.NewLazySystemDLL("user32.dll")
+	procShowWindow = modUser32.NewProc("ShowWindow")
 )
 
 func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Event) bool {
@@ -68,48 +60,75 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		hwnd := uintptr(w.Window())
 		m.hwnd.Store(hwnd)
 
+		// 1. 核心关键：窗口刚创建时强制静默隐藏，严禁在加载期间暴露给用户
+		procShowWindow.Call(hwnd, swHide)
+
+		// 2. 准备图标与深色模式标题栏
 		sys.SetWindowIconClean(hwnd, "APP")
 		isDark := sys.IsSystemDarkMode()
 		if isDark {
 			sys.SetWindowDarkMode(hwnd, true)
 		}
 
-		if isDark {
-			setWebView2BackgroundColor(w, 0x18, 0x18, 0x18, 0xFF)
-		} else {
-			setWebView2BackgroundColor(w, 0xF8, 0xF9, 0xFA, 0xFF)
-		}
-
-		// 3. 内存级 CSS 注入兜底（嗅探面板 localStorage 自定义的主题设置）
+		// 3. 注入首帧防白脚本：在 HTML 解析的第一时间拦截，提前将 html 标签与 app 容器打上暗黑底色
+		// 彻底解决 Vue/React 在 JS 执行前渲染 Tailwind 白色默认底的问题
 		bgScript := fmt.Sprintf(`
 			(function() {
 				let isDark = %t;
 				try {
-					const local = localStorage.getItem('theme') || localStorage.getItem('theme-mode');
-					if (local) isDark = local.includes('dark');
+					const local = localStorage.getItem('theme') || 
+					              localStorage.getItem('theme-mode') || 
+					              localStorage.getItem('meta-settings');
+					if (local && local.includes('dark')) isDark = true;
+					if (local && local.includes('light')) isDark = false;
 				} catch(e) {}
+
 				const bg = isDark ? '#181818' : '#F8F9FA';
 				const fg = isDark ? '#ECECEC' : '#212529';
+
+				if (isDark) {
+					document.documentElement.classList.add('dark');
+				}
+				document.documentElement.style.backgroundColor = bg;
+
 				const style = document.createElement('style');
-				style.id = '__preload_bg__';
-				style.innerHTML = 'html, body { background-color: ' + bg + ' !important; color: ' + fg + '; }';
+				style.id = '__preload_dark_bg__';
+				style.innerHTML = 'html, body, #app { background-color: ' + bg + ' !important; color: ' + fg + '; }';
 				const target = document.head || document.documentElement;
 				if (target) {
 					target.appendChild(style);
+				}
+
+				// DOM 解析就绪后，主动通知 Go 宿主拉起窗口
+				function notify() {
+					if (window.__panelReady__) {
+						window.__panelReady__();
+					}
+				}
+
+				if (document.readyState === 'complete' || document.readyState === 'interactive') {
+					notify();
 				} else {
-					document.addEventListener('DOMContentLoaded', () => {
-						if (!document.getElementById('__preload_bg__')) {
-							(document.head || document.documentElement).appendChild(style);
-						}
-					});
+					document.addEventListener('DOMContentLoaded', notify);
 				}
 			})();
 		`, isDark)
-		// 修正点：w.Init 无返回值，直接单行调用
 		w.Init(bgScript)
 
-		// 4. 底色和标题栏全部就绪后再平滑呼出前台
-		sys.FocusWindowSilky(hwnd)
+		// 4. 展示窗口回调（确保仅执行一次）
+		var showOnce sync.Once
+		showWindow := func() {
+			showOnce.Do(func() {
+				// 此时页面 DOM 与基础底色已就绪，瞬间置顶弹出，零白屏
+				sys.FocusWindowSilky(hwnd)
+				emitEvent(eventCh, EventReady)
+			})
+		}
+
+		// 绑定前端就绪事件通知
+		_ = w.Bind("__panelReady__", func() {
+			showWindow()
+		})
 
 		initCh <- true
 
@@ -118,76 +137,16 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 			w.Destroy()
 		}()
 
-		w.Navigate(finalURL)
-		emitEvent(eventCh, EventReady)
+		// 5. 超时保底：本地 127.0.0.1 加载一般仅需 20~50ms
+		// 设定 300ms 超时强制展示，防止极端前端报错导致窗口永久隐藏
+		time.AfterFunc(300*time.Millisecond, func() {
+			showWindow()
+		})
 
+		// 6. 在后台启动导航，完全不阻塞主消息循环
+		w.Navigate(finalURL)
 		w.Run()
 	}()
 
 	return <-initCh
-}
-
-// setWebView2BackgroundColor 通过 COM 虚函数表安全调用 put_DefaultBackgroundColor
-func setWebView2BackgroundColor(w webview2.WebView, r, g, b, a uint8) bool {
-	if w == nil {
-		return false
-	}
-
-	ctrlPtr := getControllerPtr(reflect.ValueOf(w))
-	if ctrlPtr == 0 {
-		return false
-	}
-
-	vtblPtr := *(*uintptr)(unsafe.Pointer(ctrlPtr))
-	vtbl := (*[35]uintptr)(unsafe.Pointer(vtblPtr))
-
-	// 查询 ICoreWebView2Controller2 接口
-	var ctrl2 uintptr
-	hr, _, _ := syscall.SyscallN(
-		vtbl[vtableIdxQueryInterface],
-		ctrlPtr,
-		uintptr(unsafe.Pointer(&iidICoreWebView2Controller2)),
-		uintptr(unsafe.Pointer(&ctrl2)),
-	)
-	if hr != 0 || ctrl2 == 0 {
-		return false
-	}
-
-	vtbl2Ptr := *(*uintptr)(unsafe.Pointer(ctrl2))
-	vtbl2 := (*[35]uintptr)(unsafe.Pointer(vtbl2Ptr))
-	defer func() {
-		syscall.SyscallN(vtbl2[vtableIdxRelease], ctrl2)
-	}()
-
-	// Windows COREWEBVIEW2_COLOR 格式：小端序 (A, R, G, B)
-	packedColor := uint32(a) | (uint32(r) << 8) | (uint32(g) << 16) | (uint32(b) << 24)
-	putBgColorFunc := vtbl2[vtableIdxPutDefaultBackgroundColor]
-	ret, _, _ := syscall.SyscallN(putBgColorFunc, ctrl2, uintptr(packedColor))
-	return ret == 0
-}
-
-func getControllerPtr(val reflect.Value) uintptr {
-	if val.Kind() == reflect.Ptr {
-		val = val.Elem()
-	}
-	if val.Kind() != reflect.Struct {
-		return 0
-	}
-
-	if f := val.FieldByName("controller"); f.IsValid() && f.CanAddr() {
-		return *(*uintptr)(unsafe.Pointer(f.UnsafeAddr()))
-	}
-
-	for i := 0; i < val.NumField(); i++ {
-		sub := val.Field(i)
-		if sub.Kind() == reflect.Ptr {
-			sub = sub.Elem()
-		}
-		if sub.Kind() == reflect.Struct {
-			if f := sub.FieldByName("controller"); f.IsValid() && f.CanAddr() {
-				return *(*uintptr)(unsafe.Pointer(f.UnsafeAddr()))
-			}
-		}
-	}
-	return 0
 }
