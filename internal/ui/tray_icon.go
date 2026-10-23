@@ -2,6 +2,7 @@ package ui
 
 import (
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -31,23 +32,25 @@ var (
 )
 
 type TrayIconController struct {
+	mu          sync.Mutex
 	ni          *walk.NotifyIcon
-	currentSize atomic.Int32
-	lastStateId atomic.Int32
+	currentSize int
+	lastStateId int
 	icons       map[int]*walk.Icon
 
-	engine     *Engine
-	isDisposed atomic.Bool
+	cachedTrayHwnd win.HWND
+	engine         *Engine
+	isDisposed     atomic.Bool
 }
 
 func NewTrayIconController(e *Engine, ni *walk.NotifyIcon) *TrayIconController {
 	c := &TrayIconController{
-		ni:     ni,
-		icons:  make(map[int]*walk.Icon),
-		engine: e,
+		ni:          ni,
+		icons:       make(map[int]*walk.Icon),
+		engine:      e,
+		lastStateId: -1,
+		currentSize: 0,
 	}
-	c.lastStateId.Store(-1)
-	c.currentSize.Store(0)
 
 	c.startDpiWatcher()
 	return c
@@ -58,25 +61,34 @@ func CreateNotifyIcon() (*walk.NotifyIcon, error) {
 	if err != nil {
 		return nil, err
 	}
-	_ = ni.SetVisible(true)
 	_ = ni.SetToolTip(domain.AppName)
 	return ni, nil
 }
 
 func (c *TrayIconController) SetState(stateId int) {
+	if c.isDisposed.Load() || stateId < 0 || stateId >= len(trayIconResourceNames) {
+		return
+	}
+
+	c.engine.RunOnUI(func() {
+		c.setStateInternal(stateId)
+	})
+}
+
+func (c *TrayIconController) setStateInternal(stateId int) {
 	if c.isDisposed.Load() || c.ni == nil {
 		return
 	}
 
-	targetSize := c.getSystemMetricSize()
-	currSize := int(c.currentSize.Load())
-	lastId := int(c.lastStateId.Load())
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	if stateId == lastId && targetSize == currSize {
+	targetSize := c.getSystemMetricSizeLocked()
+	if stateId == c.lastStateId && targetSize == c.currentSize {
 		return
 	}
 
-	sizeChanged := targetSize != currSize
+	sizeChanged := targetSize != c.currentSize
 	var oldIcons map[int]*walk.Icon
 
 	if sizeChanged {
@@ -84,7 +96,7 @@ func (c *TrayIconController) SetState(stateId int) {
 		c.icons = make(map[int]*walk.Icon)
 	}
 
-	ico := c.getIcon(stateId, targetSize)
+	ico := c.getIconLocked(stateId, targetSize)
 	if ico == nil {
 		if sizeChanged {
 			c.icons = oldIcons
@@ -101,10 +113,14 @@ func (c *TrayIconController) SetState(stateId int) {
 		return
 	}
 
-	c.lastStateId.Store(int32(stateId))
+	if !c.ni.Visible() {
+		_ = c.ni.SetVisible(true)
+	}
+
+	c.lastStateId = stateId
 
 	if sizeChanged {
-		c.currentSize.Store(int32(targetSize))
+		c.currentSize = targetSize
 		for _, oldIco := range oldIcons {
 			if oldIco != nil {
 				oldIco.Dispose()
@@ -113,11 +129,7 @@ func (c *TrayIconController) SetState(stateId int) {
 	}
 }
 
-func (c *TrayIconController) getIcon(stateId, targetSize int) *walk.Icon {
-	if stateId < 0 || stateId >= len(trayIconResourceNames) {
-		return nil
-	}
-
+func (c *TrayIconController) getIconLocked(stateId, targetSize int) *walk.Icon {
 	if ico, ok := c.icons[stateId]; ok && ico != nil {
 		return ico
 	}
@@ -145,9 +157,20 @@ func (c *TrayIconController) getIcon(stateId, targetSize int) *walk.Icon {
 	return ico
 }
 
-func (c *TrayIconController) getSystemMetricSize() int {
-	hwnd := win.FindWindow(trayClassName, nil)
-	dpi := win.GetDpiForWindow(hwnd)
+func (c *TrayIconController) getSystemMetricSizeLocked() int {
+	if c.cachedTrayHwnd == 0 || !win.IsWindow(c.cachedTrayHwnd) {
+		c.cachedTrayHwnd = win.FindWindow(trayClassName, nil)
+	}
+
+	var dpi uint32
+	if c.cachedTrayHwnd != 0 {
+		dpi = win.GetDpiForWindow(c.cachedTrayHwnd)
+	}
+
+	if dpi == 0 {
+		dpi = win.GetDpiForSystem()
+	}
+
 	if dpi == 0 {
 		dpi = baseDPI
 	}
@@ -173,29 +196,40 @@ func (c *TrayIconController) startDpiWatcher() {
 					return
 				}
 
-				if c.getSystemMetricSize() != int(c.currentSize.Load()) {
-					c.engine.RunOnUI(func() {
-						if !c.isDisposed.Load() {
-							c.SetState(int(c.lastStateId.Load()))
-						}
-					})
+				c.mu.Lock()
+				lastId := c.lastStateId
+				currSize := c.currentSize
+				targetSize := c.getSystemMetricSizeLocked()
+				c.mu.Unlock()
+
+				if lastId != -1 && targetSize != currSize {
+					c.SetState(lastId)
 				}
 			}
 		}
 	}()
 }
 
-func (c *TrayIconController) clearAllCache() {
-	for id, ico := range c.icons {
-		if ico != nil {
-			ico.Dispose()
-		}
-		delete(c.icons, id)
-	}
-}
-
 func (c *TrayIconController) Dispose() {
-	c.isDisposed.Store(true)
-	c.clearAllCache()
-	c.ni = nil
+	if c.isDisposed.Swap(true) {
+		return
+	}
+
+	c.engine.RunOnUI(func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		for id, ico := range c.icons {
+			if ico != nil {
+				ico.Dispose()
+			}
+			delete(c.icons, id)
+		}
+
+		if c.ni != nil {
+			_ = c.ni.SetVisible(false)
+			c.ni.Dispose()
+			c.ni = nil
+		}
+	})
 }
