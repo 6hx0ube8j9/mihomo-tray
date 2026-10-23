@@ -9,6 +9,7 @@ import (
 var (
 	procGetModuleHandleW = modKernel32.NewProc("GetModuleHandleW")
 	procLoadImageW       = modUser32.NewProc("LoadImageW")
+	procGetSystemMetrics = modUser32.NewProc("GetSystemMetrics")
 	procSendMessageW     = modUser32.NewProc("SendMessageW")
 )
 
@@ -20,13 +21,13 @@ const (
 	imageIcon = 1
 	lrShared  = 0x00008000
 
-	smCxIcon   = 11
-	smCyIcon   = 12
-	smCxSmIcon = 49
-	smCySmIcon = 50
+	smCxIcon   = 11 // SM_CXICON
+	smCyIcon   = 12 // SM_CYICON
+	smCxSmIcon = 49 // SM_CXSMICON
+	smCySmIcon = 50 // SM_CYSMICON
 )
 
-func SetWindowIcon(hwnd uintptr, resName string) bool {
+func SetWindowIconClean(hwnd uintptr, resName string) bool {
 	if hwnd == 0 || resName == "" {
 		return false
 	}
@@ -41,25 +42,21 @@ func SetWindowIcon(hwnd uintptr, resName string) bool {
 		return false
 	}
 
-	cxSm, _, _ := procGetSystemMetrics.Call(smCxSmIcon)
-	cySm, _, _ := procGetSystemMetrics.Call(smCySmIcon)
-	hIconSmall, _, _ := procLoadImageW.Call(
-		hInst,
-		uintptr(unsafe.Pointer(namePtr)),
-		imageIcon,
-		cxSm, cySm,
-		lrShared,
-	)
+	loadIcon := func(cxMetric, cyMetric uintptr) uintptr {
+		cx, _, _ := procGetSystemMetrics.Call(cxMetric)
+		cy, _, _ := procGetSystemMetrics.Call(cyMetric)
+		hIcon, _, _ := procLoadImageW.Call(
+			hInst,
+			uintptr(unsafe.Pointer(namePtr)),
+			imageIcon,
+			cx, cy,
+			lrShared,
+		)
+		return hIcon
+	}
 
-	cxLg, _, _ := procGetSystemMetrics.Call(smCxIcon)
-	cyLg, _, _ := procGetSystemMetrics.Call(smCyIcon)
-	hIconBig, _, _ := procLoadImageW.Call(
-		hInst,
-		uintptr(unsafe.Pointer(namePtr)),
-		imageIcon,
-		cxLg, cyLg,
-		lrShared,
-	)
+	hIconSmall := loadIcon(smCxSmIcon, smCySmIcon)
+	hIconBig := loadIcon(smCxIcon, smCyIcon)
 
 	if hIconSmall != 0 {
 		procSendMessageW.Call(hwnd, wmSetIcon, iconSmall, hIconSmall)
