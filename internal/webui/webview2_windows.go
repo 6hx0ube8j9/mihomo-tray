@@ -24,6 +24,8 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, webview2Tag)
 		_ = os.MkdirAll(userDataDir, 0755)
 
+		sys.ClaimForegroundPrivilege()
+
 		w := webview2.NewWithOptions(webview2.WebViewOptions{
 			Debug:     false,
 			AutoFocus: true,
