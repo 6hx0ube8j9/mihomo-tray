@@ -150,13 +150,10 @@ var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam uintptr)
 	return 1
 })
 
-func FindTopWindow(matcher func(info WindowInfo) bool) uintptr {
+func ClaimForegroundPrivilege() {
 	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	ctx := &enumContext{matcher: matcher}
-	procEnumWindows.Call(enumWindowsCallback, uintptr(unsafe.Pointer(ctx)))
-	return ctx.targetHwnd
+	procKeybdEvent.Call(vkMenu, 0, 0, 0)
+	procKeybdEvent.Call(vkMenu, 0, keyeventfKeyup, 0)
 }
 
 func FocusWindowSilky(targetHwnd uintptr) {
@@ -169,17 +166,13 @@ func FocusWindowSilky(targetHwnd uintptr) {
 
 	if IsIconic(targetHwnd) {
 		procShowWindow.Call(targetHwnd, SW_RESTORE)
-	} else {
-		procShowWindow.Call(targetHwnd, SW_SHOW)
 	}
 
 	procKeybdEvent.Call(vkMenu, 0, 0, 0)
 	procKeybdEvent.Call(vkMenu, 0, keyeventfKeyup, 0)
 
-	procSetWindowPos.Call(targetHwnd, hwndTopMost, 0, 0, 0, 0, swpNoMove|swpNoSize|swpShowWindow)
-	procSetWindowPos.Call(targetHwnd, hwndNoTopMost, 0, 0, 0, 0, swpNoMove|swpNoSize)
-
 	procSetForeground.Call(targetHwnd)
+	procShowWindow.Call(targetHwnd, SW_SHOW)
 }
 
 func IsWindowVisible(hwnd uintptr) bool {
