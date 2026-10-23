@@ -77,6 +77,11 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 	}
 	defer m.launchMu.Unlock()
 
+	if m.launchWebView2(cfg, finalURL, eventCh) {
+		slog.Info("已通过 Tier 1 (WebView2 原生容器) 成功启动面板")
+		return
+	}
+	
 	safeDebugPort := m.prepareDebugPort()
 
 	if m.tryAttachExistingTarget(safeDebugPort, appHostPort, eventCh) {
@@ -84,13 +89,13 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 	}
 
 	browserPath, browserTag := DetectAvailableBrowser()
-	if browserPath == "" {
-		slog.Warn("未探测到受支持的浏览器，降级为默认浏览器打开")
-		m.openSystemBrowser(finalURL, eventCh)
+	if browserPath == "" {         
+		slog.Warn("未探测到受支持的浏览器，降级为默认浏览器打开") 
+		m.openSystemBrowser(finalURL, eventCh)  
 		return
 	}
 
-	m.launchIsolatedBrowser(cfg, browserPath, browserTag, finalURL, safeDebugPort, appHostPort, eventCh)
+	m.launchIsolatedBrowser(cfg, browserPath, browserTag, finalURL, safeDebugPort, appHostPort, eventCh) 
 }
 
 func (m *Manager) Cleanup() {
