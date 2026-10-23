@@ -1,9 +1,6 @@
 package sys
 
 import (
-	"log/slog"
-	"os"
-	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -14,31 +11,51 @@ import (
 )
 
 var (
-	procGetCurrentThread      = modKernel32.NewProc("GetCurrentThreadId")
-	procEnumWindows           = modUser32.NewProc("EnumWindows")
-	procGetClassName          = modUser32.NewProc("GetClassNameW")
-	procIsWindowVisible       = modUser32.NewProc("IsWindowVisible")
-	procGetWindowThread       = modUser32.NewProc("GetWindowThreadProcessId")
-	procGetWindowText         = modUser32.NewProc("GetWindowTextW")
-	procShowWindow            = modUser32.NewProc("ShowWindow")
-	procBringToTop            = modUser32.NewProc("BringWindowToTop")
-	procGetForeground         = modUser32.NewProc("GetForegroundWindow")
-	procAttachThread          = modUser32.NewProc("AttachThreadInput")
-	procSystemParametersInfo  = modUser32.NewProc("SystemParametersInfoW")
-	procSetProcessDpiContext  = modUser32.NewProc("SetProcessDpiAwarenessContext")
-	procSetProcessDPIAware    = modUser32.NewProc("SetProcessDPIAware")
-	procGetSystemMetrics      = modUser32.NewProc("GetSystemMetrics")
-	procSetForeground         = modUser32.NewProc("SetForegroundWindow")
-	procGetWindow             = modUser32.NewProc("GetWindow")
+	modUser32   = windows.NewLazySystemDLL("user32.dll")
+	modIphlpapi = windows.NewLazySystemDLL("iphlpapi.dll")
+
+	procEnumWindows          = modUser32.NewProc("EnumWindows")
+	procGetClassName         = modUser32.NewProc("GetClassNameW")
+	procIsWindowVisible      = modUser32.NewProc("IsWindowVisible")
+	procGetWindowThread      = modUser32.NewProc("GetWindowThreadProcessId")
+	procGetWindowText        = modUser32.NewProc("GetWindowTextW")
+	procShowWindow           = modUser32.NewProc("ShowWindow")
+	procSystemParametersInfo = modUser32.NewProc("SystemParametersInfoW")
+	procSetProcessDpiContext = modUser32.NewProc("SetProcessDpiAwarenessContext")
+	procSetProcessDPIAware   = modUser32.NewProc("SetProcessDPIAware")
+	procGetSystemMetrics     = modUser32.NewProc("GetSystemMetrics")
+	procSetForeground        = modUser32.NewProc("SetForegroundWindow")
+	procGetWindow            = modUser32.NewProc("GetWindow")
+	procIsIconic             = modUser32.NewProc("IsIconic")
+	procSetWindowPos         = modUser32.NewProc("SetWindowPos")
+	procKeybdEvent           = modUser32.NewProc("keybd_event")
+
+	procGetExtendedTcpTable = modIphlpapi.NewProc("GetExtendedTcpTable")
 )
 
 const (
 	SW_RESTORE      = 9
+	SW_SHOW         = 5
 	GW_OWNER        = 4
 	SPI_GETWORKAREA = 0x0030
 	SM_CXSCREEN     = 0
 	SM_CYSCREEN     = 1
+
 	dpiAwarenessPerMonitorV2 = uintptr(0xFFFFFFFC) // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 (-4)
+
+	hwndTopMost   = ^uintptr(0) // (HWND)-1
+	hwndNoTopMost = ^uintptr(1) // (HWND)-2
+	swpNoMove     = 0x0002
+	swpNoSize     = 0x0001
+	swpShowWindow = 0x0040
+
+	vkMenu         = 0x12 // VK_MENU (Alt 键)
+	keyeventfKeyup = 0x0002
+
+	afInet                   = 2  // AF_INET (IPv4)
+	afInet6                  = 23 // AF_INET6 (IPv6)
+	tcpTableOwnerPidListener = 3  // TCP_TABLE_OWNER_PID_LISTENER (仅监听端点)
+	errorInsufficientBuffer  = 122
 )
 
 type WindowInfo struct {
@@ -46,6 +63,33 @@ type WindowInfo struct {
 	Pid       uint32
 	ClassName string
 	Title     string
+}
+
+// MIB_TCPROW_OWNER_PID (IPv4)
+type mibTcpRowOwnerPid struct {
+	dwState      uint32
+	dwLocalAddr  uint32
+	dwLocalPort  uint32
+	dwRemoteAddr uint32
+	dwRemotePort uint32
+	dwOwningPid  uint32
+}
+
+// MIB_TCP6ROW_OWNER_PID (IPv6)
+type mibTcp6RowOwnerPid struct {
+	ucLocalAddr     [16]byte
+	dwLocalScopeId  uint32
+	dwLocalPort     uint32
+	ucRemoteAddr    [16]byte
+	dwRemoteScopeId uint32
+	dwRemotePort    uint32
+	dwState         uint32
+	dwOwningPid     uint32
+}
+
+type enumContext struct {
+	matcher    func(info WindowInfo) bool
+	targetHwnd uintptr
 }
 
 func init() {
@@ -70,78 +114,73 @@ func GetDisplayWorkArea() (usableW, usableH, startX, startY int) {
 	return
 }
 
+var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam uintptr) uintptr {
+	ctx := (*enumContext)(unsafe.Pointer(lParam))
+
+	if !IsWindowVisible(hwnd) {
+		return 1
+	}
+
+	owner, _, _ := procGetWindow.Call(hwnd, GW_OWNER)
+	if owner != 0 {
+		return 1
+	}
+
+	var clsBuf [256]uint16
+	procGetClassName.Call(hwnd, uintptr(unsafe.Pointer(&clsBuf[0])), 256)
+	clsName := windows.UTF16ToString(clsBuf[:])
+
+	var titleBuf [512]uint16
+	procGetWindowText.Call(hwnd, uintptr(unsafe.Pointer(&titleBuf[0])), 512)
+	wndTitle := strings.TrimSpace(windows.UTF16ToString(titleBuf[:]))
+
+	var wndPid uint32
+	procGetWindowThread.Call(hwnd, uintptr(unsafe.Pointer(&wndPid)))
+
+	info := WindowInfo{
+		Hwnd:      hwnd,
+		Pid:       wndPid,
+		ClassName: clsName,
+		Title:     wndTitle,
+	}
+
+	if ctx.matcher(info) {
+		ctx.targetHwnd = hwnd
+		return 0
+	}
+	return 1
+})
+
 func FindTopWindow(matcher func(info WindowInfo) bool) uintptr {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	var targetHwnd uintptr
-
-	cb := windows.NewCallback(func(hwnd uintptr, _ uintptr) uintptr {
-		if !IsWindowVisible(hwnd) {
-			return 1
-		}
-
-		owner, _, _ := procGetWindow.Call(hwnd, GW_OWNER)
-		if owner != 0 {
-			return 1
-		}
-
-		var clsBuf [256]uint16
-		procGetClassName.Call(hwnd, uintptr(unsafe.Pointer(&clsBuf[0])), 256)
-		clsName := windows.UTF16ToString(clsBuf[:])
-
-		var titleBuf [512]uint16
-		procGetWindowText.Call(hwnd, uintptr(unsafe.Pointer(&titleBuf[0])), 512)
-		wndTitle := strings.TrimSpace(windows.UTF16ToString(titleBuf[:]))
-
-		var wndPid uint32
-		procGetWindowThread.Call(hwnd, uintptr(unsafe.Pointer(&wndPid)))
-
-		info := WindowInfo{
-			Hwnd:      hwnd,
-			Pid:       wndPid,
-			ClassName: clsName,
-			Title:     wndTitle,
-		}
-
-		if matcher(info) {
-			targetHwnd = hwnd
-			return 0
-		}
-		return 1
-	})
-
-	procEnumWindows.Call(cb, 0)
-	return targetHwnd
+	ctx := &enumContext{matcher: matcher}
+	procEnumWindows.Call(enumWindowsCallback, uintptr(unsafe.Pointer(ctx)))
+	return ctx.targetHwnd
 }
 
 func FocusWindowSilky(targetHwnd uintptr) {
+	if targetHwnd == 0 {
+		return
+	}
+
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	foreHwnd, _, _ := procGetForeground.Call()
-	var forePid uint32
-	foreThread, _, _ := procGetWindowThread.Call(foreHwnd, uintptr(unsafe.Pointer(&forePid)))
-
-	currThread, _, _ := procGetCurrentThread.Call()
-	myPid := uint32(os.Getpid())
-
-	attached := false
-	if foreThread != 0 && foreThread != currThread && forePid != myPid {
-		slog.Debug("附加输入线程以申请前台焦点权限")
-		ret, _, _ := procAttachThread.Call(foreThread, currThread, 1)
-		attached = (ret != 0)
+	if IsIconic(targetHwnd) {
+		procShowWindow.Call(targetHwnd, SW_RESTORE)
 	} else {
-		slog.Debug("当前进程已具备前台权限，跳过线程附加")
+		procShowWindow.Call(targetHwnd, SW_SHOW)
 	}
 
-	procShowWindow.Call(targetHwnd, SW_RESTORE)
+	procKeybdEvent.Call(vkMenu, 0, 0, 0)
+	procKeybdEvent.Call(vkMenu, 0, keyeventfKeyup, 0)
+
+	procSetWindowPos.Call(targetHwnd, hwndTopMost, 0, 0, 0, 0, swpNoMove|swpNoSize|swpShowWindow)
+	procSetWindowPos.Call(targetHwnd, hwndNoTopMost, 0, 0, 0, 0, swpNoMove|swpNoSize)
+
 	procSetForeground.Call(targetHwnd)
-	procBringToTop.Call(targetHwnd)
-
-	if attached {
-		procAttachThread.Call(foreThread, currThread, 0)
-	}
 }
 
 func IsWindowVisible(hwnd uintptr) bool {
@@ -149,25 +188,110 @@ func IsWindowVisible(hwnd uintptr) bool {
 	return vis != 0
 }
 
+func IsIconic(hwnd uintptr) bool {
+	min, _, _ := procIsIconic.Call(hwnd)
+	return min != 0
+}
+
 func GetProcessIdByPort(port string) uint32 {
-	cmd := exec.Command("cmd", "/c", "netstat -ano")
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	out, err := cmd.Output()
-	if err != nil {
+	portNum, err := strconv.ParseUint(strings.TrimSpace(port), 10, 16)
+	if err != nil || portNum == 0 {
+		return 0
+	}
+	targetPort := uint16(portNum)
+
+	if pid := findTcp4ListenerPid(targetPort); pid != 0 {
+		return pid
+	}
+
+	return findTcp6ListenerPid(targetPort)
+}
+
+func findTcp4ListenerPid(targetPort uint16) uint32 {
+	buf, ok := queryExtendedTcpTable(afInet)
+	if !ok || len(buf) < 4 {
 		return 0
 	}
 
-	targetSearch := ":" + port
-	lines := strings.Split(string(out), "\n")
-	for _, line := range lines {
-		if strings.Contains(line, "LISTENING") && strings.Contains(line, targetSearch) {
-			fields := strings.Fields(line)
-			if len(fields) > 0 {
-				pidStr := fields[len(fields)-1]
-				pid, _ := strconv.ParseUint(pidStr, 10, 32)
-				return uint32(pid)
-			}
+	numEntries := *(*uint32)(unsafe.Pointer(&buf[0]))
+	if numEntries == 0 {
+		return 0
+	}
+
+	rowSize := unsafe.Sizeof(mibTcpRowOwnerPid{})
+	if uintptr(numEntries) > (uintptr(len(buf))-4)/rowSize {
+		return 0
+	}
+
+	rows := unsafe.Slice((*mibTcpRowOwnerPid)(unsafe.Pointer(&buf[4])), numEntries)
+	for i := range rows {
+		port := ((rows[i].dwLocalPort & 0xFF) << 8) | ((rows[i].dwLocalPort >> 8) & 0xFF)
+		if uint16(port) == targetPort {
+			return rows[i].dwOwningPid
 		}
 	}
 	return 0
+}
+
+func findTcp6ListenerPid(targetPort uint16) uint32 {
+	buf, ok := queryExtendedTcpTable(afInet6)
+	if !ok || len(buf) < 4 {
+		return 0
+	}
+
+	numEntries := *(*uint32)(unsafe.Pointer(&buf[0]))
+	if numEntries == 0 {
+		return 0
+	}
+
+	rowSize := unsafe.Sizeof(mibTcp6RowOwnerPid{})
+	if uintptr(numEntries) > (uintptr(len(buf))-4)/rowSize {
+		return 0
+	}
+
+	rows := unsafe.Slice((*mibTcp6RowOwnerPid)(unsafe.Pointer(&buf[4])), numEntries)
+	for i := range rows {
+		port := ((rows[i].dwLocalPort & 0xFF) << 8) | ((rows[i].dwLocalPort >> 8) & 0xFF)
+		if uint16(port) == targetPort {
+			return rows[i].dwOwningPid
+		}
+	}
+	return 0
+}
+
+func queryExtendedTcpTable(af uint32) ([]byte, bool) {
+	var size uint32
+	procGetExtendedTcpTable.Call(
+		0,
+		uintptr(unsafe.Pointer(&size)),
+		0,
+		uintptr(af),
+		uintptr(tcpTableOwnerPidListener),
+		0,
+	)
+	if size == 0 {
+		return nil, false
+	}
+
+	for i := 0; i < 3; i++ {
+		if size == 0 {
+			return nil, false
+		}
+		buf := make([]byte, size)
+		ret, _, _ := procGetExtendedTcpTable.Call(
+			uintptr(unsafe.Pointer(&buf[0])),
+			uintptr(unsafe.Pointer(&size)),
+			0,
+			uintptr(af),
+			uintptr(tcpTableOwnerPidListener),
+			0,
+		)
+		if ret == 0 {
+			return buf, true
+		}
+		if ret != errorInsufficientBuffer {
+			return nil, false
+		}
+	}
+	return nil, false
 }
