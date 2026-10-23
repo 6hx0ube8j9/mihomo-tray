@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
-	"syscall"
 	"time"
 	"unsafe"
 
@@ -32,17 +31,17 @@ const (
 )
 
 var (
-	modUser32                = windows.NewLazySystemDLL("user32.dll")
-	modGdi32                 = windows.NewLazySystemDLL("gdi32.dll")
-	procRegisterClassExW     = modUser32.NewProc("RegisterClassExW")
-	procCreateWindowExW      = modUser32.NewProc("CreateWindowExW")
-	procDefWindowProcW       = modUser32.NewProc("DefWindowProcW")
-	procPostQuitMessage      = modUser32.NewProc("PostQuitMessage")
-	procGetMessageW          = modUser32.NewProc("GetMessageW")
-	procTranslateMessage     = modUser32.NewProc("TranslateMessage")
-	procDispatchMessageW     = modUser32.NewProc("DispatchMessageW")
-	procPostMessageW         = modUser32.NewProc("PostMessageW")
-	procCreateSolidBrush     = modGdi32.NewProc("CreateSolidBrush")
+	modUser32            = windows.NewLazySystemDLL("user32.dll")
+	modGdi32             = windows.NewLazySystemDLL("gdi32.dll")
+	procRegisterClassExW = modUser32.NewProc("RegisterClassExW")
+	procCreateWindowExW  = modUser32.NewProc("CreateWindowExW")
+	procDefWindowProcW   = modUser32.NewProc("DefWindowProcW")
+	procPostQuitMessage  = modUser32.NewProc("PostQuitMessage")
+	procGetMessageW      = modUser32.NewProc("GetMessageW")
+	procTranslateMessage = modUser32.NewProc("TranslateMessage")
+	procDispatchMessageW = modUser32.NewProc("DispatchMessageW")
+	procPostMessageW     = modUser32.NewProc("PostMessageW")
+	procCreateSolidBrush = modGdi32.NewProc("CreateSolidBrush")
 
 	wndClassOnce sync.Once
 	wndClassName = "MihomoWebUIPanel"
@@ -95,7 +94,6 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 
 func registerPanelClass(hInst windows.Handle, isDark bool) {
 	wndClassOnce.Do(func() {
-		// 核心防白机制 1：Win32 窗口类使用深色画刷填充背景，杜绝系统默认的白色画刷 (COLOR_WINDOW)
 		var bgBrush uintptr
 		if isDark {
 			bgBrush, _, _ = procCreateSolidBrush.Call(0x00181818) // RGB(24, 24, 24)
@@ -126,8 +124,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, webview2Tag)
 		_ = os.MkdirAll(userDataDir, 0755)
 
-		// 修正 1：调用 sys 中正确的函数名 GrantForegroundPrivilege
-		sys.GrantForegroundPrivilege()[cite: 5]
+		sys.GrantForegroundPrivilege()
 
 		var hInst windows.Handle
 		_ = windows.GetModuleHandleEx(0, nil, &hInst)
@@ -138,12 +135,11 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		clsNamePtr, _ := windows.UTF16PtrFromString(wndClassName)
 		titlePtr, _ := windows.UTF16PtrFromString(domain.AppName)
 
-		// 核心防白机制 2：创建窗口时坚决不加 WS_VISIBLE，初始在内存中完全静默
 		hwndRet, _, _ := procCreateWindowExW.Call(
 			0,
 			uintptr(unsafe.Pointer(clsNamePtr)),
 			uintptr(unsafe.Pointer(titlePtr)),
-			wsOverlappedWindow|wsClipChildren, // 仅含基础样式与子控件裁剪，无 WS_VISIBLE
+			wsOverlappedWindow|wsClipChildren,
 			uintptr(startX),
 			uintptr(startY),
 			uintptr(winW),
@@ -165,14 +161,12 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 			sys.SetWindowDarkMode(hwnd, true)
 		}
 
-		// 初始化 Chromium 底层实例
 		chromium := edge.NewChromium()
 		chromium.DataPath = userDataDir
 		chromium.SetPermission(edge.CoreWebView2PermissionKindClipboardRead, edge.CoreWebView2PermissionStateAllow)
 
 		globalChromiumMap.Store(hwnd, chromium)
 
-		// 将 WebView2 嵌入不可见的深色原生窗口
 		if !chromium.Embed(hwnd) {
 			slog.Info("未检测到可用的 WebView2 运行时，准备降级到 Tier 2 (--app 模式)")
 			windows.CloseHandle(windows.Handle(hwnd))
@@ -180,11 +174,10 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 			return
 		}
 
-		// 修正 2：去除未定义的 cfg.Debug，将上下文菜单选项直接设为 false
 		if settings, err := chromium.GetSettings(); err == nil && settings != nil {
 			_ = settings.PutAreDefaultContextMenusEnabled(false)
 		}
-		
+
 		bg := "#F8F9FA"
 		fg := "#212529"
 		if isDark {
@@ -234,7 +227,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		var showOnce sync.Once
 		presentWindow := func() {
 			showOnce.Do(func() {
-				sys.FocusWindowSilky(hwnd)[cite: 3]
+				sys.FocusWindowSilky(hwnd)
 				emitEvent(eventCh, EventReady)
 			})
 		}
