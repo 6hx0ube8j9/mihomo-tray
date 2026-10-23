@@ -7,10 +7,8 @@ import (
 )
 
 var (
-	procGetModuleHandleW = modKernel32.NewProc("GetModuleHandleW")
-	procLoadImageW       = modUser32.NewProc("LoadImageW")
-	procGetSystemMetrics = modUser32.NewProc("GetSystemMetrics")
-	procSendMessageW     = modUser32.NewProc("SendMessageW")
+	procLoadImageW   = modUser32.NewProc("LoadImageW")
+	procSendMessageW = modUser32.NewProc("SendMessageW")
 )
 
 const (
@@ -37,8 +35,8 @@ func SetWindowIconClean(hwnd uintptr, resName string) bool {
 		return false
 	}
 
-	hInst, _, _ := procGetModuleHandleW.Call(0)
-	if hInst == 0 {
+	hInst, err := windows.GetModuleHandle(nil)
+	if err != nil || hInst == 0 {
 		return false
 	}
 
@@ -46,7 +44,7 @@ func SetWindowIconClean(hwnd uintptr, resName string) bool {
 		cx, _, _ := procGetSystemMetrics.Call(cxMetric)
 		cy, _, _ := procGetSystemMetrics.Call(cyMetric)
 		hIcon, _, _ := procLoadImageW.Call(
-			hInst,
+			uintptr(hInst),
 			uintptr(unsafe.Pointer(namePtr)),
 			imageIcon,
 			cx, cy,
