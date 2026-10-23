@@ -11,7 +11,6 @@ import (
 )
 
 var (
-	modUser32   = windows.NewLazySystemDLL("user32.dll")
 	modIphlpapi = windows.NewLazySystemDLL("iphlpapi.dll")
 
 	procEnumWindows          = modUser32.NewProc("EnumWindows")
