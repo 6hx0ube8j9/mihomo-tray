@@ -20,7 +20,6 @@ import (
 const webview2Tag = "webview2"
 
 var (
-	// ICoreWebView2Controller2 接口 GUID: {c979903e-d4ca-4228-92eb-47ee3fa96e42}
 	iidICoreWebView2Controller2 = windows.GUID{
 		Data1: 0xc979903e,
 		Data2: 0xd4ca,
@@ -69,21 +68,19 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		hwnd := uintptr(w.Window())
 		m.hwnd.Store(hwnd)
 
-		// 1. 窗口属性预备：设置图标与深色模式标题栏
 		sys.SetWindowIconClean(hwnd, "APP")
 		isDark := sys.IsSystemDarkMode()
 		if isDark {
 			sys.SetWindowDarkMode(hwnd, true)
 		}
 
-		// 2. 根治白屏（核心）：在窗口可见与导航前，通过 COM 设置原生渲染层默认底色
 		if isDark {
 			setWebView2BackgroundColor(w, 0x18, 0x18, 0x18, 0xFF)
 		} else {
 			setWebView2BackgroundColor(w, 0xF8, 0xF9, 0xFA, 0xFF)
 		}
 
-		// 3. 内存级 CSS 注入兜底（自动嗅探 localStorage 中面板自身的主题偏好）
+		// 3. 内存级 CSS 注入兜底（嗅探面板 localStorage 自定义的主题设置）
 		bgScript := fmt.Sprintf(`
 			(function() {
 				let isDark = %t;
@@ -108,9 +105,10 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 				}
 			})();
 		`, isDark)
-		_ = w.Init(bgScript)
+		// 修正点：w.Init 无返回值，直接单行调用
+		w.Init(bgScript)
 
-		// 4. 此时标题栏、原生底色均已准备就绪，再平滑唤醒并前台置顶窗口
+		// 4. 底色和标题栏全部就绪后再平滑呼出前台
 		sys.FocusWindowSilky(hwnd)
 
 		initCh <- true
@@ -129,26 +127,13 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 	return <-initCh
 }
 
-// setWebView2BackgroundColor 通过 COM VTable 调用 ICoreWebView2Controller2::put_DefaultBackgroundColor
+// setWebView2BackgroundColor 通过 COM 虚函数表安全调用 put_DefaultBackgroundColor
 func setWebView2BackgroundColor(w webview2.WebView, r, g, b, a uint8) bool {
 	if w == nil {
 		return false
 	}
 
-	val := reflect.ValueOf(w)
-	if val.Kind() == reflect.Ptr {
-		val = val.Elem()
-	}
-	if val.Kind() != reflect.Struct || !val.CanAddr() {
-		return false
-	}
-
-	f := val.FieldByName("controller")
-	if !f.IsValid() {
-		return false
-	}
-
-	ctrlPtr := *(*uintptr)(unsafe.Pointer(f.UnsafeAddr()))
+	ctrlPtr := getControllerPtr(reflect.ValueOf(w))
 	if ctrlPtr == 0 {
 		return false
 	}
@@ -156,7 +141,7 @@ func setWebView2BackgroundColor(w webview2.WebView, r, g, b, a uint8) bool {
 	vtblPtr := *(*uintptr)(unsafe.Pointer(ctrlPtr))
 	vtbl := (*[35]uintptr)(unsafe.Pointer(vtblPtr))
 
-	// 查询 ICoreWebView2Controller2 扩展接口
+	// 查询 ICoreWebView2Controller2 接口
 	var ctrl2 uintptr
 	hr, _, _ := syscall.SyscallN(
 		vtbl[vtableIdxQueryInterface],
@@ -179,4 +164,30 @@ func setWebView2BackgroundColor(w webview2.WebView, r, g, b, a uint8) bool {
 	putBgColorFunc := vtbl2[vtableIdxPutDefaultBackgroundColor]
 	ret, _, _ := syscall.SyscallN(putBgColorFunc, ctrl2, uintptr(packedColor))
 	return ret == 0
+}
+
+func getControllerPtr(val reflect.Value) uintptr {
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+	if val.Kind() != reflect.Struct {
+		return 0
+	}
+
+	if f := val.FieldByName("controller"); f.IsValid() && f.CanAddr() {
+		return *(*uintptr)(unsafe.Pointer(f.UnsafeAddr()))
+	}
+
+	for i := 0; i < val.NumField(); i++ {
+		sub := val.Field(i)
+		if sub.Kind() == reflect.Ptr {
+			sub = sub.Elem()
+		}
+		if sub.Kind() == reflect.Struct {
+			if f := sub.FieldByName("controller"); f.IsValid() && f.CanAddr() {
+				return *(*uintptr)(unsafe.Pointer(f.UnsafeAddr()))
+			}
+		}
+	}
+	return 0
 }
