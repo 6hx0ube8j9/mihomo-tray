@@ -1,6 +1,8 @@
 package sys
 
 import (
+	"log/slog"
+	"os"
 	"runtime"
 	"strconv"
 	"strings"
@@ -11,15 +13,21 @@ import (
 )
 
 var (
+	// 安全加载系统目录下的 Win32 DLL（杜绝 DLL 劫持）
+	modKernel32 = windows.NewLazySystemDLL("kernel32.dll")
+	modUser32   = windows.NewLazySystemDLL("user32.dll")
 	modIphlpapi = windows.NewLazySystemDLL("iphlpapi.dll")
 
-	// 窗口与工作区相关 API
+	procGetCurrentThread     = modKernel32.NewProc("GetCurrentThreadId")
 	procEnumWindows          = modUser32.NewProc("EnumWindows")
 	procGetClassName         = modUser32.NewProc("GetClassNameW")
 	procIsWindowVisible      = modUser32.NewProc("IsWindowVisible")
 	procGetWindowThread      = modUser32.NewProc("GetWindowThreadProcessId")
 	procGetWindowText        = modUser32.NewProc("GetWindowTextW")
 	procShowWindow           = modUser32.NewProc("ShowWindow")
+	procBringToTop           = modUser32.NewProc("BringWindowToTop")
+	procGetForeground        = modUser32.NewProc("GetForegroundWindow")
+	procAttachThread         = modUser32.NewProc("AttachThreadInput")
 	procSystemParametersInfo = modUser32.NewProc("SystemParametersInfoW")
 	procSetProcessDpiContext = modUser32.NewProc("SetProcessDpiAwarenessContext")
 	procSetProcessDPIAware   = modUser32.NewProc("SetProcessDPIAware")
@@ -27,8 +35,6 @@ var (
 	procSetForeground        = modUser32.NewProc("SetForegroundWindow")
 	procGetWindow            = modUser32.NewProc("GetWindow")
 	procIsIconic             = modUser32.NewProc("IsIconic")
-	procSetWindowPos         = modUser32.NewProc("SetWindowPos")
-	procKeybdEvent           = modUser32.NewProc("keybd_event")
 
 	// 网络端口查询 API
 	procGetExtendedTcpTable = modIphlpapi.NewProc("GetExtendedTcpTable")
@@ -44,18 +50,9 @@ const (
 
 	dpiAwarenessPerMonitorV2 = uintptr(0xFFFFFFFC) // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 (-4)
 
-	hwndTopMost   = ^uintptr(0) // (HWND)-1
-	hwndNoTopMost = ^uintptr(1) // (HWND)-2
-	swpNoMove     = 0x0002
-	swpNoSize     = 0x0001
-	swpShowWindow = 0x0040
-
-	vkMenu         = 0x12 // VK_MENU (Alt 键)
-	keyeventfKeyup = 0x0002
-
 	afInet                   = 2  // AF_INET (IPv4)
 	afInet6                  = 23 // AF_INET6 (IPv6)
-	tcpTableOwnerPidListener = 3  // TCP_TABLE_OWNER_PID_LISTENER (仅监听端点)
+	tcpTableOwnerPidListener = 3  // TCP_TABLE_OWNER_PID_LISTENER
 	errorInsufficientBuffer  = 122
 )
 
@@ -66,7 +63,6 @@ type WindowInfo struct {
 	Title     string
 }
 
-// MIB_TCPROW_OWNER_PID (IPv4)
 type mibTcpRowOwnerPid struct {
 	dwState      uint32
 	dwLocalAddr  uint32
@@ -76,7 +72,6 @@ type mibTcpRowOwnerPid struct {
 	dwOwningPid  uint32
 }
 
-// MIB_TCP6ROW_OWNER_PID (IPv6)
 type mibTcp6RowOwnerPid struct {
 	ucLocalAddr     [16]byte
 	dwLocalScopeId  uint32
@@ -99,7 +94,6 @@ func init() {
 	}
 }
 
-// GetDisplayWorkArea 获取主屏幕可用工作区（排除任务栏后的坐标与宽高）
 func GetDisplayWorkArea() (usableW, usableH, startX, startY int) {
 	scrWRet, _, _ := procGetSystemMetrics.Call(SM_CXSCREEN)
 	scrHRet, _, _ := procGetSystemMetrics.Call(SM_CYSCREEN)
@@ -162,14 +156,7 @@ func FindTopWindow(matcher func(info WindowInfo) bool) uintptr {
 	return ctx.targetHwnd
 }
 
-
-func ClaimForegroundPrivilege() {
-	runtime.LockOSThread()
-	procKeybdEvent.Call(vkMenu, 0, 0, 0)
-	procKeybdEvent.Call(vkMenu, 0, keyeventfKeyup, 0)
-}
-
-// FocusWindowSilky 穿透前台焦点锁定并将目标窗口平滑置顶
+// FocusWindowSilky 恢复最可靠的 AttachThreadInput 机制，杜绝 Alt 键脉冲的破坏性副作用
 func FocusWindowSilky(targetHwnd uintptr) {
 	if targetHwnd == 0 {
 		return
@@ -178,16 +165,31 @@ func FocusWindowSilky(targetHwnd uintptr) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
+	foreHwnd, _, _ := procGetForeground.Call()
+	var forePid uint32
+	foreThread, _, _ := procGetWindowThread.Call(foreHwnd, uintptr(unsafe.Pointer(&forePid)))
+
+	currThread, _, _ := procGetCurrentThread.Call()
+	myPid := uint32(os.Getpid())
+
+	attached := false
+	if foreThread != 0 && foreThread != currThread && forePid != myPid {
+		ret, _, _ := procAttachThread.Call(foreThread, currThread, 1)
+		attached = (ret != 0)
+	}
+
 	if IsIconic(targetHwnd) {
 		procShowWindow.Call(targetHwnd, SW_RESTORE)
 	} else {
 		procShowWindow.Call(targetHwnd, SW_SHOW)
 	}
 
-	procKeybdEvent.Call(vkMenu, 0, 0, 0)
-	procKeybdEvent.Call(vkMenu, 0, keyeventfKeyup, 0)
-
 	procSetForeground.Call(targetHwnd)
+	procBringToTop.Call(targetHwnd)
+
+	if attached {
+		procAttachThread.Call(foreThread, currThread, 0)
+	}
 }
 
 func IsWindowVisible(hwnd uintptr) bool {
@@ -200,7 +202,6 @@ func IsIconic(hwnd uintptr) bool {
 	return min != 0
 }
 
-// GetProcessIdByPort 纯 Win32 API 查询指定端口的监听进程 PID（支持 IPv4 / IPv6）
 func GetProcessIdByPort(port string) uint32 {
 	portNum, err := strconv.ParseUint(strings.TrimSpace(port), 10, 16)
 	if err != nil || portNum == 0 {
@@ -211,7 +212,6 @@ func GetProcessIdByPort(port string) uint32 {
 	if pid := findTcp4ListenerPid(targetPort); pid != 0 {
 		return pid
 	}
-
 	return findTcp6ListenerPid(targetPort)
 }
 
