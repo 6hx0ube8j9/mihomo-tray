@@ -13,6 +13,7 @@ import (
 var (
 	modIphlpapi = windows.NewLazySystemDLL("iphlpapi.dll")
 
+	// 窗口与工作区相关 API
 	procEnumWindows          = modUser32.NewProc("EnumWindows")
 	procGetClassName         = modUser32.NewProc("GetClassNameW")
 	procIsWindowVisible      = modUser32.NewProc("IsWindowVisible")
@@ -29,6 +30,7 @@ var (
 	procSetWindowPos         = modUser32.NewProc("SetWindowPos")
 	procKeybdEvent           = modUser32.NewProc("keybd_event")
 
+	// 网络端口查询 API
 	procGetExtendedTcpTable = modIphlpapi.NewProc("GetExtendedTcpTable")
 )
 
@@ -48,12 +50,12 @@ const (
 	swpNoSize     = 0x0001
 	swpShowWindow = 0x0040
 
-	vkMenu         = 0x12 // VK_MENU
+	vkMenu         = 0x12 // VK_MENU (Alt 键)
 	keyeventfKeyup = 0x0002
 
 	afInet                   = 2  // AF_INET (IPv4)
 	afInet6                  = 23 // AF_INET6 (IPv6)
-	tcpTableOwnerPidListener = 3  // TCP_TABLE_OWNER_PID_LISTENER
+	tcpTableOwnerPidListener = 3  // TCP_TABLE_OWNER_PID_LISTENER (仅监听端点)
 	errorInsufficientBuffer  = 122
 )
 
@@ -97,6 +99,7 @@ func init() {
 	}
 }
 
+// GetDisplayWorkArea 获取主屏幕可用工作区（排除任务栏后的坐标与宽高）
 func GetDisplayWorkArea() (usableW, usableH, startX, startY int) {
 	scrWRet, _, _ := procGetSystemMetrics.Call(SM_CXSCREEN)
 	scrHRet, _, _ := procGetSystemMetrics.Call(SM_CYSCREEN)
@@ -150,12 +153,23 @@ var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam uintptr)
 	return 1
 })
 
+func FindTopWindow(matcher func(info WindowInfo) bool) uintptr {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	ctx := &enumContext{matcher: matcher}
+	procEnumWindows.Call(enumWindowsCallback, uintptr(unsafe.Pointer(ctx)))
+	return ctx.targetHwnd
+}
+
+
 func ClaimForegroundPrivilege() {
 	runtime.LockOSThread()
 	procKeybdEvent.Call(vkMenu, 0, 0, 0)
 	procKeybdEvent.Call(vkMenu, 0, keyeventfKeyup, 0)
 }
 
+// FocusWindowSilky 穿透前台焦点锁定并将目标窗口平滑置顶
 func FocusWindowSilky(targetHwnd uintptr) {
 	if targetHwnd == 0 {
 		return
@@ -166,13 +180,14 @@ func FocusWindowSilky(targetHwnd uintptr) {
 
 	if IsIconic(targetHwnd) {
 		procShowWindow.Call(targetHwnd, SW_RESTORE)
+	} else {
+		procShowWindow.Call(targetHwnd, SW_SHOW)
 	}
 
 	procKeybdEvent.Call(vkMenu, 0, 0, 0)
 	procKeybdEvent.Call(vkMenu, 0, keyeventfKeyup, 0)
 
 	procSetForeground.Call(targetHwnd)
-	procShowWindow.Call(targetHwnd, SW_SHOW)
 }
 
 func IsWindowVisible(hwnd uintptr) bool {
@@ -185,6 +200,7 @@ func IsIconic(hwnd uintptr) bool {
 	return min != 0
 }
 
+// GetProcessIdByPort 纯 Win32 API 查询指定端口的监听进程 PID（支持 IPv4 / IPv6）
 func GetProcessIdByPort(port string) uint32 {
 	portNum, err := strconv.ParseUint(strings.TrimSpace(port), 10, 16)
 	if err != nil || portNum == 0 {
