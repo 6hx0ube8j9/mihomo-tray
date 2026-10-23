@@ -126,11 +126,12 @@ func NotifyExistingInstance(eventName string) {
 	hEvent, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName)
 	if err == nil && hEvent != 0 {
 		GrantForegroundPrivilege()
+
 		_ = windows.SetEvent(hEvent)
 		_ = windows.CloseHandle(hEvent)
 		slog.Debug("已通知已有实例")
 
-		time.Sleep(250 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 	}
 }
 
