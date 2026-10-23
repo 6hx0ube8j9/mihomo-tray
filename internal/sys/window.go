@@ -49,12 +49,12 @@ const (
 	swpNoSize     = 0x0001
 	swpShowWindow = 0x0040
 
-	vkMenu         = 0x12 // VK_MENU (Alt 键)
+	vkMenu         = 0x12 // VK_MENU
 	keyeventfKeyup = 0x0002
 
 	afInet                   = 2  // AF_INET (IPv4)
 	afInet6                  = 23 // AF_INET6 (IPv6)
-	tcpTableOwnerPidListener = 3  // TCP_TABLE_OWNER_PID_LISTENER (仅监听端点)
+	tcpTableOwnerPidListener = 3  // TCP_TABLE_OWNER_PID_LISTENER
 	errorInsufficientBuffer  = 122
 )
 
