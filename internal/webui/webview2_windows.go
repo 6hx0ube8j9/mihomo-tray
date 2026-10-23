@@ -37,7 +37,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		})
 
 		if w == nil {
-			slog.Info("未检测到可用的 WebView2 运行时组件，准备降级到 Tier 2 (--app 模式)")
+			slog.Info("未检测到可用的 WebView2 运行时，准备降级到 Tier 2 (--app 模式)")
 			initCh <- false
 			return
 		}
@@ -45,6 +45,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		hwnd := uintptr(w.Window())
 		m.hwnd.Store(hwnd)
 
+		sys.SetWindowIconClean(hwnd, "APP")
 		if sys.IsSystemDarkMode() {
 			sys.SetWindowDarkMode(hwnd, true)
 		}
