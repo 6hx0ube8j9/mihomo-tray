@@ -1,7 +1,6 @@
 package sys
 
 import (
-	"log/slog"
 	"os"
 	"runtime"
 	"strconv"
@@ -13,9 +12,6 @@ import (
 )
 
 var (
-	// 安全加载系统目录下的 Win32 DLL（杜绝 DLL 劫持）
-	modKernel32 = windows.NewLazySystemDLL("kernel32.dll")
-	modUser32   = windows.NewLazySystemDLL("user32.dll")
 	modIphlpapi = windows.NewLazySystemDLL("iphlpapi.dll")
 
 	procGetCurrentThread     = modKernel32.NewProc("GetCurrentThreadId")
