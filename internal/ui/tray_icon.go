@@ -32,15 +32,15 @@ var (
 )
 
 type TrayIconController struct {
-	mu          sync.Mutex
-	ni          *walk.NotifyIcon
-	currentSize int
-	lastStateId int
-	icons       map[int]*walk.Icon
+	mu             sync.Mutex
+	ni             *walk.NotifyIcon
+	currentSize    int
+	lastStateId    int
+	icons          map[int]*walk.Icon
+	cachedTrayHwnd win.HWND 
 
-	cachedTrayHwnd win.HWND
-	engine         *Engine
-	isDisposed     atomic.Bool
+	engine     *Engine
+	isDisposed atomic.Bool
 }
 
 func NewTrayIconController(e *Engine, ni *walk.NotifyIcon) *TrayIconController {
@@ -158,17 +158,24 @@ func (c *TrayIconController) getIconLocked(stateId, targetSize int) *walk.Icon {
 }
 
 func (c *TrayIconController) getSystemMetricSizeLocked() int {
-	if c.cachedTrayHwnd == 0 || !win.IsWindow(c.cachedTrayHwnd) {
-		c.cachedTrayHwnd = win.FindWindow(trayClassName, nil)
-	}
-
 	var dpi uint32
+
 	if c.cachedTrayHwnd != 0 {
 		dpi = win.GetDpiForWindow(c.cachedTrayHwnd)
 	}
 
 	if dpi == 0 {
-		dpi = win.GetDpiForSystem()
+		c.cachedTrayHwnd = win.FindWindow(trayClassName, nil)
+		if c.cachedTrayHwnd != 0 {
+			dpi = win.GetDpiForWindow(c.cachedTrayHwnd)
+		}
+	}
+
+	if dpi == 0 {
+		if hdc := win.GetDC(0); hdc != 0 {
+			dpi = uint32(win.GetDeviceCaps(hdc, win.LOGPIXELSY))
+			win.ReleaseDC(0, hdc)
+		}
 	}
 
 	if dpi == 0 {
