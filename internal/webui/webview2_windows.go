@@ -29,7 +29,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 			AutoFocus: true,
 			DataPath:  userDataDir,
 			WindowOptions: webview2.WindowOptions{
-				Title:  "Dashboard",
+				Title:  domain.AppName,
 				Width:  uint(winW),
 				Height: uint(winH),
 				Center: true,
@@ -44,6 +44,10 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 
 		hwnd := uintptr(w.Window())
 		m.hwnd.Store(hwnd)
+
+		if sys.IsSystemDarkMode() {
+			sys.SetWindowDarkMode(hwnd, true)
+		}
 
 		initCh <- true
 
