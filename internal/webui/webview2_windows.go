@@ -45,6 +45,8 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		hwnd := uintptr(w.Window())
 		m.hwnd.Store(hwnd)
 
+		sys.FocusWindowSilky(hwnd)
+
 		sys.SetWindowIconClean(hwnd, "APP")
 		if sys.IsSystemDarkMode() {
 			sys.SetWindowDarkMode(hwnd, true)
@@ -58,7 +60,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		}()
 
 		w.Navigate(finalURL)
-		sys.FocusWindowSilky(hwnd)
 		emitEvent(eventCh, EventReady)
 
 		w.Run()
