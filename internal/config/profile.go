@@ -14,7 +14,7 @@ import (
 
 const profileFileExt = ".yaml"
 
-var ErrProfileLimitExceeded = fmt.Errorf("配置数量已达上限，最多允许 %d 个", domain.MaxProfileCount)
+var ErrProfileLimitExceeded = fmt.Errorf("配置文件已达 %d 个上限", domain.MaxProfileCount)
 var ErrProfileNameConflict = errors.New("配置名称已存在")
 
 func (m *Manager) AllocateRemoteProfilePath(rawName string) (displayName string, relPath string, err error) {
