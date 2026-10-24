@@ -58,6 +58,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		}()
 
 		w.Navigate(finalURL)
+
 		sys.FocusWindowSilky(hwnd)
 		emitEvent(eventCh, EventReady)
 
