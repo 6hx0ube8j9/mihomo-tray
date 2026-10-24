@@ -2,17 +2,41 @@ package webui
 
 import (
 	"log/slog"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strings"
 
 	"github.com/jchv/go-webview2"
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/sys"
 )
 
-const webview2Tag = "webview2"
+const (
+	webview2Tag = "webview2"
+
+	externalLinkScript = `
+	(function() {
+		window.open = function(url) {
+			if (url && typeof url === 'string') window.openExternal(url);
+			return null;
+		};
+		document.addEventListener('click', function(e) {
+			const a = e.target.closest('a');
+			if (!a || !a.href) return;
+			const href = a.href.trim();
+			if (!href.startsWith('http://') && !href.startsWith('https://')) return;
+			if (a.target === '_blank' || (a.hostname && a.hostname !== window.location.hostname)) {
+				e.preventDefault();
+				e.stopPropagation();
+				window.openExternal(href);
+			}
+		}, true);
+	})();`
+)
 
 func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Event) bool {
 	initCh := make(chan bool)
@@ -62,7 +86,8 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 			sys.SetWindowDarkMode(hwnd, true)
 		}
 
-		// 页面导航与展示（外链已被底层 COM 原生全自动接管，不再需要任何 JS）
+		m.bindExternalLinkHandler(w)
+
 		initCh <- true
 		w.Navigate(finalURL)
 		sys.FocusWindowSilky(hwnd)
@@ -72,4 +97,16 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 	}()
 
 	return <-initCh
+}
+
+func (m *Manager) bindExternalLinkHandler(w webview2.WebView) {
+	_ = w.Bind("openExternal", func(target string) {
+		target = strings.TrimSpace(target)
+		u, err := url.Parse(target)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+			return
+		}
+		_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", target).Start()
+	})
+	w.Init(externalLinkScript)
 }
