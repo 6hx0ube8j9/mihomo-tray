@@ -18,4 +18,4 @@ require (
 	gopkg.in/Knetic/govaluate.v3 v3.0.0 // indirect
 )
 
-replace github.com/jchv/go-webview2 => github.com/6hx0ube8j9/go-webview2 v0.0.2-0.20261024120735-d8db079ba4f6
+replace github.com/jchv/go-webview2 => github.com/6hx0ube8j9/go-webview2 v0.0.2-0.20261024121632-13e8261845f6
