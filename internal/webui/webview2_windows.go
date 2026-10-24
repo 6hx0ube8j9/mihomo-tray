@@ -2,10 +2,13 @@ package webui
 
 import (
 	"log/slog"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strings"
 
 	"github.com/jchv/go-webview2"
 	"mihomo-tray/internal/domain"
@@ -21,7 +24,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 
-		// 核心保护：捕获协程内的一切致命 Panic 并输出具体行号
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("WebView2 协程崩溃", "panic", r, "stack", string(debug.Stack()))
@@ -40,7 +42,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, webview2Tag)
 		_ = os.MkdirAll(userDataDir, 0755)
 
-		slog.Info("开始创建 WebView2 实例...")
 		w := webview2.NewWithOptions(webview2.WebViewOptions{
 			Debug:     false,
 			AutoFocus: true,
@@ -58,13 +59,10 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 			initCh <- false
 			return
 		}
-		slog.Info("WebView2 实例创建成功")
 
 		hwnd := uintptr(w.Window())
-		// 严防类型不一致：统一使用 uintptr(0)
 		m.hwnd.Store(hwnd)
 
-		// 容错执行外观调整
 		func() {
 			defer func() { _ = recover() }()
 			sys.SetWindowIconClean(hwnd, "APP")
@@ -73,6 +71,59 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 			}
 		}()
 
+		// ================= 核心：接管外链跳转 =================
+		// 1. 注册 Go 回调，调用系统默认浏览器打开 URL
+		_ = w.Bind("openExternal", func(targetURL string) {
+			targetURL = strings.TrimSpace(targetURL)
+			if targetURL == "" {
+				return
+			}
+
+			// 安全校验：仅允许 http/https/file 协议
+			parsed, err := url.Parse(targetURL)
+			if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+				return
+			}
+
+			// Windows 原生呼起系统默认浏览器（无黑框、非阻塞）
+			_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", targetURL).Start()
+		})
+
+		// 2. 注入全局前置 JS，捕获所有新窗口/外链行为
+		const externalLinkScript = `
+		(function() {
+			// 拦截全局 window.open 脚本调用
+			window.open = function(url) {
+				if (url && typeof url === 'string' && url.trim() !== '') {
+					window.openExternal(url);
+				}
+				return null;
+			};
+
+			// 全局捕获阶段代理所有 <a> 标签点击
+			document.addEventListener('click', function(e) {
+				const a = e.target.closest('a');
+				if (!a || !a.href) return;
+
+				const href = a.href.trim();
+				// 跳过非 HTTP 锚点与伪协议
+				if (!href.startsWith('http://') && !href.startsWith('https://')) return;
+
+				const isBlank = a.target === '_blank';
+				const isExternalHost = a.hostname && a.hostname !== window.location.hostname;
+
+				// 如果指定了新窗口打开，或者跳转到非当前控制面板域名（如 GitHub、文档站）
+				if (isBlank || isExternalHost) {
+					e.preventDefault();
+					e.stopPropagation();
+					window.openExternal(href);
+				}
+			}, true);
+		})();
+		`
+		w.Init(externalLinkScript)
+		// ====================================================
+
 		initCh <- true
 
 		defer func() {
@@ -80,7 +131,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 			w.Destroy()
 		}()
 
-		slog.Info("正在发起页面导航", "url", finalURL)
 		w.Navigate(finalURL)
 
 		func() {
@@ -90,9 +140,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 
 		emitEvent(eventCh, EventReady)
 
-		slog.Info("进入 WebView2 消息循环")
 		w.Run()
-		slog.Info("WebView2 消息循环退出")
 	}()
 
 	return <-initCh
