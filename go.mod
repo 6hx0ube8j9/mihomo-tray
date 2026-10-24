@@ -17,3 +17,5 @@ require (
 	golang.org/x/exp v0.0.0-20230425010034-47ecfdc1ba53 // indirect
 	gopkg.in/Knetic/govaluate.v3 v3.0.0 // indirect
 )
+
+replace github.com/jchv/go-webview2 => github.com/6hx0ube8j9/my-webview2 patch
