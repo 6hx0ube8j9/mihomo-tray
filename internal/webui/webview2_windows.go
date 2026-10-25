@@ -33,14 +33,17 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		winW, winH, _, _ := calculateWindowBounds()
 		userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, webview2Tag)
 
+		isDark := sys.IsSystemDarkMode()
+
 		w := webview2.NewWithOptions(webview2.WebViewOptions{
 			AutoFocus: true,
 			DataPath:  userDataDir,
 			WindowOptions: webview2.WindowOptions{
-				Title:  domain.AppName,
-				Width:  uint(winW),
-				Height: uint(winH),
-				Center: true,
+				Title:    domain.AppName,
+				Width:    uint(winW),
+				Height:   uint(winH),
+				Center:   true,
+				DarkMode: isDark,
 			},
 		})
 		if w == nil {
@@ -53,10 +56,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		defer m.hwnd.Store(uintptr(0))
 
 		sys.SetWindowIconClean(hwnd, "APP")
-
-		if sys.IsSystemDarkMode() {
-			sys.SetWindowDarkMode(hwnd, true)
-		}
 
 		initCh <- true
 		w.Navigate(finalURL)
