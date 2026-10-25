@@ -40,6 +40,7 @@ func (p *Presenter) CalculateUIState() domain.UIState {
 		RemoteWebUI:      p.cfg.IsRemoteWebUIEnabled(),
 		AllowLan:         p.cfg.GetEffectiveAllowLan(),
 		IsAdmin:          sys.IsAdmin(),
+		SystemTheme:      p.st.GetSystemTheme(),
 
 		MixedPort: p.cfg.GetEffectiveMixedPort(),
 		SocksPort: p.cfg.GetEffectivePort(cfg.Config.SocksPort, domain.DefaultSocksPort),
@@ -150,6 +151,7 @@ func (p *Presenter) hasStateChanged(curr, last *domain.UIState) bool {
 		curr.AutoStart != last.AutoStart || curr.RunAsAdmin != last.RunAsAdmin ||
 		curr.UseSystemBrowser != last.UseSystemBrowser || curr.RemoteWebUI != last.RemoteWebUI ||
 		curr.IsAdmin != last.IsAdmin || curr.CanAddProfile != last.CanAddProfile ||
+		curr.SystemTheme != last.SystemTheme ||
 		curr.MixedPort != last.MixedPort || curr.SocksPort != last.SocksPort ||
 		curr.HttpPort != last.HttpPort || len(curr.ProfileItems) != len(last.ProfileItems) {
 		return true
