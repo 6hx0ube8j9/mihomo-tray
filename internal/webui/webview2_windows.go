@@ -41,7 +41,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 				Width:  uint(winW),
 				Height: uint(winH),
 				Center: true,
-				IconId: 1,
 			},
 		})
 		if w == nil {
@@ -52,6 +51,8 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		hwnd := uintptr(w.Window())
 		m.hwnd.Store(hwnd)
 		defer m.hwnd.Store(uintptr(0))
+
+		sys.SetupAppWindow(hwnd)
 
 		if sys.IsSystemDarkMode() {
 			sys.SetWindowDarkMode(hwnd, true)
