@@ -35,8 +35,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		
 		isDark := cfg.SystemTheme == "dark"
 
-		isDark := sys.IsSystemDarkMode()
-
 		w := webview2.NewWithOptions(webview2.WebViewOptions{
 			AutoFocus: true,
 			DataPath:  userDataDir,
