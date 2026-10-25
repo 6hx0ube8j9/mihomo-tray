@@ -2,7 +2,6 @@ package webui
 
 import (
 	"log/slog"
-	"os"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
@@ -15,7 +14,7 @@ import (
 const webview2Tag = "webview2"
 
 func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Event) bool {
-	initCh := make(chan bool)
+	initCh := make(chan bool, 1)
 
 	go func() {
 		runtime.LockOSThread()
@@ -33,7 +32,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 
 		winW, winH, _, _ := calculateWindowBounds()
 		userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, webview2Tag)
-		_ = os.MkdirAll(userDataDir, 0755)
 
 		w := webview2.NewWithOptions(webview2.WebViewOptions{
 			AutoFocus: true,
@@ -43,6 +41,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 				Width:  uint(winW),
 				Height: uint(winH),
 				Center: true,
+				IconId: 1,
 			},
 		})
 		if w == nil {
@@ -52,12 +51,8 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 
 		hwnd := uintptr(w.Window())
 		m.hwnd.Store(hwnd)
-		defer func() {
-			m.hwnd.Store(uintptr(0))
-			w.Destroy()
-		}()
+		defer m.hwnd.Store(uintptr(0))
 
-		sys.SetWindowIconClean(hwnd, "APP")
 		if sys.IsSystemDarkMode() {
 			sys.SetWindowDarkMode(hwnd, true)
 		}
