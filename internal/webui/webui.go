@@ -36,6 +36,7 @@ type Config struct {
 	ForceSystemBrowser bool
 	RemoteWebUI        bool
 	RemoteWebUIURL     string
+	SystemTheme        string
 }
 
 type Manager struct {
