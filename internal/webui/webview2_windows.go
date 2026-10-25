@@ -52,7 +52,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		m.hwnd.Store(hwnd)
 		defer m.hwnd.Store(uintptr(0))
 
-		sys.SetupAppWindow(hwnd)
+		sys.SetWindowIconClean(hwnd, "APP")
 
 		if sys.IsSystemDarkMode() {
 			sys.SetWindowDarkMode(hwnd, true)
