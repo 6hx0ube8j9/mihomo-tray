@@ -35,6 +35,7 @@ type RuntimeState struct {
 	proxyRepairing atomic.Bool
 	probeGen       atomic.Uint64
 	tunDevName     atomic.Value
+	systemTheme    atomic.Value
 	profileLocks   sync.Map
 }
 
@@ -166,3 +167,25 @@ func (r *RuntimeState) ReleaseProxyRepair() {
 
 func (r *RuntimeState) AdvanceProbeGen() uint64 { return r.probeGen.Add(1) }
 func (r *RuntimeState) GetProbeGen() uint64     { return r.probeGen.Load() }
+
+
+// ---------------- 系统全局主题状态 ----------------
+
+func NewRuntimeState() *RuntimeState {
+	rs := &RuntimeState{}
+	rs.phase.Store(int32(domain.PhaseInitializing))
+	
+	rs.systemTheme.Store("light") 
+	return rs
+}
+
+func (r *RuntimeState) SetSystemTheme(theme string) {
+	r.systemTheme.Store(theme)
+}
+
+func (r *RuntimeState) GetSystemTheme() string {
+	if v := r.systemTheme.Load(); v != nil {
+		return v.(string)
+	}
+	return "light"
+}
