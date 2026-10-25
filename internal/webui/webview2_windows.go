@@ -20,19 +20,41 @@ const (
 
 	externalLinkScript = `
 	(function() {
+		function openUrl(href) {
+			if (!href || typeof href !== 'string') return;
+			href = href.trim();
+			if (!href.startsWith('http://') && !href.startsWith('https://')) return;
+			if (window.openExternal) {
+				window.openExternal(href);
+			}
+		}
+
 		window.open = function(url) {
-			if (url && typeof url === 'string') window.openExternal(url);
+			if (url) openUrl(url);
 			return null;
 		};
+
 		document.addEventListener('click', function(e) {
-			const a = e.target.closest('a');
-			if (!a || !a.href) return;
-			const href = a.href.trim();
-			if (!href.startsWith('http://') && !href.startsWith('https://')) return;
-			if (a.target === '_blank' || (a.hostname && a.hostname !== window.location.hostname)) {
-				e.preventDefault();
-				e.stopPropagation();
-				window.openExternal(href);
+			let el = e.target;
+			while (el && el !== document) {
+				if (el.tagName && el.tagName.toLowerCase() === 'a') {
+					let href = el.getAttribute('href') || el.href;
+					if (typeof href === 'object' && href.baseVal) {
+						href = href.baseVal;
+					}
+					if (typeof href === 'string') {
+						href = href.trim();
+						if (href.startsWith('http://') || href.startsWith('https://')) {
+							if (el.target === '_blank' || (el.hostname && el.hostname !== window.location.hostname)) {
+								e.preventDefault();
+								e.stopPropagation();
+								openUrl(href);
+								return;
+							}
+						}
+					}
+				}
+				el = el.parentElement;
 			}
 		}, true);
 	})();`
@@ -86,6 +108,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 			sys.SetWindowDarkMode(hwnd, true)
 		}
 
+		// 绑定外链桥接
 		m.bindExternalLinkHandler(w)
 
 		initCh <- true
@@ -106,6 +129,7 @@ func (m *Manager) bindExternalLinkHandler(w webview2.WebView) {
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
 			return
 		}
+		slog.Info("收到外链跳转请求", "url", target)
 		_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", target).Start()
 	})
 	w.Init(externalLinkScript)
