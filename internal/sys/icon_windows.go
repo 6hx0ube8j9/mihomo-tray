@@ -26,6 +26,16 @@ const (
 	smCySmIcon = 50 // SM_CYSMICON
 )
 
+func SetupAppWindow(hwnd uintptr) {
+	if hwnd == 0 {
+		return
+	}
+	SetWindowIconClean(hwnd, "APP")
+	if IsSystemDarkMode() {
+		SetWindowDarkMode(hwnd, true)
+	}
+}
+
 func SetWindowIconClean(hwnd uintptr, resName string) bool {
 	if hwnd == 0 || resName == "" {
 		return false
