@@ -49,6 +49,8 @@ func (s *WebUIService) Open(forceSync func()) error {
 
 	slog.Info("启动 Web 面板", "addr", addr, "sys_browser", sysBrowser, "remote", online)
 
+	currentTheme := s.st.GetSystemTheme()
+	
 	wcfg := webui.Config{
 		APIAddr:            addr,
 		Secret:             secret,
