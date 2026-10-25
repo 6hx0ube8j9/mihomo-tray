@@ -58,6 +58,7 @@ func (s *WebUIService) Open(forceSync func()) error {
 		ForceSystemBrowser: sysBrowser,
 		RemoteWebUI:        online,
 		RemoteWebUIURL:     remoteURL,
+		SystemTheme:        currentTheme,
 	}
 
 	if forceSync != nil {
