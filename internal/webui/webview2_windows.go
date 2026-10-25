@@ -32,6 +32,8 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 
 		winW, winH, _, _ := calculateWindowBounds()
 		userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, webview2Tag)
+		
+		isDark := cfg.SystemTheme == "dark"
 
 		isDark := sys.IsSystemDarkMode()
 
