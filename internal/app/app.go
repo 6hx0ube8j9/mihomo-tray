@@ -42,6 +42,7 @@ type Application struct {
 	kernelEventCh   chan domain.KernelEvent
 	tunEventCh      chan struct{}
 	proxyStatusCh   chan sys.ProxyStatus
+	themeEventCh    chan string
 	apiPollCh       chan struct{}
 	UICommandCh     chan domain.UICommand
 	webuiEventCh    chan webui.Event
@@ -63,12 +64,16 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 		kernelEventCh:   make(chan domain.KernelEvent, 10),
 		tunEventCh:      make(chan struct{}, 1),
 		proxyStatusCh:   make(chan sys.ProxyStatus, 5),
+		themeEventCh:    make(chan string, 1),
 		apiPollCh:       make(chan struct{}, 1),
 		UICommandCh:     make(chan domain.UICommand, 10),
 		webuiEventCh:    make(chan webui.Event, 1),
 		UIStateNotifyCh: make(chan struct{}, 1),
 	}
-
+    
+	initialTheme := sys.GetCurrentTheme()
+	st.SetSystemTheme(initialTheme)
+	
 	app.ProxyGuard = NewProxyGuard(cm, st, func(title, msg string) {
 		if app.ui != nil {
 			app.ui.ShowNotification(title, msg)
@@ -126,6 +131,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	go a.Kernel.RunDaemon(ctx, a.kernelEventCh)
 	go sys.WatchNetworkInterfaces(ctx, a.tunEventCh)
 	go sys.WatchProxyRegistry(ctx, a.proxyStatusCh)
+	go sys.WatchSystemTheme(ctx, a.themeEventCh)
 	go a.eventLoop(ctx)
 }
 
@@ -249,6 +255,12 @@ func (a *Application) eventLoop(ctx context.Context) {
 
 	for {
 		select {
+			
+		case theme := <-a.themeEventCh:
+			slog.Info("检测到系统主题变更", "theme", theme)
+			a.State.SetSystemTheme(theme)
+			a.Presenter.PushUIState()
+			
 		case event := <-a.webuiEventCh:
 			if event == webui.EventError {
 				slog.Warn("Web 面板服务异常")
