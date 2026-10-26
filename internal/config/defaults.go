@@ -14,10 +14,15 @@ func applyDefaults(cfg *domain.TrayConfig) bool {
 	isTainted := false
 
 	setIfNil(&cfg.General.Autostart, domain.DefaultAutostart, &isTainted)
-	setIfNil(&cfg.General.SystemBrowser, domain.DefaultSystemBrowser, &isTainted)
 	setIfNil(&cfg.General.RemoteWebUI, domain.DefaultRemoteWebUI, &isTainted)
 	setIfNil(&cfg.General.SystemProxy, domain.DefaultSystemProxy, &isTainted)
-
+	
+	if cfg.General.WebOpenMode == nil || !isValidWebOpenMode(*cfg.General.WebOpenMode) {
+		mode := domain.DefaultWebOpenMode
+		cfg.General.WebOpenMode = &mode
+		isTainted = true
+	}
+	
 	if !isValidTrayLogLevel(cfg.General.TrayLogLevel) {
 		cfg.General.TrayLogLevel = domain.DefaultTrayLogLevel
 		isTainted = true
@@ -162,5 +167,14 @@ func setIfEmpty(val *string, def string, tainted *bool) {
 	if *val == "" {
 		*val = def
 		*tainted = true
+	}
+}
+
+func isValidWebOpenMode(mode string) bool {
+	switch mode {
+	case domain.WebOpenModeSystem, domain.WebOpenModeWebView2, domain.WebOpenModeApp:
+		return true
+	default:
+		return false
 	}
 }
