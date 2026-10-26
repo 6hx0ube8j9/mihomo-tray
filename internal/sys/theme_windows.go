@@ -34,10 +34,46 @@ func GetCurrentTheme() string {
 	return ThemeLight
 }
 
+package sys
+
+import (
+	"context"
+	"log/slog"
+
+	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
+)
+
+const (
+	themeSettingsPath = `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`
+	themeKeyApp       = "AppsUseLightTheme"
+	
+	ThemeDark  = "dark"
+	ThemeLight = "light"
+)
+
+func GetCurrentTheme() string {
+	k, err := registry.OpenKey(registry.CURRENT_USER, themeSettingsPath, registry.QUERY_VALUE)
+	if err != nil {
+		return ThemeLight 
+	}
+	defer k.Close()
+
+	val, _, err := k.GetIntegerValue(themeKeyApp)
+	if err != nil {
+		return ThemeLight
+	}
+
+	if val == 0 {
+		return ThemeDark
+	}
+	return ThemeLight
+}
+
+// WatchSystemTheme 阻塞监听系统主题变化（无防抖测试版）
 func WatchSystemTheme(ctx context.Context, themeCh chan<- string) {
 	k, err := registry.OpenKey(registry.CURRENT_USER, themeSettingsPath, registry.NOTIFY|registry.QUERY_VALUE)
 	if err != nil {
-		slog.Warn("打开主题注册表监听失败", "err", err)
 		return
 	}
 	defer k.Close()
@@ -68,38 +104,23 @@ func WatchSystemTheme(ctx context.Context, themeCh chan<- string) {
 	}
 
 	arm()
-
 	handles := [2]windows.Handle{notifyEvent, cancelEvent}
 
-	const debounceMs = 150
-	waitTimeout := uint32(windows.INFINITE)
-	hasPendingUpdate := false
-
 	for {
-		event, err := windows.WaitForMultipleObjects(handles[:], false, waitTimeout)
+		event, err := windows.WaitForMultipleObjects(handles[:], false, windows.INFINITE)
 		if err != nil || event == windows.WAIT_OBJECT_0+1 {
 			return
 		}
 
-		switch event {
-		case windows.WAIT_OBJECT_0:
+		if event == windows.WAIT_OBJECT_0 {
 			arm()
-			waitTimeout = debounceMs
-			hasPendingUpdate = true
-
-		case uint32(windows.WAIT_TIMEOUT):
-			waitTimeout = windows.INFINITE
-			if hasPendingUpdate {
-				hasPendingUpdate = false
-				
-				currentTheme := GetCurrentTheme()
-				
-				select {
-				case themeCh <- currentTheme:
-				default:
-					slog.Warn("系统主题推送阻塞，已丢弃该事件")
-				}
+			
+			currentTheme := GetCurrentTheme()
+			select {
+			case themeCh <- currentTheme:
+			default:
 			}
 		}
 	}
 }
+
