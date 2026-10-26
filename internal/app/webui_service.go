@@ -47,7 +47,7 @@ func (s *WebUIService) Open(forceSync func()) error {
 	remoteURL := s.cfg.GetEffectiveRemoteWebUIURL()
 	openMode := s.cfg.GetWebOpenMode()
 
-	slog.Info("启动 Web 面板", "addr", addr, "sys_browser", sysBrowser, "remote", online)
+	slog.Info("启动 Web 面板", "addr", addr, "mode", openMode, "remote", online)
 
 	currentTheme := s.st.GetSystemTheme()
 	
@@ -57,7 +57,7 @@ func (s *WebUIService) Open(forceSync func()) error {
 		ProxyPort:          s.cfg.GetEffectiveLocalProxyPortStr(),
 		BaseDir:            s.cfg.BaseDir(),
 		UIName:             cfg.Config.ExternalUIName,
-		ForceSystemBrowser: sysBrowser,
+		WebOpenMode:        openMode,
 		RemoteWebUI:        online,
 		RemoteWebUIURL:     remoteURL,
 		SystemTheme:        currentTheme,
