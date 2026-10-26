@@ -34,46 +34,10 @@ func GetCurrentTheme() string {
 	return ThemeLight
 }
 
-package sys
-
-import (
-	"context"
-	"log/slog"
-
-	"golang.org/x/sys/windows"
-	"golang.org/x/sys/windows/registry"
-)
-
-const (
-	themeSettingsPath = `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`
-	themeKeyApp       = "AppsUseLightTheme"
-	
-	ThemeDark  = "dark"
-	ThemeLight = "light"
-)
-
-func GetCurrentTheme() string {
-	k, err := registry.OpenKey(registry.CURRENT_USER, themeSettingsPath, registry.QUERY_VALUE)
-	if err != nil {
-		return ThemeLight 
-	}
-	defer k.Close()
-
-	val, _, err := k.GetIntegerValue(themeKeyApp)
-	if err != nil {
-		return ThemeLight
-	}
-
-	if val == 0 {
-		return ThemeDark
-	}
-	return ThemeLight
-}
-
-// WatchSystemTheme 阻塞监听系统主题变化（无防抖测试版）
 func WatchSystemTheme(ctx context.Context, themeCh chan<- string) {
 	k, err := registry.OpenKey(registry.CURRENT_USER, themeSettingsPath, registry.NOTIFY|registry.QUERY_VALUE)
 	if err != nil {
+		slog.Warn("打开主题注册表监听失败", "err", err)
 		return
 	}
 	defer k.Close()
@@ -114,7 +78,7 @@ func WatchSystemTheme(ctx context.Context, themeCh chan<- string) {
 
 		if event == windows.WAIT_OBJECT_0 {
 			arm()
-			
+
 			currentTheme := GetCurrentTheme()
 			select {
 			case themeCh <- currentTheme:
@@ -123,4 +87,3 @@ func WatchSystemTheme(ctx context.Context, themeCh chan<- string) {
 		}
 	}
 }
-
