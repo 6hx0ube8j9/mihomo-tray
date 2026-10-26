@@ -51,7 +51,7 @@ const (
 	ActionExitApp          = "ExitApp"
 
 	// Web 面板偏好
-	ActionToggleSystemBrowser = "ToggleSystemBrowser"
+	ActionSetWebOpenMode      = "SetWebOpenMode"
 	ActionToggleRemoteWebUI   = "ToggleRemoteWebUI"
 	ActionOpenWebUI           = "OpenWebUI"
 	ActionCopyWebUIPassword   = "CopyWebUIPassword"
@@ -77,7 +77,7 @@ type UIState struct {
 	AutoStart        bool
 	IsAdmin          bool
 	RunAsAdmin       bool
-	UseSystemBrowser bool
+	WebOpenMode      string
 	RemoteWebUI      bool
 	AllowLan         bool
 	ProfileItems     []UIProfileItem
