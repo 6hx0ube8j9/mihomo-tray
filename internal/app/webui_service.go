@@ -44,8 +44,8 @@ func (s *WebUIService) Open(forceSync func()) error {
 	addr := s.cfg.GetEffectiveExternalController()
 	secret := s.cfg.GetEffectiveSecret(cfg.Config.Secret)
 	online := s.cfg.IsRemoteWebUIEnabled()
-	sysBrowser := s.cfg.IsSystemBrowserEnabled()
 	remoteURL := s.cfg.GetEffectiveRemoteWebUIURL()
+	openMode := s.cfg.GetWebOpenMode()
 
 	slog.Info("启动 Web 面板", "addr", addr, "sys_browser", sysBrowser, "remote", online)
 
