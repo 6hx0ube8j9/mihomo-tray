@@ -9,6 +9,12 @@ import (
 	"mihomo-tray/internal/sys"
 )
 
+const (
+	WebOpenModeSystem   = "system"
+	WebOpenModeWebView2 = "webview2"
+	WebOpenModeApp      = "app"
+)
+
 type Event int
 
 const (
@@ -22,13 +28,12 @@ type Config struct {
 	ProxyPort          string
 	BaseDir            string
 	UIName             string
-	ForceSystemBrowser bool
+	WebOpenMode        string
 	RemoteWebUI        bool
 	RemoteWebUIURL     string
 	SystemTheme        string
 }
 
-// Manager 负责 WebUI 的生命周期调度
 type Manager struct {
 	debugPort   string
 	isolatedPid atomic.Uint32
@@ -50,41 +55,48 @@ func emitEvent(ch chan<- Event, event Event) {
 	}
 }
 
-// Launch 执行多级降级启动策略
 func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 	finalURL, appHostPort := buildFinalURL(cfg)
 
-	// 0. 用户强制要求使用系统默认浏览器
-	if cfg.ForceSystemBrowser {
-		slog.Info("根据全局配置，强制使用系统默认浏览器进入面板")
+	mode := cfg.WebOpenMode
+	if mode == "" {
+		mode = WebOpenModeWebView2
+	}
+
+	if mode == WebOpenModeSystem {
+		slog.Info("根据配置，使用系统默认浏览器进入面板")
 		m.openSystemBrowser(finalURL, eventCh)
 		return
 	}
 
-	// 1. 尝试唤醒已存在（但可能被最小化）的窗口
 	if m.tryWakeCachedWindow(eventCh) {
 		return
 	}
 
-	// 防并发锁
 	if !m.launchMu.TryLock() {
 		return
 	}
 	defer m.launchMu.Unlock()
 
-	// 2. Tier 1: 尝试启动原生 WebView2
-	if m.launchWebView2(cfg, finalURL, eventCh) {
-		slog.Info("已通过 Tier 1 (WebView2 原生容器) 成功启动面板")
-		return
+	if mode == WebOpenModeWebView2 {
+		if m.launchWebView2(cfg, finalURL, eventCh) {
+			slog.Info("已通过 Tier 1 (WebView2 原生容器) 成功启动面板")
+			return
+		}
+		slog.Warn("WebView2 环境不可用或启动失败，尝试降级到独立 Chromium 模式")
 	}
 
-	// 3. Tier 2: 降级到独立 Chromium 进程 (--app 模式)
-	if m.launchChromiumAppMode(cfg, finalURL, appHostPort, eventCh) {
-		return
+
+	if mode == WebOpenModeWebView2 || mode == WebOpenModeApp {
+		if m.launchChromiumAppMode(cfg, finalURL, appHostPort, eventCh) {
+			slog.Info("已通过 Tier 2 (独立 Chromium 容器) 成功启动面板")
+			return
+		}
+		slog.Warn("独立 Chromium 运行环境亦不可用，准备执行终极兜底")
 	}
 
-	// 4. Tier 3: 终极兜底，直接调用系统默认浏览器
-	slog.Warn("WebView2 与独立 Chromium 环境均不可用，降级为默认浏览器打开")
+
+	slog.Info("触发 Tier 3 降级：调用系统默认浏览器打开")
 	m.openSystemBrowser(finalURL, eventCh)
 }
 
