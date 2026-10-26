@@ -26,6 +26,13 @@ const (
 	ModeGlobal = "global"
 )
 
+// ================= Web 面板打开方式 =================
+const (
+	WebOpenModeSystem   = "system"
+	WebOpenModeWebView2 = "webview2"
+	WebOpenModeApp      = "app"
+)
+
 // ================= 日志文件与时间格式 =================
 const (
 	LogsDir       = "logs"
@@ -87,7 +94,7 @@ const (
 	// 托盘偏好默认值
 	DefaultAutostart      = false
 	DefaultSystemProxy    = false
-	DefaultSystemBrowser  = false
+	DefaultWebOpenMode    = "webview2"
 	DefaultRemoteWebUI    = false
 	DefaultRemoteWebUIURL = "https://board.zash.run.place"
 
