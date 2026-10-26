@@ -50,7 +50,12 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 			initCh <- false
 			return
 		}
-
+		
+        w.SetNewWindowHandler(func(url string) bool {
+			slog.Info("拦截到 Web 面板跳转外部链接", "url", url)
+			return false 
+		})
+		
 		hwnd := uintptr(w.Window())
 		m.hwnd.Store(hwnd)
 		defer m.hwnd.Store(uintptr(0))
