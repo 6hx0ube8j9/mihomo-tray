@@ -68,21 +68,37 @@ func WatchSystemTheme(ctx context.Context, themeCh chan<- string) {
 	}
 
 	arm()
+
 	handles := [2]windows.Handle{notifyEvent, cancelEvent}
 
+	const debounceMs = 150
+	waitTimeout := uint32(windows.INFINITE)
+	hasPendingUpdate := false
+
 	for {
-		event, err := windows.WaitForMultipleObjects(handles[:], false, windows.INFINITE)
+		event, err := windows.WaitForMultipleObjects(handles[:], false, waitTimeout)
 		if err != nil || event == windows.WAIT_OBJECT_0+1 {
 			return
 		}
 
-		if event == windows.WAIT_OBJECT_0 {
+		switch event {
+		case windows.WAIT_OBJECT_0:
 			arm()
+			waitTimeout = debounceMs
+			hasPendingUpdate = true
 
-			currentTheme := GetCurrentTheme()
-			select {
-			case themeCh <- currentTheme:
-			default:
+		case uint32(windows.WAIT_TIMEOUT):
+			waitTimeout = windows.INFINITE
+			if hasPendingUpdate {
+				hasPendingUpdate = false
+				
+				currentTheme := GetCurrentTheme()
+				
+				select {
+				case themeCh <- currentTheme:
+				default:
+					slog.Warn("系统主题推送阻塞，已丢弃该事件")
+				}
 			}
 		}
 	}
