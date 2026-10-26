@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/sys"
 )
 
