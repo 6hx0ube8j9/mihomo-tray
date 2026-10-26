@@ -126,7 +126,7 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 	// --- Web 面板管理 (Domain: Panel in actions_webui.go) ---
 	case domain.ActionOpenWebUI:             a.handleOpenWebUI(ctx, cmd)
 	case domain.ActionRequestEditController: a.handleRequestEditController(ctx, cmd)
-	case domain.ActionToggleSystemBrowser:   a.handleToggleSystemBrowser(ctx, cmd)
+	case domain.ActionSetWebOpenMode:        a.handleSetWebOpenMode(ctx, cmd)
 	case domain.ActionToggleRemoteWebUI:     a.handleToggleRemoteWebUI(ctx, cmd)
 	case domain.ActionCopyWebUIPassword:     a.handleCopyWebUIPassword(ctx, cmd)
 	case domain.ActionClearWebUICache:       a.handleClearWebUICache(ctx, cmd)
