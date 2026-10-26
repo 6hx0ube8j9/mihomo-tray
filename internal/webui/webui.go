@@ -2,22 +2,11 @@ package webui
 
 import (
 	"log/slog"
-	"net"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/sys"
-)
-
-const (
-	browserDiskCacheBytes = "33554432"
 )
 
 type Event int
@@ -39,6 +28,7 @@ type Config struct {
 	SystemTheme        string
 }
 
+// Manager 负责 WebUI 的生命周期调度
 type Manager struct {
 	debugPort   string
 	isolatedPid atomic.Uint32
@@ -60,43 +50,42 @@ func emitEvent(ch chan<- Event, event Event) {
 	}
 }
 
+// Launch 执行多级降级启动策略
 func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 	finalURL, appHostPort := buildFinalURL(cfg)
 
+	// 0. 用户强制要求使用系统默认浏览器
 	if cfg.ForceSystemBrowser {
 		slog.Info("根据全局配置，强制使用系统默认浏览器进入面板")
 		m.openSystemBrowser(finalURL, eventCh)
 		return
 	}
 
+	// 1. 尝试唤醒已存在（但可能被最小化）的窗口
 	if m.tryWakeCachedWindow(eventCh) {
 		return
 	}
 
+	// 防并发锁
 	if !m.launchMu.TryLock() {
 		return
 	}
 	defer m.launchMu.Unlock()
 
+	// 2. Tier 1: 尝试启动原生 WebView2
 	if m.launchWebView2(cfg, finalURL, eventCh) {
 		slog.Info("已通过 Tier 1 (WebView2 原生容器) 成功启动面板")
 		return
 	}
-	
-	safeDebugPort := m.prepareDebugPort()
 
-	if m.tryAttachExistingTarget(safeDebugPort, appHostPort, eventCh) {
+	// 3. Tier 2: 降级到独立 Chromium 进程 (--app 模式)
+	if m.launchChromiumAppMode(cfg, finalURL, appHostPort, eventCh) {
 		return
 	}
 
-	browserPath, browserTag := DetectAvailableBrowser()
-	if browserPath == "" {         
-		slog.Warn("未探测到受支持的浏览器，降级为默认浏览器打开") 
-		m.openSystemBrowser(finalURL, eventCh)  
-		return
-	}
-
-	m.launchIsolatedBrowser(cfg, browserPath, browserTag, finalURL, safeDebugPort, appHostPort, eventCh) 
+	// 4. Tier 3: 终极兜底，直接调用系统默认浏览器
+	slog.Warn("WebView2 与独立 Chromium 环境均不可用，降级为默认浏览器打开")
+	m.openSystemBrowser(finalURL, eventCh)
 }
 
 func (m *Manager) Cleanup() {
@@ -144,130 +133,4 @@ func (m *Manager) tryWakeCachedWindow(eventCh chan<- Event) bool {
 		m.hwnd.Store(0)
 	}
 	return false
-}
-
-func (m *Manager) prepareDebugPort() string {
-	m.stateMu.Lock()
-	defer m.stateMu.Unlock()
-
-	if m.debugPort != "" && !IsDebugPortAlive(m.debugPort) {
-		m.debugPort = ""
-	}
-	if m.debugPort == "" {
-		m.debugPort = getCDPDebugPort()
-	}
-	return m.debugPort
-}
-
-func (m *Manager) tryAttachExistingTarget(debugPort, appHostPort string, eventCh chan<- Event) bool {
-	targetID, targetTitle, found := GetWebUITarget(debugPort)
-	if !found {
-		return false
-	}
-	slog.Debug("发现存活的调试端口，尝试接管面板")
-	_ = ActivateTarget(debugPort, targetID)
-	return m.waitForWindow(debugPort, appHostPort, targetTitle, m.isolatedPid.Load(), eventCh)
-}
-
-func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, browserTag, finalURL, debugPort, appHostPort string, eventCh chan<- Event) {
-	slog.Info("启动独立浏览器进程运行 WebUI", "Browser", browserTag, "DebugPort", debugPort)
-
-	userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, browserTag)
-	if err := os.MkdirAll(userDataDir, 0755); err != nil {
-		slog.Warn("创建 WebCache 用户目录失败", "path", userDataDir, "err", err)
-	}
-
-	args := buildBrowserArgs(cfg, userDataDir, finalURL, debugPort)
-	cmd := exec.Command(browserPath, args...)
-	if err := cmd.Start(); err != nil {
-		slog.Error("创建浏览器进程失败", "err", err)
-		emitEvent(eventCh, EventError)
-		return
-	}
-
-	mainPid := uint32(cmd.Process.Pid)
-	m.isolatedPid.Store(mainPid)
-	go func() { _ = cmd.Wait() }()
-
-	if m.waitForWindow(debugPort, appHostPort, "", mainPid, eventCh) {
-		return
-	}
-
-	slog.Error("超时未能捕获浏览器窗口句柄")
-
-	realPid := m.isolatedPid.Load()
-	if realPid != 0 && sys.IsPidRunning(realPid, "") {
-		slog.Warn("强制清理启动超时的失控浏览器进程", "PID", realPid)
-		sys.HardKill(realPid)
-	}
-	m.isolatedPid.Store(0)
-	emitEvent(eventCh, EventError)
-}
-
-func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, mainPid uint32, eventCh chan<- Event) bool {
-	realBrowserPid := mainPid
-
-	for i := 0; i < 30; i++ {
-		time.Sleep(100 * time.Millisecond)
-
-		if realBrowserPid == mainPid && i%5 == 0 {
-			if truePid := sys.GetProcessIdByPort(debugPort); truePid != 0 {
-				realBrowserPid = truePid
-				m.isolatedPid.Store(realBrowserPid)
-			}
-		}
-
-		liveTargetID, liveTitle, isLive := GetWebUITarget(debugPort)
-
-		titleToSearch := liveTitle
-		if titleToSearch == "" {
-			titleToSearch = targetTitle
-		}
-
-		if isLive {
-			_ = ActivateTarget(debugPort, liveTargetID)
-		}	
-
-		if isLive || titleToSearch != "" || realBrowserPid != 0 {
-			if m.findAndFocusWebUI(titleToSearch, appHostPort, realBrowserPid) {
-				slog.Info("WebUI 窗口捕获成功", "live", isLive)
-				emitEvent(eventCh, EventReady)
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func buildBrowserArgs(cfg Config, userDataDir, finalURL, debugPort string) []string {
-	winW, winH, winX, winY := calculateWindowBounds()
-
-	args := []string{
-		"--app=" + finalURL,
-		"--remote-debugging-port=" + debugPort,
-		"--user-data-dir=" + userDataDir,
-		"--window-size=" + strconv.Itoa(winW) + "," + strconv.Itoa(winH),
-		"--window-position=" + strconv.Itoa(winX) + "," + strconv.Itoa(winY),
-		"--no-first-run", "--no-default-browser-check", "--disable-extensions",
-		"--disable-sync", "--disable-background-networking", "--disable-component-update",
-		"--disk-cache-size=" + browserDiskCacheBytes,
-		"--hide-crash-restore-bubble",
-		"--disable-background-timer-throttling", "--disable-client-side-phishing-detection",
-		"--disable-default-apps",
-
-		// 禁用各类气泡与弹窗
-		"--disable-save-password-bubble",
-		"--deny-permission-prompts",
-		"--disable-notifications",
-		"--disable-search-engine-choice-screen",
-		"--disable-features=Translate,LanguageDetection,PasswordLeakDetection,AutofillAddressProfileSavePrompt,AutofillCreditCardSavePrompt",
-	}
-
-	if p := strings.TrimSpace(cfg.ProxyPort); p != "" {
-		args = append(args,
-			"--proxy-server="+net.JoinHostPort("127.0.0.1", p),
-			"--proxy-bypass-list=127.0.0.1;localhost;<local>",
-		)
-	}
-	return args
 }
