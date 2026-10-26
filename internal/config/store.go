@@ -214,10 +214,13 @@ func (m *Manager) IsAutostartEnabled() bool {
 	return m.data.General.Autostart != nil && *m.data.General.Autostart
 }
 
-func (m *Manager) IsSystemBrowserEnabled() bool {
+func (m *Manager) GetWebOpenMode() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.data.General.SystemBrowser != nil && *m.data.General.SystemBrowser
+	if m.data.General.WebOpenMode != nil {
+		return *m.data.General.WebOpenMode
+	}
+	return domain.DefaultWebOpenMode
 }
 
 func (m *Manager) IsRemoteWebUIEnabled() bool {
