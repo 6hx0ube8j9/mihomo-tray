@@ -3,6 +3,7 @@ package sys
 import (
 	"context"
 	"log/slog"
+	"runtime"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
@@ -11,7 +12,7 @@ import (
 const (
 	themeSettingsPath = `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`
 	themeKeyApp       = "AppsUseLightTheme"
-	
+
 	ThemeDark  = "dark"
 	ThemeLight = "light"
 )
@@ -19,7 +20,7 @@ const (
 func GetCurrentTheme() string {
 	k, err := registry.OpenKey(registry.CURRENT_USER, themeSettingsPath, registry.QUERY_VALUE)
 	if err != nil {
-		return ThemeLight 
+		return ThemeLight
 	}
 	defer k.Close()
 
@@ -35,6 +36,9 @@ func GetCurrentTheme() string {
 }
 
 func WatchSystemTheme(ctx context.Context, themeCh chan<- string) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	k, err := registry.OpenKey(registry.CURRENT_USER, themeSettingsPath, registry.NOTIFY|registry.QUERY_VALUE)
 	if err != nil {
 		slog.Warn("打开主题注册表监听失败", "err", err)
@@ -44,12 +48,14 @@ func WatchSystemTheme(ctx context.Context, themeCh chan<- string) {
 
 	notifyEvent, err := windows.CreateEvent(nil, 0, 0, nil)
 	if err != nil {
+		slog.Error("创建主题通知事件失败", "err", err)
 		return
 	}
 	defer windows.CloseHandle(notifyEvent)
 
 	cancelEvent, err := windows.CreateEvent(nil, 0, 0, nil)
 	if err != nil {
+		slog.Error("创建取消事件失败", "err", err)
 		return
 	}
 	defer windows.CloseHandle(cancelEvent)
@@ -61,9 +67,9 @@ func WatchSystemTheme(ctx context.Context, themeCh chan<- string) {
 
 	arm := func() {
 		filter := uint32(windows.REG_NOTIFY_CHANGE_LAST_SET | windows.REG_NOTIFY_CHANGE_NAME | windows.REG_NOTIFY_THREAD_AGNOSTIC)
-		if err := windows.RegNotifyChangeKeyValue(windows.Handle(k), true, filter, notifyEvent, true); err != nil {
+		if err := windows.RegNotifyChangeKeyValue(windows.Handle(k), false, filter, notifyEvent, true); err != nil {
 			filter &^= windows.REG_NOTIFY_THREAD_AGNOSTIC
-			_ = windows.RegNotifyChangeKeyValue(windows.Handle(k), true, filter, notifyEvent, true)
+			_ = windows.RegNotifyChangeKeyValue(windows.Handle(k), false, filter, notifyEvent, true)
 		}
 	}
 
@@ -74,6 +80,8 @@ func WatchSystemTheme(ctx context.Context, themeCh chan<- string) {
 	const debounceMs = 150
 	waitTimeout := uint32(windows.INFINITE)
 	hasPendingUpdate := false
+	
+	lastTheme := GetCurrentTheme()
 
 	for {
 		event, err := windows.WaitForMultipleObjects(handles[:], false, waitTimeout)
@@ -91,13 +99,16 @@ func WatchSystemTheme(ctx context.Context, themeCh chan<- string) {
 			waitTimeout = windows.INFINITE
 			if hasPendingUpdate {
 				hasPendingUpdate = false
-				
+
 				currentTheme := GetCurrentTheme()
-				
-				select {
-				case themeCh <- currentTheme:
-				default:
-					slog.Warn("系统主题推送阻塞，已丢弃该事件")
+				if currentTheme != lastTheme {
+					lastTheme = currentTheme
+
+					select {
+					case themeCh <- currentTheme:
+					case <-ctx.Done():
+						return
+					}
 				}
 			}
 		}
