@@ -36,7 +36,7 @@ func (p *Presenter) CalculateUIState() domain.UIState {
 		Mode:             cfg.Config.Mode,
 		AutoStart:        p.cfg.IsAutostartEnabled(),
 		RunAsAdmin:       cfg.General.RunAsAdmin,
-		UseSystemBrowser: p.cfg.IsSystemBrowserEnabled(),
+		WebOpenMode:      p.cfg.GetWebOpenMode(),
 		RemoteWebUI:      p.cfg.IsRemoteWebUIEnabled(),
 		AllowLan:         p.cfg.GetEffectiveAllowLan(),
 		IsAdmin:          sys.IsAdmin(),
@@ -149,7 +149,7 @@ func (p *Presenter) hasStateChanged(curr, last *domain.UIState) bool {
 		curr.IsTun != last.IsTun || curr.IsProxy != last.IsProxy ||
 		curr.Mode != last.Mode || curr.AllowLan != last.AllowLan ||
 		curr.AutoStart != last.AutoStart || curr.RunAsAdmin != last.RunAsAdmin ||
-		curr.UseSystemBrowser != last.UseSystemBrowser || curr.RemoteWebUI != last.RemoteWebUI ||
+		curr.WebOpenMode != last.WebOpenMode ||
 		curr.IsAdmin != last.IsAdmin || curr.CanAddProfile != last.CanAddProfile ||
 		curr.SystemTheme != last.SystemTheme ||
 		curr.MixedPort != last.MixedPort || curr.SocksPort != last.SocksPort ||
