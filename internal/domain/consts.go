@@ -94,7 +94,7 @@ const (
 	// 托盘偏好默认值
 	DefaultAutostart      = false
 	DefaultSystemProxy    = false
-	DefaultWebOpenMode    = "webview2"
+	DefaultWebOpenMode    = WebOpenModeWebView2
 	DefaultRemoteWebUI    = false
 	DefaultRemoteWebUIURL = "https://board.zash.run.place"
 
