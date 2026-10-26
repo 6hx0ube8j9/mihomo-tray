@@ -77,7 +77,7 @@ func (t *Tray) UpdateState(state domain.UIState) {
 	safelySetChecked(t.actAutoStart, state.AutoStart)
 	safelySetChecked(t.actRunAdmin, state.RunAsAdmin || state.AutoStart)
 	safelySetEnabled(t.actRunAdmin, !state.AutoStart)
-	safelySetChecked(t.actSysBrowser, state.UseSystemBrowser)
+	safelySetChecked(t.actSysBrowser, state.WebOpenMode == domain.WebOpenModeSystem)
 	safelySetChecked(t.actRemoteWebUI, state.RemoteWebUI)
 	safelySetChecked(t.actAllowLan, state.AllowLan)
 
@@ -166,9 +166,15 @@ func (t *Tray) buildMenuSkeleton() {
 	t.actRemoteWebUI = t.addCheckableSubAction(moreMenu, "使用在线托管面板", false, func() {
 		t.toggle(domain.ActionToggleRemoteWebUI, !t.latestState.RemoteWebUI)
 	})
-	t.actSysBrowser = t.addCheckableSubAction(moreMenu, "在默认浏览器打开面板", false, func() {
-		t.toggle(domain.ActionToggleSystemBrowser, !t.latestState.UseSystemBrowser)
+
+	t.actSysBrowser = t.addCheckableSubAction(moreMenu, "切换默认浏览器打开面板", false, func() {
+		nextMode := domain.DefaultWebOpenMode
+		if t.latestState.WebOpenMode != domain.WebOpenModeSystem {
+			nextMode = domain.WebOpenModeSystem
+		}
+		t.engine.SendCommand(domain.ActionSetWebOpenMode, nextMode)
 	})
+	
 	t.actAllowLan = t.addCheckableSubAction(moreMenu, "允许局域网代理", false, func() {
 		t.toggle(domain.ActionToggleAllowLan, !t.latestState.AllowLan)
 	})
