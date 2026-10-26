@@ -29,8 +29,9 @@ func (a *Application) handleRequestEditController(_ context.Context, _ domain.UI
 		cAddr := a.Cfg.GetEffectiveExternalController()
 		cSec := a.Cfg.GetEffectiveSecret(cfg.Config.Secret)
 		cOnline := a.Cfg.IsRemoteWebUIEnabled()
-		cSys := a.Cfg.IsSystemBrowserEnabled()
 		cRemoteURL := a.Cfg.GetEffectiveRemoteWebUIURL()
+		
+		cSys := a.Cfg.GetWebOpenMode() == domain.WebOpenModeSystem
 
 		nAddr, nSec, nOnline, nSys, nRemoteURL, ok := a.ui.ShowControllerEditor(cAddr, cSec, cOnline, cSys, cRemoteURL)
 		if !ok {
@@ -50,10 +51,17 @@ func (a *Application) handleRequestEditController(_ context.Context, _ domain.UI
 					c.Config.ExternalController = nAddr
 					c.Config.Secret = &nSec
 				}
-				bOnline, bSys, bRemoteURL := nOnline, nSys, nRemoteURL
+				bOnline, bRemoteURL := nOnline, nRemoteURL
 				c.General.RemoteWebUI = &bOnline
-				c.General.SystemBrowser = &bSys
 				c.General.RemoteWebUIURL = &bRemoteURL
+				
+				if nSys {
+					m := domain.WebOpenModeSystem
+					c.General.WebOpenMode = &m
+				} else if c.General.WebOpenMode != nil && *c.General.WebOpenMode == domain.WebOpenModeSystem {
+					m := domain.DefaultWebOpenMode
+					c.General.WebOpenMode = &m
+				}
 			})
 
 			if coreChanged {
@@ -70,10 +78,10 @@ func (a *Application) handleRequestEditController(_ context.Context, _ domain.UI
 	}()
 }
 
-func (a *Application) handleToggleSystemBrowser(_ context.Context, cmd domain.UICommand) {
-	b := (cmd.Payload == "true")
+func (a *Application) handleSetWebOpenMode(_ context.Context, cmd domain.UICommand) {
+	targetMode := cmd.Payload 
 	a.Cfg.Update(func(c *domain.TrayConfig) {
-		c.General.SystemBrowser = &b
+		c.General.WebOpenMode = &targetMode
 	})
 	a.Presenter.PushUIState()
 }
