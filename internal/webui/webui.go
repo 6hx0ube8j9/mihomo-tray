@@ -9,12 +9,6 @@ import (
 	"mihomo-tray/internal/sys"
 )
 
-const (
-	WebOpenModeSystem   = "system"
-	WebOpenModeWebView2 = "webview2"
-	WebOpenModeApp      = "app"
-)
-
 type Event int
 
 const (
@@ -58,12 +52,9 @@ func emitEvent(ch chan<- Event, event Event) {
 func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 	finalURL, appHostPort := buildFinalURL(cfg)
 
-	mode := cfg.WebOpenMode
-	if mode == "" {
-		mode = WebOpenModeWebView2
-	}
+	mode := cfg.WebOpenMode 
 
-	if mode == WebOpenModeSystem {
+	if mode == domain.WebOpenModeSystem {
 		slog.Info("根据配置，使用系统默认浏览器进入面板")
 		m.openSystemBrowser(finalURL, eventCh)
 		return
@@ -78,7 +69,7 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 	}
 	defer m.launchMu.Unlock()
 
-	if mode == WebOpenModeWebView2 {
+	if mode == domain.WebOpenModeWebView2 {
 		if m.launchWebView2(cfg, finalURL, eventCh) {
 			slog.Info("已通过 Tier 1 (WebView2 原生容器) 成功启动面板")
 			return
@@ -86,15 +77,13 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 		slog.Warn("WebView2 环境不可用或启动失败，尝试降级到独立 Chromium 模式")
 	}
 
-
-	if mode == WebOpenModeWebView2 || mode == WebOpenModeApp {
+	if mode == domain.WebOpenModeWebView2 || mode == domain.WebOpenModeApp {
 		if m.launchChromiumAppMode(cfg, finalURL, appHostPort, eventCh) {
 			slog.Info("已通过 Tier 2 (独立 Chromium 容器) 成功启动面板")
 			return
 		}
 		slog.Warn("独立 Chromium 运行环境亦不可用，准备执行终极兜底")
 	}
-
 
 	slog.Info("触发 Tier 3 降级：调用系统默认浏览器打开")
 	m.openSystemBrowser(finalURL, eventCh)
