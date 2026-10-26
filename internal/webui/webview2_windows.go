@@ -32,8 +32,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 
 		winW, winH, _, _ := calculateWindowBounds()
 		userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, webview2Tag)
-		
-		isDark := cfg.SystemTheme == "dark"
+		isDark := cfg.SystemTheme == sys.ThemeDark
 
 		w := webview2.NewWithOptions(webview2.WebViewOptions{
 			AutoFocus: true,
@@ -50,15 +49,15 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 			initCh <- false
 			return
 		}
-		
-        w.SetNewWindowHandler(func(url string) bool {
-			slog.Info("拦截到 Web 面板跳转外部链接", "url", url)
-			return false 
-		})
-		
+
 		hwnd := uintptr(w.Window())
 		m.hwnd.Store(hwnd)
 		defer m.hwnd.Store(uintptr(0))
+
+		w.SetNewWindowHandler(func(url string) bool {
+			slog.Debug("拦截网页新窗口跳转请求", "url", url)
+			return false
+		})
 
 		sys.SetWindowIconClean(hwnd, "APP")
 
