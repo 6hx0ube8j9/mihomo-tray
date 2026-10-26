@@ -14,7 +14,7 @@ type TrayConfig struct {
 type GeneralConfig struct {
 	Autostart      *bool   `json:"autostart"`
 	RunAsAdmin     bool    `json:"run_as_admin"`
-	SystemBrowser  *bool   `json:"system_browser"`
+	WebOpenMode    *string `json:"web_open_mode,omitempty"`
 	RemoteWebUI    *bool   `json:"remote_webui"`
 	RemoteWebUIURL *string `json:"remote_webui_url"`
 	TrayLogLevel   string  `json:"tray_log_level"`
