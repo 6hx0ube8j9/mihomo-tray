@@ -12,30 +12,24 @@ import (
 const (
 	themeSettingsPath = `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`
 	themeKeyApp       = "AppsUseLightTheme"
-
-	ThemeDark  = "dark"
-	ThemeLight = "light"
 )
 
-func GetCurrentTheme() string {
+func IsDarkMode() bool {
 	k, err := registry.OpenKey(registry.CURRENT_USER, themeSettingsPath, registry.QUERY_VALUE)
 	if err != nil {
-		return ThemeLight
+		return false
 	}
 	defer k.Close()
 
 	val, _, err := k.GetIntegerValue(themeKeyApp)
 	if err != nil {
-		return ThemeLight
+		return false
 	}
 
-	if val == 0 {
-		return ThemeDark
-	}
-	return ThemeLight
+	return val == 0
 }
 
-func WatchSystemTheme(ctx context.Context, themeCh chan<- string) {
+func WatchSystemTheme(ctx context.Context, themeCh chan<- bool) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -80,8 +74,8 @@ func WatchSystemTheme(ctx context.Context, themeCh chan<- string) {
 	const debounceMs = 150
 	waitTimeout := uint32(windows.INFINITE)
 	hasPendingUpdate := false
-	
-	lastTheme := GetCurrentTheme()
+
+	lastIsDark := IsDarkMode()
 
 	for {
 		event, err := windows.WaitForMultipleObjects(handles[:], false, waitTimeout)
@@ -100,12 +94,12 @@ func WatchSystemTheme(ctx context.Context, themeCh chan<- string) {
 			if hasPendingUpdate {
 				hasPendingUpdate = false
 
-				currentTheme := GetCurrentTheme()
-				if currentTheme != lastTheme {
-					lastTheme = currentTheme
+				currentIsDark := IsDarkMode()
+				if currentIsDark != lastIsDark {
+					lastIsDark = currentIsDark
 
 					select {
-					case themeCh <- currentTheme:
+					case themeCh <- currentIsDark:
 					case <-ctx.Done():
 						return
 					}
