@@ -10,6 +10,11 @@ import (
 	"mihomo-tray/internal/sys"
 )
 
+type webviewSession interface {
+	Destroy()
+	SetDarkMode(isDark bool)
+}
+
 type Event int
 
 const (
@@ -18,15 +23,15 @@ const (
 )
 
 type Config struct {
-	APIAddr            string
-	Secret             string
-	ProxyPort          string
-	BaseDir            string
-	UIName             string
-	WebOpenMode        string
-	RemoteWebUI        bool
-	RemoteWebUIURL     string
-	SystemTheme        string
+	APIAddr        string
+	Secret         string
+	ProxyPort      string
+	BaseDir        string
+	UIName         string
+	WebOpenMode    string
+	RemoteWebUI    bool
+	RemoteWebUIURL string
+	SystemTheme    string
 }
 
 type Manager struct {
@@ -35,6 +40,9 @@ type Manager struct {
 	hwnd        atomic.Uintptr
 	launchMu    sync.Mutex
 	stateMu     sync.Mutex
+
+	wvMu sync.RWMutex
+	wv   webviewSession
 }
 
 func NewManager() *Manager {
@@ -53,7 +61,7 @@ func emitEvent(ch chan<- Event, event Event) {
 func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 	finalURL, appHostPort := buildFinalURL(cfg)
 
-	mode := cfg.WebOpenMode 
+	mode := cfg.WebOpenMode
 
 	if mode == domain.WebOpenModeSystem {
 		slog.Info("根据配置，使用系统默认浏览器进入面板")
@@ -91,8 +99,23 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 }
 
 func (m *Manager) Cleanup() {
-	m.hwnd.Store(0)
+	m.cleanupWebView2()
+	m.cleanupChromium()
+}
 
+func (m *Manager) cleanupWebView2() {
+	m.wvMu.Lock()
+	if m.wv != nil {
+		slog.Debug("向 WebView2 窗口发送销毁信号")
+		m.wv.Destroy()
+		m.wv = nil
+	}
+	m.wvMu.Unlock()
+
+	m.hwnd.Store(0)
+}
+
+func (m *Manager) cleanupChromium() {
 	m.stateMu.Lock()
 	safeDebugPort := m.debugPort
 	m.stateMu.Unlock()
@@ -102,18 +125,32 @@ func (m *Manager) Cleanup() {
 		CloseAllWebUITargets(safeDebugPort)
 	}
 
-	time.Sleep(500 * time.Millisecond)
 	pid := m.isolatedPid.Load()
-	if pid != 0 && sys.IsPidRunning(pid, "") {
-		slog.Warn("正常关闭超时，强制结束浏览器进程", "PID", pid)
-		sys.HardKill(pid)
+	if pid != 0 {
+		time.Sleep(500 * time.Millisecond)
+		if sys.IsPidRunning(pid, "") {
+			slog.Warn("正常关闭超时，强制结束 Chromium 进程", "PID", pid)
+			sys.HardKill(pid)
+		}
+		m.isolatedPid.Store(0)
 	}
-	m.isolatedPid.Store(0)
+}
+
+func (m *Manager) UpdateTheme(theme string) {
+	m.wvMu.RLock()
+	defer m.wvMu.RUnlock()
+
+	if m.wv != nil {
+		m.wv.SetDarkMode(theme == sys.ThemeDark)
+	}
 }
 
 func (m *Manager) IsActive() bool {
-	hwnd := m.hwnd.Load()
-	return hwnd != 0 && sys.IsWindowVisible(hwnd)
+	m.wvMu.RLock()
+	isNativeActive := m.wv != nil
+	m.wvMu.RUnlock()
+
+	return isNativeActive || m.isolatedPid.Load() != 0
 }
 
 func (m *Manager) openSystemBrowser(finalURL string, eventCh chan<- Event) {
