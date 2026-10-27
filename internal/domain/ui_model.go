@@ -73,7 +73,7 @@ type UIState struct {
 	IsTun            bool
 	IsProxy          bool
 	Mode             string
-	SystemTheme      domain.Theme
+	SystemTheme      Theme
 	AutoStart        bool
 	IsAdmin          bool
 	RunAsAdmin       bool
