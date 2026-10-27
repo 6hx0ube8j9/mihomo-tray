@@ -150,7 +150,20 @@ func (m *Manager) IsActive() bool {
 	isNativeActive := m.wv != nil
 	m.wvMu.RUnlock()
 
-	return isNativeActive || m.isolatedPid.Load() != 0
+	pid := m.isolatedPid.Load()
+	isChromiumActive := false
+	if pid != 0 {
+		isChromiumActive = sys.IsPidRunning(pid, "")
+		
+		if !isChromiumActive {
+			m.isolatedPid.Store(0)
+			m.stateMu.Lock()
+			m.debugPort = ""
+			m.stateMu.Unlock()
+		}
+	}
+
+	return isNativeActive || isChromiumActive
 }
 
 func (m *Manager) openSystemBrowser(finalURL string, eventCh chan<- Event) {
