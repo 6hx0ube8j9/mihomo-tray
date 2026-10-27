@@ -31,7 +31,7 @@ type Config struct {
 	WebOpenMode    string
 	RemoteWebUI    bool
 	RemoteWebUIURL string
-	SystemTheme    string
+	IsDark         bool
 }
 
 type Manager struct {
@@ -136,12 +136,12 @@ func (m *Manager) cleanupChromium() {
 	}
 }
 
-func (m *Manager) UpdateTheme(theme string) {
+func (m *Manager) UpdateTheme(isDark bool) {
 	m.wvMu.RLock()
 	defer m.wvMu.RUnlock()
 
 	if m.wv != nil {
-		m.wv.SetDarkMode(theme == sys.ThemeDark)
+		m.wv.SetDarkMode(isDark)
 	}
 }
 
