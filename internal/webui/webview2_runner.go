@@ -48,7 +48,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 
 		winW, winH, _, _ := calculateWindowBounds()
 		userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, domain.WebOpenModeWebView2)
-		isDark := cfg.SystemTheme == sys.ThemeDark
 
 		w := webview2.NewWithOptions(webview2.WebViewOptions{
 			AutoFocus: true,
@@ -58,7 +57,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 				Width:    uint(winW),
 				Height:   uint(winH),
 				Center:   true,
-				DarkMode: isDark,
+				DarkMode: cfg.IsDark,
 			},
 		})
 		if w == nil {
