@@ -47,6 +47,12 @@ const (
 	DefaultExternalControllerPort = "9090"
 )
 
+// ================= 系统主题 =================
+const (
+	ThemeDark  = "dark"
+	ThemeLight = "light"
+)
+
 // ================= 状态与事件 =================
 const AppTaskName = "MihomoTrayTask"
 
