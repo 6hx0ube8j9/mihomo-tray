@@ -42,7 +42,7 @@ type RuntimeState struct {
 func NewRuntimeState() *RuntimeState {
 	rs := &RuntimeState{}
 	rs.phase.Store(int32(domain.PhaseInitializing))
-	rs.systemTheme.Store("light") 
+	rs.systemTheme.Store(domain.ThemeLight) 
 	return rs
 }
 
@@ -170,15 +170,17 @@ func (r *RuntimeState) AdvanceProbeGen() uint64 { return r.probeGen.Add(1) }
 func (r *RuntimeState) GetProbeGen() uint64     { return r.probeGen.Load() }
 
 
-// ---------------- 系统全局主题状态 ----------------
+// ---------------- 系统主题状态 ----------------
 
-func (r *RuntimeState) SetSystemTheme(theme string) {
+func (r *RuntimeState) SetSystemTheme(theme domain.Theme) {
 	r.systemTheme.Store(theme)
 }
 
-func (r *RuntimeState) GetSystemTheme() string {
+func (r *RuntimeState) GetSystemTheme() domain.Theme {
 	if v := r.systemTheme.Load(); v != nil {
-		return v.(string)
+		if t, ok := v.(domain.Theme); ok {
+			return t
+		}
 	}
-	return "light"
+	return domain.ThemeLight
 }
