@@ -48,10 +48,20 @@ const (
 )
 
 // ================= 系统主题 =================
+type Theme string
+
 const (
-	ThemeDark  = "dark"
-	ThemeLight = "light"
+	ThemeLight Theme = "light"
+	ThemeDark  Theme = "dark"
 )
+
+func (t Theme) IsDark() bool {
+	return t == ThemeDark
+}
+
+func (t Theme) String() string {
+	return string(t)
+}
 
 // ================= 状态与事件 =================
 const AppTaskName = "MihomoTrayTask"
