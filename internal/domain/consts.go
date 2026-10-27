@@ -55,6 +55,13 @@ const (
 	ThemeDark  Theme = "dark"
 )
 
+func ThemeFromBool(isDark bool) Theme {
+	if isDark {
+		return ThemeDark
+	}
+	return ThemeLight
+}
+
 func (t Theme) IsDark() bool {
 	return t == ThemeDark
 }
