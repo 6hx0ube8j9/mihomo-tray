@@ -42,7 +42,7 @@ type Application struct {
 	kernelEventCh   chan domain.KernelEvent
 	tunEventCh      chan struct{}
 	proxyStatusCh   chan sys.ProxyStatus
-	themeEventCh    chan string
+	themeEventCh    chan bool
 	apiPollCh       chan struct{}
 	UICommandCh     chan domain.UICommand
 	webuiEventCh    chan webui.Event
@@ -64,15 +64,15 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 		kernelEventCh:   make(chan domain.KernelEvent, 10),
 		tunEventCh:      make(chan struct{}, 1),
 		proxyStatusCh:   make(chan sys.ProxyStatus, 5),
-		themeEventCh:    make(chan string, 1),
+		themeEventCh:    make(chan bool, 1),
 		apiPollCh:       make(chan struct{}, 1),
 		UICommandCh:     make(chan domain.UICommand, 10),
 		webuiEventCh:    make(chan webui.Event, 1),
 		UIStateNotifyCh: make(chan struct{}, 1),
 	}
     
-	initialTheme := sys.GetCurrentTheme()
-	st.SetSystemTheme(initialTheme)
+	isDark := sys.IsDarkMode()
+	st.SetSystemTheme(domain.ThemeFromBool(isDark))
 	
 	app.ProxyGuard = NewProxyGuard(cm, st, func(title, msg string) {
 		if app.ui != nil {
@@ -256,11 +256,13 @@ func (a *Application) eventLoop(ctx context.Context) {
 	for {
 		select {
 			
-		case theme := <-a.themeEventCh:
+        case isDark := <-a.themeEventCh:
+			theme := domain.ThemeFromBool(isDark)
 			slog.Info("检测到系统主题变更", "theme", theme)
+
 			a.State.SetSystemTheme(theme)
 			a.Presenter.PushUIState()
-			a.WebUI.UpdateTheme(theme)
+			a.WebUI.UpdateTheme(isDark)
 			
 		case event := <-a.webuiEventCh:
 			if event == webui.EventError {
