@@ -11,7 +11,23 @@ import (
 	"mihomo-tray/internal/sys"
 )
 
-const webview2Tag = "webview2"
+type webviewAdapter struct {
+	w webview2.WebView
+}
+
+func (a *webviewAdapter) Destroy() {
+	if a.w != nil {
+		a.w.Destroy()
+	}
+}
+
+func (a *webviewAdapter) SetDarkMode(isDark bool) {
+	if a.w != nil {
+		a.w.Dispatch(func() {
+			a.w.SetDarkMode(isDark)
+		})
+	}
+}
 
 func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Event) bool {
 	initCh := make(chan bool, 1)
@@ -31,7 +47,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		}()
 
 		winW, winH, _, _ := calculateWindowBounds()
-		userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, webview2Tag)
+		userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, domain.WebOpenModeWebView2)
 		isDark := cfg.SystemTheme == sys.ThemeDark
 
 		w := webview2.NewWithOptions(webview2.WebViewOptions{
@@ -52,7 +68,17 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 
 		hwnd := uintptr(w.Window())
 		m.hwnd.Store(hwnd)
-		defer m.hwnd.Store(uintptr(0))
+
+		m.wvMu.Lock()
+		m.wv = &webviewAdapter{w: w}
+		m.wvMu.Unlock()
+
+		defer func() {
+			m.hwnd.Store(uintptr(0))
+			m.wvMu.Lock()
+			m.wv = nil
+			m.wvMu.Unlock()
+		}()
 
 		w.SetNewWindowHandler(func(url string) bool {
 			slog.Debug("拦截网页新窗口跳转请求", "url", url)
