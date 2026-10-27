@@ -260,6 +260,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 			slog.Info("检测到系统主题变更", "theme", theme)
 			a.State.SetSystemTheme(theme)
 			a.Presenter.PushUIState()
+			a.WebUI.UpdateTheme(theme)
 			
 		case event := <-a.webuiEventCh:
 			if event == webui.EventError {
