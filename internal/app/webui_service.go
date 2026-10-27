@@ -50,17 +50,17 @@ func (s *WebUIService) Open(forceSync func()) error {
 	slog.Info("启动 Web 面板", "addr", addr, "mode", openMode, "remote", online)
 
 	currentTheme := s.st.GetSystemTheme()
-	
+
 	wcfg := webui.Config{
-		APIAddr:            addr,
-		Secret:             secret,
-		ProxyPort:          s.cfg.GetEffectiveLocalProxyPortStr(),
-		BaseDir:            s.cfg.BaseDir(),
-		UIName:             cfg.Config.ExternalUIName,
-		WebOpenMode:        openMode,
-		RemoteWebUI:        online,
-		RemoteWebUIURL:     remoteURL,
-		SystemTheme:        currentTheme,
+		APIAddr:        addr,
+		Secret:         secret,
+		ProxyPort:      s.cfg.GetEffectiveLocalProxyPortStr(),
+		BaseDir:        s.cfg.BaseDir(),
+		UIName:         cfg.Config.ExternalUIName,
+		WebOpenMode:    openMode,
+		RemoteWebUI:    online,
+		RemoteWebUIURL: remoteURL,
+		IsDark:         currentTheme.IsDark(),
 	}
 
 	if forceSync != nil {
