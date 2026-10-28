@@ -7,6 +7,7 @@ import (
 	"runtime/debug"
 
 	"github.com/jchv/go-webview2"
+	"github.com/jchv/go-webview2/webviewloader"
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/sys"
 )
@@ -29,7 +30,17 @@ func (a *webviewAdapter) SetDarkMode(isDark bool) {
 	}
 }
 
+func isWebView2Available() bool {
+	v, err := webviewloader.GetInstalledVersion()
+	return err == nil && v != ""
+}
+
 func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Event) bool {
+	if !isWebView2Available() {
+		slog.Info("系统未安装 WebView2 运行时，快速跳过 Tier 1")
+		return false
+	}
+	
 	initCh := make(chan bool, 1)
 
 	go func() {
