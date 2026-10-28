@@ -4,6 +4,7 @@ package webui
 
 import (
 	"log/slog"
+	"os"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
