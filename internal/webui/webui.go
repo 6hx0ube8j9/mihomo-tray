@@ -83,7 +83,7 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 			slog.Info("已通过 Tier 1 (WebView2 原生容器) 成功启动面板")
 			return
 		}
-		slog.Warn("WebView2 环境不可用或启动失败，尝试降级到独立 Chromium 模式")
+		slog.Warn("WebView2 无法使用，准备降级到独立 Chromium 模式")
 	}
 
 	if mode == domain.WebOpenModeWebView2 || mode == domain.WebOpenModeApp {
