@@ -60,11 +60,10 @@ func emitEvent(ch chan<- Event, event Event) {
 
 func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 	finalURL, appHostPort := buildFinalURL(cfg)
-
 	mode := cfg.WebOpenMode
 
 	if mode == domain.WebOpenModeSystem {
-		slog.Info("根据配置，使用系统默认浏览器进入面板")
+		slog.Info("使用系统默认浏览器打开 WebUI")
 		m.openSystemBrowser(finalURL, eventCh)
 		return
 	}
@@ -80,21 +79,20 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 
 	if mode == domain.WebOpenModeWebView2 {
 		if m.launchWebView2(cfg, finalURL, eventCh) {
-			slog.Info("已通过 Tier 1 (WebView2 原生容器) 成功启动面板")
+			slog.Info("WebView2 面板启动成功")
 			return
 		}
-		slog.Warn("WebView2 无法使用，准备降级到独立 Chromium 模式")
+		slog.Warn("WebView2 不可用，尝试降级到独立浏览器")
 	}
 
 	if mode == domain.WebOpenModeWebView2 || mode == domain.WebOpenModeApp {
 		if m.launchChromiumAppMode(cfg, finalURL, appHostPort, eventCh) {
-			slog.Info("已通过 Tier 2 (独立 Chromium 容器) 成功启动面板")
+			slog.Info("独立浏览器面板启动成功")
 			return
 		}
-		slog.Warn("独立 Chromium 运行环境亦不可用，准备执行终极兜底")
+		slog.Warn("未检测到可用的独立浏览器，降级到系统默认浏览器")
 	}
 
-	slog.Info("触发 Tier 3 降级：调用系统默认浏览器打开")
 	m.openSystemBrowser(finalURL, eventCh)
 }
 
@@ -106,7 +104,7 @@ func (m *Manager) Cleanup() {
 func (m *Manager) cleanupWebView2() {
 	m.wvMu.Lock()
 	if m.wv != nil {
-		slog.Debug("向 WebView2 窗口发送销毁信号")
+		slog.Debug("关闭 WebView2 窗口")
 		m.wv.Destroy()
 		m.wv = nil
 	}
@@ -118,10 +116,11 @@ func (m *Manager) cleanupWebView2() {
 func (m *Manager) cleanupChromium() {
 	m.stateMu.Lock()
 	safeDebugPort := m.debugPort
+	m.debugPort = ""
 	m.stateMu.Unlock()
 
 	if safeDebugPort != "" {
-		slog.Debug("通过 DevTools 协议发送关闭请求")
+		slog.Debug("通过 CDP 协议关闭浏览器窗口")
 		CloseAllWebUITargets(safeDebugPort)
 	}
 
@@ -129,7 +128,7 @@ func (m *Manager) cleanupChromium() {
 	if pid != 0 {
 		time.Sleep(500 * time.Millisecond)
 		if sys.IsPidRunning(pid, "") {
-			slog.Warn("正常关闭超时，强制结束 Chromium 进程", "PID", pid)
+			slog.Warn("关闭超时，终止浏览器进程", "pid", pid)
 			sys.HardKill(pid)
 		}
 		m.isolatedPid.Store(0)
@@ -154,7 +153,6 @@ func (m *Manager) IsActive() bool {
 	isChromiumActive := false
 	if pid != 0 {
 		isChromiumActive = sys.IsPidRunning(pid, "")
-		
 		if !isChromiumActive {
 			m.isolatedPid.Store(0)
 			m.stateMu.Lock()
@@ -170,7 +168,7 @@ func (m *Manager) openSystemBrowser(finalURL string, eventCh chan<- Event) {
 	if err := sys.ExecuteSystemCommand(`"` + finalURL + `"`); err == nil {
 		emitEvent(eventCh, EventReady)
 	} else {
-		slog.Error("调用系统默认浏览器失败", "err", err)
+		slog.Error("打开系统默认浏览器失败", "err", err)
 		emitEvent(eventCh, EventError)
 	}
 }
