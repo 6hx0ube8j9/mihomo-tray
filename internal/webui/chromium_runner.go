@@ -40,12 +40,11 @@ func (m *Manager) launchChromiumAppMode(cfg Config, finalURL, appHostPort string
 	safeDebugPort := m.prepareDebugPort()
 
 	if m.tryAttachExistingTarget(safeDebugPort, appHostPort, eventCh) {
-		slog.Info("已复用现有的浏览器面板")
+		slog.Info("已复用现有浏览器面板")
 		return true
 	}
 
-	m.launchIsolatedBrowser(cfg, browserPath, browserTag, finalURL, safeDebugPort, appHostPort, eventCh)
-	return true
+	return m.launchIsolatedBrowser(cfg, browserPath, browserTag, finalURL, safeDebugPort, appHostPort, eventCh)
 }
 
 func (m *Manager) prepareDebugPort() string {
@@ -66,77 +65,99 @@ func (m *Manager) tryAttachExistingTarget(debugPort, appHostPort string, eventCh
 	if !found {
 		return false
 	}
-	slog.Debug("检测到调试端口存活，尝试激活窗口")
+	slog.Debug("尝试激活已运行的浏览器面板")
 	_ = ActivateTarget(debugPort, targetID)
-	return m.waitForWindow(debugPort, appHostPort, targetTitle, m.isolatedPid.Load(), eventCh)
+	
+	return m.waitForWindow(debugPort, appHostPort, targetTitle, m.isolatedPid.Load(), nil, eventCh)
 }
 
-func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, browserTag, finalURL, debugPort, appHostPort string, eventCh chan<- Event) {
-	slog.Info("启动独立浏览器窗口", "browser", browserTag, "port", debugPort)
+func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, browserTag, finalURL, debugPort, appHostPort string, eventCh chan<- Event) bool {
+	slog.Info("启动独立浏览器面板", "browser", browserTag, "port", debugPort)
 
 	userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, browserTag)
 	if err := os.MkdirAll(userDataDir, 0755); err != nil {
-		slog.Warn("创建用户数据目录失败", "path", userDataDir, "err", err)
+		slog.Warn("创建浏览器用户目录失败", "path", userDataDir, "err", err)
 	}
 
 	args := buildBrowserArgs(cfg, userDataDir, finalURL, debugPort)
 	cmd := exec.Command(browserPath, args...)
 	if err := cmd.Start(); err != nil {
 		slog.Error("启动浏览器进程失败", "err", err)
-		emitEvent(eventCh, EventError)
-		return
+		return false
 	}
 
 	mainPid := uint32(cmd.Process.Pid)
 	m.isolatedPid.Store(mainPid)
-	go func() { _ = cmd.Wait() }()
 
-	if m.waitForWindow(debugPort, appHostPort, "", mainPid, eventCh) {
-		return
+	exitCh := make(chan error, 1)
+	go func() {
+		exitCh <- cmd.Wait()
+	}()
+
+	if m.waitForWindow(debugPort, appHostPort, "", mainPid, exitCh, eventCh) {
+		return true
 	}
 
-	slog.Error("等待浏览器窗口就绪超时")
+	slog.Warn("浏览器启动超时或异常退出，正在清理残留进程")
 	realPid := m.isolatedPid.Load()
-	if realPid != 0 && sys.IsPidRunning(realPid, "") {
-		slog.Warn("结束超时的浏览器进程", "pid", realPid)
+	
+	if realPid != 0 && realPid != mainPid && sys.IsPidRunning(realPid, "") {
 		sys.HardKill(realPid)
 	}
+	
+	if sys.IsPidRunning(mainPid, "") {
+		sys.HardKill(mainPid)
+	}
+	
 	m.isolatedPid.Store(0)
-	emitEvent(eventCh, EventError)
+	return false
 }
 
-func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, mainPid uint32, eventCh chan<- Event) bool {
+func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, mainPid uint32, exitCh <-chan error, eventCh chan<- Event) bool {
 	realBrowserPid := mainPid
 
-	for i := 0; i < 30; i++ {
-		time.Sleep(100 * time.Millisecond)
+	ticker := time.NewTicker(150 * time.Millisecond)
+	defer ticker.Stop()
 
-		if realBrowserPid == mainPid && i%5 == 0 {
-			if truePid := sys.GetProcessIdByPort(debugPort); truePid != 0 {
-				realBrowserPid = truePid
-				m.isolatedPid.Store(realBrowserPid)
+	timeout := time.After(3 * time.Second)
+
+	for i := 0; ; i++ {
+		select {
+		case err := <-exitCh:
+			slog.Warn("浏览器进程异常退出", "err", err)
+			return false
+
+		case <-timeout:
+			slog.Error("等待浏览器窗口就绪超时")
+			return false
+
+		case <-ticker.C:
+			if realBrowserPid == mainPid && i%5 == 0 {
+				if truePid := sys.GetProcessIdByPort(debugPort); truePid != 0 {
+					realBrowserPid = truePid
+					m.isolatedPid.Store(realBrowserPid)
+				}
 			}
-		}
 
-		liveTargetID, liveTitle, isLive := GetWebUITarget(debugPort)
-		titleToSearch := liveTitle
-		if titleToSearch == "" {
-			titleToSearch = targetTitle
-		}
+			liveTargetID, liveTitle, isLive := GetWebUITarget(debugPort)
+			titleToSearch := liveTitle
+			if titleToSearch == "" {
+				titleToSearch = targetTitle
+			}
 
-		if isLive {
-			_ = ActivateTarget(debugPort, liveTargetID)
-		}
+			if isLive {
+				_ = ActivateTarget(debugPort, liveTargetID)
+			}
 
-		if isLive || titleToSearch != "" || realBrowserPid != 0 {
-			if m.findAndFocusWebUI(titleToSearch, appHostPort, realBrowserPid) {
-				slog.Info("浏览器面板窗口已就绪")
-				emitEvent(eventCh, EventReady)
-				return true
+			if isLive || titleToSearch != "" || realBrowserPid != 0 {
+				if m.findAndFocusWebUI(titleToSearch, appHostPort, realBrowserPid) {
+					slog.Info("浏览器面板已就绪")
+					emitEvent(eventCh, EventReady)
+					return true
+				}
 			}
 		}
 	}
-	return false
 }
 
 func (m *Manager) findAndFocusWebUI(targetTitle, appHostPort string, targetPid uint32) bool {
