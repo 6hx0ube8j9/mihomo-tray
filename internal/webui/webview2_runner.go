@@ -1,3 +1,5 @@
+//go:build windows
+
 package webui
 
 import (
@@ -37,10 +39,10 @@ func isWebView2Available() bool {
 
 func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Event) bool {
 	if !isWebView2Available() {
-		slog.Info("系统未安装 WebView2 运行时，快速跳过 Tier 1")
+		slog.Info("未检测到 WebView2 运行时")
 		return false
 	}
-	
+
 	initCh := make(chan bool, 1)
 
 	go func() {
@@ -49,7 +51,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 
 		defer func() {
 			if r := recover(); r != nil {
-				slog.Error("WebView2 运行时异常", "panic", r, "stack", string(debug.Stack()))
+				slog.Error("WebView2 运行异常", "err", r, "stack", string(debug.Stack()))
 				select {
 				case initCh <- false:
 				default:
@@ -84,14 +86,14 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		m.wvMu.Unlock()
 
 		defer func() {
-			m.hwnd.Store(uintptr(0))
+			m.hwnd.Store(0)
 			m.wvMu.Lock()
 			m.wv = nil
 			m.wvMu.Unlock()
 		}()
 
 		w.SetNewWindowHandler(func(url string) bool {
-			slog.Debug("拦截网页新窗口跳转请求", "url", url)
+			slog.Debug("已阻止在新窗口中打开链接", "url", url)
 			return false
 		})
 
