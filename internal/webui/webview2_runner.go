@@ -42,6 +42,12 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		slog.Info("未检测到 WebView2 运行时")
 		return false
 	}
+	
+	userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, domain.WebOpenModeWebView2)
+	if err := os.MkdirAll(userDataDir, 0755); err != nil {
+		slog.Error("创建缓存目录失败", "path", userDataDir, "err", err)
+		return false
+	}
 
 	initCh := make(chan bool, 1)
 
