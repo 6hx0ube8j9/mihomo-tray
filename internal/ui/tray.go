@@ -167,7 +167,7 @@ func (t *Tray) buildMenuSkeleton() {
 		t.toggle(domain.ActionToggleRemoteWebUI, !t.latestState.RemoteWebUI)
 	})
 
-	t.actSysBrowser = t.addCheckableSubAction(moreMenu, "切换默认浏览器打开面板", false, func() {
+	t.actSysBrowser = t.addCheckableSubAction(moreMenu, "始终在默认浏览器打开面板", false, func() {
 		nextMode := domain.DefaultWebOpenMode
 		if t.latestState.WebOpenMode != domain.WebOpenModeSystem {
 			nextMode = domain.WebOpenModeSystem
