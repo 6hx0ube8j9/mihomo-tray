@@ -1,5 +1,4 @@
 //go:build windows
-// +build windows
 
 package webui
 
@@ -17,7 +16,20 @@ import (
 	"mihomo-tray/internal/sys"
 )
 
-const browserDiskCacheBytes = "33554432"
+const (
+	browserDiskCacheBytes  = "33554432"
+	wndClassChromiumPrefix = "Chrome_WidgetWin"
+)
+
+var ghostCharReplacer = strings.NewReplacer(
+	"\u200b", "", "\u200c", "", "\u200d", "",
+	"\u200e", "", "\u200f", "", "\ufeff", "", "\u00a0", " ",
+)
+
+var standardBrowserSuffixes = []string{
+	"google chrome", "microsoft edge", "msedge",
+	"brave", "vivaldi", "opera", "chromium",
+}
 
 func (m *Manager) launchChromiumAppMode(cfg Config, finalURL, appHostPort string, eventCh chan<- Event) bool {
 	browserPath, browserTag := detectAvailableBrowser()
@@ -26,8 +38,9 @@ func (m *Manager) launchChromiumAppMode(cfg Config, finalURL, appHostPort string
 	}
 
 	safeDebugPort := m.prepareDebugPort()
+
 	if m.tryAttachExistingTarget(safeDebugPort, appHostPort, eventCh) {
-		slog.Info("已接管存活的 Chromium 面板实例")
+		slog.Info("已复用现有的浏览器面板")
 		return true
 	}
 
@@ -53,23 +66,23 @@ func (m *Manager) tryAttachExistingTarget(debugPort, appHostPort string, eventCh
 	if !found {
 		return false
 	}
-	slog.Debug("发现存活的调试端口，尝试接管面板")
+	slog.Debug("检测到调试端口存活，尝试激活窗口")
 	_ = ActivateTarget(debugPort, targetID)
 	return m.waitForWindow(debugPort, appHostPort, targetTitle, m.isolatedPid.Load(), eventCh)
 }
 
 func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, browserTag, finalURL, debugPort, appHostPort string, eventCh chan<- Event) {
-	slog.Info("启动独立 Chromium 进程运行 WebUI", "Browser", browserTag, "DebugPort", debugPort)
+	slog.Info("启动独立浏览器窗口", "browser", browserTag, "port", debugPort)
 
 	userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, browserTag)
 	if err := os.MkdirAll(userDataDir, 0755); err != nil {
-		slog.Warn("创建 WebCache 用户目录失败", "path", userDataDir, "err", err)
+		slog.Warn("创建用户数据目录失败", "path", userDataDir, "err", err)
 	}
 
 	args := buildBrowserArgs(cfg, userDataDir, finalURL, debugPort)
 	cmd := exec.Command(browserPath, args...)
 	if err := cmd.Start(); err != nil {
-		slog.Error("创建浏览器进程失败", "err", err)
+		slog.Error("启动浏览器进程失败", "err", err)
 		emitEvent(eventCh, EventError)
 		return
 	}
@@ -82,10 +95,10 @@ func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, browserTag, fin
 		return
 	}
 
-	slog.Error("超时未能捕获浏览器窗口句柄")
+	slog.Error("等待浏览器窗口就绪超时")
 	realPid := m.isolatedPid.Load()
 	if realPid != 0 && sys.IsPidRunning(realPid, "") {
-		slog.Warn("强制清理启动超时的失控浏览器进程", "PID", realPid)
+		slog.Warn("结束超时的浏览器进程", "pid", realPid)
 		sys.HardKill(realPid)
 	}
 	m.isolatedPid.Store(0)
@@ -117,10 +130,68 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 
 		if isLive || titleToSearch != "" || realBrowserPid != 0 {
 			if m.findAndFocusWebUI(titleToSearch, appHostPort, realBrowserPid) {
-				slog.Info("WebUI 窗口捕获成功", "live", isLive)
+				slog.Info("浏览器面板窗口已就绪")
 				emitEvent(eventCh, EventReady)
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func (m *Manager) findAndFocusWebUI(targetTitle, appHostPort string, targetPid uint32) bool {
+	exactTitle := strings.TrimSpace(targetTitle)
+	fallbackAnchor := strings.ToLower(strings.TrimSpace(appHostPort))
+
+	var pendingPidHwnd uintptr
+
+	targetHwnd := sys.FindTopWindow(func(info sys.WindowInfo) bool {
+		if !sys.IsWindowVisible(info.Hwnd) || !strings.HasPrefix(info.ClassName, wndClassChromiumPrefix) || info.Title == "" {
+			return false
+		}
+
+		titleLower := strings.ToLower(info.Title)
+		isTitleHit := exactTitle != "" && info.Title == exactTitle
+		isAnchorHit := fallbackAnchor != "" && strings.Contains(titleLower, fallbackAnchor)
+
+		if targetPid != 0 && info.Pid == targetPid {
+			if isTitleHit || isAnchorHit {
+				return true
+			}
+			if pendingPidHwnd == 0 {
+				pendingPidHwnd = info.Hwnd
+			}
+			return false
+		}
+
+		if targetPid == 0 {
+			if isStandardBrowserWindow(titleLower) {
+				return false
+			}
+			return isTitleHit || isAnchorHit
+		}
+
+		return false
+	})
+
+	if targetHwnd == 0 {
+		targetHwnd = pendingPidHwnd
+	}
+
+	if targetHwnd != 0 {
+		m.hwnd.Store(targetHwnd)
+		sys.FocusWindowSilky(targetHwnd)
+		return true
+	}
+	return false
+}
+
+func isStandardBrowserWindow(title string) bool {
+	clean := ghostCharReplacer.Replace(strings.ToLower(title))
+	clean = strings.TrimSpace(clean)
+	for _, suffix := range standardBrowserSuffixes {
+		if strings.HasSuffix(clean, suffix) {
+			return true
 		}
 	}
 	return false
@@ -135,11 +206,16 @@ func buildBrowserArgs(cfg Config, userDataDir, finalURL, debugPort string) []str
 		"--user-data-dir=" + userDataDir,
 		"--window-size=" + strconv.Itoa(winW) + "," + strconv.Itoa(winH),
 		"--window-position=" + strconv.Itoa(winX) + "," + strconv.Itoa(winY),
-		"--no-first-run", "--no-default-browser-check", "--disable-extensions",
-		"--disable-sync", "--disable-background-networking", "--disable-component-update",
+		"--no-first-run",
+		"--no-default-browser-check",
+		"--disable-extensions",
+		"--disable-sync",
+		"--disable-background-networking",
+		"--disable-component-update",
 		"--disk-cache-size=" + browserDiskCacheBytes,
 		"--hide-crash-restore-bubble",
-		"--disable-background-timer-throttling", "--disable-client-side-phishing-detection",
+		"--disable-background-timer-throttling",
+		"--disable-client-side-phishing-detection",
 		"--disable-default-apps",
 		"--disable-save-password-bubble",
 		"--deny-permission-prompts",
