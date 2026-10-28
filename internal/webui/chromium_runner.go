@@ -20,16 +20,15 @@ import (
 const browserDiskCacheBytes = "33554432"
 
 func (m *Manager) launchChromiumAppMode(cfg Config, finalURL, appHostPort string, eventCh chan<- Event) bool {
-	safeDebugPort := m.prepareDebugPort()
-
-	if m.tryAttachExistingTarget(safeDebugPort, appHostPort, eventCh) {
-		slog.Info("已接管存活的 Chromium 面板实例")
-		return true
-	}
-
 	browserPath, browserTag := detectAvailableBrowser()
 	if browserPath == "" {
 		return false
+	}
+
+	safeDebugPort := m.prepareDebugPort()
+	if m.tryAttachExistingTarget(safeDebugPort, appHostPort, eventCh) {
+		slog.Info("已接管存活的 Chromium 面板实例")
+		return true
 	}
 
 	m.launchIsolatedBrowser(cfg, browserPath, browserTag, finalURL, safeDebugPort, appHostPort, eventCh)
