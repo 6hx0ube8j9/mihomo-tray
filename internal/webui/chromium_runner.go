@@ -76,9 +76,9 @@ func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, browserTag, fin
 
 	userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, browserTag)
 	if err := os.MkdirAll(userDataDir, 0755); err != nil {
-		slog.Warn("创建浏览器用户目录失败", "path", userDataDir, "err", err)
+		slog.Error("创建缓存目录失败", "path", userDataDir, "err", err)
+		return false
 	}
-
 	args := buildBrowserArgs(cfg, userDataDir, finalURL, debugPort)
 	cmd := exec.Command(browserPath, args...)
 	if err := cmd.Start(); err != nil {
