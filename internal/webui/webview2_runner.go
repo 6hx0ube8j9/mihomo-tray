@@ -12,7 +12,6 @@ import (
 	"github.com/jchv/go-webview2"
 	"github.com/jchv/go-webview2/webviewloader"
 	"mihomo-tray/internal/domain"
-	"mihomo-tray/internal/sys"
 )
 
 type webviewAdapter struct {
