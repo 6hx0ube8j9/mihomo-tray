@@ -1,8 +1,9 @@
+//go:build windows
+
 package sys
 
 import (
 	"runtime"
-	"strconv"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -11,7 +12,7 @@ import (
 )
 
 var (
-	modIphlpapi = windows.NewLazySystemDLL("iphlpapi.dll")
+	modUser32 = windows.NewLazySystemDLL("user32.dll")
 
 	procEnumWindows          = modUser32.NewProc("EnumWindows")
 	procGetClassName         = modUser32.NewProc("GetClassNameW")
@@ -19,6 +20,7 @@ var (
 	procGetWindowThread      = modUser32.NewProc("GetWindowThreadProcessId")
 	procGetWindowText        = modUser32.NewProc("GetWindowTextW")
 	procShowWindow           = modUser32.NewProc("ShowWindow")
+	procBringToTop           = modUser32.NewProc("BringWindowToTop")
 	procSystemParametersInfo = modUser32.NewProc("SystemParametersInfoW")
 	procSetProcessDpiContext = modUser32.NewProc("SetProcessDpiAwarenessContext")
 	procSetProcessDPIAware   = modUser32.NewProc("SetProcessDPIAware")
@@ -26,10 +28,6 @@ var (
 	procSetForeground        = modUser32.NewProc("SetForegroundWindow")
 	procGetWindow            = modUser32.NewProc("GetWindow")
 	procIsIconic             = modUser32.NewProc("IsIconic")
-	procSetWindowPos         = modUser32.NewProc("SetWindowPos")
-	procKeybdEvent           = modUser32.NewProc("keybd_event")
-
-	procGetExtendedTcpTable = modIphlpapi.NewProc("GetExtendedTcpTable")
 )
 
 const (
@@ -40,21 +38,7 @@ const (
 	SM_CXSCREEN     = 0
 	SM_CYSCREEN     = 1
 
-	dpiAwarenessPerMonitorV2 = uintptr(0xFFFFFFFC) // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 (-4)
-
-	hwndTopMost   = ^uintptr(0) // (HWND)-1
-	hwndNoTopMost = ^uintptr(1) // (HWND)-2
-	swpNoMove     = 0x0002
-	swpNoSize     = 0x0001
-	swpShowWindow = 0x0040
-
-	vkMenu         = 0x12 // VK_MENU
-	keyeventfKeyup = 0x0002
-
-	afInet                   = 2  // AF_INET (IPv4)
-	afInet6                  = 23 // AF_INET6 (IPv6)
-	tcpTableOwnerPidListener = 3  // TCP_TABLE_OWNER_PID_LISTENER
-	errorInsufficientBuffer  = 122
+	dpiAwarenessPerMonitorV2 = uintptr(0xFFFFFFFC)
 )
 
 type WindowInfo struct {
@@ -62,28 +46,6 @@ type WindowInfo struct {
 	Pid       uint32
 	ClassName string
 	Title     string
-}
-
-// MIB_TCPROW_OWNER_PID (IPv4)
-type mibTcpRowOwnerPid struct {
-	dwState      uint32
-	dwLocalAddr  uint32
-	dwLocalPort  uint32
-	dwRemoteAddr uint32
-	dwRemotePort uint32
-	dwOwningPid  uint32
-}
-
-// MIB_TCP6ROW_OWNER_PID (IPv6)
-type mibTcp6RowOwnerPid struct {
-	ucLocalAddr     [16]byte
-	dwLocalScopeId  uint32
-	dwLocalPort     uint32
-	ucRemoteAddr    [16]byte
-	dwRemoteScopeId uint32
-	dwRemotePort    uint32
-	dwState         uint32
-	dwOwningPid     uint32
 }
 
 type enumContext struct {
@@ -173,12 +135,7 @@ func FocusWindowSilky(targetHwnd uintptr) {
 		procShowWindow.Call(targetHwnd, SW_SHOW)
 	}
 
-	procKeybdEvent.Call(vkMenu, 0, 0, 0)
-	procKeybdEvent.Call(vkMenu, 0, keyeventfKeyup, 0)
-
-	procSetWindowPos.Call(targetHwnd, hwndTopMost, 0, 0, 0, 0, swpNoMove|swpNoSize|swpShowWindow)
-	procSetWindowPos.Call(targetHwnd, hwndNoTopMost, 0, 0, 0, 0, swpNoMove|swpNoSize)
-
+	procBringToTop.Call(targetHwnd)
 	procSetForeground.Call(targetHwnd)
 }
 
@@ -190,107 +147,4 @@ func IsWindowVisible(hwnd uintptr) bool {
 func IsIconic(hwnd uintptr) bool {
 	min, _, _ := procIsIconic.Call(hwnd)
 	return min != 0
-}
-
-func GetProcessIdByPort(port string) uint32 {
-	portNum, err := strconv.ParseUint(strings.TrimSpace(port), 10, 16)
-	if err != nil || portNum == 0 {
-		return 0
-	}
-	targetPort := uint16(portNum)
-
-	if pid := findTcp4ListenerPid(targetPort); pid != 0 {
-		return pid
-	}
-
-	return findTcp6ListenerPid(targetPort)
-}
-
-func findTcp4ListenerPid(targetPort uint16) uint32 {
-	buf, ok := queryExtendedTcpTable(afInet)
-	if !ok || len(buf) < 4 {
-		return 0
-	}
-
-	numEntries := *(*uint32)(unsafe.Pointer(&buf[0]))
-	if numEntries == 0 {
-		return 0
-	}
-
-	rowSize := unsafe.Sizeof(mibTcpRowOwnerPid{})
-	if uintptr(numEntries) > (uintptr(len(buf))-4)/rowSize {
-		return 0
-	}
-
-	rows := unsafe.Slice((*mibTcpRowOwnerPid)(unsafe.Pointer(&buf[4])), numEntries)
-	for i := range rows {
-		port := ((rows[i].dwLocalPort & 0xFF) << 8) | ((rows[i].dwLocalPort >> 8) & 0xFF)
-		if uint16(port) == targetPort {
-			return rows[i].dwOwningPid
-		}
-	}
-	return 0
-}
-
-func findTcp6ListenerPid(targetPort uint16) uint32 {
-	buf, ok := queryExtendedTcpTable(afInet6)
-	if !ok || len(buf) < 4 {
-		return 0
-	}
-
-	numEntries := *(*uint32)(unsafe.Pointer(&buf[0]))
-	if numEntries == 0 {
-		return 0
-	}
-
-	rowSize := unsafe.Sizeof(mibTcp6RowOwnerPid{})
-	if uintptr(numEntries) > (uintptr(len(buf))-4)/rowSize {
-		return 0
-	}
-
-	rows := unsafe.Slice((*mibTcp6RowOwnerPid)(unsafe.Pointer(&buf[4])), numEntries)
-	for i := range rows {
-		port := ((rows[i].dwLocalPort & 0xFF) << 8) | ((rows[i].dwLocalPort >> 8) & 0xFF)
-		if uint16(port) == targetPort {
-			return rows[i].dwOwningPid
-		}
-	}
-	return 0
-}
-
-func queryExtendedTcpTable(af uint32) ([]byte, bool) {
-	var size uint32
-	procGetExtendedTcpTable.Call(
-		0,
-		uintptr(unsafe.Pointer(&size)),
-		0,
-		uintptr(af),
-		uintptr(tcpTableOwnerPidListener),
-		0,
-	)
-	if size == 0 {
-		return nil, false
-	}
-
-	for i := 0; i < 3; i++ {
-		if size == 0 {
-			return nil, false
-		}
-		buf := make([]byte, size)
-		ret, _, _ := procGetExtendedTcpTable.Call(
-			uintptr(unsafe.Pointer(&buf[0])),
-			uintptr(unsafe.Pointer(&size)),
-			0,
-			uintptr(af),
-			uintptr(tcpTableOwnerPidListener),
-			0,
-		)
-		if ret == 0 {
-			return buf, true
-		}
-		if ret != errorInsufficientBuffer {
-			return nil, false
-		}
-	}
-	return nil, false
 }
