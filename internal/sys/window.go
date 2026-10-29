@@ -12,8 +12,6 @@ import (
 )
 
 var (
-	modUser32 = windows.NewLazySystemDLL("user32.dll")
-
 	procEnumWindows          = modUser32.NewProc("EnumWindows")
 	procGetClassName         = modUser32.NewProc("GetClassNameW")
 	procIsWindowVisible      = modUser32.NewProc("IsWindowVisible")
