@@ -76,6 +76,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 				Title:    domain.AppName,
 				Width:    uint(winW),
 				Height:   uint(winH),
+				IconId:   1,
 				Center:   true,
 				DarkMode: cfg.IsDark,
 			},
@@ -103,8 +104,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 			slog.Debug("已阻止在新窗口中打开链接", "url", url)
 			return false
 		})
-
-		sys.SetWindowIconClean(hwnd, "APP")
 
 		initCh <- true
 		w.Navigate(finalURL)
