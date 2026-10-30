@@ -37,9 +37,11 @@ type Config struct {
 type Manager struct {
 	debugPort   string
 	isolatedPid atomic.Uint32
+	isOpening   atomic.Bool
 	hwnd        atomic.Uintptr
 	launchMu    sync.Mutex
 	stateMu     sync.Mutex
+	
 
 	wvMu sync.RWMutex
 	wv   webviewSession
@@ -56,6 +58,19 @@ func emitEvent(ch chan<- Event, event Event) {
 		default:
 		}
 	}
+}
+
+func (m *Manager) Open(cfg Config) {
+	if m.tryWakeCachedWindow(m.eventCh) {
+		return
+	}
+
+	if !m.isOpening.CompareAndSwap(false, true) {
+		slog.Debug("WebUI 正在启动中，忽略重复点击")
+		return
+	}
+	defer m.isOpening.Store(false)
+
 }
 
 func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
