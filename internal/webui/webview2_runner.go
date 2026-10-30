@@ -14,6 +14,8 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
+const appIconResourceID = 1
+
 type webviewAdapter struct {
 	w webview2.WebView
 }
@@ -75,7 +77,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 				Title:    domain.AppName,
 				Width:    uint(winW),
 				Height:   uint(winH),
-				IconId:   1,
+				IconId:   appIconResourceID,
 				Center:   true,
 				DarkMode: cfg.IsDark,
 			},
