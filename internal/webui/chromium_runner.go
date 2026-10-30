@@ -250,7 +250,7 @@ func buildBrowserArgs(cfg Config, userDataDir, finalURL, debugPort string) []str
 	if p := strings.TrimSpace(cfg.ProxyPort); p != "" && p != "0" {
 		args = append(args,
 			"--proxy-server="+net.JoinHostPort("127.0.0.1", p),
-			"--proxy-bypass-list=<-loopback>;<local>",
+		    "--proxy-bypass-list=127.0.0.1;localhost;<local>",
 		)
 	}
 	return args
