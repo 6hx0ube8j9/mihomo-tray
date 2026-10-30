@@ -241,16 +241,18 @@ func buildBrowserArgs(cfg Config, userDataDir, finalURL, debugPort string) []str
 		"--no-default-browser-check",
 		"--disable-extensions",
 		"--hide-crash-restore-bubble",
+		"--allow-running-insecure-content",
+		"--disable-web-security",
 		"--disable-notifications",
 		"--disable-search-engine-choice-screen",
-		"--disk-cache-size=" + browserDiskCacheBytes, 
+		"--disk-cache-size=" + browserDiskCacheBytes,
 		"--disable-features=Translate,LanguageDetection,PasswordLeakDetection,AutofillAddressProfileSavePrompt,AutofillCreditCardSavePrompt,PasswordManager,PasswordManagerEnabled",
 	}
 
-	if p := strings.TrimSpace(cfg.ProxyPort); p != "" {
+	if p := strings.TrimSpace(cfg.ProxyPort); p != "" && p != "0" {
 		args = append(args,
 			"--proxy-server="+net.JoinHostPort("127.0.0.1", p),
-			"--proxy-bypass-list=127.0.0.1;localhost;<local>",
+			"--proxy-bypass-list=<-loopback>;<local>",
 		)
 	}
 	return args
