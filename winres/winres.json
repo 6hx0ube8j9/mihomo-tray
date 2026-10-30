@@ -3,19 +3,19 @@
     "#1": {
       "0000": "icons/app.ico"
     },
-    "ICON_DEFAULT": {
+    "#2": {
       "0000": "icons/default.ico"
     },
-    "ICON_PROXY": {
+    "#3": {
       "0000": "icons/proxy.ico"
     },
-    "ICON_TUN": {
+    "#4": {
       "0000": "icons/tun.ico"
     },
-    "ICON_ERROR": {
+    "#5": {
       "0000": "icons/error.ico"
     },
-    "ICON_STOP": {
+    "#6": {
       "0000": "icons/stop.ico"
     }
   },
