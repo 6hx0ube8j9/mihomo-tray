@@ -74,7 +74,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 
 		var additionalArgs string
 		if p := strings.TrimSpace(cfg.ProxyPort); p != "" && p != "0" {
-			additionalArgs = fmt.Sprintf("--proxy-server=127.0.0.1:%s --proxy-bypass-list=<-loopback>;<local>", p)
+			additionalArgs = fmt.Sprintf("--proxy-server=http://127.0.0.1:%s", p)
 		}
 
 		w := webview2.NewWithOptions(webview2.WebViewOptions{
