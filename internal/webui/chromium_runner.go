@@ -121,18 +121,28 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 
 	timeout := time.After(3 * time.Second)
 
-	for i := 0; ; i++ {
+	for {
 		select {
-		case err := <-exitCh:
-			slog.Warn("浏览器进程异常退出", "err", err)
-			return false
+		case err, ok := <-exitCh:
+			if !ok {
+				exitCh = nil
+				continue
+			}
+
+			if err != nil {
+				slog.Warn("浏览器进程异常退出", "err", err)
+				return false
+			}
+
+			slog.Debug("浏览器引导进程已正常退出，等待真实渲染窗口完成托管")
+			exitCh = nil
 
 		case <-timeout:
 			slog.Error("等待浏览器窗口就绪超时")
 			return false
 
 		case <-ticker.C:
-			if realBrowserPid == mainPid && i%5 == 0 {
+			if realBrowserPid == mainPid {
 				if truePid := sys.GetProcessIdByPort(debugPort); truePid != 0 {
 					realBrowserPid = truePid
 					m.isolatedPid.Store(realBrowserPid)
