@@ -9,6 +9,7 @@ func (e *Engine) ShowPortEditor(defaultMixed, defaultSocks, defaultHttp int) (in
 	var finalMixed, finalSocks, finalHttp int
 
 	var mixedEdit, socksEdit, httpEdit *walk.NumberEdit
+	var currentDlg *walk.Dialog
 
 	portLabel := func(name string) Label {
 		return Label{Text: name + " 端口:", Alignment: AlignHFarVCenter}
@@ -28,6 +29,9 @@ func (e *Engine) ShowPortEditor(defaultMixed, defaultSocks, defaultHttp int) (in
 		Title:     "更改代理端口",
 		Width:     260,
 		MinHeight: 120,
+		OnReady: func(dlg *walk.Dialog) {
+			currentDlg = dlg
+		},
 		Widgets: []Widget{
 			Composite{
 				Layout: Grid{Columns: 2, Spacing: 10, MarginsZero: true},
@@ -44,10 +48,26 @@ func (e *Engine) ShowPortEditor(defaultMixed, defaultSocks, defaultHttp int) (in
 			},
 		},
 		OnAccept: func() (bool, error) {
-			// 直接物理级防呆取值，零错误处理
-			finalMixed = int(mixedEdit.Value())
-			finalSocks = int(socksEdit.Value())
-			finalHttp = int(httpEdit.Value())
+			mVal := int(mixedEdit.Value())
+			sVal := int(socksEdit.Value())
+			hVal := int(httpEdit.Value())
+
+			hasCollision := false
+			if mVal > 0 && (mVal == sVal || mVal == hVal) {
+				hasCollision = true
+			}
+			if sVal > 0 && sVal == hVal {
+				hasCollision = true
+			}
+
+			if hasCollision {
+				RunErrorDialog(currentDlg, "端口冲突", "代理端口不能重复 (0 为禁用)")
+				return false, nil
+			}
+
+			finalMixed = mVal
+			finalSocks = sVal
+			finalHttp = hVal
 			return true, nil
 		},
 	})
