@@ -241,8 +241,6 @@ func buildBrowserArgs(cfg Config, userDataDir, finalURL, debugPort string) []str
 		"--no-default-browser-check",
 		"--disable-extensions",
 		"--hide-crash-restore-bubble",
-		"--allow-running-insecure-content",
-		"--disable-web-security",
 		"--disable-notifications",
 		"--disable-search-engine-choice-screen",
 		"--disk-cache-size=" + browserDiskCacheBytes,
