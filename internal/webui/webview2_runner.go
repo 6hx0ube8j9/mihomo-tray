@@ -73,6 +73,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		w := webview2.NewWithOptions(webview2.WebViewOptions{
 			AutoFocus: true,
 			DataPath:  userDataDir,
+			AdditionalBrowserArguments: fmt.Sprintf("--proxy-server=127.0.0.1:%s --proxy-bypass-list=<-loopback>;<local>", cfg.ProxyPort),
 			WindowOptions: webview2.WindowOptions{
 				Title:    domain.AppName,
 				Width:    uint(winW),
