@@ -3,8 +3,10 @@
 package webui
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
@@ -69,12 +71,16 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 
 		winW, winH, _, _ := calculateWindowBounds()
 		userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, domain.WebOpenModeWebView2)
-		testArgs := "--proxy-server=127.0.0.1:7890 --proxy-bypass-list=127.0.0.1;localhost;<local>"
+
+		var additionalArgs string
+		if p := strings.TrimSpace(cfg.ProxyPort); p != "" && p != "0" {
+			additionalArgs = fmt.Sprintf("--proxy-server=127.0.0.1:%s --proxy-bypass-list=<-loopback>;<local>", p)
+		}
 
 		w := webview2.NewWithOptions(webview2.WebViewOptions{
 			AutoFocus:                  true,
 			DataPath:                   userDataDir,
-			AdditionalBrowserArguments: testArgs,
+			AdditionalBrowserArguments: additionalArgs,
 			WindowOptions: webview2.WindowOptions{
 				Title:    domain.AppName,
 				Width:    uint(winW),
