@@ -151,7 +151,7 @@ func (g *ProxyGuard) HandleStatusChange(ctx context.Context, status sys.ProxySta
 			slog.Warn("检测到系统代理被外部接管，已停止", "server", status.Server, "expected", expectedServer)
 			g.disableInternal()
 			if g.onAlert != nil {
-				g.onAlert("系统代理冲突", "代理设置被其他程序接管，已停止接管。")
+				g.onAlert("代理变更", "代理设置被其他程序接管，已停止。")
 			}
 		}
 		return
