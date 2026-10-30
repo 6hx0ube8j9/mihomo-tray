@@ -3,9 +3,7 @@
 package webui
 
 import (
-	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 	"path/filepath"
 	"runtime"
