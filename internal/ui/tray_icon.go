@@ -17,17 +17,23 @@ const (
 	baseDPI          = 96
 	baseIconSize     = 16
 	dpiProbeInterval = 1500 * time.Millisecond
+
+	resIDTrayDefault = 2
+	resIDTrayProxy   = 3
+	resIDTrayTun     = 4
+	resIDTrayError   = 5
+	resIDTrayStop    = 6
 )
 
 var (
 	trayClassName = syscall.StringToUTF16Ptr("Shell_TrayWnd")
 
-	trayIconResourceNames = []string{
-		domain.IconStop:    "ICON_STOP",
-		domain.IconError:   "ICON_ERROR",
-		domain.IconTun:     "ICON_TUN",
-		domain.IconProxy:   "ICON_PROXY",
-		domain.IconDefault: "ICON_DEFAULT",
+	trayIconResourceIDs = [...]int{
+		domain.IconStop:    resIDTrayStop,
+		domain.IconError:   resIDTrayError,
+		domain.IconTun:     resIDTrayTun,
+		domain.IconProxy:   resIDTrayProxy,
+		domain.IconDefault: resIDTrayDefault,
 	}
 )
 
@@ -37,7 +43,7 @@ type TrayIconController struct {
 	currentSize    int
 	lastStateId    int
 	icons          map[int]*walk.Icon
-	cachedTrayHwnd win.HWND 
+	cachedTrayHwnd win.HWND
 
 	engine     *Engine
 	isDisposed atomic.Bool
@@ -66,7 +72,7 @@ func CreateNotifyIcon() (*walk.NotifyIcon, error) {
 }
 
 func (c *TrayIconController) SetState(stateId int) {
-	if c.isDisposed.Load() || stateId < 0 || stateId >= len(trayIconResourceNames) {
+	if c.isDisposed.Load() || stateId < 0 || stateId >= len(trayIconResourceIDs) {
 		return
 	}
 
@@ -134,21 +140,25 @@ func (c *TrayIconController) getIconLocked(stateId, targetSize int) *walk.Icon {
 		return ico
 	}
 
-	resName := trayIconResourceNames[stateId]
-	if resName == "" {
+	if stateId < 0 || stateId >= len(trayIconResourceIDs) {
 		return nil
 	}
 
-	ico, err := walk.NewIconFromResourceWithSize(resName, walk.Size{
+	resID := trayIconResourceIDs[stateId]
+	if resID <= 0 {
+		return nil
+	}
+
+	ico, err := walk.NewIconFromResourceIdWithSize(resID, walk.Size{
 		Width:  targetSize,
 		Height: targetSize,
 	})
 
 	if err != nil || ico == nil {
-		slog.Debug("加载指定尺寸图标失败，尝试默认尺寸", "resource", resName, "size", targetSize, "err", err)
-		ico, err = walk.NewIconFromResource(resName)
+		slog.Debug("加载指定尺寸图标失败，尝试默认尺寸", "resource_id", resID, "size", targetSize, "err", err)
+		ico, err = walk.NewIconFromResourceId(resID)
 		if err != nil || ico == nil {
-			slog.Error("加载默认图标资源失败", "resource", resName, "err", err)
+			slog.Error("加载默认图标资源失败", "resource_id", resID, "err", err)
 			return nil
 		}
 	}
