@@ -69,11 +69,12 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 
 		winW, winH, _, _ := calculateWindowBounds()
 		userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, domain.WebOpenModeWebView2)
+		testArgs := "--proxy-server=127.0.0.1:7890 --proxy-bypass-list=127.0.0.1;localhost;<local>"
 
 		w := webview2.NewWithOptions(webview2.WebViewOptions{
 			AutoFocus:                  true,
 			DataPath:                   userDataDir,
-			AdditionalBrowserArguments: "",
+			AdditionalBrowserArguments: testArgs,
 			WindowOptions: webview2.WindowOptions{
 				Title:    domain.AppName,
 				Width:    uint(winW),
