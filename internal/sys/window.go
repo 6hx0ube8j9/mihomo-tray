@@ -28,6 +28,7 @@ var (
 	procIsIconic             = modUser32.NewProc("IsIconic")
 	procIsHungAppWindow      = modUser32.NewProc("IsHungAppWindow")
 	procAllowSetForeground   = modUser32.NewProc("AllowSetForegroundWindow")
+	procIsWindow             = modUser32.NewProc("IsWindow")
 )
 
 const (
@@ -168,4 +169,19 @@ func AllowSetForegroundWindow(pid uint32) {
 func IsIconic(hwnd uintptr) bool {
 	min, _, _ := procIsIconic.Call(hwnd)
 	return min != 0
+}
+
+func IsWindow(hwnd uintptr) bool {
+	if hwnd == 0 {
+		return false
+	}
+	ret, _, _ := procIsWindow.Call(hwnd)
+	return ret != 0
+}
+
+func IsWindowAliveAndResponsive(hwnd uintptr) bool {
+	if hwnd == 0 {
+		return false
+	}
+	return IsWindow(hwnd) && IsWindowVisible(hwnd) && !IsWindowHung(hwnd)
 }
