@@ -180,7 +180,7 @@ func (m *Manager) tryWakeCachedWindow(eventCh chan<- Event) bool {
 		return false
 	}
 
-	if !sys.IsWindowVisible(hwnd) || sys.IsWindowHung(hwnd) {
+	if !sys.IsWindowAliveAndResponsive(hwnd) {
 		slog.Debug("缓存窗口已失效或无响应，重置状态", "hwnd", hwnd)
 		m.Cleanup()
 		return false
