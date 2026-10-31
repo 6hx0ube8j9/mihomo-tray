@@ -25,6 +25,7 @@ var (
 	procGetSystemMetrics     = modUser32.NewProc("GetSystemMetrics")
 	procSetForeground        = modUser32.NewProc("SetForegroundWindow")
 	procGetWindow            = modUser32.NewProc("GetWindow")
+	procAllowSetForeground   = modUser32.NewProc("AllowSetForegroundWindow")
 	procIsHungAppWindow      = modUser32.NewProc("IsHungAppWindow")
 	procIsIconic             = modUser32.NewProc("IsIconic")
 )
@@ -154,4 +155,10 @@ func IsWindowHung(hwnd uintptr) bool {
     }
     ret, _, _ := procIsHungAppWindow.Call(hwnd)
     return ret != 0
+}
+
+func AllowSetForegroundWindow(pid uint32) {
+    if pid != 0 {
+        _, _, _ = procAllowSetForeground.Call(uintptr(pid))
+    }
 }
