@@ -63,7 +63,7 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 	mode := cfg.WebOpenMode
 
 	if mode == domain.WebOpenModeSystem {
-		slog.Info("使用系统默认浏览器打开 WebUI")
+		slog.Info("启动系统默认浏览器", "url", finalURL)
 		m.openSystemBrowser(finalURL, eventCh)
 		return
 	}
@@ -79,20 +79,20 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 
 	if mode == domain.WebOpenModeWebView2 {
 		if m.launchWebView2(cfg, finalURL, eventCh) {
-			slog.Info("WebView2 面板启动成功")
+			slog.Info("WebView2 窗口已就绪")
 			return
 		}
-		slog.Warn("WebView2 不可用，尝试降级到独立浏览器")
-		
+		slog.Warn("WebView2 启动失败，切换至独立浏览器")
 		m.cleanupWebView2()
 	}
 
 	if mode == domain.WebOpenModeWebView2 || mode == domain.WebOpenModeApp {
 		if m.launchChromiumAppMode(cfg, finalURL, appHostPort, eventCh) {
-			slog.Info("独立浏览器面板启动成功")
+			slog.Info("独立浏览器窗口已就绪")
 			return
 		}
-		slog.Warn("未检测到可用的独立浏览器，降级到系统默认浏览器")
+		slog.Warn("独立浏览器启动失败，切换至系统默认浏览器")
+		m.cleanupChromium()
 	}
 
 	m.openSystemBrowser(finalURL, eventCh)
@@ -122,18 +122,17 @@ func (m *Manager) cleanupChromium() {
 	m.stateMu.Unlock()
 
 	if safeDebugPort != "" {
-		slog.Debug("通过 CDP 协议关闭浏览器窗口")
+		slog.Debug("发送关闭指令至浏览器", "port", safeDebugPort)
 		CloseAllWebUITargets(safeDebugPort)
 	}
 
-	pid := m.isolatedPid.Load()
+	pid := m.isolatedPid.Swap(0)
 	if pid != 0 {
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(300 * time.Millisecond)
 		if sys.IsPidRunning(pid, "") {
-			slog.Warn("关闭超时，终止浏览器进程", "pid", pid)
+			slog.Warn("浏览器进程未响应，强制终止", "pid", pid)
 			sys.HardKill(pid)
 		}
-		m.isolatedPid.Store(0)
 	}
 }
 
@@ -170,24 +169,24 @@ func (m *Manager) openSystemBrowser(finalURL string, eventCh chan<- Event) {
 	if err := sys.ExecuteSystemCommand(`"` + finalURL + `"`); err == nil {
 		emitEvent(eventCh, EventReady)
 	} else {
-		slog.Error("打开系统默认浏览器失败", "err", err)
+		slog.Error("启动系统默认浏览器失败", "err", err)
 		emitEvent(eventCh, EventError)
 	}
 }
 
 func (m *Manager) tryWakeCachedWindow(eventCh chan<- Event) bool {
-    hwnd := m.hwnd.Load()
-    if hwnd == 0 {
-        return false
-    }
+	hwnd := m.hwnd.Load()
+	if hwnd == 0 {
+		return false
+	}
 
-    if !sys.IsWindowVisible(hwnd) || sys.IsWindowHung(hwnd) {
-        slog.Warn("检测到旧面板窗口无响应，正在清理旧状态", "hwnd", hwnd)
-        m.Cleanup()
-        return false
-    }
+	if !sys.IsWindowVisible(hwnd) || sys.IsWindowHung(hwnd) {
+		slog.Debug("缓存窗口已失效或无响应，重置状态", "hwnd", hwnd)
+		m.Cleanup()
+		return false
+	}
 
-    sys.FocusWindowSilky(hwnd)
-    emitEvent(eventCh, EventReady)
-    return true
+	sys.FocusWindowSilky(hwnd)
+	emitEvent(eventCh, EventReady)
+	return true
 }
