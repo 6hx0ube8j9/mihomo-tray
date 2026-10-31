@@ -68,14 +68,14 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 		return
 	}
 
-	if m.tryWakeCachedWindow(eventCh) {
-		return
-	}
-
 	if !m.launchMu.TryLock() {
 		return
 	}
 	defer m.launchMu.Unlock()
+
+	if m.tryWakeCachedWindow(eventCh) {
+		return
+	}
 
 	if mode == domain.WebOpenModeWebView2 {
 		if m.launchWebView2(cfg, finalURL, eventCh) {
@@ -134,6 +134,8 @@ func (m *Manager) cleanupChromium() {
 			sys.HardKill(pid)
 		}
 	}
+
+	m.hwnd.Store(0)
 }
 
 func (m *Manager) UpdateTheme(isDark bool) {
