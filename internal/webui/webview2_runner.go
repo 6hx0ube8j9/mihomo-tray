@@ -125,16 +125,14 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 
 		hwnd = uintptr(w.Window())
 
+		m.wvMu.Lock()
 		if aborted.Load() {
-			slog.Warn("WebView2 启动超时，终止窗口加载")
+			m.wvMu.Unlock()
 			sys.HideWindow(hwnd)
 			w.Destroy()
 			return
 		}
-
 		m.hwnd.Store(hwnd)
-
-		m.wvMu.Lock()
 		m.wv = &webviewAdapter{w: w, hwnd: hwnd}
 		m.wvMu.Unlock()
 
