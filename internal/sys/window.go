@@ -25,12 +25,13 @@ var (
 	procGetSystemMetrics     = modUser32.NewProc("GetSystemMetrics")
 	procSetForeground        = modUser32.NewProc("SetForegroundWindow")
 	procGetWindow            = modUser32.NewProc("GetWindow")
-	procAllowSetForeground   = modUser32.NewProc("AllowSetForegroundWindow")
-	procIsHungAppWindow      = modUser32.NewProc("IsHungAppWindow")
 	procIsIconic             = modUser32.NewProc("IsIconic")
+	procIsHungAppWindow      = modUser32.NewProc("IsHungAppWindow")
+	procAllowSetForeground   = modUser32.NewProc("AllowSetForegroundWindow")
 )
 
 const (
+	SW_HIDE         = 0
 	SW_RESTORE      = 9
 	SW_SHOW         = 5
 	GW_OWNER        = 4
@@ -139,26 +140,32 @@ func FocusWindowSilky(targetHwnd uintptr) {
 	procSetForeground.Call(targetHwnd)
 }
 
+func HideWindow(hwnd uintptr) {
+	if hwnd != 0 {
+		procShowWindow.Call(hwnd, SW_HIDE)
+	}
+}
+
 func IsWindowVisible(hwnd uintptr) bool {
 	vis, _, _ := procIsWindowVisible.Call(hwnd)
 	return vis != 0
 }
 
-func IsIconic(hwnd uintptr) bool {
-	min, _, _ := procIsIconic.Call(hwnd)
-	return min != 0
-}
-
 func IsWindowHung(hwnd uintptr) bool {
-    if hwnd == 0 {
-        return false
-    }
-    ret, _, _ := procIsHungAppWindow.Call(hwnd)
-    return ret != 0
+	if hwnd == 0 {
+		return false
+	}
+	ret, _, _ := procIsHungAppWindow.Call(hwnd)
+	return ret != 0
 }
 
 func AllowSetForegroundWindow(pid uint32) {
-    if pid != 0 {
-        _, _, _ = procAllowSetForeground.Call(uintptr(pid))
-    }
+	if pid != 0 {
+		_, _, _ = procAllowSetForeground.Call(uintptr(pid))
+	}
+}
+
+func IsIconic(hwnd uintptr) bool {
+	min, _, _ := procIsIconic.Call(hwnd)
+	return min != 0
 }
