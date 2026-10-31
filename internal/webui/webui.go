@@ -83,6 +83,8 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 			return
 		}
 		slog.Warn("WebView2 不可用，尝试降级到独立浏览器")
+		
+		m.cleanupWebView2()
 	}
 
 	if mode == domain.WebOpenModeWebView2 || mode == domain.WebOpenModeApp {
@@ -174,13 +176,18 @@ func (m *Manager) openSystemBrowser(finalURL string, eventCh chan<- Event) {
 }
 
 func (m *Manager) tryWakeCachedWindow(eventCh chan<- Event) bool {
-	if hwnd := m.hwnd.Load(); hwnd != 0 {
-		if sys.IsWindowVisible(hwnd) {
-			sys.FocusWindowSilky(hwnd)
-			emitEvent(eventCh, EventReady)
-			return true
-		}
-		m.hwnd.Store(0)
-	}
-	return false
+    hwnd := m.hwnd.Load()
+    if hwnd == 0 {
+        return false
+    }
+
+    if !sys.IsWindowVisible(hwnd) || sys.IsWindowHung(hwnd) {
+        slog.Warn("检测到旧面板窗口无响应，正在清理旧状态", "hwnd", hwnd)
+        m.Cleanup()
+        return false
+    }
+
+    sys.FocusWindowSilky(hwnd)
+    emitEvent(eventCh, EventReady)
+    return true
 }
