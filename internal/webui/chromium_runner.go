@@ -40,7 +40,7 @@ func (m *Manager) launchChromiumAppMode(cfg Config, finalURL, appHostPort string
 	safeDebugPort := m.prepareDebugPort()
 
 	if m.tryAttachExistingTarget(safeDebugPort, appHostPort, eventCh) {
-		slog.Info("已复用现有浏览器面板")
+		slog.Info("复用现有浏览器窗口")
 		return true
 	}
 
@@ -65,14 +65,14 @@ func (m *Manager) tryAttachExistingTarget(debugPort, appHostPort string, eventCh
 	if !found {
 		return false
 	}
-	slog.Debug("尝试激活已运行的浏览器面板")
+	slog.Debug("激活现有浏览器实例", "port", debugPort, "targetId", targetID)
 	_ = ActivateTarget(debugPort, targetID)
-	
+
 	return m.waitForWindow(debugPort, appHostPort, targetTitle, m.isolatedPid.Load(), nil, eventCh)
 }
 
 func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, browserTag, finalURL, debugPort, appHostPort string, eventCh chan<- Event) bool {
-	slog.Info("启动独立浏览器面板", "browser", browserTag, "port", debugPort)
+	slog.Info("启动独立浏览器", "browser", browserTag, "port", debugPort)
 
 	userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, browserTag)
 	if err := os.MkdirAll(userDataDir, 0755); err != nil {
@@ -89,8 +89,6 @@ func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, browserTag, fin
 	mainPid := uint32(cmd.Process.Pid)
 	m.isolatedPid.Store(mainPid)
 
-	sys.AllowSetForegroundWindow(mainPid)
-	
 	exitCh := make(chan error, 1)
 	go func() {
 		exitCh <- cmd.Wait()
@@ -100,17 +98,17 @@ func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, browserTag, fin
 		return true
 	}
 
-	slog.Warn("浏览器启动超时或异常退出，正在清理残留进程")
+	slog.Warn("等待浏览器窗口就绪失败，清理残留进程")
 	realPid := m.isolatedPid.Load()
-	
+
 	if realPid != 0 && realPid != mainPid && sys.IsPidRunning(realPid, "") {
 		sys.HardKill(realPid)
 	}
-	
+
 	if sys.IsPidRunning(mainPid, "") {
 		sys.HardKill(mainPid)
 	}
-	
+
 	m.isolatedPid.Store(0)
 	return false
 }
@@ -136,11 +134,11 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 				return false
 			}
 
-			slog.Debug("浏览器引导进程已正常退出，等待真实渲染窗口完成托管")
+			slog.Debug("浏览器引导进程已退出，等待主窗口就绪")
 			exitCh = nil
 
 		case <-timeout:
-			slog.Error("等待浏览器窗口就绪超时")
+			slog.Error("等待浏览器窗口超时")
 			return false
 
 		case <-ticker.C:
@@ -163,7 +161,6 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 
 			if isLive || titleToSearch != "" || realBrowserPid != 0 {
 				if m.findAndFocusWebUI(titleToSearch, appHostPort, realBrowserPid) {
-					slog.Info("浏览器面板已就绪")
 					emitEvent(eventCh, EventReady)
 					return true
 				}
@@ -187,24 +184,22 @@ func (m *Manager) findAndFocusWebUI(targetTitle, appHostPort string, targetPid u
 		isTitleHit := exactTitle != "" && info.Title == exactTitle
 		isAnchorHit := fallbackAnchor != "" && strings.Contains(titleLower, fallbackAnchor)
 
-		if targetPid != 0 && info.Pid == targetPid {
-			if isTitleHit || isAnchorHit {
-				return true
-			}
-			if pendingPidHwnd == 0 {
-				pendingPidHwnd = info.Hwnd
+		if targetPid != 0 {
+			if info.Pid == targetPid {
+				if isTitleHit || isAnchorHit {
+					return true
+				}
+				if pendingPidHwnd == 0 {
+					pendingPidHwnd = info.Hwnd
+				}
 			}
 			return false
 		}
 
-		if targetPid == 0 {
-			if isStandardBrowserWindow(titleLower) {
-				return false
-			}
-			return isTitleHit || isAnchorHit
+		if isStandardBrowserWindow(titleLower) {
+			return false
 		}
-
-		return false
+		return isTitleHit || isAnchorHit
 	})
 
 	if targetHwnd == 0 {
@@ -252,7 +247,7 @@ func buildBrowserArgs(cfg Config, userDataDir, finalURL, debugPort string) []str
 	if p := strings.TrimSpace(cfg.ProxyPort); p != "" && p != "0" {
 		args = append(args,
 			"--proxy-server="+net.JoinHostPort("127.0.0.1", p),
-		    "--proxy-bypass-list=127.0.0.1;localhost;<local>",
+			"--proxy-bypass-list=127.0.0.1;localhost;<local>",
 		)
 	}
 	return args
