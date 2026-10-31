@@ -1,14 +1,13 @@
 package webui
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
-	"mihomo-tray/internal/netutil"
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/netutil"
 )
 
 const (
@@ -18,7 +17,7 @@ const (
 )
 
 var cdpClient = &http.Client{
-	Timeout: 300 * time.Millisecond,  
+	Timeout: 300 * time.Millisecond,
 	Transport: &http.Transport{
 		DisableKeepAlives: true,
 	},
@@ -41,11 +40,7 @@ func getCDPDebugPort() string {
 }
 
 func safeGet(url string) (*http.Response, error) {
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	return cdpClient.Do(req)
+	return cdpClient.Get(url)
 }
 
 func getCDPTargets(debugPort string) ([]map[string]interface{}, error) {
