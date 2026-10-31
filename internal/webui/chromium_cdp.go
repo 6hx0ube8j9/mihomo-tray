@@ -18,6 +18,7 @@ const (
 )
 
 var cdpClient = &http.Client{
+	Timeout: 300 * time.Millisecond,  
 	Transport: &http.Transport{
 		DisableKeepAlives: true,
 	},
@@ -40,9 +41,7 @@ func getCDPDebugPort() string {
 }
 
 func safeGet(url string) (*http.Response, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
