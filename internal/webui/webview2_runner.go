@@ -33,7 +33,7 @@ type webviewAdapter struct {
 func (a *webviewAdapter) Destroy() {
 	if a.hwnd != 0 {
 		if sys.IsWindowHung(a.hwnd) {
-			slog.Warn("检测到 WebView2 窗口已卡死，强制隐藏以破除前台焦点锁定", "hwnd", a.hwnd)
+			slog.Warn("检测到 WebView2 窗口无响应，强制隐藏以破除前台焦点锁定", "hwnd", a.hwnd)
 			sys.HideWindow(a.hwnd)
 		}
 	}
