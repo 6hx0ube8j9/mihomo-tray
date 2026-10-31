@@ -25,6 +25,7 @@ var (
 	procGetSystemMetrics     = modUser32.NewProc("GetSystemMetrics")
 	procSetForeground        = modUser32.NewProc("SetForegroundWindow")
 	procGetWindow            = modUser32.NewProc("GetWindow")
+	procIsHungAppWindow      = modUser32.NewProc("IsHungAppWindow")
 	procIsIconic             = modUser32.NewProc("IsIconic")
 )
 
@@ -145,4 +146,12 @@ func IsWindowVisible(hwnd uintptr) bool {
 func IsIconic(hwnd uintptr) bool {
 	min, _, _ := procIsIconic.Call(hwnd)
 	return min != 0
+}
+
+func IsWindowHung(hwnd uintptr) bool {
+    if hwnd == 0 {
+        return false
+    }
+    ret, _, _ := procIsHungAppWindow.Call(hwnd)
+    return ret != 0
 }
