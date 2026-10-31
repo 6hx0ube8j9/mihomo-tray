@@ -31,11 +31,9 @@ type webviewAdapter struct {
 }
 
 func (a *webviewAdapter) Destroy() {
-	if a.hwnd != 0 {
-		if sys.IsWindowHung(a.hwnd) {
-			slog.Warn("检测到 WebView2 窗口无响应，强制隐藏以破除前台焦点锁定", "hwnd", a.hwnd)
-			sys.HideWindow(a.hwnd)
-		}
+	if a.hwnd != 0 && sys.IsWindowHung(a.hwnd) {
+		slog.Warn("WebView2 窗口无响应，强制隐藏", "hwnd", a.hwnd)
+		sys.HideWindow(a.hwnd)
 	}
 	if a.w != nil {
 		a.w.Destroy()
@@ -128,7 +126,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		hwnd = uintptr(w.Window())
 
 		if aborted.Load() {
-			slog.Warn("WebView2 初始化已超时，终止窗口加载并回收资源")
+			slog.Warn("WebView2 启动超时，终止窗口加载")
 			sys.HideWindow(hwnd)
 			w.Destroy()
 			return
@@ -167,19 +165,12 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 	case ok := <-initCh:
 		return ok
 	case <-time.After(webviewInitTimeout):
-		slog.Error("WebView2 启动超时，准备降级到独立浏览器")
+		slog.Error("WebView2 启动超时")
 		aborted.Store(true)
 
-		if hwnd := m.hwnd.Swap(0); hwnd != 0 {
+		if hwnd := m.hwnd.Load(); hwnd != 0 {
 			sys.HideWindow(hwnd)
 		}
-
-		m.wvMu.Lock()
-		if m.wv != nil {
-			m.wv.Destroy()
-			m.wv = nil
-		}
-		m.wvMu.Unlock()
 
 		return false
 	}
