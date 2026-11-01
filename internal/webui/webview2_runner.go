@@ -66,7 +66,7 @@ func (a *webviewAdapter) SetDarkMode(isDark bool) {
 	}
 }
 
-func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Event) bool {
+func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Event, onReady func()) bool {
 	if !isWebView2Available() {
 		return false
 	}
@@ -169,6 +169,13 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		emitEvent(eventCh, EventReady)
 
 		sys.FocusWindowSilky(hwnd)
+		
+		if onReady != nil {
+			go func() {
+				time.Sleep(150 * time.Millisecond)
+				onReady()
+			}()
+		}
 
 		w.Run()
 	}()
