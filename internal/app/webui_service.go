@@ -35,7 +35,7 @@ func NewWebUIService(cfg *config.Manager, st *state.RuntimeState, coreMgr *webui
 	}
 }
 
-func (s *WebUIService) Open(forceSync func()) error {
+func (s *WebUIService) Open(forceSync func(), onReady func()) error {
 	if s.st.GetPhase() != domain.PhaseRunning {
 		return errors.New("内核尚未就绪，请稍候")
 	}
@@ -73,7 +73,8 @@ func (s *WebUIService) Open(forceSync func()) error {
 				slog.Error("Web 面板启动异常拦截", "panic", r)
 			}
 		}()
-		s.coreMgr.Launch(wcfg, s.eventCh)
+		
+		s.coreMgr.Launch(wcfg, s.eventCh, onReady)
 	}()
 
 	return nil
@@ -112,7 +113,7 @@ func (s *WebUIService) ReopenIfActive(forceSync func()) {
 					return
 				}
 				if s.st.GetPhase() == domain.PhaseRunning {
-					_ = s.Open(forceSync)
+					_ = s.Open(forceSync, nil)
 					return
 				}
 			}
