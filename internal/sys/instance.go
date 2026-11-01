@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"os"
 	"time"
 	"unsafe"
 
@@ -15,13 +14,7 @@ import (
 )
 
 var (
-	procAllowSetForegroundWnd    = modUser32.NewProc("AllowSetForegroundWindow")
-	procGetForegroundWindow      = modUser32.NewProc("GetForegroundWindow")
-	procGetWindowThreadProcessId = modUser32.NewProc("GetWindowThreadProcessId")
-	procAttachThreadInput        = modUser32.NewProc("AttachThreadInput")
-	kernel32Dll                  = windows.NewLazySystemDLL("kernel32.dll")
-	procGetCurrentThreadId       = kernel32Dll.NewProc("GetCurrentThreadId")
-	procOpenFileMappingW         = kernel32Dll.NewProc("OpenFileMappingW")  
+	procAllowSetForegroundWnd = modUser32.NewProc("AllowSetForegroundWindow")
 )
 
 const (
@@ -36,36 +29,10 @@ type SingleInstanceGuard struct {
 	hEvent  windows.Handle
 	hCancel windows.Handle
 	hAck    windows.Handle
-	hMapPid windows.Handle
 }
 
-func GrantForegroundPrivilege(targetPID ...uint32) {
-	var pid uint32 = asfwAny
-	if len(targetPID) > 0 && targetPID[0] > 0 {
-		pid = targetPID[0]
-	}
-
-	fgHwnd, _, _ := procGetForegroundWindow.Call()
-	curThreadId, _, _ := procGetCurrentThreadId.Call()
-	var fgThreadId uintptr
-	if fgHwnd != 0 {
-		fgThreadId, _, _ = procGetWindowThreadProcessId.Call(fgHwnd, 0)
-	}
-
-	attached := false
-	if fgThreadId != 0 && fgThreadId != curThreadId {
-		r, _, _ := procAttachThreadInput.Call(curThreadId, fgThreadId, 1)
-		attached = (r != 0)
-	}
-
-	r, _, _ := procAllowSetForegroundWnd.Call(uintptr(pid))
-	if r == 0 && pid != asfwAny {
-		_, _, _ = procAllowSetForegroundWnd.Call(asfwAny)
-	}
-
-	if attached {
-		_, _, _ = procAttachThreadInput.Call(curThreadId, fgThreadId, 0)
-	}
+func GrantForegroundPrivilege() {
+	procAllowSetForegroundWnd.Call(asfwAny)
 }
 
 func getPermissiveSecAttr() *windows.SecurityAttributes {
@@ -140,54 +107,14 @@ func buildGuard(sa *windows.SecurityAttributes, eventName string, hMutex windows
 	ackName, _ := windows.UTF16PtrFromString(eventName + "_ACK")
 	hAck, _ := windows.CreateEvent(sa, 0, 0, ackName)
 
-	hMapPid := storePID(sa, eventName, uint32(os.Getpid()))
-
 	return &SingleInstanceGuard{
 		hMutex:  hMutex,
 		hEvent:  hEvent,
 		hCancel: hCancel,
 		hAck:    hAck,
-		hMapPid: hMapPid,
 	}, true
 }
 
-func storePID(sa *windows.SecurityAttributes, eventName string, pid uint32) windows.Handle {
-	mapName, _ := windows.UTF16PtrFromString(eventName + "_PID")
-	hMap, err := windows.CreateFileMapping(windows.InvalidHandle, sa, windows.PAGE_READWRITE, 0, 4, mapName)
-	if err != nil || hMap == 0 {
-		return 0
-	}
-
-	addr, err := windows.MapViewOfFile(hMap, windows.FILE_MAP_WRITE, 0, 0, 4)
-	if err == nil && addr != 0 {
-		*(*uint32)(unsafe.Pointer(addr)) = pid
-		_ = windows.UnmapViewOfFile(addr)
-	}
-	return hMap
-}
-
-func readPID(eventName string) uint32 {
-	mapName, _ := windows.UTF16PtrFromString(eventName + "_PID")
-
-	r1, _, _ := procOpenFileMappingW.Call(
-		windows.FILE_MAP_READ,
-		0,
-		uintptr(unsafe.Pointer(mapName)),
-	)
-	if r1 == 0 {
-		return 0
-	}
-	hMap := windows.Handle(r1)
-	defer windows.CloseHandle(hMap)
-
-	addr, err := windows.MapViewOfFile(hMap, windows.FILE_MAP_READ, 0, 0, 4)
-	if err != nil || addr == 0 {
-		return 0
-	}
-	defer windows.UnmapViewOfFile(addr)
-
-	return *(*uint32)(unsafe.Pointer(addr))
-}
 func waitForOldProcessHandle(pid uint32, timeout time.Duration) {
 	hProcess, err := windows.OpenProcess(windows.SYNCHRONIZE, false, pid)
 	if err != nil {
@@ -203,12 +130,11 @@ func NotifyExistingInstance(eventName string) {
 	eName, _ := windows.UTF16PtrFromString(eventName)
 	hEvent, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName)
 	if err == nil && hEvent != 0 {
-		targetPID := readPID(eventName)
-		GrantForegroundPrivilege(targetPID)
+		GrantForegroundPrivilege()
 
 		_ = windows.SetEvent(hEvent)
 		_ = windows.CloseHandle(hEvent)
-		slog.Debug("已通知已有实例，等待UI渲染完成的ACK信号...", "targetPID", targetPID)
+		slog.Debug("已通知已有实例，等待UI渲染完成的ACK信号...")
 
 		ackName, _ := windows.UTF16PtrFromString(eventName + "_ACK")
 		hAck, err := windows.OpenEvent(windows.SYNCHRONIZE, false, ackName)
@@ -272,13 +198,8 @@ func (g *SingleInstanceGuard) Close() {
 	}
 
 	if g.hAck != 0 {
-		_ = windows.SetEvent(g.hAck)
 		_ = windows.CloseHandle(g.hAck)
 		g.hAck = 0
-	}
-	if g.hMapPid != 0 {
-		_ = windows.CloseHandle(g.hMapPid)
-		g.hMapPid = 0
 	}
 	if g.hMutex != 0 {
 		_ = windows.ReleaseMutex(g.hMutex)
