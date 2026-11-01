@@ -38,7 +38,7 @@ var (
 	cachedBrowserTag  string
 )
 
-func (m *Manager) launchChromiumAppMode(cfg Config, finalURL, appHostPort string, eventCh chan<- Event) bool {
+func (m *Manager) launchChromiumAppMode(cfg Config, finalURL, appHostPort string, eventCh chan<- Event, onReady func()) bool {
 	browserPath, browserTag := detectAvailableBrowser()
 	if browserPath == "" {
 		return false
@@ -48,10 +48,11 @@ func (m *Manager) launchChromiumAppMode(cfg Config, finalURL, appHostPort string
 
 	if m.tryAttachExistingTarget(safeDebugPort, appHostPort, eventCh) {
 		slog.Info("复用现有浏览器窗口")
+		if onReady != nil { onReady() }
 		return true
 	}
 
-	return m.launchIsolatedBrowser(cfg, browserPath, browserTag, finalURL, safeDebugPort, appHostPort, eventCh)
+	return m.launchIsolatedBrowser(cfg, browserPath, browserTag, finalURL, safeDebugPort, appHostPort, eventCh, onReady)
 }
 
 func (m *Manager) prepareDebugPort() string {
@@ -78,7 +79,7 @@ func (m *Manager) tryAttachExistingTarget(debugPort, appHostPort string, eventCh
 	return m.waitForWindow(debugPort, appHostPort, targetTitle, m.isolatedPid.Load(), nil, eventCh)
 }
 
-func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, browserTag, finalURL, debugPort, appHostPort string, eventCh chan<- Event) bool {
+func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, browserTag, finalURL, debugPort, appHostPort string, eventCh chan<- Event, onReady func()) bool {
 	slog.Info("启动独立浏览器", "browser", browserTag, "port", debugPort)
 
 	userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, browserTag)
@@ -103,6 +104,9 @@ func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, browserTag, fin
 	}()
 
 	if m.waitForWindow(debugPort, appHostPort, "", mainPid, exitCh, eventCh) {
+		if onReady != nil {
+			onReady() 
+		}
 		return true
 	}
 
