@@ -58,12 +58,15 @@ func emitEvent(ch chan<- Event, event Event) {
 	}
 }
 
-func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
+func (m *Manager) Launch(cfg Config, eventCh chan<- Event, onReady func()) {
 	finalURL, appHostPort := buildFinalURL(cfg)
 	mode := cfg.WebOpenMode
 
 	if mode == domain.WebOpenModeSystem {
 		slog.Info("启动系统默认浏览器", "url", finalURL)
+		if onReady != nil {
+			onReady()
+		}
 		m.openSystemBrowser(finalURL, eventCh)
 		return
 	}
@@ -74,11 +77,14 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 	defer m.launchMu.Unlock()
 
 	if m.tryWakeCachedWindow(eventCh) {
+		if onReady != nil {
+			onReady() 
+		}
 		return
 	}
 
 	if mode == domain.WebOpenModeWebView2 {
-		if m.launchWebView2(cfg, finalURL, eventCh) {
+		if m.launchWebView2(cfg, finalURL, eventCh, onReady) {
 			slog.Info("WebView2 窗口已就绪")
 			return
 		}
@@ -87,7 +93,7 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 	}
 
 	if mode == domain.WebOpenModeWebView2 || mode == domain.WebOpenModeApp {
-		if m.launchChromiumAppMode(cfg, finalURL, appHostPort, eventCh) {
+		if m.launchChromiumAppMode(cfg, finalURL, appHostPort, eventCh, onReady) {
 			slog.Info("独立浏览器窗口已就绪")
 			return
 		}
@@ -95,6 +101,9 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event) {
 		m.cleanupChromium()
 	}
 
+	if onReady != nil {
+		onReady()
+	}
 	m.openSystemBrowser(finalURL, eventCh)
 }
 
