@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"mihomo-tray/internal/domain"
@@ -21,12 +22,6 @@ const (
 	wndClassChromiumPrefix = "Chrome_WidgetWin"
 )
 
-var (
-	browserCheckOnce sync.Once
-	cachedBrowserPath string
-	cachedBrowserTag  string
-)
-
 var ghostCharReplacer = strings.NewReplacer(
 	"\u200b", "", "\u200c", "", "\u200d", "",
 	"\u200e", "", "\u200f", "", "\ufeff", "", "\u00a0", " ",
@@ -36,6 +31,12 @@ var standardBrowserSuffixes = []string{
 	"google chrome", "microsoft edge", "msedge",
 	"brave", "vivaldi", "opera", "chromium",
 }
+
+var (
+	browserCheckOnce  sync.Once
+	cachedBrowserPath string
+	cachedBrowserTag  string
+)
 
 func (m *Manager) launchChromiumAppMode(cfg Config, finalURL, appHostPort string, eventCh chan<- Event) bool {
 	browserPath, browserTag := detectAvailableBrowser()
@@ -260,12 +261,6 @@ func buildBrowserArgs(cfg Config, userDataDir, finalURL, debugPort string) []str
 	return args
 }
 
-var (
-	browserCheckOnce sync.Once
-	cachedBrowserPath string
-	cachedBrowserTag  string
-)
-
 func detectAvailableBrowser() (path string, tag string) {
 	browserCheckOnce.Do(func() {
 		type browserInfo struct {
@@ -295,7 +290,7 @@ func detectAvailableBrowser() (path string, tag string) {
 				}
 			}
 		}
-		slog.Debug("未检测到本地兼容的 Chromium 内核浏览器，后续将回退至系统默认浏览器")
+		slog.Debug("未检测到 Chromium 内核浏览器，后续将回退至系统默认浏览器")
 	})
 
 	return cachedBrowserPath, cachedBrowserTag
