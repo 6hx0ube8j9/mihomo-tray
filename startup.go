@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/domain"
@@ -23,6 +24,12 @@ func superviseStartup(exePath, baseDir string) (*sys.SingleInstanceGuard, io.Clo
 
 	guard, isOwner := sys.TryAcquireSingleInstance(domain.AppMutexName, domain.ShowUIEventName, restartingPID)
 	if !isOwner {
+		if isAutostart || restartingPID > 0 {
+			slog.Debug("自启任务或提权继任实例未获取到单实例锁，静默退出", "isAutostart", isAutostart, "restartingPID", restartingPID)
+			os.Exit(0)
+		}
+
+		slog.Info("检测到已有主实例运行，作为信使唤醒面板")
 		sys.NotifyExistingInstance(domain.ShowUIEventName)
 		os.Exit(0)
 	}
@@ -145,7 +152,6 @@ func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, is
 	}
 
 	if cfgAutostart {
-
 		if isAdmin {
 			slog.Info("用户显式授权管理员权限，强制覆写自启动任务指向当前路径", "old", oldPath, "new", exePath)
 			taskInSync = sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
@@ -172,7 +178,7 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 
 	if taskInSync && (cfgAutostart || runAsAdmin) {
 		slog.Info("检测到自启动任务已就绪，通过计划任务执行静默提权")
-		
+
 		guard.Close()
 		err := sys.RunScheduledTask(domain.AppTaskName)
 		if err == nil {
@@ -204,7 +210,7 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 		exitProcess(0)
 		return
 	}
-	
+
 	if sys.IsUserCancelled(err) {
 		if runAsAdmin {
 			slog.Info("用户取消授权，程序退出")
@@ -245,7 +251,15 @@ func setupWakeEventListener(ctx context.Context, guard *sys.SingleInstanceGuard,
 		return
 	}
 
+	startedAt := time.Now()
+
 	guard.ListenWakeEvent(ctx, func() {
+		if time.Since(startedAt) < 1500*time.Millisecond {
+			slog.Debug("吸收并忽略冷启动早期的残留唤醒信号，释放信使")
+			guard.AckWake()
+			return
+		}
+
 		select {
 		case cmdCh <- domain.UICommand{
 			Action: domain.ActionOpenWebUI,
