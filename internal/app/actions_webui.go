@@ -13,9 +13,9 @@ import (
 // Web 面板管理指令分发 (Domain: Panel Actions)
 // ============================================================================
 
-func (a *Application) handleOpenWebUI(_ context.Context, _ domain.UICommand) {
+func (a *Application) handleOpenWebUI(_ context.Context, cmd domain.UICommand) {
 	a.asyncRun("打开面板", func() error {
-		return a.WebUIService.Open(a.ForceSyncAPI)
+		return a.WebUIService.Open(a.ForceSyncAPI, cmd.OnDone)
 	})
 }
 
