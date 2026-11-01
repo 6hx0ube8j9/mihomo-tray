@@ -21,6 +21,12 @@ const (
 	wndClassChromiumPrefix = "Chrome_WidgetWin"
 )
 
+var (
+	browserCheckOnce sync.Once
+	cachedBrowserPath string
+	cachedBrowserTag  string
+)
+
 var ghostCharReplacer = strings.NewReplacer(
 	"\u200b", "", "\u200c", "", "\u200d", "",
 	"\u200e", "", "\u200f", "", "\ufeff", "", "\u00a0", " ",
@@ -254,31 +260,43 @@ func buildBrowserArgs(cfg Config, userDataDir, finalURL, debugPort string) []str
 	return args
 }
 
-func detectAvailableBrowser() (path string, tag string) {
-	type browserInfo struct {
-		path string
-		tag  string
-	}
-	var potentialBrowsers = []browserInfo{
-		{filepath.Join(os.Getenv("ProgramFiles(x86)"), `Microsoft\Edge\Application\msedge.exe`), "edge"},
-		{filepath.Join(os.Getenv("ProgramFiles"), `Microsoft\Edge\Application\msedge.exe`), "edge"},
-		{filepath.Join(os.Getenv("LocalAppData"), `Microsoft\Edge\Application\msedge.exe`), "edge"},
-		{filepath.Join(os.Getenv("ProgramFiles"), `Google\Chrome\Application\chrome.exe`), "chrome"},
-		{filepath.Join(os.Getenv("ProgramFiles(x86)"), `Google\Chrome\Application\chrome.exe`), "chrome"},
-		{filepath.Join(os.Getenv("LocalAppData"), `Google\Chrome\Application\chrome.exe`), "chrome"},
-		{filepath.Join(os.Getenv("ProgramFiles"), `BraveSoftware\Brave-Browser\Application\brave.exe`), "brave"},
-		{filepath.Join(os.Getenv("LocalAppData"), `BraveSoftware\Brave-Browser\Application\brave.exe`), "brave"},
-		{filepath.Join(os.Getenv("LocalAppData"), `Vivaldi\Application\vivaldi.exe`), "vivaldi"},
-		{filepath.Join(os.Getenv("ProgramFiles"), `Vivaldi\Application\vivaldi.exe`), "vivaldi"},
-		{filepath.Join(os.Getenv("ProgramFiles(x86)"), `Vivaldi\Application\vivaldi.exe`), "vivaldi"},
-	}
+var (
+	browserCheckOnce sync.Once
+	cachedBrowserPath string
+	cachedBrowserTag  string
+)
 
-	for _, b := range potentialBrowsers {
-		if b.path != "" {
-			if _, err := os.Stat(b.path); err == nil {
-				return b.path, b.tag
+func detectAvailableBrowser() (path string, tag string) {
+	browserCheckOnce.Do(func() {
+		type browserInfo struct {
+			path string
+			tag  string
+		}
+		var potentialBrowsers = []browserInfo{
+			{filepath.Join(os.Getenv("ProgramFiles(x86)"), `Microsoft\Edge\Application\msedge.exe`), "edge"},
+			{filepath.Join(os.Getenv("ProgramFiles"), `Microsoft\Edge\Application\msedge.exe`), "edge"},
+			{filepath.Join(os.Getenv("LocalAppData"), `Microsoft\Edge\Application\msedge.exe`), "edge"},
+			{filepath.Join(os.Getenv("ProgramFiles"), `Google\Chrome\Application\chrome.exe`), "chrome"},
+			{filepath.Join(os.Getenv("ProgramFiles(x86)"), `Google\Chrome\Application\chrome.exe`), "chrome"},
+			{filepath.Join(os.Getenv("LocalAppData"), `Google\Chrome\Application\chrome.exe`), "chrome"},
+			{filepath.Join(os.Getenv("ProgramFiles"), `BraveSoftware\Brave-Browser\Application\brave.exe`), "brave"},
+			{filepath.Join(os.Getenv("LocalAppData"), `BraveSoftware\Brave-Browser\Application\brave.exe`), "brave"},
+			{filepath.Join(os.Getenv("LocalAppData"), `Vivaldi\Application\vivaldi.exe`), "vivaldi"},
+			{filepath.Join(os.Getenv("ProgramFiles"), `Vivaldi\Application\vivaldi.exe`), "vivaldi"},
+			{filepath.Join(os.Getenv("ProgramFiles(x86)"), `Vivaldi\Application\vivaldi.exe`), "vivaldi"},
+		}
+
+		for _, b := range potentialBrowsers {
+			if b.path != "" {
+				if _, err := os.Stat(b.path); err == nil {
+					cachedBrowserPath = b.path
+					cachedBrowserTag = b.tag
+					return
+				}
 			}
 		}
-	}
-	return "", ""
+		slog.Debug("未检测到本地兼容的 Chromium 内核浏览器，后续将回退至系统默认浏览器")
+	})
+
+	return cachedBrowserPath, cachedBrowserTag
 }
