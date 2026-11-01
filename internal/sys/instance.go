@@ -28,6 +28,7 @@ type SingleInstanceGuard struct {
 	hMutex  windows.Handle
 	hEvent  windows.Handle
 	hCancel windows.Handle
+	hAck    windows.Handle
 }
 
 func GrantForegroundPrivilege() {
@@ -103,10 +104,14 @@ func buildGuard(sa *windows.SecurityAttributes, eventName string, hMutex windows
 	hEvent, _ := windows.CreateEvent(sa, 0, 0, eName)
 	hCancel, _ := windows.CreateEvent(nil, 0, 0, nil)
 
+	ackName, _ := windows.UTF16PtrFromString(eventName + "_ACK")
+	hAck, _ := windows.CreateEvent(sa, 0, 0, ackName)
+
 	return &SingleInstanceGuard{
 		hMutex:  hMutex,
 		hEvent:  hEvent,
 		hCancel: hCancel,
+		hAck:    hAck,
 	}, true
 }
 
@@ -129,9 +134,19 @@ func NotifyExistingInstance(eventName string) {
 
 		_ = windows.SetEvent(hEvent)
 		_ = windows.CloseHandle(hEvent)
-		slog.Debug("已通知已有实例")
+		slog.Debug("已通知已有实例，等待UI渲染完成的ACK信号...")
 
-		time.Sleep(200 * time.Millisecond)
+		ackName, _ := windows.UTF16PtrFromString(eventName + "_ACK")
+		hAck, err := windows.OpenEvent(windows.SYNCHRONIZE, false, ackName)
+		if err == nil && hAck != 0 {
+			waitRes, _ := windows.WaitForSingleObject(hAck, 2000)
+			if waitRes == windows.WAIT_OBJECT_0 {
+				slog.Debug("收到UI就绪ACK，信使进程完美退场")
+			} else {
+				slog.Debug("等待ACK超时，信使进程兜底退场")
+			}
+			_ = windows.CloseHandle(hAck)
+		}
 	}
 }
 
@@ -162,6 +177,12 @@ func (g *SingleInstanceGuard) ListenWakeEvent(ctx context.Context, onWake func()
 	}()
 }
 
+func (g *SingleInstanceGuard) AckWake() {
+	if g != nil && g.hAck != 0 {
+		_ = windows.SetEvent(g.hAck)
+	}
+}
+
 func (g *SingleInstanceGuard) Close() {
 	if g == nil {
 		return
@@ -174,6 +195,11 @@ func (g *SingleInstanceGuard) Close() {
 	if g.hEvent != 0 {
 		_ = windows.CloseHandle(g.hEvent)
 		g.hEvent = 0
+	}
+
+	if g.hAck != 0 {
+		_ = windows.CloseHandle(g.hAck)
+		g.hAck = 0
 	}
 	if g.hMutex != 0 {
 		_ = windows.ReleaseMutex(g.hMutex)
