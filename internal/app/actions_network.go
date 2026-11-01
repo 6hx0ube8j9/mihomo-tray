@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"fmt"
+	"log/slog"
 
 	"mihomo-tray/internal/domain"
 )
@@ -35,9 +35,8 @@ func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand)
 				})
 
 				if err != nil {
-					return fmt.Errorf("提权调用失败: %w", err)
+					slog.Warn("TUN 提权调用失败", "err", err)
 				}
-
 				return nil
 			}
 
@@ -45,7 +44,10 @@ func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand)
 			return nil
 		}
 
-		return a.KernelTuner.ToggleTun(ctx, enable)
+		if err := a.KernelTuner.ToggleTun(ctx, enable); err != nil {
+			slog.Warn("TUN 模式切换失败", "enable", enable, "err", err)
+		}
+		return nil
 	})
 }
 
