@@ -13,6 +13,7 @@ const (
 type UICommand struct {
 	Action  string
 	Payload string
+	OnDone  func() 
 }
 
 // ================= UI Action Protocol =================
