@@ -21,6 +21,7 @@ var (
 	procAttachThreadInput        = modUser32.NewProc("AttachThreadInput")
 	kernel32Dll                  = windows.NewLazySystemDLL("kernel32.dll")
 	procGetCurrentThreadId       = kernel32Dll.NewProc("GetCurrentThreadId")
+	procOpenFileMappingW         = kernel32Dll.NewProc("OpenFileMappingW")  
 )
 
 const (
@@ -167,10 +168,16 @@ func storePID(sa *windows.SecurityAttributes, eventName string, pid uint32) wind
 
 func readPID(eventName string) uint32 {
 	mapName, _ := windows.UTF16PtrFromString(eventName + "_PID")
-	hMap, err := windows.OpenFileMapping(windows.FILE_MAP_READ, false, mapName)
-	if err != nil || hMap == 0 {
+
+	r1, _, _ := procOpenFileMappingW.Call(
+		windows.FILE_MAP_READ,
+		0,
+		uintptr(unsafe.Pointer(mapName)),
+	)
+	if r1 == 0 {
 		return 0
 	}
+	hMap := windows.Handle(r1)
 	defer windows.CloseHandle(hMap)
 
 	addr, err := windows.MapViewOfFile(hMap, windows.FILE_MAP_READ, 0, 0, 4)
@@ -181,7 +188,6 @@ func readPID(eventName string) uint32 {
 
 	return *(*uint32)(unsafe.Pointer(addr))
 }
-
 func waitForOldProcessHandle(pid uint32, timeout time.Duration) {
 	hProcess, err := windows.OpenProcess(windows.SYNCHRONIZE, false, pid)
 	if err != nil {
