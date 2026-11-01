@@ -37,7 +37,7 @@ func isWebView2Available() bool {
 		v, err := webviewloader.GetInstalledVersion()
 		wv2Available = (err == nil && v != "")
 		if !wv2Available {
-			slog.Debug("未检测到系统 WebView2 运行时，后续请求将直接降级")
+			slog.Debug("未检测到 WebView2 ，后续请求将直接降级")
 		}
 	})
 	return wv2Available
