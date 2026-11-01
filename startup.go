@@ -241,10 +241,21 @@ func setupSignalHandler(ctx context.Context, cancel context.CancelFunc) {
 }
 
 func setupWakeEventListener(ctx context.Context, guard *sys.SingleInstanceGuard, cmdCh chan<- domain.UICommand) {
+	if guard == nil {
+		return
+	}
+
 	guard.ListenWakeEvent(ctx, func() {
 		select {
-		case cmdCh <- domain.UICommand{Action: domain.ActionOpenWebUI}:
+		case cmdCh <- domain.UICommand{
+			Action: domain.ActionOpenWebUI,
+			OnDone: func() {
+				guard.AckWake()
+			},
+		}:
 		default:
+			slog.Warn("唤醒指令发送失败，指令队列已满")
+			guard.AckWake()
 		}
 	})
 }
