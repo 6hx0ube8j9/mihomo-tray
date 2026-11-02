@@ -1,39 +1,46 @@
+//go:build windows
+
 package sys
 
 import (
 	"runtime"
 	"strings"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
- 
-
 var (
-	procEnumWindows     = modUser32.NewProc("EnumWindows")
-	procGetClassName    = modUser32.NewProc("GetClassNameW")
-	procIsWindowVisible = modUser32.NewProc("IsWindowVisible")
-	procGetWindowThread = modUser32.NewProc("GetWindowThreadProcessId")
-	procGetWindowText   = modUser32.NewProc("GetWindowTextW")
-	procShowWindow      = modUser32.NewProc("ShowWindow")
-	procBringToTop      = modUser32.NewProc("BringWindowToTop")
-	procSetForeground   = modUser32.NewProc("SetForegroundWindow")
-	procGetWindow       = modUser32.NewProc("GetWindow")
-	procIsIconic        = modUser32.NewProc("IsIconic")
-	procGetSystemMetrics = modUser32.NewProc("GetSystemMetrics")
-    procAllowSetForeground   = modUser32.NewProc("AllowSetForegroundWindow")
-	procIsHungAppWindow      = modUser32.NewProc("IsHungAppWindow")
+	procEnumWindows          = modUser32.NewProc("EnumWindows")
+	procGetClassName         = modUser32.NewProc("GetClassNameW")
+	procIsWindowVisible      = modUser32.NewProc("IsWindowVisible")
+	procGetWindowThread      = modUser32.NewProc("GetWindowThreadProcessId")
+	procGetWindowText        = modUser32.NewProc("GetWindowTextW")
+	procShowWindow           = modUser32.NewProc("ShowWindow")
+	procBringToTop           = modUser32.NewProc("BringWindowToTop")
 	procSystemParametersInfo = modUser32.NewProc("SystemParametersInfoW")
+	procSetProcessDpiContext = modUser32.NewProc("SetProcessDpiAwarenessContext")
+	procSetProcessDPIAware   = modUser32.NewProc("SetProcessDPIAware")
+	procGetSystemMetrics     = modUser32.NewProc("GetSystemMetrics")
+	procSetForeground        = modUser32.NewProc("SetForegroundWindow")
+	procGetWindow            = modUser32.NewProc("GetWindow")
+	procIsIconic             = modUser32.NewProc("IsIconic")
+	procIsHungAppWindow      = modUser32.NewProc("IsHungAppWindow")
+	procAllowSetForeground   = modUser32.NewProc("AllowSetForegroundWindow")
+	procIsWindow             = modUser32.NewProc("IsWindow")
 )
 
 const (
-	SW_RESTORE = 9
-	SW_SHOW    = 5
-	GW_OWNER   = 4
-    SPI_GETWORKAREA = 0x0030
+	SW_HIDE         = 0
+	SW_RESTORE      = 9
+	SW_SHOW         = 5
+	GW_OWNER        = 4
+	SPI_GETWORKAREA = 0x0030
 	SM_CXSCREEN     = 0
 	SM_CYSCREEN     = 1
+
+	dpiAwarenessPerMonitorV2 = uintptr(0xFFFFFFFC)
 )
 
 type WindowInfo struct {
@@ -48,10 +55,34 @@ type enumContext struct {
 	targetHwnd uintptr
 }
 
+func init() {
+	if _, _, err := procSetProcessDpiContext.Call(dpiAwarenessPerMonitorV2); err != nil && uint32(err.(syscall.Errno)) != 0 {
+		_, _, _ = procSetProcessDPIAware.Call()
+	}
+}
+
+func GetDisplayWorkArea() (usableW, usableH, startX, startY int) {
+	scrWRet, _, _ := procGetSystemMetrics.Call(SM_CXSCREEN)
+	scrHRet, _, _ := procGetSystemMetrics.Call(SM_CYSCREEN)
+	usableW, usableH = int(scrWRet), int(scrHRet)
+
+	var workArea [4]int32
+	ret, _, _ := procSystemParametersInfo.Call(SPI_GETWORKAREA, 0, uintptr(unsafe.Pointer(&workArea[0])), 0)
+	if ret != 0 {
+		usableW = int(workArea[2] - workArea[0])
+		usableH = int(workArea[3] - workArea[1])
+		startX = int(workArea[0])
+		startY = int(workArea[1])
+	}
+	return
+}
+
 var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam unsafe.Pointer) uintptr {
 	if lParam == nil {
 		return 1
 	}
+
+	ctx := (*enumContext)(lParam)
 
 	if !IsWindowVisible(hwnd) {
 		return 1
@@ -80,7 +111,6 @@ var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam unsafe.P
 		Title:     wndTitle,
 	}
 
-	ctx := (*enumContext)(lParam)
 	if ctx.matcher(info) {
 		ctx.targetHwnd = hwnd
 		return 0
@@ -116,20 +146,16 @@ func FocusWindowSilky(targetHwnd uintptr) {
 	procSetForeground.Call(targetHwnd)
 }
 
+func HideWindow(hwnd uintptr) {
+	if hwnd != 0 {
+		procShowWindow.Call(hwnd, SW_HIDE)
+	}
+}
+
 func IsWindowVisible(hwnd uintptr) bool {
 	vis, _, _ := procIsWindowVisible.Call(hwnd)
 	return vis != 0
 }
-
-func IsIconic(hwnd uintptr) bool {
-	min, _, _ := procIsIconic.Call(hwnd)
-	return min != 0
-}
-
-
-func HideWindow(hwnd uintptr) {
-}
-
 
 func IsWindowHung(hwnd uintptr) bool {
 	if hwnd == 0 {
@@ -139,14 +165,25 @@ func IsWindowHung(hwnd uintptr) bool {
 	return ret != 0
 }
 
-func IsWindowAliveAndResponsive(hwnd uintptr) bool {
-	return hwnd != 0
-}
-
- 
 func AllowSetForegroundWindow(pid uint32) {
 }
 
-func GetDisplayWorkArea() (usableW, usableH, startX, startY int) {
-	return 1920, 1080, 0, 0
+func IsIconic(hwnd uintptr) bool {
+	min, _, _ := procIsIconic.Call(hwnd)
+	return min != 0
+}
+
+func IsWindow(hwnd uintptr) bool {
+	if hwnd == 0 {
+		return false
+	}
+	ret, _, _ := procIsWindow.Call(hwnd)
+	return ret != 0
+}
+
+func IsWindowAliveAndResponsive(hwnd uintptr) bool {
+	if hwnd == 0 {
+		return false
+	}
+	return IsWindow(hwnd) && IsWindowVisible(hwnd) && !IsWindowHung(hwnd)
 }
