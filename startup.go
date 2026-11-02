@@ -19,42 +19,59 @@ import (
 )
 
 func superviseStartup(exePath, baseDir string) (*sys.SingleInstanceGuard, io.Closer, *config.Manager) {
-	isAutostart := parseIsAutostart(os.Args[1:])
-	restartingPID := parseRestartingPID(os.Args[1:])
+	isAutostart := parseIsAutostart(os.Args[1:])[cite: 7, 11]
+	restartingPID := parseRestartingPID(os.Args[1:])[cite: 7, 11]
 
-	guard, isOwner := sys.TryAcquireSingleInstance(domain.AppMutexName, domain.ShowUIEventName, restartingPID)
+	slog.Info("[TRACE:启动] 进程入口",
+		"pid", os.Getpid(),
+		"admin", sys.IsAdmin(),
+		"args", os.Args[1:],
+		"isAutostart", isAutostart,
+		"restartingPID", restartingPID,
+	)
+
+	guard, isOwner := sys.TryAcquireSingleInstance(domain.AppMutexName, domain.ShowUIEventName, restartingPID)[cite: 7, 11]
+
+	slog.Info("[TRACE:单实例]",
+		"pid", os.Getpid(),
+		"isOwner", isOwner,
+	)
+
 	if !isOwner {
-		if isAutostart || restartingPID > 0 {
-			slog.Debug("自启任务或提权继任实例未获取到单实例锁，静默退出", "isAutostart", isAutostart, "restartingPID", restartingPID)
-			os.Exit(0)
-		}
-
-		slog.Info("检测到已有主实例运行，作为信使唤醒面板")
-		sys.NotifyExistingInstance(domain.ShowUIEventName)
-		os.Exit(0)
+		slog.Info("[TRACE:信使] 未获取锁，执行唤醒已有实例并退出", "pid", os.Getpid())
+		sys.NotifyExistingInstance(domain.ShowUIEventName)[cite: 7, 11]
+		os.Exit(0)[cite: 7, 11]
 	}
 
-	logWriter := logger.Init(baseDir, restartingPID > 0)
+	logWriter := logger.Init(baseDir, restartingPID > 0)[cite: 7, 11]
 
-	admin := sys.IsAdmin()
-	cfgMgr := config.NewManager(baseDir, exePath)
-	cfgMgr.LoadAndInitMemory()
-	logger.SyncLogLevel(cfgMgr.GetConfig().General.TrayLogLevel)
+	admin := sys.IsAdmin()[cite: 7, 11]
+	cfgMgr := config.NewManager(baseDir, exePath)[cite: 7, 11]
+	cfgMgr.LoadAndInitMemory()[cite: 7, 11]
+	logger.SyncLogLevel(cfgMgr.GetConfig().General.TrayLogLevel)[cite: 7, 11]
 
-	slog.Info("程序启动", "admin", admin, "pid", os.Getpid())
+	slog.Info("程序启动", "admin", admin, "pid", os.Getpid())[cite: 7, 11]
 
 	exitProcess := func(code int) {
-		guard.Close()
+		guard.Close()[cite: 7, 11]
 		if logWriter != nil {
-			_ = logWriter.Close()
+			_ = logWriter.Close()[cite: 7, 11]
 		}
-		os.Exit(code)
+		os.Exit(code)[cite: 7, 11]
 	}
 
-	taskInSync, needElevate := inspectAndSyncAutostart(cfgMgr, exePath, baseDir, admin)
-	handleElevation(cfgMgr, exePath, baseDir, isAutostart, taskInSync, needElevate, guard, exitProcess)
+	taskInSync, needElevate := inspectAndSyncAutostart(cfgMgr, exePath, baseDir, admin)[cite: 7, 11]
 
-	return guard, logWriter, cfgMgr
+	slog.Info("[TRACE:提权检查]",
+		"pid", os.Getpid(),
+		"taskInSync", taskInSync,
+		"needElevate", needElevate,
+		"runAsAdmin", cfgMgr.GetConfig().General.RunAsAdmin,
+	)
+
+	handleElevation(cfgMgr, exePath, baseDir, isAutostart, taskInSync, needElevate, guard, exitProcess)[cite: 7, 11]
+
+	return guard, logWriter, cfgMgr[cite: 7, 11]
 }
 
 func BuildSelfElevationArgs(extraArgs ...string) []string {
@@ -245,31 +262,19 @@ func setupSignalHandler(ctx context.Context, cancel context.CancelFunc) {
 		}
 	}()
 }
-
 func setupWakeEventListener(ctx context.Context, guard *sys.SingleInstanceGuard, cmdCh chan<- domain.UICommand) {
 	if guard == nil {
 		return
 	}
 
-	startedAt := time.Now()
-
 	guard.ListenWakeEvent(ctx, func() {
-		if time.Since(startedAt) < 1500*time.Millisecond {
-			slog.Debug("吸收并忽略冷启动早期的残留唤醒信号，释放信使")
-			guard.AckWake()
-			return
-		}
+		slog.Info("[TRACE:主进程] 收到外部 WakeEvent 信号", "pid", os.Getpid())
 
 		select {
-		case cmdCh <- domain.UICommand{
-			Action: domain.ActionOpenWebUI,
-			OnDone: func() {
-				guard.AckWake()
-			},
-		}:
+		case cmdCh <- domain.UICommand{Action: domain.ActionOpenWebUI}:
+			slog.Info("[TRACE:主进程] 已投递 ActionOpenWebUI 指令", "pid", os.Getpid())
 		default:
-			slog.Warn("唤醒指令发送失败，指令队列已满")
-			guard.AckWake()
+			slog.Warn("[TRACE:主进程] 指令队列满，丢弃 ActionOpenWebUI")
 		}
 	})
 }
