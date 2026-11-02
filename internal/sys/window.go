@@ -3,12 +3,11 @@ package sys
 import (
 	"runtime"
 	"strings"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
-
- 
 
 var (
 	procEnumWindows     = modUser32.NewProc("EnumWindows")
@@ -26,6 +25,8 @@ var (
 	procIsHungAppWindow      = modUser32.NewProc("IsHungAppWindow")
 	procSystemParametersInfo = modUser32.NewProc("SystemParametersInfoW")
 	procIsWindow             = modUser32.NewProc("IsWindow")
+	procSetProcessDpiContext = modUser32.NewProc("SetProcessDpiAwarenessContext")
+	procSetProcessDPIAware   = modUser32.NewProc("SetProcessDPIAware")
 )
 
 const (
@@ -37,6 +38,7 @@ const (
 	SPI_GETWORKAREA = 0x0030
 	SM_CXSCREEN     = 0
 	SM_CYSCREEN     = 1
+	dpiAwarenessPerMonitorV2 = uintptr(0xFFFFFFFC)
 )
 type WindowInfo struct {
 	Hwnd      uintptr
@@ -89,6 +91,12 @@ var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam unsafe.P
 	}
 	return 1
 })
+
+func init() {
+	if _, _, err := procSetProcessDpiContext.Call(dpiAwarenessPerMonitorV2); err != nil && uint32(err.(syscall.Errno)) != 0 {
+		_, _, _ = procSetProcessDPIAware.Call()
+	}
+}
 
 func FindTopWindow(matcher func(info WindowInfo) bool) uintptr {
 	runtime.LockOSThread()
