@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 	"time"
 	"unsafe"
 
@@ -28,11 +29,7 @@ type SingleInstanceGuard struct {
 	hMutex  windows.Handle
 	hEvent  windows.Handle
 	hCancel windows.Handle
-	hAck    windows.Handle
-}
-
-func GrantForegroundPrivilege() {
-	procAllowSetForegroundWnd.Call(asfwAny)
+	hMapPid windows.Handle
 }
 
 func getPermissiveSecAttr() *windows.SecurityAttributes {
@@ -104,15 +101,46 @@ func buildGuard(sa *windows.SecurityAttributes, eventName string, hMutex windows
 	hEvent, _ := windows.CreateEvent(sa, 0, 0, eName)
 	hCancel, _ := windows.CreateEvent(nil, 0, 0, nil)
 
-	ackName, _ := windows.UTF16PtrFromString(eventName + "_ACK")
-	hAck, _ := windows.CreateEvent(sa, 0, 0, ackName)
+	// 在共享安全描述符下开辟 4 字节内存，写入主进程实际 PID
+	hMapPid := storePID(sa, eventName, uint32(os.Getpid()))
 
 	return &SingleInstanceGuard{
 		hMutex:  hMutex,
 		hEvent:  hEvent,
 		hCancel: hCancel,
-		hAck:    hAck,
+		hMapPid: hMapPid,
 	}, true
+}
+
+func storePID(sa *windows.SecurityAttributes, baseName string, pid uint32) windows.Handle {
+	mName, _ := windows.UTF16PtrFromString(baseName + "_PID")
+	hMap, _ := windows.CreateFileMapping(windows.InvalidHandle, sa, windows.PAGE_READWRITE, 0, 4, mName)
+	if hMap != 0 {
+		addr, err := windows.MapViewOfFile(hMap, windows.FILE_MAP_WRITE, 0, 0, 4)
+		if err == nil && addr != 0 {
+			*(*uint32)(unsafe.Pointer(addr)) = pid
+			_ = windows.UnmapViewOfFile(addr)
+		}
+	}
+	return hMap
+}
+
+func readPID(baseName string) uint32 {
+	mName, _ := windows.UTF16PtrFromString(baseName + "_PID")
+	// Windows 原生机制：对已存在的命名共享内存调用 CreateFileMapping 会直接打开句柄，无需 OpenFileMapping
+	hMap, _ := windows.CreateFileMapping(windows.InvalidHandle, nil, windows.PAGE_READWRITE, 0, 4, mName)
+	if hMap == 0 || hMap == windows.InvalidHandle {
+		return 0
+	}
+	defer windows.CloseHandle(hMap)
+
+	addr, err := windows.MapViewOfFile(hMap, windows.FILE_MAP_READ, 0, 0, 4)
+	if err != nil || addr == 0 {
+		return 0
+	}
+	defer windows.UnmapViewOfFile(addr)
+
+	return *(*uint32)(unsafe.Pointer(addr))
 }
 
 func waitForOldProcessHandle(pid uint32, timeout time.Duration) {
@@ -130,23 +158,16 @@ func NotifyExistingInstance(eventName string) {
 	eName, _ := windows.UTF16PtrFromString(eventName)
 	hEvent, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName)
 	if err == nil && hEvent != 0 {
-		GrantForegroundPrivilege()
+		targetPID := readPID(eventName)
+		if targetPID > 0 {
+			_, _, _ = procAllowSetForegroundWnd.Call(uintptr(targetPID))
+		} else {
+			_, _, _ = procAllowSetForegroundWnd.Call(asfwAny)
+		}
 
 		_ = windows.SetEvent(hEvent)
 		_ = windows.CloseHandle(hEvent)
-		slog.Debug("已通知已有实例，等待UI渲染完成的ACK信号...")
-
-		ackName, _ := windows.UTF16PtrFromString(eventName + "_ACK")
-		hAck, err := windows.OpenEvent(windows.SYNCHRONIZE, false, ackName)
-		if err == nil && hAck != 0 {
-			waitRes, _ := windows.WaitForSingleObject(hAck, 2000)
-			if waitRes == windows.WAIT_OBJECT_0 {
-				slog.Debug("收到UI就绪ACK，信使进程完美退场")
-			} else {
-				slog.Debug("等待ACK超时，信使进程兜底退场")
-			}
-			_ = windows.CloseHandle(hAck)
-		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
@@ -177,12 +198,6 @@ func (g *SingleInstanceGuard) ListenWakeEvent(ctx context.Context, onWake func()
 	}()
 }
 
-func (g *SingleInstanceGuard) AckWake() {
-	if g != nil && g.hAck != 0 {
-		_ = windows.SetEvent(g.hAck)
-	}
-}
-
 func (g *SingleInstanceGuard) Close() {
 	if g == nil {
 		return
@@ -196,10 +211,9 @@ func (g *SingleInstanceGuard) Close() {
 		_ = windows.CloseHandle(g.hEvent)
 		g.hEvent = 0
 	}
-
-	if g.hAck != 0 {
-		_ = windows.CloseHandle(g.hAck)
-		g.hAck = 0
+	if g.hMapPid != 0 {
+		_ = windows.CloseHandle(g.hMapPid)
+		g.hMapPid = 0
 	}
 	if g.hMutex != 0 {
 		_ = windows.ReleaseMutex(g.hMutex)
