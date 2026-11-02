@@ -3,9 +3,7 @@ package webui
 import (
 	"errors"
 	"log/slog"
-	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -62,31 +60,26 @@ func emitEvent(ch chan<- Event, event Event) {
 	}
 }
 
+
 func checkSandboxedEnvironment(baseDir string) error {
-	cacheBaseDir := filepath.Join(baseDir, domain.WebCacheDir)
-	if err := os.MkdirAll(cacheBaseDir, 0755); err != nil {
-		return errors.New("无目录写入权限")
+	cleanBase := filepath.Clean(baseDir)
+
+	if sys.IsOtherUserProfileDir(cleanBase) {
+		return errors.New("受限于其他用户目录隐私隔离")
 	}
 
-	if sys.IsAdmin() {
-		baseLower := strings.ToLower(filepath.Clean(baseDir))
-		sysDrive := strings.ToLower(os.Getenv("SystemDrive"))
-		if sysDrive == "" {
-			sysDrive = "c:"
-		}
-
-		protectedDirs := []string{
-			sysDrive + `\windows`,
-			sysDrive + `\program files`,
-			sysDrive + `\perflogs`,
-		}
-
-		for _, dir := range protectedDirs {
-			if strings.HasPrefix(baseLower, dir) {
-				return errors.New("受限于系统保护目录")
-			}
-		}
+	if sys.IsAdmin() && sys.IsSystemProtectedDir(cleanBase) {
+		return errors.New("受限于系统保护目录，沙盒无权写入")
 	}
+
+	cacheBaseDir := filepath.Join(cleanBase, domain.WebCacheDir)
+	if err := sys.ProbeDirWritable(cacheBaseDir); err != nil {
+		if sys.IsPermissionError(err) {
+			return errors.New("无目录写入权限")
+		}
+		return err
+	}
+
 	return nil
 }
 
@@ -113,6 +106,9 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event, onReady func()) {
 	}
 
 	if !m.launchMu.TryLock() {
+		if onReady != nil {
+			onReady()
+		}
 		return
 	}
 	defer m.launchMu.Unlock()
