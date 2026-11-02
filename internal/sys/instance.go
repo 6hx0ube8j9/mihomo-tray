@@ -1,6 +1,3 @@
-// instance.go manages application single-instance enforcement, cross-integrity IPC
-// wake-up signaling, and foreground privilege delegation.
-
 package sys
 
 import (
@@ -128,25 +125,36 @@ func waitForOldProcessHandle(pid uint32, timeout time.Duration) {
 
 func NotifyExistingInstance(eventName string) {
 	eName, _ := windows.UTF16PtrFromString(eventName)
-	hEvent, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName)
-	if err == nil && hEvent != 0 {
+	ackName, _ := windows.UTF16PtrFromString(eventName + "_ACK")
+
+	hAck, errAck := windows.OpenEvent(windows.EVENT_MODIFY_STATE|windows.SYNCHRONIZE, false, ackName)
+	if errAck == nil && hAck != 0 {
+		_ = windows.ResetEvent(hAck)
+	}
+
+	hEvent, errEvt := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName)
+	if errEvt == nil && hEvent != 0 {
 		GrantForegroundPrivilege()
 
 		_ = windows.SetEvent(hEvent)
 		_ = windows.CloseHandle(hEvent)
-		slog.Debug("已通知已有实例，等待UI渲染完成的ACK信号...")
-
-		ackName, _ := windows.UTF16PtrFromString(eventName + "_ACK")
-		hAck, err := windows.OpenEvent(windows.SYNCHRONIZE, false, ackName)
-		if err == nil && hAck != 0 {
-			waitRes, _ := windows.WaitForSingleObject(hAck, 2000)
-			if waitRes == windows.WAIT_OBJECT_0 {
-				slog.Debug("收到UI就绪ACK，信使进程完美退场")
-			} else {
-				slog.Debug("等待ACK超时，信使进程兜底退场")
-			}
+		slog.Debug("已通知主实例，信使正在等待窗口聚焦完成的 ACK 信号...")
+	} else {
+		slog.Warn("打开主实例唤醒事件失败", "error", errEvt)
+		if hAck != 0 {
 			_ = windows.CloseHandle(hAck)
 		}
+		return
+	}
+
+	if hAck != 0 {
+		waitRes, errWait := windows.WaitForSingleObject(hAck, 2000)
+		if errWait == nil && waitRes == windows.WAIT_OBJECT_0 {
+			slog.Debug("收到窗口物理置顶完成的 ACK，信使进程安全退出")
+		} else {
+			slog.Debug("等待 ACK 超时或异常，信使进程兜底退场", "res", waitRes, "err", errWait)
+		}
+		_ = windows.CloseHandle(hAck)
 	}
 }
 
@@ -196,7 +204,6 @@ func (g *SingleInstanceGuard) Close() {
 		_ = windows.CloseHandle(g.hEvent)
 		g.hEvent = 0
 	}
-
 	if g.hAck != 0 {
 		_ = windows.CloseHandle(g.hAck)
 		g.hAck = 0
