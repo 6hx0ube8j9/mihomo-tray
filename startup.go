@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/domain"
