@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/domain"
@@ -21,32 +22,18 @@ func superviseStartup(exePath, baseDir string) (*sys.SingleInstanceGuard, io.Clo
 	isAutostart := parseIsAutostart(os.Args[1:])
 	restartingPID := parseRestartingPID(os.Args[1:])
 
-	// 埋点 1：打印进程启动入口参数与环境
-	slog.Info("[TRACE:启动] 进程入口",
-		"pid", os.Getpid(),
-		"admin", sys.IsAdmin(),
-		"args", os.Args[1:],
-		"isAutostart", isAutostart,
-		"restartingPID", restartingPID,
-	)
-
 	guard, isOwner := sys.TryAcquireSingleInstance(domain.AppMutexName, domain.ShowUIEventName, restartingPID)
-
-	// 埋点 2：打印锁获取裁决结果
-	slog.Info("[TRACE:单实例]",
-		"pid", os.Getpid(),
-		"isOwner", isOwner,
-	)
-
 	if !isOwner {
-		// 埋点 3：打印信使唤醒动作
-		slog.Info("[TRACE:信使] 未获取锁，执行唤醒已有实例并退出", "pid", os.Getpid())
-		sys.NotifyExistingInstance(domain.ShowUIEventName)
+		// 仅在非自启动场景下作为信使唤醒面板
+		if !isAutostart {
+			sys.NotifyExistingInstance(domain.ShowUIEventName)
+			// 撑住前台特权窗口期，让主进程有足够时间完成前台窗口渲染，避免秒退导致特权被操作系统撤销
+			time.Sleep(200 * time.Millisecond)
+		}
 		os.Exit(0)
 	}
 
 	logWriter := logger.Init(baseDir, restartingPID > 0)
-
 	admin := sys.IsAdmin()
 	cfgMgr := config.NewManager(baseDir, exePath)
 	cfgMgr.LoadAndInitMemory()
@@ -63,37 +50,37 @@ func superviseStartup(exePath, baseDir string) (*sys.SingleInstanceGuard, io.Clo
 	}
 
 	taskInSync, needElevate := inspectAndSyncAutostart(cfgMgr, exePath, baseDir, admin)
-
-	// 埋点 4：打印自启同步与提权判断
-	slog.Info("[TRACE:提权检查]",
-		"pid", os.Getpid(),
-		"taskInSync", taskInSync,
-		"needElevate", needElevate,
-		"runAsAdmin", cfgMgr.GetConfig().General.RunAsAdmin,
-	)
-
 	handleElevation(cfgMgr, exePath, baseDir, isAutostart, taskInSync, needElevate, guard, exitProcess)
 
 	return guard, logWriter, cfgMgr
 }
 
-func BuildSelfElevationArgs(extraArgs ...string) []string {
-	var cleanArgs []string
-	for _, arg := range os.Args[1:] {
-		argLower := strings.ToLower(arg)
-		if !strings.Contains(argLower, "restarting") && !strings.Contains(argLower, "enable-tun") {
-			cleanArgs = append(cleanArgs, arg)
-		}
+func setupWakeEventListener(ctx context.Context, guard *sys.SingleInstanceGuard, cmdCh chan<- domain.UICommand) {
+	if guard == nil {
+		return
 	}
 
-	cleanArgs = append(cleanArgs, fmt.Sprintf("--restarting=%d", os.Getpid()))
-
-	for _, extra := range extraArgs {
-		if strings.TrimSpace(extra) != "" {
-			cleanArgs = append(cleanArgs, extra)
+	guard.ListenWakeEvent(ctx, func() {
+		select {
+		case cmdCh <- domain.UICommand{Action: domain.ActionOpenWebUI}:
+		default:
+			slog.Warn("唤醒指令队列已满，忽略本次触发")
 		}
-	}
-	return cleanArgs
+	})
+}
+
+func setupSignalHandler(ctx context.Context, cancel context.CancelFunc) {
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		defer signal.Stop(sigCh)
+		select {
+		case sig := <-sigCh:
+			slog.Info("收到终止信号", "signal", sig)
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 }
 
 func parseIsAutostart(args []string) bool {
@@ -127,7 +114,6 @@ func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, is
 	if !osTaskExists {
 		if cfgAutostart {
 			if isAdmin {
-				slog.Info("注册自启动任务")
 				taskInSync = sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
 			} else {
 				needElevate = true
@@ -138,18 +124,14 @@ func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, is
 
 	if sys.IsTaskPathValid(domain.AppTaskName, exePath) {
 		taskInSync = true
-
 		if !cfgAutostart {
 			if !isAdmin {
-				slog.Info("检测到系统已存在有效自启动任务，自动认领并同步本地配置为开启")
 				cfgMgr.Update(func(c *domain.TrayConfig) {
 					b := true
 					c.General.Autostart = &b
 				})
 				return true, false
 			}
-
-			slog.Info("用户主动关闭自启动，执行计划任务注销")
 			if sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, false) {
 				taskInSync = false
 			}
@@ -158,11 +140,9 @@ func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, is
 	}
 
 	oldPath := sys.GetTaskPath(domain.AppTaskName)
-
 	if !sys.CheckPathExists(oldPath) {
 		if cfgAutostart {
 			if isAdmin {
-				slog.Info("检测到旧路径已失效，更新自启动任务", "old", oldPath, "new", exePath)
 				taskInSync = sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
 			} else {
 				needElevate = true
@@ -173,12 +153,9 @@ func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, is
 
 	if cfgAutostart {
 		if isAdmin {
-			slog.Info("用户显式授权管理员权限，强制覆写自启动任务指向当前路径", "old", oldPath, "new", exePath)
 			taskInSync = sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
 			return taskInSync, false
 		}
-
-		slog.Warn("已有自启动任务指向其他存活程序，当前普通权限副本放弃自启动", "path", oldPath)
 		cfgMgr.Update(func(c *domain.TrayConfig) {
 			b := false
 			c.General.Autostart = &b
@@ -197,21 +174,15 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 	runAsAdmin := cfgMgr.GetConfig().General.RunAsAdmin
 
 	if taskInSync && (cfgAutostart || runAsAdmin) {
-		slog.Info("检测到自启动任务已就绪，通过计划任务执行静默提权")
-
 		guard.Close()
 		err := sys.RunScheduledTask(domain.AppTaskName)
 		if err == nil {
-			slog.Info("计划任务静默提权成功，受限实例退出")
 			exitProcess(0)
 			return
 		}
 
-		slog.Warn("计划任务静默提权失败，重新抢占锁并降级为 UAC 弹窗", "error", err)
-
 		reacquiredGuard, isOwner := sys.TryAcquireSingleInstance(domain.AppMutexName, domain.ShowUIEventName, 0)
 		if !isOwner {
-			slog.Warn("锁已被其他实例接管，当前进程安全退出")
 			exitProcess(0)
 			return
 		}
@@ -222,22 +193,18 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 		return
 	}
 
-	slog.Info("正在请求管理员权限")
 	args := BuildSelfElevationArgs()
 	err := sys.RunAsAdmin(exePath, baseDir, args...)
 	if err == nil {
-		slog.Info("UAC 授权成功，受限实例退出")
 		exitProcess(0)
 		return
 	}
 
 	if sys.IsUserCancelled(err) {
 		if runAsAdmin {
-			slog.Info("用户取消授权，程序退出")
 			exitProcess(0)
 			return
 		}
-		slog.Warn("用户取消授权，以当前权限运行，并重置自启配置为 false")
 		cfgMgr.Update(func(c *domain.TrayConfig) {
 			b := false
 			c.General.Autostart = &b
@@ -245,39 +212,25 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 		return
 	}
 
-	slog.Error("请求管理员权限失败", "error", err)
 	if runAsAdmin {
 		exitProcess(1)
 		return
 	}
 }
 
-func setupSignalHandler(ctx context.Context, cancel context.CancelFunc) {
-	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-		defer signal.Stop(sigCh)
-		select {
-		case sig := <-sigCh:
-			slog.Info("收到终止信号", "signal", sig)
-			cancel()
-		case <-ctx.Done():
+func BuildSelfElevationArgs(extraArgs ...string) []string {
+	var cleanArgs []string
+	for _, arg := range os.Args[1:] {
+		argLower := strings.ToLower(arg)
+		if !strings.Contains(argLower, "restarting") && !strings.Contains(argLower, "enable-tun") {
+			cleanArgs = append(cleanArgs, arg)
 		}
-	}()
-}
-func setupWakeEventListener(ctx context.Context, guard *sys.SingleInstanceGuard, cmdCh chan<- domain.UICommand) {
-	if guard == nil {
-		return
 	}
-
-	guard.ListenWakeEvent(ctx, func() {
-		slog.Info("[TRACE:主进程] 收到外部 WakeEvent 信号", "pid", os.Getpid())
-
-		select {
-		case cmdCh <- domain.UICommand{Action: domain.ActionOpenWebUI}:
-			slog.Info("[TRACE:主进程] 已投递 ActionOpenWebUI 指令", "pid", os.Getpid())
-		default:
-			slog.Warn("[TRACE:主进程] 指令队列满，丢弃 ActionOpenWebUI")
+	cleanArgs = append(cleanArgs, fmt.Sprintf("--restarting=%d", os.Getpid()))
+	for _, extra := range extraArgs {
+		if strings.TrimSpace(extra) != "" {
+			cleanArgs = append(cleanArgs, extra)
 		}
-	})
+	}
+	return cleanArgs
 }
