@@ -155,8 +155,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 			m.wvMu.Unlock()
 		}()
 
-		sys.FocusWindowSilky(hwnd)
-		
 		w.SetNewWindowHandler(func(url string) bool {
 			slog.Debug("阻止 WebView2 弹出新窗口", "url", url)
 			return false
