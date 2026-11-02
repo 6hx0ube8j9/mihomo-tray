@@ -1,7 +1,11 @@
 package webui
 
 import (
+	"errors"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -58,12 +62,49 @@ func emitEvent(ch chan<- Event, event Event) {
 	}
 }
 
+func checkSandboxedEnvironment(baseDir string) error {
+	cacheBaseDir := filepath.Join(baseDir, domain.WebCacheDir)
+	if err := os.MkdirAll(cacheBaseDir, 0755); err != nil {
+		return errors.New("无目录写入权限")
+	}
+
+	if sys.IsAdmin() {
+		baseLower := strings.ToLower(filepath.Clean(baseDir))
+		sysDrive := strings.ToLower(os.Getenv("SystemDrive"))
+		if sysDrive == "" {
+			sysDrive = "c:"
+		}
+
+		protectedDirs := []string{
+			sysDrive + `\windows`,
+			sysDrive + `\program files`,
+			sysDrive + `\perflogs`,
+		}
+
+		for _, dir := range protectedDirs {
+			if strings.HasPrefix(baseLower, dir) {
+				return errors.New("受限于系统保护目录")
+			}
+		}
+	}
+	return nil
+}
+
 func (m *Manager) Launch(cfg Config, eventCh chan<- Event, onReady func()) {
 	finalURL, appHostPort := buildFinalURL(cfg)
 	mode := cfg.WebOpenMode
 
 	if mode == domain.WebOpenModeSystem {
-		slog.Info("启动系统默认浏览器", "url", finalURL)
+		slog.Debug("使用系统默认浏览器打开面板")
+		if onReady != nil {
+			onReady()
+		}
+		m.openSystemBrowser(finalURL, eventCh)
+		return
+	}
+
+	if err := checkSandboxedEnvironment(cfg.BaseDir); err != nil {
+		slog.Warn("因目录权限限制，回退至系统默认浏览器打开", "err", err)
 		if onReady != nil {
 			onReady()
 		}
@@ -72,35 +113,32 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event, onReady func()) {
 	}
 
 	if !m.launchMu.TryLock() {
-		if onReady != nil {
-			onReady()
-		}	
 		return
 	}
 	defer m.launchMu.Unlock()
 
 	if m.tryWakeCachedWindow(eventCh) {
 		if onReady != nil {
-			onReady() 
+			onReady()
 		}
 		return
 	}
 
 	if mode == domain.WebOpenModeWebView2 {
 		if m.launchWebView2(cfg, finalURL, eventCh, onReady) {
-			slog.Info("WebView2 窗口已就绪")
+			slog.Debug("内置窗口已就绪")
 			return
 		}
-		slog.Warn("WebView2 启动失败，切换至独立浏览器")
+		slog.Warn("内置窗口启动失败，尝试使用独立浏览器")
 		m.cleanupWebView2()
 	}
 
 	if mode == domain.WebOpenModeWebView2 || mode == domain.WebOpenModeApp {
 		if m.launchChromiumAppMode(cfg, finalURL, appHostPort, eventCh, onReady) {
-			slog.Info("独立浏览器窗口已就绪")
+			slog.Debug("独立浏览器窗口已就绪")
 			return
 		}
-		slog.Warn("独立浏览器启动失败，切换至系统默认浏览器")
+		slog.Warn("独立浏览器启动失败，尝试使用系统默认浏览器")
 		m.cleanupChromium()
 	}
 
@@ -118,7 +156,7 @@ func (m *Manager) Cleanup() {
 func (m *Manager) cleanupWebView2() {
 	m.wvMu.Lock()
 	if m.wv != nil {
-		slog.Debug("关闭 WebView2 窗口")
+		slog.Debug("关闭内置面板窗口")
 		m.wv.Destroy()
 		m.wv = nil
 	}
@@ -134,7 +172,7 @@ func (m *Manager) cleanupChromium() {
 	m.stateMu.Unlock()
 
 	if safeDebugPort != "" {
-		slog.Debug("发送关闭指令至浏览器", "port", safeDebugPort)
+		slog.Debug("发送退出指令至浏览器", "port", safeDebugPort)
 		CloseAllWebUITargets(safeDebugPort)
 	}
 
@@ -142,7 +180,7 @@ func (m *Manager) cleanupChromium() {
 	if pid != 0 {
 		time.Sleep(300 * time.Millisecond)
 		if sys.IsPidRunning(pid, "") {
-			slog.Warn("浏览器进程未响应，强制终止", "pid", pid)
+			slog.Debug("强制清理未响应的浏览器进程", "pid", pid)
 			sys.HardKill(pid)
 		}
 	}
@@ -183,7 +221,7 @@ func (m *Manager) openSystemBrowser(finalURL string, eventCh chan<- Event) {
 	if err := sys.ExecuteSystemCommand(`"` + finalURL + `"`); err == nil {
 		emitEvent(eventCh, EventReady)
 	} else {
-		slog.Error("启动系统默认浏览器失败", "err", err)
+		slog.Error("启动系统浏览器失败", "err", err)
 		emitEvent(eventCh, EventError)
 	}
 }
@@ -195,7 +233,7 @@ func (m *Manager) tryWakeCachedWindow(eventCh chan<- Event) bool {
 	}
 
 	if !sys.IsWindowAliveAndResponsive(hwnd) {
-		slog.Debug("缓存窗口已失效或无响应，重置状态", "hwnd", hwnd)
+		slog.Debug("缓存窗口已失效，重置面板状态", "hwnd", hwnd)
 		m.Cleanup()
 		return false
 	}
