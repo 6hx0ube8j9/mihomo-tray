@@ -137,8 +137,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 
 		hwnd = uintptr(w.Window())
 
-		sys.HideWindow(hwnd)
-
 		m.wvMu.Lock()
 		if aborted.Load() {
 			m.wvMu.Unlock()
@@ -169,16 +167,15 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 
 		w.Navigate(finalURL)
 		emitEvent(eventCh, EventReady)
-		w.Dispatch(func() {
-			sys.FocusWindowSilky(hwnd)
 
-			if onReady != nil {
-				go func() {
-					time.Sleep(100 * time.Millisecond)
-					onReady()
-				}()
-			}
-		})
+		sys.FocusWindowSilky(hwnd)
+		
+		if onReady != nil {
+			go func() {
+				time.Sleep(150 * time.Millisecond)
+				onReady()
+			}()
+		}
 
 		w.Run()
 	}()
