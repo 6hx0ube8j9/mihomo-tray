@@ -8,7 +8,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-var modUser32 = windows.NewLazySystemDLL("user32.dll")
+ 
 
 var (
 	procEnumWindows     = modUser32.NewProc("EnumWindows")
@@ -21,6 +21,7 @@ var (
 	procSetForeground   = modUser32.NewProc("SetForegroundWindow")
 	procGetWindow       = modUser32.NewProc("GetWindow")
 	procIsIconic        = modUser32.NewProc("IsIconic")
+	procGetSystemMetrics = modUser32.NewProc("GetSystemMetrics")
 )
 
 const (
