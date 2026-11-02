@@ -143,11 +143,8 @@ func IsWindowAliveAndResponsive(hwnd uintptr) bool {
 	return hwnd != 0
 }
 
-
+ 
 func AllowSetForegroundWindow(pid uint32) {
-	if pid != 0 {
-		_, _, _ = procAllowSetForeground.Call(uintptr(pid))
-	}
 }
 
 func GetDisplayWorkArea() (usableW, usableH, startX, startY int) {
