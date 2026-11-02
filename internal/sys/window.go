@@ -22,12 +22,18 @@ var (
 	procGetWindow       = modUser32.NewProc("GetWindow")
 	procIsIconic        = modUser32.NewProc("IsIconic")
 	procGetSystemMetrics = modUser32.NewProc("GetSystemMetrics")
+    procAllowSetForeground   = modUser32.NewProc("AllowSetForegroundWindow")
+	procIsHungAppWindow      = modUser32.NewProc("IsHungAppWindow")
+	procSystemParametersInfo = modUser32.NewProc("SystemParametersInfoW")
 )
 
 const (
 	SW_RESTORE = 9
 	SW_SHOW    = 5
 	GW_OWNER   = 4
+    SPI_GETWORKAREA = 0x0030
+	SM_CXSCREEN     = 0
+	SM_CYSCREEN     = 1
 )
 
 type WindowInfo struct {
@@ -126,7 +132,11 @@ func HideWindow(hwnd uintptr) {
 
 
 func IsWindowHung(hwnd uintptr) bool {
-	return false
+	if hwnd == 0 {
+		return false
+	}
+	ret, _, _ := procIsHungAppWindow.Call(hwnd)
+	return ret != 0
 }
 
 func IsWindowAliveAndResponsive(hwnd uintptr) bool {
@@ -135,9 +145,23 @@ func IsWindowAliveAndResponsive(hwnd uintptr) bool {
 
 
 func AllowSetForegroundWindow(pid uint32) {
+	if pid != 0 {
+		_, _, _ = procAllowSetForeground.Call(uintptr(pid))
+	}
 }
 
-
 func GetDisplayWorkArea() (usableW, usableH, startX, startY int) {
-	return 1920, 1080, 0, 0
+	scrWRet, _, _ := procGetSystemMetrics.Call(SM_CXSCREEN)
+	scrHRet, _, _ := procGetSystemMetrics.Call(SM_CYSCREEN)
+	usableW, usableH = int(scrWRet), int(scrHRet)
+
+	var workArea [4]int32
+	ret, _, _ := procSystemParametersInfo.Call(SPI_GETWORKAREA, 0, uintptr(unsafe.Pointer(&workArea[0])), 0)
+	if ret != 0 {
+		usableW = int(workArea[2] - workArea[0])
+		usableH = int(workArea[3] - workArea[1])
+		startX = int(workArea[0])
+		startY = int(workArea[1])
+	}
+	return
 }
