@@ -15,7 +15,7 @@ import (
 // Web 面板管理指令分发 (Domain: Panel Actions)
 // ============================================================================
 
-func (a *Application) handleOpenWebUI(_ context.Context, _ domain.UICommand) {
+func (a *Application) handleOpenWebUI(ctx context.Context, _ domain.UICommand) { 
 	slog.Info("[TRACE:WebUI] handleOpenWebUI 被调用", "pid", os.Getpid())
 
 	a.asyncRun("打开面板", func() error {
