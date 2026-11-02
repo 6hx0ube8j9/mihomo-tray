@@ -25,6 +25,7 @@ var (
     procAllowSetForeground   = modUser32.NewProc("AllowSetForegroundWindow")
 	procIsHungAppWindow      = modUser32.NewProc("IsHungAppWindow")
 	procSystemParametersInfo = modUser32.NewProc("SystemParametersInfoW")
+	procIsWindow             = modUser32.NewProc("IsWindow")
 )
 
 const (
