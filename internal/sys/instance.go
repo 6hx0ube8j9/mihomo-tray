@@ -35,7 +35,7 @@ func GrantForegroundPrivilege() {
 func getPermissiveSecAttr() *windows.SecurityAttributes {
 	sd, err := windows.SecurityDescriptorFromString("D:(A;;GA;;;WD)S:(ML;;NW;;;LW)")
 	if err != nil {
-		slog.Warn("创建安全描述符失败", "error", err)
+		slog.Warn("初始化通信权限失败", "err", err)
 		return nil
 	}
 	var sa windows.SecurityAttributes
@@ -63,7 +63,7 @@ func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (*Sing
 		return nil, false
 	}
 
-	slog.Debug("等待旧进程释放单实例锁", "pid", oldPID)
+	slog.Debug("等待旧进程退出", "pid", oldPID)
 
 	if hMutex != 0 {
 		if oldPID > 1 {
@@ -72,7 +72,6 @@ func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (*Sing
 
 		waitStatus, waitErr := windows.WaitForSingleObject(hMutex, uint32(restartingProcessWaitTimeout.Milliseconds()))
 		if waitErr == nil && (waitStatus == waitObject0 || waitStatus == waitAbandoned) {
-			slog.Info("已接管单实例锁")
 			return buildGuard(sa, eventName, hMutex)
 		}
 		_ = windows.CloseHandle(hMutex)
@@ -84,7 +83,6 @@ func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (*Sing
 
 		retryMutex, retryErr := windows.CreateMutex(sa, true, mName)
 		if !errors.Is(retryErr, windows.ERROR_ALREADY_EXISTS) && retryErr == nil && retryMutex != 0 {
-			slog.Info("已接管单实例锁")
 			return buildGuard(sa, eventName, retryMutex)
 		}
 		if retryMutex != 0 {
@@ -92,7 +90,7 @@ func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (*Sing
 		}
 	}
 
-	slog.Warn("等待旧进程释放单实例锁超时", "pid", oldPID)
+	slog.Warn("等待旧进程退出超时", "pid", oldPID)
 	return nil, false
 }
 
@@ -119,7 +117,6 @@ func waitForOldProcessHandle(pid uint32, timeout time.Duration) {
 	}
 	defer windows.CloseHandle(hProcess)
 
-	slog.Debug("等待旧进程退出", "pid", pid)
 	_, _ = windows.WaitForSingleObject(hProcess, uint32(timeout.Milliseconds()))
 }
 
@@ -133,26 +130,26 @@ func NotifyExistingInstance(eventName string) {
 	}
 
 	hEvent, errEvt := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName)
-	if errEvt == nil && hEvent != 0 {
-		GrantForegroundPrivilege()
-
-		_ = windows.SetEvent(hEvent)
-		_ = windows.CloseHandle(hEvent)
-		slog.Debug("已通知主实例，信使正在等待窗口聚焦完成的 ACK 信号...")
-	} else {
-		slog.Warn("打开主实例唤醒事件失败", "error", errEvt)
+	if errEvt != nil || hEvent == 0 {
+		slog.Warn("发送唤醒信号失败", "err", errEvt)
 		if hAck != 0 {
 			_ = windows.CloseHandle(hAck)
 		}
 		return
 	}
 
+	GrantForegroundPrivilege()
+	_ = windows.SetEvent(hEvent)
+	_ = windows.CloseHandle(hEvent)
+	
+	slog.Debug("已发送唤醒信号，等待面板打开...")
+
 	if hAck != 0 {
 		waitRes, errWait := windows.WaitForSingleObject(hAck, 2000)
-		if errWait == nil && waitRes == windows.WAIT_OBJECT_0 {
-			slog.Debug("收到窗口物理置顶完成的 ACK，信使进程安全退出")
+		if errWait == nil && waitRes == waitObject0 {
+			slog.Debug("面板已打开，退出当前进程")
 		} else {
-			slog.Debug("等待 ACK 超时或异常，信使进程兜底退场", "res", waitRes, "err", errWait)
+			slog.Debug("等待面板响应超时，退出当前进程")
 		}
 		_ = windows.CloseHandle(hAck)
 	}
@@ -173,12 +170,12 @@ func (g *SingleInstanceGuard) ListenWakeEvent(ctx context.Context, onWake func()
 
 		for {
 			event, err := windows.WaitForMultipleObjects(handles[:], false, windows.INFINITE)
-			if err != nil || event != windows.WAIT_OBJECT_0 {
+			if err != nil || event != waitObject0 {
 				return
 			}
 
 			if ctx.Err() == nil {
-				slog.Info("收到外部唤醒请求")
+				slog.Info("收到唤醒面板请求")
 				onWake()
 			}
 		}
