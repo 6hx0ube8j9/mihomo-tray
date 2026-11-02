@@ -19,9 +19,10 @@ import (
 )
 
 func superviseStartup(exePath, baseDir string) (*sys.SingleInstanceGuard, io.Closer, *config.Manager) {
-	isAutostart := parseIsAutostart(os.Args[1:])[cite: 7, 11]
-	restartingPID := parseRestartingPID(os.Args[1:])[cite: 7, 11]
+	isAutostart := parseIsAutostart(os.Args[1:])
+	restartingPID := parseRestartingPID(os.Args[1:])
 
+	// 埋点 1：打印进程启动入口参数与环境
 	slog.Info("[TRACE:启动] 进程入口",
 		"pid", os.Getpid(),
 		"admin", sys.IsAdmin(),
@@ -30,38 +31,41 @@ func superviseStartup(exePath, baseDir string) (*sys.SingleInstanceGuard, io.Clo
 		"restartingPID", restartingPID,
 	)
 
-	guard, isOwner := sys.TryAcquireSingleInstance(domain.AppMutexName, domain.ShowUIEventName, restartingPID)[cite: 7, 11]
+	guard, isOwner := sys.TryAcquireSingleInstance(domain.AppMutexName, domain.ShowUIEventName, restartingPID)
 
+	// 埋点 2：打印锁获取裁决结果
 	slog.Info("[TRACE:单实例]",
 		"pid", os.Getpid(),
 		"isOwner", isOwner,
 	)
 
 	if !isOwner {
+		// 埋点 3：打印信使唤醒动作
 		slog.Info("[TRACE:信使] 未获取锁，执行唤醒已有实例并退出", "pid", os.Getpid())
-		sys.NotifyExistingInstance(domain.ShowUIEventName)[cite: 7, 11]
-		os.Exit(0)[cite: 7, 11]
+		sys.NotifyExistingInstance(domain.ShowUIEventName)
+		os.Exit(0)
 	}
 
-	logWriter := logger.Init(baseDir, restartingPID > 0)[cite: 7, 11]
+	logWriter := logger.Init(baseDir, restartingPID > 0)
 
-	admin := sys.IsAdmin()[cite: 7, 11]
-	cfgMgr := config.NewManager(baseDir, exePath)[cite: 7, 11]
-	cfgMgr.LoadAndInitMemory()[cite: 7, 11]
-	logger.SyncLogLevel(cfgMgr.GetConfig().General.TrayLogLevel)[cite: 7, 11]
+	admin := sys.IsAdmin()
+	cfgMgr := config.NewManager(baseDir, exePath)
+	cfgMgr.LoadAndInitMemory()
+	logger.SyncLogLevel(cfgMgr.GetConfig().General.TrayLogLevel)
 
-	slog.Info("程序启动", "admin", admin, "pid", os.Getpid())[cite: 7, 11]
+	slog.Info("程序启动", "admin", admin, "pid", os.Getpid())
 
 	exitProcess := func(code int) {
-		guard.Close()[cite: 7, 11]
+		guard.Close()
 		if logWriter != nil {
-			_ = logWriter.Close()[cite: 7, 11]
+			_ = logWriter.Close()
 		}
-		os.Exit(code)[cite: 7, 11]
+		os.Exit(code)
 	}
 
-	taskInSync, needElevate := inspectAndSyncAutostart(cfgMgr, exePath, baseDir, admin)[cite: 7, 11]
+	taskInSync, needElevate := inspectAndSyncAutostart(cfgMgr, exePath, baseDir, admin)
 
+	// 埋点 4：打印自启同步与提权判断
 	slog.Info("[TRACE:提权检查]",
 		"pid", os.Getpid(),
 		"taskInSync", taskInSync,
@@ -69,9 +73,9 @@ func superviseStartup(exePath, baseDir string) (*sys.SingleInstanceGuard, io.Clo
 		"runAsAdmin", cfgMgr.GetConfig().General.RunAsAdmin,
 	)
 
-	handleElevation(cfgMgr, exePath, baseDir, isAutostart, taskInSync, needElevate, guard, exitProcess)[cite: 7, 11]
+	handleElevation(cfgMgr, exePath, baseDir, isAutostart, taskInSync, needElevate, guard, exitProcess)
 
-	return guard, logWriter, cfgMgr[cite: 7, 11]
+	return guard, logWriter, cfgMgr
 }
 
 func BuildSelfElevationArgs(extraArgs ...string) []string {
