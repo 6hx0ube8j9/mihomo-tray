@@ -67,15 +67,13 @@ func (s *WebUIService) Open(forceSync func(), onReady func()) error {
 		forceSync()
 	}
 
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("Web 面板启动异常拦截", "panic", r)
-			}
-		}()
-		
-		s.coreMgr.Launch(wcfg, s.eventCh, onReady)
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("Web 面板启动异常拦截", "panic", r)
+		}
 	}()
+    
+	s.coreMgr.Launch(wcfg, s.eventCh, onReady)
 
 	return nil
 }
