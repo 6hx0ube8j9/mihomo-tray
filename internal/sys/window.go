@@ -29,7 +29,6 @@ var (
 	procIsHungAppWindow      = modUser32.NewProc("IsHungAppWindow")
 	procAllowSetForeground   = modUser32.NewProc("AllowSetForegroundWindow")
 	procIsWindow             = modUser32.NewProc("IsWindow")
-	procSetWindowPos         = modUser32.NewProc("SetWindowPos")
 )
 
 const (
@@ -42,11 +41,6 @@ const (
 	SM_CYSCREEN     = 1
 
 	dpiAwarenessPerMonitorV2 = uintptr(0xFFFFFFFC)
-
-	HWND_TOPMOST   = ^uintptr(0)     // -1
-	HWND_NOTOPMOST = ^uintptr(0) - 1 // -2 
-	SWP_NOSIZE     = 0x0001 
-	SWP_NOMOVE     = 0x0002 
 )
 
 type WindowInfo struct {
@@ -143,8 +137,6 @@ func FocusWindowSilky(targetHwnd uintptr) {
 		procShowWindow.Call(targetHwnd, SW_SHOW)
 	}
 
-	procSetWindowPos.Call(targetHwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE|SWP_NOSIZE)
-	procSetWindowPos.Call(targetHwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE|SWP_NOSIZE)
 	procBringToTop.Call(targetHwnd)
 	procSetForeground.Call(targetHwnd)
 }
