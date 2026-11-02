@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/domain"
@@ -24,11 +23,8 @@ func superviseStartup(exePath, baseDir string) (*sys.SingleInstanceGuard, io.Clo
 
 	guard, isOwner := sys.TryAcquireSingleInstance(domain.AppMutexName, domain.ShowUIEventName, restartingPID)
 	if !isOwner {
-		// 仅在非自启动场景下作为信使唤醒面板
 		if !isAutostart {
 			sys.NotifyExistingInstance(domain.ShowUIEventName)
-			// 撑住前台特权窗口期，让主进程有足够时间完成前台窗口渲染，避免秒退导致特权被操作系统撤销
-			time.Sleep(200 * time.Millisecond)
 		}
 		os.Exit(0)
 	}
