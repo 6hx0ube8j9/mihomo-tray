@@ -55,12 +55,10 @@ func setupWakeEventListener(ctx context.Context, guard *sys.SingleInstanceGuard,
 	if guard == nil {
 		return
 	}
-
 	guard.ListenWakeEvent(ctx, func() {
 		select {
 		case cmdCh <- domain.UICommand{Action: domain.ActionOpenWebUI}:
 		default:
-			slog.Warn("唤醒指令队列已满，忽略本次触发")
 		}
 	})
 }
@@ -92,8 +90,7 @@ func parseRestartingPID(args []string) uint32 {
 	for _, arg := range args {
 		argClean := strings.ToLower(strings.TrimLeft(arg, "-"))
 		if strings.HasPrefix(argClean, "restarting=") {
-			pidStr := strings.TrimPrefix(argClean, "restarting=")
-			if pid, err := strconv.ParseUint(pidStr, 10, 32); err == nil {
+			if pid, err := strconv.ParseUint(strings.TrimPrefix(argClean, "restarting="), 10, 32); err == nil {
 				return uint32(pid)
 			}
 		} else if argClean == "restarting" {
@@ -171,8 +168,7 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 
 	if taskInSync && (cfgAutostart || runAsAdmin) {
 		guard.Close()
-		err := sys.RunScheduledTask(domain.AppTaskName)
-		if err == nil {
+		if err := sys.RunScheduledTask(domain.AppTaskName); err == nil {
 			exitProcess(0)
 			return
 		}
@@ -190,21 +186,8 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 	}
 
 	args := BuildSelfElevationArgs()
-	err := sys.RunAsAdmin(exePath, baseDir, args...)
-	if err == nil {
+	if err := sys.RunAsAdmin(exePath, baseDir, args...); err == nil {
 		exitProcess(0)
-		return
-	}
-
-	if sys.IsUserCancelled(err) {
-		if runAsAdmin {
-			exitProcess(0)
-			return
-		}
-		cfgMgr.Update(func(c *domain.TrayConfig) {
-			b := false
-			c.General.Autostart = &b
-		})
 		return
 	}
 
@@ -212,6 +195,11 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 		exitProcess(1)
 		return
 	}
+
+	cfgMgr.Update(func(c *domain.TrayConfig) {
+		b := false
+		c.General.Autostart = &b
+	})
 }
 
 func BuildSelfElevationArgs(extraArgs ...string) []string {
