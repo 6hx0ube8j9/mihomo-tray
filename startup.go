@@ -5,8 +5,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/signal"
-	"syscall"
 
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/domain"
@@ -42,16 +40,4 @@ func setupWakeEventListener(ctx context.Context, guard *sys.SingleInstanceGuard,
 	})
 }
 
-func setupSignalHandler(ctx context.Context, cancel context.CancelFunc) {
-	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-		defer signal.Stop(sigCh)
-		select {
-		case sig := <-sigCh:
-			slog.Info("收到终止信号", "signal", sig)
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
-}
+func setupSignalHandler(_ context.Context, _ context.CancelFunc) {}
