@@ -140,7 +140,10 @@ func IsWindowHung(hwnd uintptr) bool {
 }
 
 func IsWindowAliveAndResponsive(hwnd uintptr) bool {
-	return hwnd != 0
+	if hwnd == 0 {
+		return false
+	}
+	return IsWindow(hwnd) && IsWindowVisible(hwnd) && !IsWindowHung(hwnd)
 }
 
  
@@ -148,5 +151,17 @@ func AllowSetForegroundWindow(pid uint32) {
 }
 
 func GetDisplayWorkArea() (usableW, usableH, startX, startY int) {
-	return 1920, 1080, 0, 0
+	scrWRet, _, _ := procGetSystemMetrics.Call(SM_CXSCREEN)
+	scrHRet, _, _ := procGetSystemMetrics.Call(SM_CYSCREEN)
+	usableW, usableH = int(scrWRet), int(scrHRet)
+
+	var workArea [4]int32
+	ret, _, _ := procSystemParametersInfo.Call(SPI_GETWORKAREA, 0, uintptr(unsafe.Pointer(&workArea[0])), 0)
+	if ret != 0 {
+		usableW = int(workArea[2] - workArea[0])
+		usableH = int(workArea[3] - workArea[1])
+		startX = int(workArea[0])
+		startY = int(workArea[1])
+	}
+	return
 }
