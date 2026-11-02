@@ -30,6 +30,11 @@ var (
 	procAllowSetForeground   = modUser32.NewProc("AllowSetForegroundWindow")
 	procIsWindow             = modUser32.NewProc("IsWindow")
 	procSetWindowPos         = modUser32.NewProc("SetWindowPos")
+
+	procGetForegroundWindow = modUser32.NewProc("GetForegroundWindow")
+	procAttachThreadInput   = modUser32.NewProc("AttachThreadInput")
+	kernel32Dll             = windows.NewLazySystemDLL("kernel32.dll")
+	procGetCurrentThreadId  = kernel32Dll.NewProc("GetCurrentThreadId")
 )
 
 const (
@@ -44,9 +49,10 @@ const (
 	dpiAwarenessPerMonitorV2 = uintptr(0xFFFFFFFC)
 
 	HWND_TOPMOST   = ^uintptr(0)     // -1
-	HWND_NOTOPMOST = ^uintptr(0) - 1 // -2 
-	SWP_NOSIZE     = 0x0001 
-	SWP_NOMOVE     = 0x0002 
+	HWND_NOTOPMOST = ^uintptr(0) - 1 // -2
+	SWP_NOSIZE     = 0x0001
+	SWP_NOMOVE     = 0x0002
+	SWP_SHOWWINDOW = 0x0040
 )
 
 type WindowInfo struct {
@@ -137,14 +143,29 @@ func FocusWindowSilky(targetHwnd uintptr) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	if IsIconic(targetHwnd) {
-		procShowWindow.Call(targetHwnd, SW_RESTORE)
-	} else {
-		procShowWindow.Call(targetHwnd, SW_SHOW)
+	fgHwnd, _, _ := procGetForegroundWindow.Call()
+	curThreadId, _, _ := procGetCurrentThreadId.Call()
+	var fgThreadId uintptr
+	if fgHwnd != 0 {
+		fgThreadId, _, _ = procGetWindowThread.Call(fgHwnd, 0)
 	}
 
-	procSetWindowPos.Call(targetHwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE|SWP_NOSIZE)
+	attached := false
+	if fgThreadId != 0 && fgThreadId != curThreadId {
+		r, _, _ := procAttachThreadInput.Call(curThreadId, fgThreadId, 1)
+		attached = (r != 0)
+	}
+	if attached {
+		defer procAttachThreadInput.Call(curThreadId, fgThreadId, 0)
+	}
+
+	if IsIconic(targetHwnd) {
+		procShowWindow.Call(targetHwnd, SW_RESTORE)
+	}
+
+	procSetWindowPos.Call(targetHwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE|SWP_NOSIZE|SWP_SHOWWINDOW)
 	procSetWindowPos.Call(targetHwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE|SWP_NOSIZE)
+
 	procBringToTop.Call(targetHwnd)
 	procSetForeground.Call(targetHwnd)
 }
