@@ -77,8 +77,12 @@ func GetDisplayWorkArea() (usableW, usableH, startX, startY int) {
 	return
 }
 
-var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam uintptr) uintptr {
-	ctx := (*enumContext)(unsafe.Pointer(lParam))
+var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam unsafe.Pointer) uintptr {
+	if lParam == nil {
+		return 1
+	}
+
+	ctx := (*enumContext)(lParam)
 
 	if !IsWindowVisible(hwnd) {
 		return 1
@@ -120,6 +124,7 @@ func FindTopWindow(matcher func(info WindowInfo) bool) uintptr {
 
 	ctx := &enumContext{matcher: matcher}
 	procEnumWindows.Call(enumWindowsCallback, uintptr(unsafe.Pointer(ctx)))
+	runtime.KeepAlive(ctx)
 	return ctx.targetHwnd
 }
 

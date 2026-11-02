@@ -21,6 +21,7 @@ var (
 	procGlobalFree   = modKernel32.NewProc("GlobalFree")
 	procGlobalLock   = modKernel32.NewProc("GlobalLock")
 	procGlobalUnlock = modKernel32.NewProc("GlobalUnlock")
+	procRtlMoveMemory = modKernel32.NewProc("RtlMoveMemory")
 )
 
 const (
@@ -75,8 +76,12 @@ func makeClipboardBuffer(text string) (uintptr, error) {
 	}
 	defer procGlobalUnlock.Call(hMem)
 
-	dest := unsafe.Slice((*uint16)(unsafe.Pointer(ptr)), len(u16))
-	copy(dest, u16)
+	_, _, _ = syscall.SyscallN(
+		procRtlMoveMemory.Addr(),
+		ptr,
+		uintptr(unsafe.Pointer(&u16[0])),
+		size,
+	)
 
 	return hMem, nil
 }

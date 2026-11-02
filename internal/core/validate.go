@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"sync"
@@ -83,6 +84,10 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 				lastErrorMsg = errMsg
 				msgMu.Unlock()
 			}
+		}
+
+		if err := scanner.Err(); err != nil && scanCtx.Err() == nil {
+			slog.Debug("读取内核校验输出异常", "err", err)
 		}
 	}
 

@@ -1,0 +1,10 @@
+{
+  "go.toolsEnvVars": {
+    "GOOS": "windows"
+  },
+  "gopls": {
+    "build.env": {
+      "GOOS": "windows"
+    }
+  }
+}

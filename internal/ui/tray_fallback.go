@@ -16,6 +16,8 @@ func forceSafeExit(e *Engine) {
 			e.Dashboard.window.Dispose()
 		}
 	})
-	
+
 	e.SendCommand(domain.ActionExitApp, "")
 }
+
+var _ = forceSafeExit

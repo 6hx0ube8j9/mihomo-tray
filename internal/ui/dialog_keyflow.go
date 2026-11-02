@@ -41,7 +41,7 @@ func ensureKeyFlowCallback() {
 	})
 }
 
-func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
+func keyFlowMessageProc(nCode int32, wParam uintptr, lParam unsafe.Pointer) uintptr {
 	if nCode >= 0 && wParam == pmRemove {
 		kfStackMu.Lock()
 		var ctx *keyFlowContext
@@ -50,8 +50,8 @@ func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 		}
 		kfStackMu.Unlock()
 
-		if ctx != nil {
-			pMsg := (*win.MSG)(unsafe.Pointer(lParam))
+		if ctx != nil && lParam != nil {
+			pMsg := (*win.MSG)(lParam)
 			if pMsg.Message == win.WM_KEYDOWN {
 				isCtrl := win.GetKeyState(win.VK_CONTROL) < 0
 				hFocus := win.GetFocus()
@@ -134,7 +134,7 @@ func keyFlowMessageProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 		}
 	}
 
-	ret, _, _ := procCallNextHookEx.Call(0, uintptr(nCode), wParam, lParam)
+	ret, _, _ := procCallNextHookEx.Call(0, uintptr(nCode), wParam, uintptr(lParam))
 	return ret
 }
 
