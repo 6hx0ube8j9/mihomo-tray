@@ -29,14 +29,15 @@ var (
 )
 
 const (
+	SW_HIDE    = 0
 	SW_RESTORE = 9
 	SW_SHOW    = 5
 	GW_OWNER   = 4
-    SPI_GETWORKAREA = 0x0030
+
+	SPI_GETWORKAREA = 0x0030
 	SM_CXSCREEN     = 0
 	SM_CYSCREEN     = 1
 )
-
 type WindowInfo struct {
 	Hwnd      uintptr
 	Pid       uint32
@@ -127,10 +128,11 @@ func IsIconic(hwnd uintptr) bool {
 	return min != 0
 }
 
-
 func HideWindow(hwnd uintptr) {
+	if hwnd != 0 {
+		procShowWindow.Call(hwnd, SW_HIDE)
+	}
 }
-
 
 func IsWindow(hwnd uintptr) bool {
 	if hwnd == 0 {
