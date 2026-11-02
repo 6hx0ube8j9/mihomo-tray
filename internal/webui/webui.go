@@ -72,6 +72,9 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event, onReady func()) {
 	}
 
 	if !m.launchMu.TryLock() {
+		if onReady != nil {
+			onReady()
+		}	
 		return
 	}
 	defer m.launchMu.Unlock()
