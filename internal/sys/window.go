@@ -132,6 +132,14 @@ func HideWindow(hwnd uintptr) {
 }
 
 
+func IsWindow(hwnd uintptr) bool {
+	if hwnd == 0 {
+		return false
+	}
+	ret, _, _ := procIsWindow.Call(hwnd)
+	return ret != 0
+}
+
 func IsWindowHung(hwnd uintptr) bool {
 	if hwnd == 0 {
 		return false
@@ -147,7 +155,6 @@ func IsWindowAliveAndResponsive(hwnd uintptr) bool {
 	return IsWindow(hwnd) && IsWindowVisible(hwnd) && !IsWindowHung(hwnd)
 }
 
- 
 func AllowSetForegroundWindow(pid uint32) {
 }
 
