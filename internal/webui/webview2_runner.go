@@ -169,7 +169,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		emitEvent(eventCh, EventReady)
 
 		sys.FocusWindowSilky(hwnd)
-		
+
 		if onReady != nil {
 			go func() {
 				time.Sleep(150 * time.Millisecond)
