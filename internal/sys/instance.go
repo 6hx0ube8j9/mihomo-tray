@@ -1,12 +1,9 @@
-// instance.go manages application single-instance enforcement and IPC wake-up signaling.
-
 package sys
 
 import (
 	"context"
 	"errors"
 	"os"
-	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -15,8 +12,6 @@ import (
 var (
 	procAllowSetForegroundWnd = modUser32.NewProc("AllowSetForegroundWindow")
 )
-
-const asfwAny = 0xFFFFFFFF
 
 type SingleInstanceGuard struct {
 	hMutex  windows.Handle
@@ -36,42 +31,22 @@ func getSecAttr() *windows.SecurityAttributes {
 	return &sa
 }
 
-func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (*SingleInstanceGuard, bool) {
+func TryAcquireSingleInstance(mutexName, eventName string, _ uint32) (*SingleInstanceGuard, bool) {
 	sa := getSecAttr()
 	mName := windows.StringToUTF16Ptr(mutexName)
 
 	hMutex, err := windows.CreateMutex(sa, true, mName)
-	isBusy := errors.Is(err, windows.ERROR_ALREADY_EXISTS) || errors.Is(err, windows.ERROR_ACCESS_DENIED)
-
-	if !isBusy && err == nil && hMutex != 0 {
-		return buildGuard(sa, eventName, hMutex)
-	}
-	if hMutex != 0 {
-		_ = windows.CloseHandle(hMutex)
-	}
-
-	if oldPID == 0 {
+	if errors.Is(err, windows.ERROR_ALREADY_EXISTS) || errors.Is(err, windows.ERROR_ACCESS_DENIED) || hMutex == 0 {
+		if hMutex != 0 {
+			_ = windows.CloseHandle(hMutex)
+		}
 		return nil, false
 	}
 
-	deadline := time.Now().Add(1500 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		time.Sleep(30 * time.Millisecond)
-		h, e := windows.CreateMutex(sa, true, mName)
-		if !errors.Is(e, windows.ERROR_ALREADY_EXISTS) && e == nil && h != 0 {
-			return buildGuard(sa, eventName, h)
-		}
-		if h != 0 {
-			_ = windows.CloseHandle(h)
-		}
-	}
-	return nil, false
-}
-
-func buildGuard(sa *windows.SecurityAttributes, eventName string, hMutex windows.Handle) (*SingleInstanceGuard, bool) {
 	hEvent, _ := windows.CreateEvent(sa, 0, 0, windows.StringToUTF16Ptr(eventName))
 	hCancel, _ := windows.CreateEvent(nil, 0, 0, nil)
 
+	// 共享内存记录主进程 PID
 	mapName := windows.StringToUTF16Ptr(eventName + "_PID")
 	hMap, _ := windows.CreateFileMapping(windows.InvalidHandle, sa, windows.PAGE_READWRITE, 0, 4, mapName)
 	if hMap != 0 {
@@ -90,26 +65,23 @@ func buildGuard(sa *windows.SecurityAttributes, eventName string, hMutex windows
 }
 
 func NotifyExistingInstance(eventName string) {
-	var targetPID uint32
+	// 1. 读取主进程 PID 并过户前台控制权
 	mapName := windows.StringToUTF16Ptr(eventName + "_PID")
 	if hMap, _ := windows.CreateFileMapping(windows.InvalidHandle, nil, windows.PAGE_READWRITE, 0, 4, mapName); hMap != 0 {
 		if addr, err := windows.MapViewOfFile(hMap, windows.FILE_MAP_READ, 0, 0, 4); err == nil && addr != 0 {
-			targetPID = *(*uint32)(unsafe.Pointer(addr))
+			targetPID := *(*uint32)(unsafe.Pointer(addr))
 			_ = windows.UnmapViewOfFile(addr)
+			if targetPID > 0 {
+				_, _, _ = procAllowSetForegroundWnd.Call(uintptr(targetPID))
+			}
 		}
 		_ = windows.CloseHandle(hMap)
 	}
 
-	if targetPID > 0 {
-		_, _, _ = procAllowSetForegroundWnd.Call(uintptr(targetPID))
-	} else {
-		_, _, _ = procAllowSetForegroundWnd.Call(asfwAny)
-	}
-
+	// 2. 唤醒主进程
 	if hEvent, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, windows.StringToUTF16Ptr(eventName)); err == nil && hEvent != 0 {
 		_ = windows.SetEvent(hEvent)
 		_ = windows.CloseHandle(hEvent)
-		time.Sleep(30 * time.Millisecond)
 	}
 }
 
