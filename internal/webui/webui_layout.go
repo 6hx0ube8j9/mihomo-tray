@@ -1,8 +1,6 @@
 package webui
 
 import (
-	"sync"
-
 	"mihomo-tray/internal/sys"
 )
 
@@ -32,40 +30,17 @@ const (
 	scaleDefaultH = 0.80
 )
 
-var (
-	layoutOnce sync.Once
-	cachedW    int
-	cachedH    int
-	cachedX    int
-	cachedY    int
-)
-
 func calculateWindowBounds() (winW, winH, winX, winY int) {
-	layoutOnce.Do(func() {
-		cachedW, cachedH, cachedX, cachedY = computeWindowBounds()
-	})
-	return cachedW, cachedH, cachedX, cachedY
-}
-
-func computeWindowBounds() (winW, winH, winX, winY int) {
 	usableW, usableH, startX, startY := sys.GetDisplayWorkArea()
 
-	if usableW < minWindowWidth || usableH < minWindowHeight {
+	if usableW <= 0 || usableH <= 0 {
 		usableW = fallbackWorkAreaWidth
 		usableH = fallbackWorkAreaHeight
 		startX = 0
 		startY = 0
 	}
 
-	if startX < 0 {
-		startX = 0
-	}
-	if startY < 0 {
-		startY = 0
-	}
-
-	aspectRatio := float64(usableW) / float64(usableH)
-	scaleW, scaleH := resolveViewportScale(aspectRatio)
+	scaleW, scaleH := resolveViewportScale(float64(usableW) / float64(usableH))
 
 	winW = clamp(int(float64(usableW)*scaleW), minWindowWidth, maxWindowWidth)
 	winH = clamp(int(float64(usableH)*scaleH), minWindowHeight, maxWindowHeight)
@@ -81,15 +56,7 @@ func computeWindowBounds() (winW, winH, winX, winY int) {
 
 	winX = startX + (usableW-winW)/2
 	winY = startY + (usableH-winH)/2
-
-	if winX < startX {
-		winX = startX
-	}
-	if winY < startY {
-		winY = startY
-	}
-
-	return winW, winH, winX, winY
+	return
 }
 
 func resolveViewportScale(aspectRatio float64) (scaleW, scaleH float64) {
