@@ -67,13 +67,22 @@ func (a *webviewAdapter) SetDarkMode(isDark bool) {
 }
 
 func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Event, onReady func()) bool {
+	var ackOnce sync.Once
+	safeOnReady := func() {
+		if onReady != nil {
+			ackOnce.Do(onReady)
+		}
+	}
+
 	if !isWebView2Available() {
+		safeOnReady()
 		return false
 	}
 
 	userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, domain.WebOpenModeWebView2)
 	if err := os.MkdirAll(userDataDir, 0755); err != nil {
 		slog.Error("创建 WebView2 缓存目录失败", "path", userDataDir, "err", err)
+		safeOnReady()
 		return false
 	}
 
@@ -88,6 +97,8 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		var hwnd uintptr
 
 		defer func() {
+			safeOnReady()
+
 			if r := recover(); r != nil {
 				slog.Error("WebView2 渲染线程异常崩溃", "err", r, "stack", string(debug.Stack()))
 				if hwnd != 0 {
@@ -128,6 +139,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		})
 
 		if w == nil {
+			safeOnReady()
 			select {
 			case initCh <- false:
 			default:
@@ -140,6 +152,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		m.wvMu.Lock()
 		if aborted.Load() {
 			m.wvMu.Unlock()
+			safeOnReady()
 			sys.HideWindow(hwnd)
 			w.Destroy()
 			return
@@ -169,13 +182,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		emitEvent(eventCh, EventReady)
 
 		sys.FocusWindowSilky(hwnd)
-		
-		if onReady != nil {
-			go func() {
-				time.Sleep(150 * time.Millisecond)
-				onReady()
-			}()
-		}
+		safeOnReady()
 
 		w.Run()
 	}()
@@ -186,6 +193,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 	case <-time.After(webviewInitTimeout):
 		slog.Error("WebView2 启动超时")
 		aborted.Store(true)
+		safeOnReady() 
 
 		if hwnd := m.hwnd.Load(); hwnd != 0 {
 			sys.HideWindow(hwnd)
