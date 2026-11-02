@@ -4,13 +4,10 @@ import (
 	"context"
 	"log/slog"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"runtime"
-	"syscall"
 
 	"mihomo-tray/internal/app"
-	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/ui"
 )
@@ -52,12 +49,7 @@ func main() {
 	})
 
 	setupSignalHandler(ctx, cancel)
-
-	if guard != nil {
-		guard.ListenWakeEvent(ctx, func() {
-			application.UICommandCh <- domain.UICommand{Action: domain.ActionOpenWebUI}
-		})
-	}
+	setupWakeEventListener(ctx, guard, application.UICommandCh)
 
 	go func() {
 		<-uiEngine.ReadyCh
@@ -67,18 +59,4 @@ func main() {
 	if err := uiEngine.Run(); err != nil {
 		slog.Error("界面运行异常", "error", err)
 	}
-}
-
-func setupSignalHandler(ctx context.Context, cancel context.CancelFunc) {
-	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-		defer signal.Stop(sigCh)
-		select {
-		case sig := <-sigCh:
-			slog.Info("收到终止信号", "signal", sig)
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
 }
