@@ -1,77 +1,120 @@
-package main
+package sys
 
 import (
-	"fmt"
+	"runtime"
 	"strings"
-	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
+var modUser32 = windows.NewLazySystemDLL("user32.dll")
+
 var (
-	user32               = syscall.NewLazyDLL("user32.dll")
-	procEnumWindows      = user32.NewProc("EnumWindows")
-	procGetWindowTextW   = user32.NewProc("GetWindowTextW")
-	procIsWindowVisible  = user32.NewProc("IsWindowVisible")
-	procShowWindow       = user32.NewProc("ShowWindow")
-	procBringWindowToTop = user32.NewProc("BringWindowToTop")
-	procSetForeground    = user32.NewProc("SetForegroundWindow")
-	procIsIconic         = user32.NewProc("IsIconic")
+	procEnumWindows     = modUser32.NewProc("EnumWindows")
+	procGetClassName    = modUser32.NewProc("GetClassNameW")
+	procIsWindowVisible = modUser32.NewProc("IsWindowVisible")
+	procGetWindowThread = modUser32.NewProc("GetWindowThreadProcessId")
+	procGetWindowText   = modUser32.NewProc("GetWindowTextW")
+	procShowWindow      = modUser32.NewProc("ShowWindow")
+	procBringToTop      = modUser32.NewProc("BringWindowToTop")
+	procSetForeground   = modUser32.NewProc("SetForegroundWindow")
+	procGetWindow       = modUser32.NewProc("GetWindow")
+	procIsIconic        = modUser32.NewProc("IsIconic")
 )
 
 const (
 	SW_RESTORE = 9
 	SW_SHOW    = 5
+	GW_OWNER   = 4
 )
 
-func FindWindowByTitle(keyword string) uintptr {
-	var targetHwnd uintptr
+type WindowInfo struct {
+	Hwnd      uintptr
+	Pid       uint32
+	ClassName string
+	Title     string
+}
 
-	cb := syscall.NewCallback(func(hwnd uintptr, lparam uintptr) uintptr {
-		vis, _, _ := procIsWindowVisible.Call(hwnd)
-		if vis == 0 {
-			return 1
-		}
+type enumContext struct {
+	matcher    func(info WindowInfo) bool
+	targetHwnd uintptr
+}
 
-		var buf [512]uint16
-		procGetWindowTextW.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), 512)
-		title := syscall.UTF16ToString(buf[:])
-
-		if strings.Contains(strings.ToLower(title), strings.ToLower(keyword)) {
-			targetHwnd = hwnd
-			return 0
-		}
+var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam unsafe.Pointer) uintptr {
+	if lParam == nil {
 		return 1
-	})
+	}
 
-	procEnumWindows.Call(cb, 0)
-	return targetHwnd
+	if !IsWindowVisible(hwnd) {
+		return 1
+	}
+
+	owner, _, _ := procGetWindow.Call(hwnd, GW_OWNER)
+	if owner != 0 {
+		return 1
+	}
+
+	var clsBuf [256]uint16
+	procGetClassName.Call(hwnd, uintptr(unsafe.Pointer(&clsBuf[0])), 256)
+	clsName := windows.UTF16ToString(clsBuf[:])
+
+	var titleBuf [512]uint16
+	procGetWindowText.Call(hwnd, uintptr(unsafe.Pointer(&titleBuf[0])), 512)
+	wndTitle := strings.TrimSpace(windows.UTF16ToString(titleBuf[:]))
+
+	var wndPid uint32
+	procGetWindowThread.Call(hwnd, uintptr(unsafe.Pointer(&wndPid)))
+
+	info := WindowInfo{
+		Hwnd:      hwnd,
+		Pid:       wndPid,
+		ClassName: clsName,
+		Title:     wndTitle,
+	}
+
+	ctx := (*enumContext)(lParam)
+	if ctx.matcher(info) {
+		ctx.targetHwnd = hwnd
+		return 0
+	}
+	return 1
+})
+
+func FindTopWindow(matcher func(info WindowInfo) bool) uintptr {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	ctx := &enumContext{matcher: matcher}
+	procEnumWindows.Call(enumWindowsCallback, uintptr(unsafe.Pointer(ctx)))
+	runtime.KeepAlive(ctx)
+	return ctx.targetHwnd
 }
 
-func FocusWindow(hwnd uintptr) {
-	if hwnd == 0 {
+func FocusWindowSilky(targetHwnd uintptr) {
+	if targetHwnd == 0 {
 		return
 	}
 
-	isIconic, _, _ := procIsIconic.Call(hwnd)
-	if isIconic != 0 {
-		procShowWindow.Call(hwnd, SW_RESTORE)
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	if IsIconic(targetHwnd) {
+		procShowWindow.Call(targetHwnd, SW_RESTORE)
 	} else {
-		procShowWindow.Call(hwnd, SW_SHOW)
+		procShowWindow.Call(targetHwnd, SW_SHOW)
 	}
 
-	procBringWindowToTop.Call(hwnd)
-	procSetForeground.Call(hwnd)
+	procBringToTop.Call(targetHwnd)
+	procSetForeground.Call(targetHwnd)
 }
 
-func main() {
-	keyword := "Bing"
+func IsWindowVisible(hwnd uintptr) bool {
+	vis, _, _ := procIsWindowVisible.Call(hwnd)
+	return vis != 0
+}
 
-	hwnd := FindWindowByTitle(keyword)
-	if hwnd == 0 {
-		fmt.Printf("未找到标题包含 [%s] 的可见窗口\n", keyword)
-		return
-	}
-
-	fmt.Printf("找到窗口 HWND: 0x%X，正在置前...\n", hwnd)
-	FocusWindow(hwnd)
+func IsIconic(hwnd uintptr) bool {
+	min, _, _ := procIsIconic.Call(hwnd)
+	return min != 0
 }
