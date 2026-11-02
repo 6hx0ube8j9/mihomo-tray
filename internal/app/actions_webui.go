@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
 
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
@@ -18,7 +20,7 @@ func (a *Application) handleOpenWebUI(_ context.Context, _ domain.UICommand) {
 
 	a.asyncRun("打开面板", func() error {
 		slog.Info("[TRACE:WebUI] 即将调用 WebUIService.Open", "pid", os.Getpid())
-		return a.WebUIService.Open(a.ForceSyncAPI)
+		return a.WebUIService.Open(ctx, a.ForceSyncAPI)
 	})
 }
 
