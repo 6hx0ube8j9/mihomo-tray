@@ -25,7 +25,6 @@ func superviseStartup(exePath, baseDir string) (*sys.SingleInstanceGuard, io.Clo
 	guard, isOwner := sys.TryAcquireSingleInstance(domain.AppMutexName, domain.ShowUIEventName, restartingPID)
 	if !isOwner {
 		sys.NotifyExistingInstance(domain.ShowUIEventName)
-		time.Sleep(300 * time.Millisecond)
 		os.Exit(0)
 	}
 
