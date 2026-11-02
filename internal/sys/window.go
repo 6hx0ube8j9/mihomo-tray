@@ -31,6 +31,8 @@ var (
 	procIsWindow             = modUser32.NewProc("IsWindow")
 	procSetWindowPos         = modUser32.NewProc("SetWindowPos")
 
+	// Win32 标准穿透与线程调度 API
+	procKeybdEvent          = modUser32.NewProc("keybd_event")
 	procGetForegroundWindow = modUser32.NewProc("GetForegroundWindow")
 	procAttachThreadInput   = modUser32.NewProc("AttachThreadInput")
 	kernel32Dll             = windows.NewLazySystemDLL("kernel32.dll")
@@ -48,11 +50,14 @@ const (
 
 	dpiAwarenessPerMonitorV2 = uintptr(0xFFFFFFFC)
 
-	HWND_TOPMOST   = ^uintptr(0)     // -1
-	HWND_NOTOPMOST = ^uintptr(0) - 1 // -2
+	// 使用常规带顶层 HWND_TOP (0)，杜绝 TOPMOST 造成的 DWM 画面抽搐
+	HWND_TOP       = uintptr(0)
 	SWP_NOSIZE     = 0x0001
 	SWP_NOMOVE     = 0x0002
 	SWP_SHOWWINDOW = 0x0040
+
+	VK_MENU         = 0x12   // Alt 键虚拟键码
+	KEYEVENTF_KEYUP = 0x0002 // 释放按键标志
 )
 
 type WindowInfo struct {
@@ -143,6 +148,17 @@ func FocusWindowSilky(targetHwnd uintptr) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
+	// 1. 如果窗口最小化，先执行恢复
+	if IsIconic(targetHwnd) {
+		procShowWindow.Call(targetHwnd, SW_RESTORE)
+	}
+
+	// 2. 经典 Windows 前台锁穿透法：模拟触发一次微秒级的 Alt 键按下与抬起
+	// 系统监测到 Alt 键动作时，会无条件开放前台抢占特权，彻底解除 SetForegroundWindow 的限制
+	procKeybdEvent.Call(VK_MENU, 0, 0, 0)
+	procKeybdEvent.Call(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+
+	// 3. 挂接前台线程保障焦点接管
 	fgHwnd, _, _ := procGetForegroundWindow.Call()
 	curThreadId, _, _ := procGetCurrentThreadId.Call()
 	var fgThreadId uintptr
@@ -159,13 +175,8 @@ func FocusWindowSilky(targetHwnd uintptr) {
 		defer procAttachThreadInput.Call(curThreadId, fgThreadId, 0)
 	}
 
-	if IsIconic(targetHwnd) {
-		procShowWindow.Call(targetHwnd, SW_RESTORE)
-	}
-
-	procSetWindowPos.Call(targetHwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE|SWP_NOSIZE|SWP_SHOWWINDOW)
-	procSetWindowPos.Call(targetHwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE|SWP_NOSIZE)
-
+	// 4. 原子化置于普通图层最顶层（HWND_TOP），不再进行 Topmost/Notopmost 震荡
+	procSetWindowPos.Call(targetHwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE|SWP_NOSIZE|SWP_SHOWWINDOW)
 	procBringToTop.Call(targetHwnd)
 	procSetForeground.Call(targetHwnd)
 }
