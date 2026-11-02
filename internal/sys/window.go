@@ -119,3 +119,25 @@ func IsIconic(hwnd uintptr) bool {
 	min, _, _ := procIsIconic.Call(hwnd)
 	return min != 0
 }
+
+
+func HideWindow(hwnd uintptr) {
+}
+
+
+func IsWindowHung(hwnd uintptr) bool {
+	return false
+}
+
+func IsWindowAliveAndResponsive(hwnd uintptr) bool {
+	return hwnd != 0
+}
+
+
+func AllowSetForegroundWindow(pid uint32) {
+}
+
+
+func GetDisplayWorkArea() (usableW, usableH, startX, startY int) {
+	return 1920, 1080, 0, 0
+}
