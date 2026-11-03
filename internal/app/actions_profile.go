@@ -168,7 +168,7 @@ func (a *Application) handleRemoveProfile(ctx context.Context, cmd domain.UIComm
 	}
 
 	go func(path string) {
-		if a.ui != nil && !a.ui.ShowConfirm("删除配置", "确认删除该配置？本地文件将同时被删除。") {
+		if a.ui == nil || !a.ui.ShowConfirm("删除确认", "此操作将同时删除本地文件，是否确定？") {
 			return
 		}
 
