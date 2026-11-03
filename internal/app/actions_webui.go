@@ -110,15 +110,22 @@ func (a *Application) handleCopyWebUIPassword(_ context.Context, _ domain.UIComm
 
 func (a *Application) handleClearWebUICache(_ context.Context, _ domain.UICommand) {
 	go func() {
-		if a.ui != nil && !a.ui.ShowConfirm("清理缓存", "将清除面板的本地设置与网页缓存，是否继续？") {
+		if a.ui != nil && !a.ui.ShowConfirm("清理缓存", "确定清空面板本地缓存？") {
 			return
 		}
-		a.asyncRun("清理缓存", func() error {
-			if err := a.WebUIService.ClearCache(); err != nil {
-				return err
+
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Warn("清理缓存失败", "panic", r)
+				a.notifyError("清理缓存", errors.New("程序运行时异常"))
 			}
-			a.notifySuccess("清理完成", "面板缓存已清除。")
-			return nil
-		})
+		}()
+
+		if err := a.WebUIService.ClearCache(); err != nil {
+			a.notifyError("操作失败", err)
+			return
+		}
+
+		a.notifySuccess("清理完成", "面板缓存已清空")
 	}()
 }
