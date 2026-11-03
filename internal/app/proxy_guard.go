@@ -71,7 +71,7 @@ func (g *ProxyGuard) Sync() {
 		slog.Warn("未检测到有效代理端口，已停用系统代理")
 		g.disableInternalLocked()
 		if g.onAlert != nil {
-			g.onAlert("系统代理", "未检测到有效代理端口，系统代理已关闭")
+			g.onAlert("系统代理已停用", "未检测到有效代理端口")
 		}
 		return
 	}
@@ -179,7 +179,7 @@ func (g *ProxyGuard) reconcileDisconnection(ctx context.Context, expectedServer 
 
 		cur, err := sys.GetProxyStatus()
 		if err == nil && cur.Enabled && cur.Matches(expectedServer) {
-			slog.Debug("系统代理状态已恢复正常", "attempt", attempt)
+			slog.Debug("系统代理已恢复", "attempt", attempt)
 			return
 		}
 
@@ -187,7 +187,7 @@ func (g *ProxyGuard) reconcileDisconnection(ctx context.Context, expectedServer 
 
 		cur, err = sys.GetProxyStatus()
 		if err == nil && cur.Enabled && cur.Matches(expectedServer) {
-			slog.Info("系统代理断线自愈成功", "attempt", attempt)
+			slog.Info("系统代理已恢复", "attempt", attempt)
 			return
 		}
 	}
