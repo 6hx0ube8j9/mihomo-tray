@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"log/slog"
 
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
