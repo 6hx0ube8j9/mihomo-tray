@@ -30,14 +30,25 @@ const (
 	scaleDefaultH = 0.80
 )
 
+func calculateWindowSize() (winW, winH int) {
+	usableW, usableH, _, _ := sys.GetDisplayWorkArea()
+	return computeWindowSize(usableW, usableH)
+}
+
 func calculateWindowBounds() (winW, winH, winX, winY int) {
 	usableW, usableH, startX, startY := sys.GetDisplayWorkArea()
 
+	winW, winH = computeWindowSize(usableW, usableH)
+
+	winX = startX + (usableW-winW)/2
+	winY = startY + (usableH-winH)/2
+	return
+}
+
+func computeWindowSize(usableW, usableH int) (winW, winH int) {
 	if usableW <= 0 || usableH <= 0 {
 		usableW = fallbackWorkAreaWidth
 		usableH = fallbackWorkAreaHeight
-		startX = 0
-		startY = 0
 	}
 
 	scaleW, scaleH := resolveViewportScale(float64(usableW) / float64(usableH))
@@ -53,9 +64,6 @@ func calculateWindowBounds() (winW, winH, winX, winY int) {
 	if winH > maxSafeH {
 		winH = maxSafeH
 	}
-
-	winX = startX + (usableW-winW)/2
-	winY = startY + (usableH-winH)/2
 	return
 }
 
