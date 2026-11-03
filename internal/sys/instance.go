@@ -10,10 +10,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-var (
-	procAllowSetForegroundWnd = modUser32.NewProc("AllowSetForegroundWindow")
-)
-
 const (
 	asfwAny                      = 0xFFFFFFFF
 	restartingProcessWaitTimeout = 3 * time.Second
@@ -26,9 +22,6 @@ type SingleInstanceGuard struct {
 	hEvent  windows.Handle
 	hCancel windows.Handle
 	hAck    windows.Handle
-}
-
-func GrantForegroundPrivilege() {
 }
 
 func getPermissiveSecAttr() *windows.SecurityAttributes {
@@ -137,7 +130,8 @@ func NotifyExistingInstance(eventName string) {
 		return
 	}
 
-	GrantForegroundPrivilege()
+	AllowSetForegroundWindow(0)
+	
 	_ = windows.SetEvent(hEvent)
 	_ = windows.CloseHandle(hEvent)
 	
