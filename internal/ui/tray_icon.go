@@ -2,6 +2,7 @@ package ui
 
 import (
 	"log/slog"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -267,6 +268,8 @@ func (c *TrayIconController) Dispose() {
 }
 
 func (c *TrayIconController) listenSystemDpiEvents(notifyCh chan<- struct{}) {
+	runtime.LockOSThread()
+
 	wndProc := syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
 		switch msg {
 		case win.WM_DISPLAYCHANGE, win.WM_SETTINGCHANGE:
@@ -292,7 +295,7 @@ func (c *TrayIconController) listenSystemDpiEvents(notifyCh chan<- struct{}) {
 		nil,
 		0,
 		0, 0, 0, 0,
-		win.HWND_MESSAGE,
+		0,
 		0,
 		wc.HInstance,
 		nil,
