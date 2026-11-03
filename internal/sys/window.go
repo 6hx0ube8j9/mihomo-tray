@@ -185,7 +185,6 @@ func FocusWindowSilky(targetHwnd uintptr) {
 		procShowWindow.Call(targetHwnd, SW_SHOW)
 	}
 
-	procBringToTop.Call(targetHwnd)
 	procSetForeground.Call(targetHwnd)
 }
 
