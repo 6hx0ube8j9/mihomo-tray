@@ -163,6 +163,11 @@ func (g *ProxyGuard) HandleStatusChange(ctx context.Context, status sys.ProxySta
 	go g.reconcileDisconnection(ctx, expectedServer)
 }
 
+func (g *ProxyGuard) isStateExpected(expectedServer string) bool {
+	cur, err := sys.GetProxyStatus()
+	return err == nil && cur.Enabled && cur.Matches(expectedServer)
+}
+
 func (g *ProxyGuard) reconcileDisconnection(ctx context.Context, expectedServer string) {
 	defer g.st.ReleaseProxyRepair()
 
@@ -177,17 +182,15 @@ func (g *ProxyGuard) reconcileDisconnection(ctx context.Context, expectedServer 
 			return
 		}
 
-		cur, err := sys.GetProxyStatus()
-		if err == nil && cur.Enabled && cur.Matches(expectedServer) {
+		if g.isStateExpected(expectedServer) {
 			slog.Debug("系统代理已恢复", "attempt", attempt)
 			return
 		}
 
 		g.Sync()
 
-		cur, err = sys.GetProxyStatus()
-		if err == nil && cur.Enabled && cur.Matches(expectedServer) {
-			slog.Info("系统代理已恢复", "attempt", attempt)
+		if g.isStateExpected(expectedServer) {
+			slog.Info("系统代理已自愈", "attempt", attempt)
 			return
 		}
 	}
