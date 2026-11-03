@@ -9,8 +9,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// 注意：复用同包下 syscall_windows.go 中已声明的 modUser32，此处不重复声明
-
 var (
 	procEnumWindows          = modUser32.NewProc("EnumWindows")
 	procGetClassName         = modUser32.NewProc("GetClassNameW")
@@ -26,7 +24,7 @@ var (
 	procIsHungAppWindow      = modUser32.NewProc("IsHungAppWindow")
 	procSetProcessDpiContext = modUser32.NewProc("SetProcessDpiAwarenessContext")
 	procSetProcessDPIAware   = modUser32.NewProc("SetProcessDPIAware")
-	procGetSystemMetrics     = modUser32.NewProc("GetSystemMetrics") // 供本文件及 process.go 共享调用
+	procGetSystemMetrics     = modUser32.NewProc("GetSystemMetrics")
 	procSystemParametersInfo = modUser32.NewProc("SystemParametersInfoW")
 	procGetCursorPos         = modUser32.NewProc("GetCursorPos")
 	procMonitorFromPoint     = modUser32.NewProc("MonitorFromPoint")
@@ -85,51 +83,8 @@ func init() {
 }
 
 func GetDisplayWorkArea() (usableW, usableH, startX, startY int) {
-	var pt point
-	cursorRet, _, _ := procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
-
-	if cursorRet != 0 {
-		var hMonitor uintptr
-		if unsafe.Sizeof(uintptr(0)) == 8 {
-			packedPt := uintptr(uint32(pt.X)) | (uintptr(uint32(pt.Y)) << 32)
-			hMonitor, _, _ = procMonitorFromPoint.Call(packedPt, MONITOR_DEFAULTTONEAREST)
-		} else {
-			hMonitor, _, _ = procMonitorFromPoint.Call(uintptr(pt.X), uintptr(pt.Y), MONITOR_DEFAULTTONEAREST)
-		}
-
-		if hMonitor != 0 {
-			var mi monitorInfo
-			mi.CbSize = uint32(unsafe.Sizeof(mi))
-
-			ret, _, _ := procGetMonitorInfoW.Call(hMonitor, uintptr(unsafe.Pointer(&mi)))
-			if ret != 0 {
-				usableW = int(mi.RcWork.Right - mi.RcWork.Left)
-				usableH = int(mi.RcWork.Bottom - mi.RcWork.Top)
-				startX = int(mi.RcWork.Left)
-				startY = int(mi.RcWork.Top)
-
-				if usableW > 0 && usableH > 0 {
-					return
-				}
-			}
-		}
-	}
-
-	var workArea [4]int32
-	ret, _, _ := procSystemParametersInfo.Call(SPI_GETWORKAREA, 0, uintptr(unsafe.Pointer(&workArea[0])), 0)
-	if ret != 0 {
-		usableW = int(workArea[2] - workArea[0])
-		usableH = int(workArea[3] - workArea[1])
-		startX = int(workArea[0])
-		startY = int(workArea[1])
-		if usableW > 0 && usableH > 0 {
-			return
-		}
-	}
-
-	scrW, _, _ := procGetSystemMetrics.Call(SM_CXSCREEN)
-	scrH, _, _ := procGetSystemMetrics.Call(SM_CYSCREEN)
-	return int(scrW), int(scrH), 0, 0
+ 
+	return 1920, 1080, 0, 0
 }
 
 var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam unsafe.Pointer) uintptr {
