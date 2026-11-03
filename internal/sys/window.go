@@ -83,8 +83,26 @@ func init() {
 }
 
 func GetDisplayWorkArea() (usableW, usableH, startX, startY int) {
- 
-	return 1920, 1080, 0, 0
+	var workArea [4]int32
+	ret, _, _ := procSystemParametersInfo.Call(
+		SPI_GETWORKAREA,
+		0,
+		uintptr(unsafe.Pointer(&workArea[0])),
+		0,
+	)
+	if ret != 0 {
+		usableW = int(workArea[2] - workArea[0])
+		usableH = int(workArea[3] - workArea[1])
+		startX = int(workArea[0])
+		startY = int(workArea[1])
+		if usableW > 0 && usableH > 0 {
+			return
+		}
+	}
+	
+	scrW, _, _ := procGetSystemMetrics.Call(SM_CXSCREEN)
+	scrH, _, _ := procGetSystemMetrics.Call(SM_CYSCREEN)
+	return int(scrW), int(scrH), 0, 0
 }
 
 var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam unsafe.Pointer) uintptr {
