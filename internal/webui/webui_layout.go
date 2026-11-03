@@ -31,7 +31,7 @@ const (
 )
 
 func calculateWindowSize() (winW, winH int) {
-    usableW, usableH, _, _ := sys.GetPrimaryWorkArea()
+    usableW, usableH, _, _ := sys.GetDisplayWorkArea()
     return computeWindowSize(usableW, usableH)
 }
 
