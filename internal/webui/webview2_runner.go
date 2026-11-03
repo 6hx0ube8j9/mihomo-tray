@@ -114,7 +114,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		}
 
 		w = webview2.NewWithOptions(webview2.WebViewOptions{
-			AutoFocus:                  true,
+			AutoFocus:                  false,
 			DataPath:                   userDataDir,
 			AdditionalBrowserArguments: additionalArgs,
 			WindowOptions: webview2.WindowOptions{
