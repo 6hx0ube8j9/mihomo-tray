@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
@@ -116,8 +117,8 @@ func (a *Application) handleClearWebUICache(_ context.Context, _ domain.UIComman
 
 		defer func() {
 			if r := recover(); r != nil {
-				slog.Warn("清理缓存失败", "panic", r)
-				a.notifyError("清理缓存", errors.New("程序运行时异常"))
+				slog.Warn("清理缓存触发 Panic 拦截", "panic", r)
+				a.notifyError("操作失败", errors.New("程序运行时异常"))
 			}
 		}()
 
