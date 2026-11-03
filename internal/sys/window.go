@@ -80,45 +80,9 @@ func init() {
 	}
 }
 
+
 func GetDisplayWorkArea() (usableW, usableH, startX, startY int) {
-	var pt point
-	if ret, _, _ := procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt))); ret != 0 {
-		r := rect{
-			Left:   pt.X,
-			Top:    pt.Y,
-			Right:  pt.X + 1,
-			Bottom: pt.Y + 1,
-		}
-		hMonitor, _, _ := procMonitorFromRect.Call(uintptr(unsafe.Pointer(&r)), MONITOR_DEFAULTTONEAREST)
-		if hMonitor != 0 {
-			var mi monitorInfo
-			mi.CbSize = uint32(unsafe.Sizeof(mi))
-			if ret, _, _ := procGetMonitorInfoW.Call(hMonitor, uintptr(unsafe.Pointer(&mi))); ret != 0 {
-				usableW = int(mi.RcWork.Right - mi.RcWork.Left)
-				usableH = int(mi.RcWork.Bottom - mi.RcWork.Top)
-				startX = int(mi.RcWork.Left)
-				startY = int(mi.RcWork.Top)
-				if usableW > 0 && usableH > 0 {
-					return
-				}
-			}
-		}
-	}
-
-	var workArea [4]int32
-	if ret, _, _ := procSystemParametersInfo.Call(SPI_GETWORKAREA, 0, uintptr(unsafe.Pointer(&workArea[0])), 0); ret != 0 {
-		usableW = int(workArea[2] - workArea[0])
-		usableH = int(workArea[3] - workArea[1])
-		startX = int(workArea[0])
-		startY = int(workArea[1])
-		if usableW > 0 && usableH > 0 {
-			return
-		}
-	}
-
-	scrW, _, _ := procGetSystemMetrics.Call(SM_CXSCREEN)
-	scrH, _, _ := procGetSystemMetrics.Call(SM_CYSCREEN)
-	return int(scrW), int(scrH), 0, 0
+	return 1920, 1080, 0, 0
 }
 
 var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam unsafe.Pointer) uintptr {
