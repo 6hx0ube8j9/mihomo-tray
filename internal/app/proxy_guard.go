@@ -148,10 +148,10 @@ func (g *ProxyGuard) HandleStatusChange(ctx context.Context, status sys.ProxySta
 
 	if status.Enabled {
 		if status.Server != "" && !status.Matches(expectedServer) {
-			slog.Warn("检测到系统代理被外部接管，已停止", "server", status.Server, "expected", expectedServer)
+			slog.Warn("系统代理被外部接管", "server", status.Server, "expected", expectedServer)
 			g.disableInternal()
 			if g.onAlert != nil {
-				g.onAlert("代理变更", "代理设置被其他程序接管，已停止。")
+				g.onAlert("系统代理已停止接管", "设置被其他程序修改")
 			}
 		}
 		return
@@ -192,9 +192,9 @@ func (g *ProxyGuard) reconcileDisconnection(ctx context.Context, expectedServer 
 		}
 	}
 
-	slog.Warn("系统代理多次被外部关闭，已停止接管")
+	slog.Warn("系统代理被外部多次关闭，已停止接管")
 	g.disableInternal()
 	if g.onAlert != nil {
-		g.onAlert("系统代理已关闭", "代理设置多次被外部关闭，已停止接管。")
+		g.onAlert("系统代理已停止接管", "设置被其他程序多次关闭")
 	}
 }
