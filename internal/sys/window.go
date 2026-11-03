@@ -28,6 +28,9 @@ var (
 	procGetCursorPos    = modUser32.NewProc("GetCursorPos")
 	procMonitorFromRect = modUser32.NewProc("MonitorFromRect")
 	procGetMonitorInfoW = modUser32.NewProc("GetMonitorInfoW")
+
+	modDwmapi                 = windows.NewLazySystemDLL("dwmapi.dll")
+	procDwmSetWindowAttribute = modDwmapi.NewProc("DwmSetWindowAttribute")
 )
 
 const (
@@ -39,6 +42,10 @@ const (
 	SM_CXSCREEN              = 0
 	SM_CYSCREEN              = 1
 	MONITOR_DEFAULTTONEAREST = 2
+
+	ASFW_ANY = 0xFFFFFFFF
+
+	DWMWA_TRANSITIONS_FORCEDISABLED = 3
 
 	dpiAwarenessPerMonitorV2 = uintptr(0xFFFFFFFC)
 )
@@ -62,6 +69,7 @@ type monitorInfo struct {
 	DwFlags   uint32
 }
 
+// WindowInfo 顶层窗口枚举结构
 type WindowInfo struct {
 	Hwnd      uintptr
 	Pid       uint32
@@ -150,12 +158,14 @@ var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam unsafe.P
 	return 1
 })
 
+// FindTopWindow 遍历顶级窗口并匹配目标句柄
 func FindTopWindow(matcher func(info WindowInfo) bool) uintptr {
 	ctx := &enumContext{matcher: matcher}
 	procEnumWindows.Call(enumWindowsCallback, uintptr(unsafe.Pointer(ctx)))
 	return ctx.targetHwnd
 }
 
+// FocusWindowSilky 原子化置顶与前台激活
 func FocusWindowSilky(targetHwnd uintptr) {
 	if targetHwnd == 0 {
 		return
@@ -172,9 +182,22 @@ func FocusWindowSilky(targetHwnd uintptr) {
 
 func AllowSetForegroundWindow(pid uint32) {
 	if pid == 0 {
-		pid = 0xFFFFFFFF // ASFW_ANY
+		pid = ASFW_ANY
 	}
 	_, _, _ = procAllowSetForeground.Call(uintptr(pid))
+}
+
+func DisableWindowAnimation(hwnd uintptr) {
+	if hwnd == 0 {
+		return
+	}
+	var disable int32 = 1
+	_, _, _ = procDwmSetWindowAttribute.Call(
+		hwnd,
+		uintptr(DWMWA_TRANSITIONS_FORCEDISABLED),
+		uintptr(unsafe.Pointer(&disable)),
+		unsafe.Sizeof(disable),
+	)
 }
 
 func HideWindow(hwnd uintptr) {
