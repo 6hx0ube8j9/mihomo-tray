@@ -1,9 +1,7 @@
 package sys
 
 import (
-	"runtime"
 	"strings"
-	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -16,8 +14,8 @@ var (
 	procGetWindowThread      = modUser32.NewProc("GetWindowThreadProcessId")
 	procGetWindowText        = modUser32.NewProc("GetWindowTextW")
 	procShowWindow           = modUser32.NewProc("ShowWindow")
-	procBringToTop           = modUser32.NewProc("BringWindowToTop")
 	procSetForeground        = modUser32.NewProc("SetForegroundWindow")
+	procAllowSetForeground   = modUser32.NewProc("AllowSetForegroundWindow")
 	procGetWindow            = modUser32.NewProc("GetWindow")
 	procIsIconic             = modUser32.NewProc("IsIconic")
 	procIsWindow             = modUser32.NewProc("IsWindow")
@@ -26,15 +24,16 @@ var (
 	procSetProcessDPIAware   = modUser32.NewProc("SetProcessDPIAware")
 	procGetSystemMetrics     = modUser32.NewProc("GetSystemMetrics")
 	procSystemParametersInfo = modUser32.NewProc("SystemParametersInfoW")
-	procGetCursorPos         = modUser32.NewProc("GetCursorPos")
-	procMonitorFromPoint     = modUser32.NewProc("MonitorFromPoint")
-	procGetMonitorInfoW      = modUser32.NewProc("GetMonitorInfoW")
+
+	procGetCursorPos    = modUser32.NewProc("GetCursorPos")
+	procMonitorFromRect = modUser32.NewProc("MonitorFromRect")
+	procGetMonitorInfoW = modUser32.NewProc("GetMonitorInfoW")
 )
 
 const (
 	SW_HIDE                  = 0
-	SW_RESTORE               = 9
 	SW_SHOW                  = 5
+	SW_RESTORE               = 9
 	GW_OWNER                 = 4
 	SPI_GETWORKAREA          = 0x0030
 	SM_CXSCREEN              = 0
@@ -43,19 +42,6 @@ const (
 
 	dpiAwarenessPerMonitorV2 = uintptr(0xFFFFFFFC)
 )
-
-// WindowInfo 顶层窗口枚举承载对象
-type WindowInfo struct {
-	Hwnd      uintptr
-	Pid       uint32
-	ClassName string
-	Title     string
-}
-
-type enumContext struct {
-	matcher    func(info WindowInfo) bool
-	targetHwnd uintptr
-}
 
 type point struct {
 	X int32
@@ -76,21 +62,51 @@ type monitorInfo struct {
 	DwFlags   uint32
 }
 
+type WindowInfo struct {
+	Hwnd      uintptr
+	Pid       uint32
+	ClassName string
+	Title     string
+}
+
+type enumContext struct {
+	matcher    func(info WindowInfo) bool
+	targetHwnd uintptr
+}
+
 func init() {
-	if _, _, err := procSetProcessDpiContext.Call(dpiAwarenessPerMonitorV2); err != nil && uint32(err.(syscall.Errno)) != 0 {
+	if ret, _, _ := procSetProcessDpiContext.Call(dpiAwarenessPerMonitorV2); ret == 0 {
 		_, _, _ = procSetProcessDPIAware.Call()
 	}
 }
 
 func GetDisplayWorkArea() (usableW, usableH, startX, startY int) {
+	var pt point
+	if ret, _, _ := procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt))); ret != 0 {
+		r := rect{
+			Left:   pt.X,
+			Top:    pt.Y,
+			Right:  pt.X + 1,
+			Bottom: pt.Y + 1,
+		}
+		hMonitor, _, _ := procMonitorFromRect.Call(uintptr(unsafe.Pointer(&r)), MONITOR_DEFAULTTONEAREST)
+		if hMonitor != 0 {
+			var mi monitorInfo
+			mi.CbSize = uint32(unsafe.Sizeof(mi))
+			if ret, _, _ := procGetMonitorInfoW.Call(hMonitor, uintptr(unsafe.Pointer(&mi))); ret != 0 {
+				usableW = int(mi.RcWork.Right - mi.RcWork.Left)
+				usableH = int(mi.RcWork.Bottom - mi.RcWork.Top)
+				startX = int(mi.RcWork.Left)
+				startY = int(mi.RcWork.Top)
+				if usableW > 0 && usableH > 0 {
+					return
+				}
+			}
+		}
+	}
+
 	var workArea [4]int32
-	ret, _, _ := procSystemParametersInfo.Call(
-		SPI_GETWORKAREA,
-		0,
-		uintptr(unsafe.Pointer(&workArea[0])),
-		0,
-	)
-	if ret != 0 {
+	if ret, _, _ := procSystemParametersInfo.Call(SPI_GETWORKAREA, 0, uintptr(unsafe.Pointer(&workArea[0])), 0); ret != 0 {
 		usableW = int(workArea[2] - workArea[0])
 		usableH = int(workArea[3] - workArea[1])
 		startX = int(workArea[0])
@@ -99,7 +115,7 @@ func GetDisplayWorkArea() (usableW, usableH, startX, startY int) {
 			return
 		}
 	}
-	
+
 	scrW, _, _ := procGetSystemMetrics.Call(SM_CXSCREEN)
 	scrH, _, _ := procGetSystemMetrics.Call(SM_CYSCREEN)
 	return int(scrW), int(scrH), 0, 0
@@ -135,12 +151,8 @@ var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam unsafe.P
 })
 
 func FindTopWindow(matcher func(info WindowInfo) bool) uintptr {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
 	ctx := &enumContext{matcher: matcher}
 	procEnumWindows.Call(enumWindowsCallback, uintptr(unsafe.Pointer(ctx)))
-	runtime.KeepAlive(ctx)
 	return ctx.targetHwnd
 }
 
@@ -149,16 +161,20 @@ func FocusWindowSilky(targetHwnd uintptr) {
 		return
 	}
 
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
 	if IsIconic(targetHwnd) {
 		procShowWindow.Call(targetHwnd, SW_RESTORE)
-	} else {
+	} else if !IsWindowVisible(targetHwnd) {
 		procShowWindow.Call(targetHwnd, SW_SHOW)
 	}
 
 	procSetForeground.Call(targetHwnd)
+}
+
+func AllowSetForegroundWindow(pid uint32) {
+	if pid == 0 {
+		pid = 0xFFFFFFFF // ASFW_ANY
+	}
+	_, _, _ = procAllowSetForeground.Call(uintptr(pid))
 }
 
 func HideWindow(hwnd uintptr) {
@@ -198,7 +214,4 @@ func IsWindowAliveAndResponsive(hwnd uintptr) bool {
 		return false
 	}
 	return IsWindow(hwnd) && IsWindowVisible(hwnd) && !IsWindowHung(hwnd)
-}
-
-func AllowSetForegroundWindow(pid uint32) {
 }
