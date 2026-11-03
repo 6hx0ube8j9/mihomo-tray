@@ -103,7 +103,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 			}
 		}()
 
-		winW, winH, _, _ := calculateWindowBounds()
+		winW, winH := calculateWindowSize()
 
 		var additionalArgs string
 		if p := strings.TrimSpace(cfg.ProxyPort); p != "" && p != "0" {
