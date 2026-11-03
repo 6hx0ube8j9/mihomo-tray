@@ -37,7 +37,7 @@ func NewWebUIService(cfg *config.Manager, st *state.RuntimeState, coreMgr *webui
 
 func (s *WebUIService) Open(forceSync func(), onReady func()) error {
 	if s.st.GetPhase() != domain.PhaseRunning {
-		return errors.New("内核尚未就绪，请稍候")
+		return domain.ErrKernelNotReady
 	}
 
 	cfg := s.cfg.GetConfig()
