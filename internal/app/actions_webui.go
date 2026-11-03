@@ -15,9 +15,16 @@ import (
 // ============================================================================
 
 func (a *Application) handleOpenWebUI(_ context.Context, cmd domain.UICommand) {
-	a.asyncRun("打开面板", func() error {
-		return a.WebUIService.Open(a.ForceSyncAPI, cmd.OnDone)
-	})
+	go func() {
+		if a.ui == nil {
+			return
+		}
+
+		if err := a.WebUIService.Open(a.ForceSyncAPI, cmd.OnDone); err != nil {
+			a.ui.ShowError("提示", err.Error())
+			return
+		}
+	}()
 }
 
 func (a *Application) handleRequestEditController(_ context.Context, _ domain.UICommand) {
