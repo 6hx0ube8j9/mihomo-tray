@@ -31,18 +31,16 @@ const (
 )
 
 func calculateWindowSize() (winW, winH int) {
-	usableW, usableH, _, _ := sys.GetDisplayWorkArea()
-	return computeWindowSize(usableW, usableH)
+    usableW, usableH, _, _ := sys.GetPrimaryWorkArea()
+    return computeWindowSize(usableW, usableH)
 }
 
 func calculateWindowBounds() (winW, winH, winX, winY int) {
-	usableW, usableH, startX, startY := sys.GetDisplayWorkArea()
-
-	winW, winH = computeWindowSize(usableW, usableH)
-
-	winX = startX + (usableW-winW)/2
-	winY = startY + (usableH-winH)/2
-	return
+    usableW, usableH, startX, startY := sys.GetDisplayWorkArea()
+    winW, winH = computeWindowSize(usableW, usableH)
+    winX = startX + (usableW-winW)/2
+    winY = startY + (usableH-winH)/2
+    return
 }
 
 func computeWindowSize(usableW, usableH int) (winW, winH int) {
