@@ -122,7 +122,7 @@ func (s *WebUIService) ReopenIfActive(forceSync func()) {
 
 func (s *WebUIService) ClearCache() error {
 	if s.coreMgr.IsActive() {
-		return errors.New("请先关闭 Web 面板窗口")
+		return errors.New("请先关闭面板窗口")
 	}
 
 	cacheDir := filepath.Join(s.cfg.BaseDir(), domain.WebCacheDir)
@@ -139,5 +139,7 @@ func (s *WebUIService) ClearCache() error {
 		lastErr = err
 		time.Sleep(150 * time.Millisecond)
 	}
-	return fmt.Errorf("缓存文件被占用，请稍后重试: %w", lastErr)
+
+	slog.Warn("清理面板缓存失败", "err", lastErr)
+	return errors.New("缓存被占用，请稍后重试")
 }
