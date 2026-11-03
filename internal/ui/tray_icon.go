@@ -267,7 +267,6 @@ func (c *TrayIconController) Dispose() {
 }
 
 func (c *TrayIconController) listenSystemDpiEvents(notifyCh chan<- struct{}) {
-
 	wndProc := syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
 		switch msg {
 		case win.WM_DISPLAYCHANGE, win.WM_SETTINGCHANGE:
@@ -284,7 +283,7 @@ func (c *TrayIconController) listenSystemDpiEvents(notifyCh chan<- struct{}) {
 		LpfnWndProc:   wndProc,
 		HInstance:     win.GetModuleHandle(nil),
 		LpszClassName: dpiWatcherClassName,
-		
+	}
 	win.RegisterClassEx(&wc)
 
 	hwnd := win.CreateWindowEx(
