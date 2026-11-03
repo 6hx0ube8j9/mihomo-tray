@@ -29,6 +29,7 @@ type SingleInstanceGuard struct {
 }
 
 func GrantForegroundPrivilege() {
+	procAllowSetForegroundWnd.Call(asfwAny)
 }
 
 func getPermissiveSecAttr() *windows.SecurityAttributes {
