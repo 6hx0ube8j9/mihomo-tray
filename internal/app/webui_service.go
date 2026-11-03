@@ -122,7 +122,7 @@ func (s *WebUIService) ReopenIfActive(forceSync func()) {
 
 func (s *WebUIService) ClearCache() error {
 	if s.coreMgr.IsActive() {
-		return errors.New("请先关闭正在运行的 Web 面板窗口")
+		return errors.New("请先关闭 Web 面板窗口")
 	}
 
 	cacheDir := filepath.Join(s.cfg.BaseDir(), domain.WebCacheDir)
