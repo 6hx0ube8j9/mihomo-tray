@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/tailscale/walk"
 	"github.com/tailscale/win"
@@ -205,7 +206,7 @@ func (c *TrayIconController) startDpiWatcher() {
 	dpiRefreshChan := make(chan struct{}, 1)
 
 	go c.listenSystemDpiEvents(dpiRefreshChan)
-	
+
 	go func() {
 		for {
 			select {
@@ -217,7 +218,7 @@ func (c *TrayIconController) startDpiWatcher() {
 				}
 
 				time.Sleep(500 * time.Millisecond)
-				
+
 			drain:
 				for {
 					select {
@@ -266,7 +267,6 @@ func (c *TrayIconController) Dispose() {
 }
 
 func (c *TrayIconController) listenSystemDpiEvents(notifyCh chan<- struct{}) {
-	className, _ := syscall.UTF16PtrFromString("MihomoTrayDpiWatcher")
 
 	wndProc := syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
 		switch msg {
@@ -284,7 +284,7 @@ func (c *TrayIconController) listenSystemDpiEvents(notifyCh chan<- struct{}) {
 		LpfnWndProc:   wndProc,
 		HInstance:     win.GetModuleHandle(nil),
 		LpszClassName: dpiWatcherClassName,
-	}
+		
 	win.RegisterClassEx(&wc)
 
 	hwnd := win.CreateWindowEx(
@@ -293,7 +293,7 @@ func (c *TrayIconController) listenSystemDpiEvents(notifyCh chan<- struct{}) {
 		nil,
 		0,
 		0, 0, 0, 0,
-		win.HWND_MESSAGE, 
+		win.HWND_MESSAGE,
 		0,
 		wc.HInstance,
 		nil,
@@ -309,7 +309,7 @@ func (c *TrayIconController) listenSystemDpiEvents(notifyCh chan<- struct{}) {
 	for win.GetMessage(&msg, 0, 0, 0) != 0 {
 		win.TranslateMessage(&msg)
 		win.DispatchMessage(&msg)
-		
+
 		if c.isDisposed.Load() {
 			break
 		}
