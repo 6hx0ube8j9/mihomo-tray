@@ -27,6 +27,8 @@ const (
 
 var (
 	trayClassName = syscall.StringToUTF16Ptr("Shell_TrayWnd")
+	
+	dpiWatcherClassName = syscall.StringToUTF16Ptr("MihomoTrayDpiWatcher")
 
 	trayIconResourceIDs = [...]int{
 		domain.IconStop:    resIDTrayStop,
@@ -200,17 +202,29 @@ func (c *TrayIconController) getSystemMetricSizeLocked() int {
 }
 
 func (c *TrayIconController) startDpiWatcher() {
-	go func() {
-		ticker := time.NewTicker(dpiProbeInterval)
-		defer ticker.Stop()
+	dpiRefreshChan := make(chan struct{}, 1)
 
+	go c.listenSystemDpiEvents(dpiRefreshChan)
+	
+	go func() {
 		for {
 			select {
 			case <-c.engine.ctx.Done():
 				return
-			case <-ticker.C:
+			case <-dpiRefreshChan:
 				if c.isDisposed.Load() {
 					return
+				}
+
+				time.Sleep(500 * time.Millisecond)
+				
+			drain:
+				for {
+					select {
+					case <-dpiRefreshChan:
+					default:
+						break drain
+					}
 				}
 
 				c.mu.Lock()
@@ -249,4 +263,55 @@ func (c *TrayIconController) Dispose() {
 			c.ni = nil
 		}
 	})
+}
+
+func (c *TrayIconController) listenSystemDpiEvents(notifyCh chan<- struct{}) {
+	className, _ := syscall.UTF16PtrFromString("MihomoTrayDpiWatcher")
+
+	wndProc := syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
+		switch msg {
+		case win.WM_DISPLAYCHANGE, win.WM_SETTINGCHANGE:
+			select {
+			case notifyCh <- struct{}{}:
+			default:
+			}
+		}
+		return win.DefWindowProc(hwnd, msg, wParam, lParam)
+	})
+
+	wc := win.WNDCLASSEX{
+		CbSize:        uint32(unsafe.Sizeof(win.WNDCLASSEX{})),
+		LpfnWndProc:   wndProc,
+		HInstance:     win.GetModuleHandle(nil),
+		LpszClassName: dpiWatcherClassName,
+	}
+	win.RegisterClassEx(&wc)
+
+	hwnd := win.CreateWindowEx(
+		0,
+		dpiWatcherClassName,
+		nil,
+		0,
+		0, 0, 0, 0,
+		win.HWND_MESSAGE, 
+		0,
+		wc.HInstance,
+		nil,
+	)
+
+	if hwnd == 0 {
+		slog.Error("创建 DPI 监听窗口失败，退化为无响应模式")
+		return
+	}
+	defer win.DestroyWindow(hwnd)
+
+	var msg win.MSG
+	for win.GetMessage(&msg, 0, 0, 0) != 0 {
+		win.TranslateMessage(&msg)
+		win.DispatchMessage(&msg)
+		
+		if c.isDisposed.Load() {
+			break
+		}
+	}
 }
