@@ -45,6 +45,10 @@ type Manager struct {
 
 	wvMu sync.RWMutex
 	wv   webviewSession
+
+	envCheckMu  sync.Mutex
+	envCheckErr error
+	envChecked  bool
 }
 
 func NewManager() *Manager {
@@ -60,27 +64,34 @@ func emitEvent(ch chan<- Event, event Event) {
 	}
 }
 
+func (m *Manager) checkSandboxedEnvironment(baseDir string) error {
+	m.envCheckMu.Lock()
+	defer m.envCheckMu.Unlock()
 
-func checkSandboxedEnvironment(baseDir string) error {
+	if m.envChecked {
+		return m.envCheckErr
+	}
+
 	cleanBase := filepath.Clean(baseDir)
-
 	if sys.IsOtherUserProfileDir(cleanBase) {
-		return errors.New("受限于其他用户目录隐私隔离")
-	}
-
-	if sys.IsAdmin() && sys.IsSystemProtectedDir(cleanBase) {
-		return errors.New("受限于系统保护目录，沙盒无权写入")
-	}
-
-	cacheBaseDir := filepath.Join(cleanBase, domain.WebCacheDir)
-	if err := sys.ProbeDirWritable(cacheBaseDir); err != nil {
-		if sys.IsPermissionError(err) {
-			return errors.New("无目录写入权限")
+		m.envCheckErr = errors.New("受限于其他用户目录权限")
+	} else if sys.IsAdmin() && sys.IsSystemProtectedDir(cleanBase) {
+		m.envCheckErr = errors.New("系统保护目录无写入权限")
+	} else {
+		cacheBaseDir := filepath.Join(cleanBase, domain.WebCacheDir)
+		if err := sys.ProbeDirWritable(cacheBaseDir); err != nil {
+			if sys.IsPermissionError(err) {
+				m.envCheckErr = errors.New("无目录写入权限")
+			} else {
+				m.envCheckErr = err
+			}
+		} else {
+			m.envCheckErr = nil
 		}
-		return err
 	}
 
-	return nil
+	m.envChecked = true
+	return m.envCheckErr
 }
 
 func (m *Manager) Launch(cfg Config, eventCh chan<- Event, onReady func()) {
@@ -88,7 +99,7 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event, onReady func()) {
 	mode := cfg.WebOpenMode
 
 	if mode == domain.WebOpenModeSystem {
-		slog.Debug("使用系统默认浏览器打开面板")
+		slog.Debug("使用系统浏览器打开面板")
 		if onReady != nil {
 			onReady()
 		}
@@ -96,8 +107,8 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event, onReady func()) {
 		return
 	}
 
-	if err := checkSandboxedEnvironment(cfg.BaseDir); err != nil {
-		slog.Warn("因目录权限限制，回退至系统默认浏览器打开", "err", err)
+	if err := m.checkSandboxedEnvironment(cfg.BaseDir); err != nil {
+		slog.Warn("目录无写入权限，改用系统浏览器打开", "err", err)
 		if onReady != nil {
 			onReady()
 		}
@@ -122,19 +133,19 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event, onReady func()) {
 
 	if mode == domain.WebOpenModeWebView2 {
 		if m.launchWebView2(cfg, finalURL, eventCh, onReady) {
-			slog.Debug("内置窗口已就绪")
+			slog.Debug("内置面板已启动")
 			return
 		}
-		slog.Warn("内置窗口启动失败，尝试使用独立浏览器")
+		slog.Warn("内置面板启动失败，尝试独立浏览器")
 		m.cleanupWebView2()
 	}
 
 	if mode == domain.WebOpenModeWebView2 || mode == domain.WebOpenModeApp {
 		if m.launchChromiumAppMode(cfg, finalURL, appHostPort, eventCh, onReady) {
-			slog.Debug("独立浏览器窗口已就绪")
+			slog.Debug("独立浏览器已启动")
 			return
 		}
-		slog.Warn("独立浏览器启动失败，尝试使用系统默认浏览器")
+		slog.Warn("独立浏览器启动失败，尝试系统浏览器")
 		m.cleanupChromium()
 	}
 
@@ -152,7 +163,7 @@ func (m *Manager) Cleanup() {
 func (m *Manager) cleanupWebView2() {
 	m.wvMu.Lock()
 	if m.wv != nil {
-		slog.Debug("关闭内置面板窗口")
+		slog.Debug("关闭内置面板")
 		m.wv.Destroy()
 		m.wv = nil
 	}
@@ -168,7 +179,7 @@ func (m *Manager) cleanupChromium() {
 	m.stateMu.Unlock()
 
 	if safeDebugPort != "" {
-		slog.Debug("发送退出指令至浏览器", "port", safeDebugPort)
+		slog.Debug("关闭独立浏览器面板")
 		CloseAllWebUITargets(safeDebugPort)
 	}
 
@@ -176,7 +187,7 @@ func (m *Manager) cleanupChromium() {
 	if pid != 0 {
 		time.Sleep(300 * time.Millisecond)
 		if sys.IsPidRunning(pid, "") {
-			slog.Debug("强制清理未响应的浏览器进程", "pid", pid)
+			slog.Debug("清理未响应的浏览器进程", "pid", pid)
 			sys.HardKill(pid)
 		}
 	}
@@ -229,7 +240,7 @@ func (m *Manager) tryWakeCachedWindow(eventCh chan<- Event) bool {
 	}
 
 	if !sys.IsWindowAliveAndResponsive(hwnd) {
-		slog.Debug("缓存窗口已失效，重置面板状态", "hwnd", hwnd)
+		slog.Debug("面板窗口已失效，准备重置")
 		m.Cleanup()
 		return false
 	}
