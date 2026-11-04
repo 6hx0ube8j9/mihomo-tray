@@ -2,6 +2,8 @@ package sys
 
 import (
 	"strings"
+	"sync"
+	"sync/atomic"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -74,6 +76,11 @@ type enumContext struct {
 	targetHwnd uintptr
 }
 
+var (
+	enumCtxMap sync.Map
+	enumCtxID  atomic.Uintptr
+)
+
 func init() {
 	if ret, _, _ := procSetProcessDpiContext.Call(dpiAwarenessPerMonitorV2); ret == 0 {
 		_, _, _ = procSetProcessDPIAware.Call()
@@ -121,10 +128,12 @@ func GetDisplayWorkArea() (usableW, usableH, startX, startY int) {
 	return int(scrW), int(scrH), 0, 0
 }
 
-var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam unsafe.Pointer) uintptr {
-	if lParam == nil || !IsWindowVisible(hwnd) {
+var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam uintptr) uintptr {
+	v, ok := enumCtxMap.Load(lParam)
+	if !ok || !IsWindowVisible(hwnd) {
 		return 1
 	}
+	ctx := v.(*enumContext)
 
 	owner, _, _ := procGetWindow.Call(hwnd, GW_OWNER)
 	if owner != 0 {
@@ -142,7 +151,6 @@ var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam unsafe.P
 	var wndPid uint32
 	procGetWindowThread.Call(hwnd, uintptr(unsafe.Pointer(&wndPid)))
 
-	ctx := (*enumContext)(lParam)
 	if ctx.matcher(WindowInfo{Hwnd: hwnd, Pid: wndPid, ClassName: clsName, Title: wndTitle}) {
 		ctx.targetHwnd = hwnd
 		return 0
@@ -152,7 +160,12 @@ var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam unsafe.P
 
 func FindTopWindow(matcher func(info WindowInfo) bool) uintptr {
 	ctx := &enumContext{matcher: matcher}
-	procEnumWindows.Call(enumWindowsCallback, uintptr(unsafe.Pointer(ctx)))
+
+	id := enumCtxID.Add(1)
+	enumCtxMap.Store(id, ctx)
+	defer enumCtxMap.Delete(id)
+
+	procEnumWindows.Call(enumWindowsCallback, id)
 	return ctx.targetHwnd
 }
 
@@ -213,5 +226,5 @@ func IsWindowAliveAndResponsive(hwnd uintptr) bool {
 	if hwnd == 0 {
 		return false
 	}
-	return IsWindow(hwnd) && IsWindowVisible(hwnd) && !IsWindowHung(hwnd)
+	return IsWindowVisible(hwnd) && !IsWindowHung(hwnd)
 }
