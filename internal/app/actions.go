@@ -51,19 +51,6 @@ func (a *Application) notifySuccess(title, message string) {
 	}
 }
 
-func (a *Application) notifyAlert(title, msg string) {
-	if a.ui == nil || a.State.IsExiting() {
-		return
-	}
-
-	if msg == "" {
-		a.ui.ShowNotification("", title)
-		return
-	}
-
-	a.ui.ShowNotification(title, msg)
-}
-
 func (a *Application) runExclusiveAction(action state.KernelAction, title string, task func() error) {
 	if !a.State.TryBeginAction(action) {
 		if a.ui != nil && !a.State.IsExiting() {
