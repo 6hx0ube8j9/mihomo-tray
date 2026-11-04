@@ -95,9 +95,9 @@ func buildRemoteWebUIURL(customURL, host, port, secret string) string {
 	hasQuery := strings.Contains(rawURL, "?")
 
 	switch {
-	case hasHash && hasQuery:
+	case hasQuery:
 		return rawURL + "&" + query
-	case hasHash || hasQuery:
+	case hasHash:
 		return rawURL + "?" + query
 	default:
 		return rawURL + "/#/setup?" + query
