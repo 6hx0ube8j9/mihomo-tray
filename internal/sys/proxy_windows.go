@@ -32,7 +32,6 @@ const (
 	PROXY_TYPE_PROXY  = 0x00000002
 
 	internetSettingsPath = `Software\Microsoft\Windows\CurrentVersion\Internet Settings`
-	connectionsPath      = internetSettingsPath + `\Connections`
 
 	ERROR_SUCCESS          = 0
 	ERROR_BUFFER_TOO_SMALL = 603
@@ -83,7 +82,7 @@ func GetProxyStatus() (ProxyStatus, error) {
 func EnableProxy(serverStr string, bypassStr ...string) error {
 	server := NormalizeProxyServer(serverStr)
 	if server == "" {
-		return fmt.Errorf("proxy server empty")
+		return fmt.Errorf("代理地址为空")
 	}
 
 	bypass := DefaultProxyOverride
@@ -116,11 +115,11 @@ func EnableProxy(serverStr string, bypassStr ...string) error {
 	}
 
 	if err := applyProxyOptions(options); err != nil {
-		slog.Error("failed to enable proxy", "err", err)
+		slog.Error("启用系统代理失败", "err", err)
 		return err
 	}
 
-	slog.Info("proxy enabled", "server", server)
+	slog.Info("系统代理已启用", "server", server)
 	return nil
 }
 
@@ -133,7 +132,7 @@ func DisableProxy(expectedServer string) error {
 			return nil
 		}
 		if expected != "" && !curr.Matches(expected) {
-			slog.Warn("skip proxy disable", "reason", "address mismatch", "current", curr.Server, "expected", expected)
+			slog.Warn("跳过注销系统代理", "reason", "代理地址不匹配", "current", curr.Server, "expected", expected)
 			return nil
 		}
 	}
@@ -143,11 +142,11 @@ func DisableProxy(expectedServer string) error {
 	}
 
 	if err := applyProxyOptions(options); err != nil {
-		slog.Error("failed to disable proxy", "err", err)
+		slog.Error("注销系统代理失败", "err", err)
 		return err
 	}
 
-	slog.Info("proxy disabled")
+	slog.Info("系统代理已注销")
 	return nil
 }
 
@@ -160,7 +159,7 @@ func setPerConnectionOption(list *internetPerConnOptionList, connName *uint16) e
 		uintptr(list.dwSize),
 	)
 	if r == 0 {
-		return fmt.Errorf("InternetSetOptionW failed: %w", err)
+		return fmt.Errorf("调用 InternetSetOptionW 失败: %w", err)
 	}
 	return nil
 }
@@ -247,6 +246,9 @@ func applyProxyOptions(options []internetPerConnOption) error {
 }
 
 func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	k, err := registry.OpenKey(registry.CURRENT_USER, internetSettingsPath, registry.NOTIFY|registry.QUERY_VALUE)
 	if err != nil {
 		slog.Warn("打开代理注册表监听失败", "err", err)
@@ -273,9 +275,9 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 
 	arm := func() {
 		filter := uint32(windows.REG_NOTIFY_CHANGE_LAST_SET | windows.REG_NOTIFY_CHANGE_NAME | windows.REG_NOTIFY_THREAD_AGNOSTIC)
-		if err := windows.RegNotifyChangeKeyValue(windows.Handle(k), true, filter, notifyEvent, true); err != nil {
+		if err := windows.RegNotifyChangeKeyValue(windows.Handle(k), false, filter, notifyEvent, true); err != nil {
 			filter &^= windows.REG_NOTIFY_THREAD_AGNOSTIC
-			_ = windows.RegNotifyChangeKeyValue(windows.Handle(k), true, filter, notifyEvent, true)
+			_ = windows.RegNotifyChangeKeyValue(windows.Handle(k), false, filter, notifyEvent, true)
 		}
 	}
 
@@ -286,6 +288,8 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 	const debounceMs = 150
 	waitTimeout := uint32(windows.INFINITE)
 	hasPendingUpdate := false
+
+	lastStatus, _ := GetProxyStatus()
 
 	for {
 		event, err := windows.WaitForMultipleObjects(handles[:], false, waitTimeout)
@@ -304,9 +308,13 @@ func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
 			if hasPendingUpdate {
 				hasPendingUpdate = false
 				if status, err := GetProxyStatus(); err == nil {
-					select {
-					case statusCh <- status:
-					default:
+					if status != lastStatus {
+						lastStatus = status
+						select {
+						case statusCh <- status:
+						case <-ctx.Done():
+							return
+						}
 					}
 				}
 			}
