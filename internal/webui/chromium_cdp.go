@@ -11,16 +11,13 @@ import (
 )
 
 const (
-	fallbackDebugPort1 = "52819"
-	fallbackDebugPort2 = "52820"
+	fallbackDebugPort1 = "53819"
+	fallbackDebugPort2 = "53820"
 	cdpHost            = domain.LocalhostIP
 )
 
 var cdpClient = &http.Client{
 	Timeout: 300 * time.Millisecond,
-	Transport: &http.Transport{
-		DisableKeepAlives: true,
-	},
 }
 
 func buildCDPBaseURL(port string) string {
@@ -89,7 +86,8 @@ func ActivateTarget(debugPort, targetID string) error {
 	if err != nil {
 		return err
 	}
-	_ = resp.Body.Close()
+	
+	defer resp.Body.Close()
 	return nil
 }
 
