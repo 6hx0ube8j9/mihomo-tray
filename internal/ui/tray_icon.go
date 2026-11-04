@@ -168,6 +168,9 @@ func (c *TrayIconController) getSystemMetricSizeLocked() int {
 
 	if c.cachedTrayHwnd != 0 {
 		dpi = win.GetDpiForWindow(c.cachedTrayHwnd)
+		if dpi == 0 {
+			c.cachedTrayHwnd = 0
+		}
 	}
 
 	if dpi == 0 {
@@ -200,8 +203,6 @@ func (c *TrayIconController) startDpiWatcher() {
 		ticker := time.NewTicker(dpiProbeInterval)
 		defer ticker.Stop()
 
-		var isChecking atomic.Bool
-
 		for {
 			select {
 			case <-c.engine.ctx.Done():
@@ -209,10 +210,6 @@ func (c *TrayIconController) startDpiWatcher() {
 			case <-ticker.C:
 				if c.isDisposed.Load() {
 					return
-				}
-
-				if !isChecking.CompareAndSwap(false, true) {
-					continue
 				}
 
 				c.mu.Lock()
@@ -224,8 +221,6 @@ func (c *TrayIconController) startDpiWatcher() {
 				if lastId != -1 && targetSize != currSize {
 					c.SetState(lastId)
 				}
-
-				isChecking.Store(false)
 			}
 		}
 	}()
