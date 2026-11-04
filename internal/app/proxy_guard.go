@@ -71,7 +71,7 @@ func (g *ProxyGuard) Sync() {
 		slog.Warn("未检测到有效代理端口，已停用系统代理")
 		g.disableInternalLocked()
 		if g.onAlert != nil {
-			g.onAlert("系统代理已停用", "未检测到有效代理端口")
+			g.onAlert("未检测到有效代理端口，系统代理已停用", "")
 		}
 		return
 	}
