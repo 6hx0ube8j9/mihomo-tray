@@ -2,12 +2,10 @@ package ui
 
 import (
 	"log/slog"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
-	"unsafe"
 
 	"github.com/tailscale/walk"
 	"github.com/tailscale/win"
@@ -29,8 +27,6 @@ const (
 
 var (
 	trayClassName = syscall.StringToUTF16Ptr("Shell_TrayWnd")
-	
-	dpiWatcherClassName = syscall.StringToUTF16Ptr("MihomoTrayDpiWatcher")
 
 	trayIconResourceIDs = [...]int{
 		domain.IconStop:    resIDTrayStop,
@@ -115,7 +111,7 @@ func (c *TrayIconController) setStateInternal(stateId int) {
 	}
 
 	if err := c.ni.SetIcon(ico); err != nil {
-		slog.Warn("设置托盘图标失败", "state_id", stateId, "err", err)
+		slog.Warn("更新托盘图标失败", "err", err)
 		if sizeChanged {
 			ico.Dispose()
 			c.icons = oldIcons
@@ -144,10 +140,6 @@ func (c *TrayIconController) getIconLocked(stateId, targetSize int) *walk.Icon {
 		return ico
 	}
 
-	if stateId < 0 || stateId >= len(trayIconResourceIDs) {
-		return nil
-	}
-
 	resID := trayIconResourceIDs[stateId]
 	if resID <= 0 {
 		return nil
@@ -159,10 +151,10 @@ func (c *TrayIconController) getIconLocked(stateId, targetSize int) *walk.Icon {
 	})
 
 	if err != nil || ico == nil {
-		slog.Debug("加载指定尺寸图标失败，尝试默认尺寸", "resource_id", resID, "size", targetSize, "err", err)
+		slog.Debug("加载指定尺寸图标失败，降级使用默认尺寸", "size", targetSize)
 		ico, err = walk.NewIconFromResourceId(resID)
 		if err != nil || ico == nil {
-			slog.Error("加载默认图标资源失败", "resource_id", resID, "err", err)
+			slog.Error("加载托盘图标资源失败", "id", resID, "err", err)
 			return nil
 		}
 	}
@@ -204,29 +196,23 @@ func (c *TrayIconController) getSystemMetricSizeLocked() int {
 }
 
 func (c *TrayIconController) startDpiWatcher() {
-	dpiRefreshChan := make(chan struct{}, 1)
-
-	go c.listenSystemDpiEvents(dpiRefreshChan)
-
 	go func() {
+		ticker := time.NewTicker(dpiProbeInterval)
+		defer ticker.Stop()
+
+		var isChecking atomic.Bool
+
 		for {
 			select {
 			case <-c.engine.ctx.Done():
 				return
-			case <-dpiRefreshChan:
+			case <-ticker.C:
 				if c.isDisposed.Load() {
 					return
 				}
 
-				time.Sleep(500 * time.Millisecond)
-
-			drain:
-				for {
-					select {
-					case <-dpiRefreshChan:
-					default:
-						break drain
-					}
+				if !isChecking.CompareAndSwap(false, true) {
+					continue
 				}
 
 				c.mu.Lock()
@@ -238,6 +224,8 @@ func (c *TrayIconController) startDpiWatcher() {
 				if lastId != -1 && targetSize != currSize {
 					c.SetState(lastId)
 				}
+
+				isChecking.Store(false)
 			}
 		}
 	}()
@@ -265,55 +253,4 @@ func (c *TrayIconController) Dispose() {
 			c.ni = nil
 		}
 	})
-}
-
-func (c *TrayIconController) listenSystemDpiEvents(notifyCh chan<- struct{}) {
-	runtime.LockOSThread()
-
-	wndProc := syscall.NewCallback(func(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
-		switch msg {
-		case win.WM_DISPLAYCHANGE, win.WM_SETTINGCHANGE:
-			select {
-			case notifyCh <- struct{}{}:
-			default:
-			}
-		}
-		return win.DefWindowProc(hwnd, msg, wParam, lParam)
-	})
-
-	wc := win.WNDCLASSEX{
-		CbSize:        uint32(unsafe.Sizeof(win.WNDCLASSEX{})),
-		LpfnWndProc:   wndProc,
-		HInstance:     win.GetModuleHandle(nil),
-		LpszClassName: dpiWatcherClassName,
-	}
-	win.RegisterClassEx(&wc)
-
-	hwnd := win.CreateWindowEx(
-		0,
-		dpiWatcherClassName,
-		nil,
-		0,
-		0, 0, 0, 0,
-		0,
-		0,
-		wc.HInstance,
-		nil,
-	)
-
-	if hwnd == 0 {
-		slog.Error("创建 DPI 监听窗口失败，退化为无响应模式")
-		return
-	}
-	defer win.DestroyWindow(hwnd)
-
-	var msg win.MSG
-	for win.GetMessage(&msg, 0, 0, 0) != 0 {
-		win.TranslateMessage(&msg)
-		win.DispatchMessage(&msg)
-
-		if c.isDisposed.Load() {
-			break
-		}
-	}
 }
