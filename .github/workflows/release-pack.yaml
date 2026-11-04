@@ -1,0 +1,114 @@
+name: Build and Package mihomo-tray (Manual Test)
+
+on:
+  workflow_dispatch:
+  # push:
+  #   branches:
+  #     - main
+  #   tags:
+  #     - 'v*'
+  # schedule:
+  #   - cron: '0 4 */3 * *'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    strategy:
+      matrix:
+        goarch: [amd64]
+        amd_version: [v2, v3]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Generate Windows Resources
+        shell: pwsh
+        run: |
+          go install github.com/tc-hib/go-winres@v0.3.3
+          go-winres make --arch ${{ matrix.goarch }}
+
+      - name: Build Tray EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:CGO_ENABLED = "0"
+          $env:GOOS = "windows"
+          $env:GOARCH = "${{ matrix.goarch }}"
+          $env:GOAMD64 = "${{ matrix.amd_version }}"
+          
+          New-Item -ItemType Directory -Force -Path "release/mihomo-tray"
+          
+          $commit = $env:GITHUB_SHA.Substring(0, 7)
+          $flags = "-s -w -H=windowsgui -X 'main.version=$commit'"
+          
+          go build -mod=readonly -ldflags="$flags" -o "release/mihomo-tray/mihomo-tray.exe" .
+
+      - name: Fetch Kernel, Web UI and Rules
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          
+          Write-Host "Fetching Mihomo core for ${{ matrix.amd_version }}..."
+          New-Item -ItemType Directory -Force -Path "temp_kernel"
+          
+          gh release download --repo MetaCubeX/mihomo `
+            --pattern "mihomo-windows-amd64-${{ matrix.amd_version }}-*.zip" `
+            --dir "temp_kernel"
+          
+          $kernelZip = Get-ChildItem -Path "temp_kernel" -Filter "*.zip" | Select-Object -First 1
+          Expand-Archive -Path $kernelZip.FullName -DestinationPath "temp_kernel/extracted" -Force
+          $coreExe = Get-ChildItem -Path "temp_kernel/extracted" -Filter "*.exe" -Recurse | Select-Object -First 1
+          Move-Item -Path $coreExe.FullName -Destination "release/mihomo-tray/mihomo.exe" -Force
+          Remove-Item -Path "temp_kernel" -Recurse -Force
+          
+          Write-Host "Fetching Zashboard Web UI..."
+          $uiZipUrl = "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip"
+          Invoke-WebRequest -Uri $uiZipUrl -OutFile "zashboard.zip"
+          Expand-Archive -Path "zashboard.zip" -DestinationPath "temp_zashboard" -Force
+          
+          New-Item -ItemType Directory -Force -Path "release/mihomo-tray/ui/default"
+          if (Test-Path "temp_zashboard/dist") {
+              Copy-Item -Path "temp_zashboard/dist/*" -Destination "release/mihomo-tray/ui/default" -Recurse -Force
+          } else {
+              Copy-Item -Path "temp_zashboard/*" -Destination "release/mihomo-tray/ui/default" -Recurse -Force
+          }
+          Remove-Item -Path "zashboard.zip", "temp_zashboard" -Recurse -Force
+          
+          Write-Host "Fetching rule databases..."
+          $rules = @(
+              @{ Url = "https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geoip.dat"; Out = "release/mihomo-tray/geoip.dat" },
+              @{ Url = "https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geosite.dat"; Out = "release/mihomo-tray/geosite.dat" },
+              @{ Url = "https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geoip.metadb"; Out = "release/mihomo-tray/geoip.metadb" }
+          )
+          foreach ($item in $rules) {
+              Invoke-WebRequest -Uri $item.Url -OutFile $item.Out
+          }
+
+      - name: Compress Distribution Package
+        shell: pwsh
+        run: |
+          $commit = $env:GITHUB_SHA.Substring(0, 7)
+          $zipName = "mihomo-tray-windows-${{ matrix.goarch }}-${{ matrix.amd_version }}-$commit.zip"
+          Compress-Archive -Path "release/mihomo-tray" -DestinationPath "release/$zipName" -Force
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mihomo-tray-windows-${{ matrix.goarch }}-${{ matrix.amd_version }}
+          path: release/*.zip
+          if-no-files-found: error
+          retention-days: 7
