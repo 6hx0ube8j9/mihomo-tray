@@ -52,9 +52,16 @@ func (a *Application) notifySuccess(title, message string) {
 }
 
 func (a *Application) notifyAlert(title, msg string) {
-	if a.ui != nil && !a.State.IsExiting() {
-		a.ui.ShowNotification(title, msg)
+	if a.ui == nil || a.State.IsExiting() {
+		return
 	}
+
+	if msg == "" {
+		a.ui.ShowNotification("", title)
+		return
+	}
+
+	a.ui.ShowNotification(title, msg)
 }
 
 func (a *Application) runExclusiveAction(action state.KernelAction, title string, task func() error) {
