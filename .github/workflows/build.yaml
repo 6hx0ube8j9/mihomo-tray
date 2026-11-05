@@ -1,4 +1,4 @@
-name: 01 -Build mihomo-tray
+name: 01 - Build mihomo-tray
 
 on:
   workflow_dispatch:
