@@ -16,6 +16,7 @@ jobs:
       - name: Compare with Latest Workflow Run
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           MIHOMO_TAG=$(gh release view --repo MetaCubeX/mihomo --json tagName -q .tagName)
           ZASHBOARD_TAG=$(gh release view --repo Zephyruso/zashboard --json tagName -q .tagName)
