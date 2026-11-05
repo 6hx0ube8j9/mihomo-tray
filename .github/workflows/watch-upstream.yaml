@@ -1,0 +1,34 @@
+name: Watch Upstream Updates
+
+on:
+  schedule:
+    - cron: '0 */12 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compare with Latest Workflow Run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          MIHOMO_TAG=$(gh release view --repo MetaCubeX/mihomo --json tagName -q .tagName)
+          ZASHBOARD_TAG=$(gh release view --repo Zephyruso/zashboard --json tagName -q .tagName)
+          UPSTREAM_VER="${MIHOMO_TAG}_${ZASHBOARD_TAG}"
+
+          LAST_SUCCESS_RUN=$(gh run list --workflow release-pack.yaml --status success --limit 1 --json displayTitle -q '.[0].displayTitle' 2>/dev/null || echo "")
+
+          echo "Latest Upstream : $UPSTREAM_VER"
+          echo "Last Success Run: $LAST_SUCCESS_RUN"
+
+          if [[ "$LAST_SUCCESS_RUN" != *"$UPSTREAM_VER"* ]]; then
+            echo "New upstream version found ($UPSTREAM_VER). Triggering release-pack..."
+            gh workflow run release-pack.yaml -f upstream_ver="$UPSTREAM_VER"
+          else
+            echo "Already built for $UPSTREAM_VER. Skipping."
+          fi
