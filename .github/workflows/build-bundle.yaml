@@ -54,6 +54,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force -Path "release/mihomo-tray"
 
+          # Determine application version tag or short commit hash
           $appVer = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { $env:GITHUB_SHA.Substring(0, 7) }
           Add-Content -Path $env:GITHUB_ENV -Value "APP_VER=$appVer"
 
@@ -81,6 +82,7 @@ jobs:
               $kernelTag = $rawVer.Split('_')[0]
           }
 
+          # Download official release kernel matching target architecture
           $pattern = "mihomo-windows-${{ matrix.asset_suffix }}-v*.zip"
           if ($kernelTag) {
               gh release download $kernelTag --repo MetaCubeX/mihomo --pattern "$pattern" --dir "temp_kernel"
@@ -91,13 +93,29 @@ jobs:
           $kernelZip = Get-ChildItem -Path "temp_kernel" -Filter "*.zip" | Select-Object -First 1
           if (-not $kernelZip) { throw "Mihomo kernel download failed with pattern: $pattern" }
 
+          # Compute and print upstream kernel archive SHA256 checksum
+          $upstreamKernelHash = (Get-FileHash -Path $kernelZip.FullName -Algorithm SHA256).Hash.ToLower()
+          Write-Host "=========================================="
+          Write-Host "Upstream Kernel Archive: $($kernelZip.Name)"
+          Write-Host "Upstream Kernel SHA256 : $upstreamKernelHash"
+          Write-Host "=========================================="
+
           Expand-Archive -Path $kernelZip.FullName -DestinationPath "temp_kernel/extracted" -Force
           $coreExe = Get-ChildItem -Path "temp_kernel/extracted" -Filter "*.exe" -Recurse | Select-Object -First 1
           Move-Item -Path $coreExe.FullName -Destination "release/mihomo-tray/mihomo.exe" -Force
           Remove-Item -Path "temp_kernel" -Recurse -Force
 
+          # Download Zashboard Web UI archive
           $uiZipUrl = "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip"
           Invoke-WebRequest -Uri $uiZipUrl -OutFile "zashboard.zip"
+
+          # Compute and print upstream Web UI archive SHA256 checksum
+          $upstreamUiHash = (Get-FileHash -Path "zashboard.zip" -Algorithm SHA256).Hash.ToLower()
+          Write-Host "=========================================="
+          Write-Host "Upstream UI Archive: dist.zip"
+          Write-Host "Upstream UI SHA256 : $upstreamUiHash"
+          Write-Host "=========================================="
+
           Expand-Archive -Path "zashboard.zip" -DestinationPath "temp_zashboard" -Force
 
           New-Item -ItemType Directory -Force -Path "release/mihomo-tray/ui/default"
@@ -108,6 +126,7 @@ jobs:
           }
           Remove-Item -Path "zashboard.zip", "temp_zashboard" -Recurse -Force
 
+          # Fetch Meta routing rule databases without checksum logging
           $rules = @(
               @{ Url = "https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geoip.dat"; Out = "release/mihomo-tray/geoip.dat" },
               @{ Url = "https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geosite.dat"; Out = "release/mihomo-tray/geosite.dat" },
@@ -117,17 +136,28 @@ jobs:
               Invoke-WebRequest -Uri $item.Url -OutFile $item.Out
           }
 
-      - name: Compress Release Archive
+      - name: Compress Release Archive and Generate Checksum
         shell: pwsh
         run: |
           $zipName = "mihomo-tray-windows-${{ matrix.asset_suffix }}-bundle-${{ env.APP_VER }}.zip"
           Compress-Archive -Path "release/mihomo-tray" -DestinationPath "release/$zipName" -Force
 
+          # Compute SHA256 checksum for the generated bundle archive
+          $bundleHash = (Get-FileHash -Path "release/$zipName" -Algorithm SHA256).Hash.ToLower()
+          "$bundleHash *$zipName" | Out-File -FilePath "release/$zipName.sha256" -Encoding ascii
+          
+          Write-Host "=========================================="
+          Write-Host "Generated Bundle: $zipName"
+          Write-Host "Bundle SHA256   : $bundleHash"
+          Write-Host "=========================================="
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: release/*.zip
+          files: |
+            release/*.zip
+            release/*.sha256
           draft: false
           prerelease: false
           generate_release_notes: true
@@ -136,6 +166,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mihomo-tray-windows-${{ matrix.asset_suffix }}-bundle-${{ env.APP_VER }}
-          path: release/*.zip
+          path: |
+            release/*.zip
+            release/*.sha256
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14
