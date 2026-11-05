@@ -1,4 +1,4 @@
-name: Watch Upstream Updates
+name: 03 - Watch Upstream Updates
 
 on:
   schedule:
@@ -21,14 +21,14 @@ jobs:
           ZASHBOARD_TAG=$(gh release view --repo Zephyruso/zashboard --json tagName -q .tagName)
           UPSTREAM_VER="${MIHOMO_TAG}_${ZASHBOARD_TAG}"
 
-          LAST_SUCCESS_RUN=$(gh run list --workflow release-pack.yaml --status success --limit 1 --json displayTitle -q '.[0].displayTitle' 2>/dev/null || echo "")
+          LAST_SUCCESS_RUN=$(gh run list --workflow build-bundle.yaml --status success --limit 1 --json displayTitle -q '.[0].displayTitle' 2>/dev/null || echo "")
 
           echo "Latest Upstream : $UPSTREAM_VER"
           echo "Last Success Run: $LAST_SUCCESS_RUN"
 
           if [[ "$LAST_SUCCESS_RUN" != *"$UPSTREAM_VER"* ]]; then
-            echo "New upstream version found ($UPSTREAM_VER). Triggering release-pack..."
-            gh workflow run release-pack.yaml -f upstream_ver="$UPSTREAM_VER"
+            echo "New upstream version found ($UPSTREAM_VER). Triggering build-bundle..."
+            gh workflow run build-bundle.yaml -f upstream_ver="$UPSTREAM_VER"
           else
             echo "Already built for $UPSTREAM_VER. Skipping."
           fi
