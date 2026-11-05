@@ -59,4 +59,4 @@ jobs:
           name: mihomo-tray-windows-${{ matrix.goarch }}
           path: release/*.exe
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
