@@ -1,28 +1,39 @@
 name: Build and Package mihomo-tray
+run-name: Build mihomo-tray (${{ inputs.upstream_ver || 'manual' }})
 
 on:
   workflow_dispatch:
-  # push:
-  #   branches:
-  #     - main
-  #   tags:
-  #     - 'v*'
-  # schedule:
-  #   - cron: '0 4 */3 * *'
+    inputs:
+      upstream_ver:
+        description: 'Upstream version combo'
+        required: false
+        default: 'manual'
+  push:
+    tags:
+      - 'v*'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
     runs-on: windows-2022
     strategy:
+      fail-fast: false
       matrix:
-        goarch: [amd64]
-        amd_version: [v2, v3]
+        include:
+          - goarch: amd64
+            amd_version: v2
+            asset_suffix: amd64-v2
+          - goarch: amd64
+            amd_version: v3
+            asset_suffix: amd64-v3
+          - goarch: arm64
+            amd_version: ""
+            asset_suffix: arm64
 
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -43,16 +54,19 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path "release/mihomo-tray"
+          
+          $appVer = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { $env:GITHUB_SHA.Substring(0, 7) }
+          echo "APP_VER=$appVer" >> $env:GITHUB_ENV
+          
           $env:CGO_ENABLED = "0"
           $env:GOOS = "windows"
           $env:GOARCH = "${{ matrix.goarch }}"
-          $env:GOAMD64 = "${{ matrix.amd_version }}"
+          if ("${{ matrix.amd_version }}" -ne "") {
+              $env:GOAMD64 = "${{ matrix.amd_version }}"
+          }
           
-          New-Item -ItemType Directory -Force -Path "release/mihomo-tray"
-          
-          $commit = $env:GITHUB_SHA.Substring(0, 7)
-          $flags = "-s -w -H=windowsgui -X 'main.version=$commit'"
-          
+          $flags = "-s -w -H=windowsgui -X 'main.version=$appVer'"
           go build -mod=readonly -ldflags="$flags" -o "release/mihomo-tray/mihomo-tray.exe" .
 
       - name: Fetch Kernel, Web UI and Rules
@@ -62,12 +76,14 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           
-          Write-Host "Fetching Mihomo core for ${{ matrix.amd_version }}..."
           New-Item -ItemType Directory -Force -Path "temp_kernel"
+          $pattern = if ('${{ matrix.goarch }}' -eq 'arm64') {
+              "mihomo-windows-arm64-*.zip"
+          } else {
+              "mihomo-windows-amd64-${{ matrix.amd_version }}-*.zip"
+          }
           
-          gh release download --repo MetaCubeX/mihomo `
-            --pattern "mihomo-windows-amd64-${{ matrix.amd_version }}-*.zip" `
-            --dir "temp_kernel"
+          gh release download --repo MetaCubeX/mihomo --pattern "$pattern" --dir "temp_kernel"
           
           $kernelZip = Get-ChildItem -Path "temp_kernel" -Filter "*.zip" | Select-Object -First 1
           Expand-Archive -Path $kernelZip.FullName -DestinationPath "temp_kernel/extracted" -Force
@@ -75,7 +91,6 @@ jobs:
           Move-Item -Path $coreExe.FullName -Destination "release/mihomo-tray/mihomo.exe" -Force
           Remove-Item -Path "temp_kernel" -Recurse -Force
           
-          Write-Host "Fetching Zashboard Web UI..."
           $uiZipUrl = "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip"
           Invoke-WebRequest -Uri $uiZipUrl -OutFile "zashboard.zip"
           Expand-Archive -Path "zashboard.zip" -DestinationPath "temp_zashboard" -Force
@@ -88,7 +103,6 @@ jobs:
           }
           Remove-Item -Path "zashboard.zip", "temp_zashboard" -Recurse -Force
           
-          Write-Host "Fetching rule databases..."
           $rules = @(
               @{ Url = "https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geoip.dat"; Out = "release/mihomo-tray/geoip.dat" },
               @{ Url = "https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geosite.dat"; Out = "release/mihomo-tray/geosite.dat" },
@@ -98,17 +112,25 @@ jobs:
               Invoke-WebRequest -Uri $item.Url -OutFile $item.Out
           }
 
-      - name: Compress Distribution Package
+      - name: Compress Release Archive
         shell: pwsh
         run: |
-          $commit = $env:GITHUB_SHA.Substring(0, 7)
-          $zipName = "mihomo-tray-windows-${{ matrix.goarch }}-${{ matrix.amd_version }}-$commit.zip"
+          $zipName = "mihomo-tray-windows-${{ matrix.asset_suffix }}-${{ env.APP_VER }}.zip"
           Compress-Archive -Path "release/mihomo-tray" -DestinationPath "release/$zipName" -Force
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: release/*.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mihomo-tray-windows-${{ matrix.goarch }}-${{ matrix.amd_version }}
+          name: mihomo-tray-windows-${{ matrix.asset_suffix }}-${{ env.APP_VER }}
           path: release/*.zip
           if-no-files-found: error
           retention-days: 7
