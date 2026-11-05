@@ -1,10 +1,10 @@
 name: Build mihomo-tray
 
 on:
+  workflow_dispatch:
   # push:
   #   branches:
   #     - main
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,6 +13,7 @@ jobs:
   build:
     runs-on: windows-2022
     strategy:
+      fail-fast: false
       matrix:
         goarch:
           - amd64
@@ -43,18 +44,19 @@ jobs:
           GOOS: 'windows'
           GOARCH: ${{ matrix.goarch }}
         run: |
-          go env GOOS GOARCH CGO_ENABLED
+          $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force -Path "release"
-          
+
           $commit = $env:GITHUB_SHA.Substring(0, 7)
+          $targetName = "mihomo-tray-windows-${{ matrix.goarch }}.exe"
           $flags = "-s -w -H=windowsgui -X 'main.version=$commit'"
-          
-          go build -mod=readonly -ldflags="$flags" -o "release/mihomo-tray.exe" .
+
+          go build -mod=readonly -ldflags="$flags" -o "release/$targetName" .
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: mihomo-tray-windows-${{ matrix.goarch }}
-          path: release/mihomo-tray.exe
+          path: release/*.exe
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
