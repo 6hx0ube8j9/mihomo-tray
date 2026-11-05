@@ -1,4 +1,4 @@
-name: Build Bundle mihomo-tray
+name: 02 - Build Bundle mihomo-tray
 run-name: Build Bundle (${{ inputs.upstream_ver || 'manual' }})
 
 on:
@@ -75,7 +75,6 @@ jobs:
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force -Path "temp_kernel"
 
-          # 解析内核 Tag：支持纯 tag（如 v1.19.33）或复合指纹（如 v1.19.33_v1.2.0）
           $rawVer = '${{ inputs.upstream_ver }}'
           $kernelTag = ""
           if ($rawVer -and $rawVer -ne 'manual') {
@@ -97,7 +96,6 @@ jobs:
           Move-Item -Path $coreExe.FullName -Destination "release/mihomo-tray/mihomo.exe" -Force
           Remove-Item -Path "temp_kernel" -Recurse -Force
 
-          # 拉取 Zashboard Web UI 静态包
           $uiZipUrl = "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip"
           Invoke-WebRequest -Uri $uiZipUrl -OutFile "zashboard.zip"
           Expand-Archive -Path "zashboard.zip" -DestinationPath "temp_zashboard" -Force
