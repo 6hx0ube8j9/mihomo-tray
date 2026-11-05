@@ -1,12 +1,10 @@
-name: Build and Package mihomo-tray
-run-name: Build mihomo-tray (${{ inputs.upstream_ver || 'manual' }})
+name: Build Bundle mihomo-tray
+run-name: Build Bundle (${{ inputs.upstream_ver || 'manual' }})
 
 on:
   workflow_dispatch:
     inputs:
       upstream_ver:
-        description: 'Upstream version combo'
-        required: false
         default: 'manual'
   push:
     tags:
@@ -55,17 +53,17 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force -Path "release/mihomo-tray"
-          
+
           $appVer = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { $env:GITHUB_SHA.Substring(0, 7) }
-          echo "APP_VER=$appVer" >> $env:GITHUB_ENV
-          
+          Add-Content -Path $env:GITHUB_ENV -Value "APP_VER=$appVer"
+
           $env:CGO_ENABLED = "0"
           $env:GOOS = "windows"
           $env:GOARCH = "${{ matrix.goarch }}"
           if ("${{ matrix.amd_version }}" -ne "") {
               $env:GOAMD64 = "${{ matrix.amd_version }}"
           }
-          
+
           $flags = "-s -w -H=windowsgui -X 'main.version=$appVer'"
           go build -mod=readonly -ldflags="$flags" -o "release/mihomo-tray/mihomo-tray.exe" .
 
@@ -75,26 +73,35 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
-          
           New-Item -ItemType Directory -Force -Path "temp_kernel"
-          $pattern = if ('${{ matrix.goarch }}' -eq 'arm64') {
-              "mihomo-windows-arm64-*.zip"
-          } else {
-              "mihomo-windows-amd64-${{ matrix.amd_version }}-*.zip"
+
+          # 解析内核 Tag：支持纯 tag（如 v1.19.33）或复合指纹（如 v1.19.33_v1.2.0）
+          $rawVer = '${{ inputs.upstream_ver }}'
+          $kernelTag = ""
+          if ($rawVer -and $rawVer -ne 'manual') {
+              $kernelTag = $rawVer.Split('_')[0]
           }
-          
-          gh release download --repo MetaCubeX/mihomo --pattern "$pattern" --dir "temp_kernel"
-          
+
+          $pattern = "mihomo-windows-${{ matrix.asset_suffix }}-v*.zip"
+          if ($kernelTag) {
+              gh release download $kernelTag --repo MetaCubeX/mihomo --pattern "$pattern" --dir "temp_kernel"
+          } else {
+              gh release download --repo MetaCubeX/mihomo --pattern "$pattern" --dir "temp_kernel"
+          }
+
           $kernelZip = Get-ChildItem -Path "temp_kernel" -Filter "*.zip" | Select-Object -First 1
+          if (-not $kernelZip) { throw "Mihomo kernel download failed with pattern: $pattern" }
+
           Expand-Archive -Path $kernelZip.FullName -DestinationPath "temp_kernel/extracted" -Force
           $coreExe = Get-ChildItem -Path "temp_kernel/extracted" -Filter "*.exe" -Recurse | Select-Object -First 1
           Move-Item -Path $coreExe.FullName -Destination "release/mihomo-tray/mihomo.exe" -Force
           Remove-Item -Path "temp_kernel" -Recurse -Force
-          
+
+          # 拉取 Zashboard Web UI 静态包
           $uiZipUrl = "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip"
           Invoke-WebRequest -Uri $uiZipUrl -OutFile "zashboard.zip"
           Expand-Archive -Path "zashboard.zip" -DestinationPath "temp_zashboard" -Force
-          
+
           New-Item -ItemType Directory -Force -Path "release/mihomo-tray/ui/default"
           if (Test-Path "temp_zashboard/dist") {
               Copy-Item -Path "temp_zashboard/dist/*" -Destination "release/mihomo-tray/ui/default" -Recurse -Force
@@ -102,7 +109,7 @@ jobs:
               Copy-Item -Path "temp_zashboard/*" -Destination "release/mihomo-tray/ui/default" -Recurse -Force
           }
           Remove-Item -Path "zashboard.zip", "temp_zashboard" -Recurse -Force
-          
+
           $rules = @(
               @{ Url = "https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geoip.dat"; Out = "release/mihomo-tray/geoip.dat" },
               @{ Url = "https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geosite.dat"; Out = "release/mihomo-tray/geosite.dat" },
@@ -115,7 +122,7 @@ jobs:
       - name: Compress Release Archive
         shell: pwsh
         run: |
-          $zipName = "mihomo-tray-windows-${{ matrix.asset_suffix }}-${{ env.APP_VER }}.zip"
+          $zipName = "mihomo-tray-windows-${{ matrix.asset_suffix }}-bundle-${{ env.APP_VER }}.zip"
           Compress-Archive -Path "release/mihomo-tray" -DestinationPath "release/$zipName" -Force
 
       - name: Publish GitHub Release
@@ -130,7 +137,7 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mihomo-tray-windows-${{ matrix.asset_suffix }}-${{ env.APP_VER }}
+          name: mihomo-tray-windows-${{ matrix.asset_suffix }}-bundle-${{ env.APP_VER }}
           path: release/*.zip
           if-no-files-found: error
           retention-days: 7
