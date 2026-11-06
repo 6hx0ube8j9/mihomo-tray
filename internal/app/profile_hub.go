@@ -181,24 +181,25 @@ func (h *ProfileHub) Delete(targetPath string) (wasActive bool, err error) {
 }
 
 func (h *ProfileHub) ValidateSource(sourcePath string) error {
-	if err := h.cfg.ValidatePhysicalFile(sourcePath); err != nil {
-		return err
+	absPath, err := filepath.Abs(strings.TrimSpace(sourcePath))
+	if err != nil {
+		return errors.New("源文件路径无效")
 	}
 
-	absPath := sourcePath
-	if !filepath.IsAbs(sourcePath) {
-		absPath = h.cfg.GetProfileAbsPath(sourcePath)
+	fi, err := os.Stat(absPath)
+	if err != nil {
+		return err
+	}
+	if fi.Size() > domain.MaxProfileBytes {
+		return fmt.Errorf("文件大小超出限制 (%d MB)", domain.MaxProfileBytes/(1024*1024))
 	}
 
 	content, err := os.ReadFile(absPath)
 	if err != nil {
-		return fmt.Errorf("[%s] 无法读取文件: %w", filepath.Base(sourcePath), err)
+		return err
 	}
 
-	if err := h.validateBytes(content, false); err != nil {
-		return fmt.Errorf("[%s] %w", filepath.Base(sourcePath), err)
-	}
-	return nil
+	return h.validateBytes(content, false)
 }
 
 func (h *ProfileHub) fetchAndCommit(ctx context.Context, targetRelPath, url string, item *domain.ProfileItem) error {
@@ -210,7 +211,7 @@ func (h *ProfileHub) fetchAndCommit(ctx context.Context, targetRelPath, url stri
 
 	tempBytes, err := os.ReadFile(res.TempPath)
 	if err != nil {
-		return fmt.Errorf("无法读取订阅临时文件: %w", err)
+		return err
 	}
 
 	isActive := (targetRelPath == h.cfg.GetActivePath())
