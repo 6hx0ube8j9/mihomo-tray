@@ -40,7 +40,6 @@ func (a *Application) handleRestartKernel(ctx context.Context, _ domain.UIComman
 			return nil
 		}
 
-		a.ProxyGuard.Sync()
 		a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
 		return nil
 	})
