@@ -57,6 +57,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mihomo-tray-windows-${{ matrix.goarch }}
-          path: release/*.exe
+          path: release/mihomo-tray.exe
           if-no-files-found: error
           retention-days: 3
