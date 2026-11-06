@@ -232,7 +232,7 @@ func (h *ProfileHub) validateBytes(content []byte, isActive bool) error {
 		return ErrEmptyProfile
 	}
 	if len(content) > domain.MaxProfileBytes {
-		return fmt.Errorf("配置大小超出限制 (%d MB)", domain.MaxProfileBytes/(1024*1024))
+		return fmt.Errorf("文件大小超出限制 (%d MB)", domain.MaxProfileBytes/(1024*1024))
 	}
 
 	var err error
