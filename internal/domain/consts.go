@@ -12,11 +12,11 @@ const (
 	WebCacheDir        = "webcache"
 	
 	// IPCNamedPipe Windows 本地管道
-	IPCNamedPipe = `\\.\pipe\{6A1B2C3D-4E5F-7A8B-9C0D-1E2F3A4B5C70}`
+	IPCNamedPipe = `\\.\pipe\{B4C72E91-8D3A-4F20-A1E6-7D5832E904F1}`
 
 	// 单实例互斥体与跨权限唤醒事件
-	AppMutexName    = `Local\{6A1B2C3D-4E5F-7A8B-9C0D-1E2F3A4B5C6E}`
-	ShowUIEventName = `Local\{6A1B2C3D-4E5F-7A8B-9C0D-1E2F3A4B5C6F}`
+	AppMutexName    = `Local\{D8A1F023-3E4B-4A92-9C78-5E2A1B4F8C90}`
+	ShowUIEventName = `Local\{F2E9C174-6A58-4D81-8B39-0D4E7F2A5C63}`
 )
 
 // ================= 路由模式 =================
@@ -71,7 +71,7 @@ func (t Theme) String() string {
 }
 
 // ================= 状态与事件 =================
-const AppTaskName = "MihomoTrayTask"
+const AppTaskName = "NetTrayAgent"
 
 type AppPhase int32
 
@@ -93,7 +93,7 @@ const (
 	// 字符串策略默认值
 	DefaultMode         = ModeRule
 	DefaultLogLevel     = "info"
-	DefaultTrayLogLevel = "info"
+	DefaultTrayLogLevel = "error"
 
 	// 端口默认值
 	DefaultMixedPort = 7890
