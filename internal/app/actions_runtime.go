@@ -35,8 +35,9 @@ func (a *Application) handleRestartKernel(ctx context.Context, _ domain.UIComman
 		a.KernelTuner.ReconcilePrivilege()
 
 		if err := a.KernelDeployer.RestartKernel(); err != nil {
-			a.FallbackToEmpty(ctx, "配置加载失败")
-			return err
+			a.FallbackToEmpty(ctx, "配置校验失败")
+			a.notifyWarn("配置加载失败", err)
+			return nil
 		}
 
 		a.ProxyGuard.Sync()
