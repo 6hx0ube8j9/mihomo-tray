@@ -35,9 +35,8 @@ func (a *Application) handleRestartKernel(ctx context.Context, _ domain.UIComman
 		a.KernelTuner.ReconcilePrivilege()
 
 		if err := a.KernelDeployer.RestartKernel(); err != nil {
-			a.FallbackToEmpty(ctx, "配置校验失败")
-			a.notifyWarn("配置加载", errors.New("当前配置存在错误，请检查文件内容"))
-			return nil
+			a.FallbackToEmpty(ctx, "配置加载失败")
+			return err
 		}
 
 		a.ProxyGuard.Sync()
@@ -64,7 +63,7 @@ func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UIComm
 	a.asyncRun("开机自启", func() error {
 		if a.Platform.IsAdmin() {
 			if !a.Platform.SetAutoStartTask(enable) {
-				return errors.New("写入计划任务失败，请检查系统任务服务是否正常")
+				return errors.New("写入计划任务失败")
 			}
 			a.Cfg.Update(func(c *domain.TrayConfig) {
 				b := enable
@@ -85,7 +84,7 @@ func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UIComm
 				c.General.Autostart = &b
 			})
 			if err != nil {
-				return fmt.Errorf("提权调用失败: %w", err)
+				return fmt.Errorf("提权失败: %w", err)
 			}
 			return nil
 		}
@@ -112,7 +111,7 @@ func (a *Application) handleToggleRunAsAdmin(_ context.Context, cmd domain.UICom
 				c.General.RunAsAdmin = false
 			})
 			if err != nil {
-				return fmt.Errorf("提权调用失败: %w", err)
+				return fmt.Errorf("提权失败: %w", err)
 			}
 			return nil
 		}
