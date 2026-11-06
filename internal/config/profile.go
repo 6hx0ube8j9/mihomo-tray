@@ -62,7 +62,7 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 	absSrc, err := filepath.EvalSymlinks(srcPath)
 	if err != nil {
 		if absSrc, err = filepath.Abs(srcPath); err != nil {
-			return "", false, fmt.Errorf("无法解析目标文件路径: %w", err)
+			return "", false, err
 		}
 	}
 
@@ -78,7 +78,7 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 	dstAbs := m.GetProfileAbsPath(finalRelPath)
 
 	if err := fs.CopyFileWithLimit(absSrc, dstAbs, domain.MaxProfileBytes); err != nil {
-		return "", false, fmt.Errorf("文件导入受阻。\n\n%w", err)
+		return "", false, err 
 	}
 
 	return finalRelPath, true, nil
@@ -223,23 +223,23 @@ func (m *Manager) MoveProfile(relPath string, offset int) bool {
 }
 
 func (m *Manager) ValidatePhysicalFile(relPath string) error {
-	clean := strings.TrimSpace(relPath)
-	if clean == "" {
+	cleanPath := strings.TrimSpace(relPath)
+	if cleanPath == "" {
 		return errors.New("未指定配置文件路径")
 	}
 
-	fileName := filepath.Base(clean)
-	absPath := m.GetProfileAbsPath(clean)
+	fileName := filepath.Base(cleanPath)
+	absPath := m.GetProfileAbsPath(cleanPath)
 
 	fi, err := os.Stat(absPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("[%s] 文件不存在", fileName)
+			return fmt.Errorf("%s: 目标文件不存在", fileName)
 		}
-		return fmt.Errorf("[%s] 无法读取: %w", fileName, err)
+		return err
 	}
 	if fi.Size() == 0 {
-		return fmt.Errorf("[%s] 文件内容为空", fileName)
+		return fmt.Errorf("%s: 配置文件内容为空", fileName)
 	}
 	return nil
 }
