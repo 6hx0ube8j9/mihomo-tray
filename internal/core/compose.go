@@ -18,6 +18,13 @@ type ComposeResult struct {
 	TunDevice string
 }
 
+func cleanYAMLErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	return errors.New(strings.TrimPrefix(err.Error(), "yaml: "))
+}
+
 func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResult, error) {
 	var root yaml.Node
 
@@ -25,15 +32,15 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 		dec := yaml.NewDecoder(bytes.NewReader(sourceYAML))
 		if err := dec.Decode(&root); err != nil {
 			if !errors.Is(err, io.EOF) {
-				return nil, err
+				return nil, cleanYAMLErr(err)
 			}
 		} else {
 			var extra yaml.Node
 			err := dec.Decode(&extra)
 			if err == nil {
-				return nil, errors.New("不支持包含多个配置文档 ('---')")
+				return nil, errors.New("配置文件包含了多份独立配置 ('---')")
 			} else if !errors.Is(err, io.EOF) {
-				return nil, err
+				return nil, cleanYAMLErr(err)
 			}
 		}
 	}
@@ -43,11 +50,11 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 	}
 	rootMap := root.Content[0]
 	if rootMap.Kind != yaml.MappingNode {
-		return nil, errors.New("root node must be a mapping")
+		return nil, errors.New("配置文件缺少核心字段")
 	}
 
 	if len(rootMap.Content) > 0 && rootMap.Content[0].Column != 1 {
-		return nil, fmt.Errorf("invalid indentation at column %d", rootMap.Content[0].Column)
+		return nil, fmt.Errorf("第 %d 列缩进格式错误", rootMap.Content[0].Column)
 	}
 
 	deleteKeys(rootMap, "redir-port", "tproxy-port")
@@ -131,7 +138,7 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 
 	outBytes, err := yaml.Marshal(&root)
 	if err != nil {
-		return nil, fmt.Errorf("yaml marshal: %w", err)
+		return nil, err
 	}
 
 	finalYAML := append([]byte(yamlHeader), outBytes...)
