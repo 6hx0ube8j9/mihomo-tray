@@ -18,7 +18,7 @@ import (
 
 var (
 	ErrProfileUpdating = errors.New("订阅正在更新中，请稍候")
-	ErrInvalidYAML     = errors.New("配置内容为空或非合法 YAML")
+	ErrEmptyProfile    = errors.New("配置文件内容为空")
 )
 
 type ProfileHub struct {
@@ -129,8 +129,11 @@ func (h *ProfileHub) UpdateRemote(ctx context.Context, targetRelPath string) err
 	defer h.st.ReleaseProfileLock(targetRelPath)
 
 	p, ok := h.cfg.GetProfileByPath(targetRelPath)
-	if !ok || p.URL == "" {
-		return errors.New("配置或订阅链接不存在")
+	if !ok {
+		return errors.New("订阅配置不存在")
+	}
+	if p.URL == "" {
+		return errors.New("订阅链接为空")
 	}
 
 	if err := h.fetchAndCommit(ctx, targetRelPath, p.URL, &p); err != nil {
@@ -226,7 +229,7 @@ func (h *ProfileHub) fetchAndCommit(ctx context.Context, targetRelPath, url stri
 
 func (h *ProfileHub) validateBytes(content []byte, isActive bool) error {
 	if len(content) == 0 {
-		return ErrInvalidYAML
+		return ErrEmptyProfile
 	}
 	if len(content) > domain.MaxProfileBytes {
 		return fmt.Errorf("配置大小超出限制 (%d MB)", domain.MaxProfileBytes/(1024*1024))
