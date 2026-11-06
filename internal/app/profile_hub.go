@@ -239,7 +239,7 @@ func (h *ProfileHub) validateBytes(content []byte, isActive bool) error {
 		_, err = core.ComposeRuntimeYAML(h.cfg.GetConfig(), content)
 	}
 	if err != nil {
-		return fmt.Errorf("配置校验错误: %w", err)
+		return err
 	}
 	return nil
 }
