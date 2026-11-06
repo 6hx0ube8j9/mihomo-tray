@@ -222,23 +222,27 @@ func (m *Manager) MoveProfile(relPath string, offset int) bool {
 	return moved
 }
 
-func (m *Manager) ValidatePhysicalFile(relPath string) error {
-	if relPath == "" {
+func (m *Manager) ValidatePhysicalFile(targetPath string) error {
+	cleanPath := strings.TrimSpace(targetPath)
+	if cleanPath == "" {
 		return errors.New("未指定配置文件路径")
 	}
 
-	fileName := filepath.Base(relPath)
-	absPath := m.GetProfileAbsPath(relPath)
+	absPath := cleanPath
+	if !filepath.IsAbs(cleanPath) {
+		absPath = m.GetProfileAbsPath(cleanPath)
+	}
 
+	fileName := filepath.Base(cleanPath)
 	fi, err := os.Stat(absPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("%s: 文件不存在", fileName)
+			return fmt.Errorf("[%s] 目标文件不存在", fileName)
 		}
-		return fmt.Errorf("%s: 读取文件失败: %w", fileName, err)
+		return fmt.Errorf("[%s] 无法读取文件: %w", fileName, err)
 	}
 	if fi.Size() == 0 {
-		return fmt.Errorf("%s: 文件内容为空", fileName)
+		return fmt.Errorf("[%s] 配置文件内容为空", fileName)
 	}
 	return nil
 }
