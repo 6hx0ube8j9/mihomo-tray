@@ -48,10 +48,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path "release"
 
           $commit = $env:GITHUB_SHA.Substring(0, 7)
-          $targetName = "mihomo-tray-windows-${{ matrix.goarch }}.exe"
           $flags = "-s -w -H=windowsgui -X 'main.version=$commit'"
 
-          go build -mod=readonly -ldflags="$flags" -o "release/$targetName" .
+          go build -mod=readonly -ldflags="$flags" -o "release/mihomo-tray.exe" .
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
