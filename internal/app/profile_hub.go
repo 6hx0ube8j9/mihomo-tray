@@ -181,22 +181,22 @@ func (h *ProfileHub) Delete(targetPath string) (wasActive bool, err error) {
 }
 
 func (h *ProfileHub) ValidateSource(sourcePath string) error {
+	if err := h.cfg.ValidatePhysicalFile(sourcePath); err != nil {
+		return err
+	}
+
 	absPath := sourcePath
 	if !filepath.IsAbs(sourcePath) {
 		absPath = h.cfg.GetProfileAbsPath(sourcePath)
 	}
 
-	fileName := filepath.Base(sourcePath)
 	content, err := os.ReadFile(absPath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("%s: 目标文件不存在", fileName)
-		}
-		return fmt.Errorf("%s: 无法读取文件: %w", fileName, err)
+		return fmt.Errorf("[%s] 无法读取文件: %w", filepath.Base(sourcePath), err)
 	}
 
 	if err := h.validateBytes(content, false); err != nil {
-		return fmt.Errorf("%s: %w", fileName, err)
+		return fmt.Errorf("[%s] %w", filepath.Base(sourcePath), err)
 	}
 	return nil
 }
