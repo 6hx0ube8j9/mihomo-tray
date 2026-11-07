@@ -60,20 +60,19 @@ func (e *Engine) Run() error {
 	}
 	e.app = app
 
-	err = MainWindow{
-		AssignTo: &e.mw,
-		Title:    domain.HostTitle,
-		Visible:  false,
-		Bounds:   Rectangle{X: -32000, Y: -32000, Width: 1, Height: 1},
-	}.Create()
-
-	if err != nil {
-		return fmt.Errorf("创建后台宿主窗口失败: %w", err)
+	hostHwnd, _, _ := procCreateWindowExW.Call(
+		uintptr(win.WS_EX_TOOLWINDOW|win.WS_EX_NOACTIVATE),
+		uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr("STATIC"))),
+		uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(domain.HostTitle))),
+		uintptr(win.WS_POPUP),
+		0, 0, 0, 0, 
+		0, 0, 0, 0,
+	)
+	if hostHwnd == 0 {
+		return errors.New("创建后台宿主窗口失败")
 	}
 
-	disableGhostToolbar(e.mw)
-	
-	e.hookShutdown()
+	e.hookShutdownHWND(win.HWND(hostHwnd))
 
 	e.modalMgr = NewModalManager()
 	e.Tray = NewTray(e)
