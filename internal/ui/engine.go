@@ -305,11 +305,24 @@ func (e *Engine) ShowConfirm(title, message string) bool {
 }
 
 func (e *Engine) OpenYAMLFileDialog() (string, bool) {
+	if e.modalMgr == nil {
+		return "", false
+	}
+
+	const modalKey = "open_yaml_file_dialog"
 	var path string
 	var ok bool
+
 	e.RunOnUI(func() {
+		if !e.modalMgr.TryAcquire(modalKey) {
+			slog.Debug("文件选择对话框防抖拦截", "key", modalKey)
+			return
+		}
+		defer e.modalMgr.Release(modalKey)
+
 		path, ok = RunOpenYAMLFileDialog(e.activeOwner())
 	})
+
 	return path, ok
 }
 
