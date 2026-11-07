@@ -2,7 +2,10 @@
 // required for thread-level message hooks, window subclassing, and styling.
 package ui
 
-import "syscall"
+import (
+	"syscall"
+	"unsafe"
+)
 
 const (
 	whGetMessage = 3
@@ -16,11 +19,12 @@ const (
 
 var (
 	modUser32               = syscall.NewLazyDLL("user32.dll")
+	procCreateWindowExW     = modUser32.NewProc("CreateWindowExW")
 	procSetWindowsHookExW   = modUser32.NewProc("SetWindowsHookExW")
 	procUnhookWindowsHookEx = modUser32.NewProc("UnhookWindowsHookEx")
 	procCallNextHookEx      = modUser32.NewProc("CallNextHookEx")
 
-	modDwmapi                = syscall.NewLazyDLL("dwmapi.dll")
+	modDwmapi                 = syscall.NewLazyDLL("dwmapi.dll")
 	procDwmSetWindowAttribute = modDwmapi.NewProc("DwmSetWindowAttribute")
 )
 
