@@ -64,6 +64,7 @@ func (e *Engine) Run() error {
 		AssignTo: &e.mw,
 		Title:    domain.HostTitle,
 		Visible:  false,
+		Bounds:   Rectangle{X: -32000, Y: -32000, Width: 1, Height: 1},
 	}.Create()
 
 	if err != nil {
