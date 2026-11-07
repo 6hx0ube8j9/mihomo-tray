@@ -58,21 +58,15 @@ func cbtHookProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 	return ret
 }
 
-func ShowNativeMsgBox(owner walk.Form, title, message string, style walk.MsgBoxStyle, onActivated func(hwnd win.HWND)) int {
+func runWithCBTCenter(owner walk.Form, onActivated func(hwnd win.HWND), action func()) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
 	tid := win.GetCurrentThreadId()
 
 	var targetHWND win.HWND
-	var effectiveOwner walk.Form
-
 	if owner != nil && owner.Visible() && !win.IsIconic(owner.Handle()) {
-		hActive := win.GetForegroundWindow()
-		if hActive == owner.Handle() || win.IsChild(owner.Handle(), hActive) {
-			targetHWND = owner.Handle()
-			effectiveOwner = owner
-		}
+		targetHWND = owner.Handle()
 	}
 
 	ctx := &cbtHookContext{
@@ -103,11 +97,27 @@ func ShowNativeMsgBox(owner walk.Form, title, message string, style walk.MsgBoxS
 		}
 	}()
 
+	action()
+}
+
+func ShowNativeMsgBox(owner walk.Form, title, message string, style walk.MsgBoxStyle, onActivated func(hwnd win.HWND)) int {
+	var effectiveOwner walk.Form
+	if owner != nil && owner.Visible() && !win.IsIconic(owner.Handle()) {
+		hActive := win.GetForegroundWindow()
+		if hActive == owner.Handle() || win.IsChild(owner.Handle(), hActive) {
+			effectiveOwner = owner
+		}
+	}
+
 	if style&walk.MsgBoxIconQuestion == walk.MsgBoxIconQuestion {
 		win.MessageBeep(win.MB_ICONINFORMATION)
 	}
 
-	return walk.MsgBox(effectiveOwner, title, message, style)
+	var result int
+	runWithCBTCenter(effectiveOwner, onActivated, func() {
+		result = walk.MsgBox(effectiveOwner, title, message, style)
+	})
+	return result
 }
 
 func RunErrorDialog(owner walk.Form, title string, errOrMsg any) {
