@@ -5,16 +5,24 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/tailscale/walk"
 	"mihomo-tray/internal/domain"
 )
+
+const notifyCooldown = 2500 * time.Millisecond
 
 type Tray struct {
 	engine   *Engine
 	ni       *walk.NotifyIcon
 	iconCtrl *TrayIconController
 
+		
+    notifyMu      sync.Mutex
+	recentNotifies map[string]time.Time
+	
 	latestState            domain.UIState
 	lastProfileFingerprint string
 
@@ -45,6 +53,7 @@ func NewTray(e *Engine) *Tray {
 		ni:                     ni,
 		iconCtrl:               NewTrayIconController(e, ni),
 		lastProfileFingerprint: "__INIT__",
+		recentNotifies:         make(map[string]time.Time),
 	}
 
 	t.buildMenuSkeleton()
@@ -226,8 +235,30 @@ func (t *Tray) ShowNotification(title, message string) {
 	if t.ni == nil {
 		return
 	}
+
+	key := title + "\x00" + message
+	now := time.Now()
+
+	t.notifyMu.Lock()
+	lastTime, exists := t.recentNotifies[key]
+	if exists && now.Sub(lastTime) < notifyCooldown {
+		t.notifyMu.Unlock()
+		return
+	}
+
+	t.recentNotifies[key] = now
+
+	if len(t.recentNotifies) > 20 {
+		for k, exp := range t.recentNotifies {
+			if now.Sub(exp) >= notifyCooldown {
+				delete(t.recentNotifies, k)
+			}
+		}
+	}
+	t.notifyMu.Unlock()
+
 	if err := t.ni.ShowInfo(title, message); err != nil {
-		slog.Warn("弹出系统托盘通知失败", "title", title, "err", err)
+		slog.Warn("托盘通知失败", "title", title, "err", err)
 	}
 }
 
