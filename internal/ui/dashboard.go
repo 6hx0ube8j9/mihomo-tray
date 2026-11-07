@@ -57,15 +57,9 @@ func (d *Dashboard) createWindow() {
 		return
 	}
 
-	hwnd := uintptr(d.window.Handle())
-	setWindowCloaked(hwnd, true)
-
 	disableGhostToolbar(d.window)
 	d.closePatch = ApplyHideOnClosePatch(d.window)
-	
 	centerWindow(d.window)
-
-	setWindowCloaked(hwnd, false)
 
 	if len(d.lastState.ProfileItems) > 0 || d.lastState.MixedPort != 0 {
 		d.ProfileView.RefreshData(d.lastState)
