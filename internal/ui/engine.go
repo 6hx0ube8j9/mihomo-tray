@@ -2,14 +2,12 @@ package ui
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
-	"syscall"
-	"unsafe"
 
 	"github.com/tailscale/walk"
+	. "github.com/tailscale/walk/declarative"
 	"github.com/tailscale/win"
 	"golang.org/x/sys/windows"
 
@@ -30,8 +28,8 @@ type Engine struct {
 	getState      func() domain.UIState
 	ReadyCh       chan struct{}
 
-	app      *walk.Application
-	hostHWND win.HWND
+	app *walk.Application
+	mw  *walk.MainWindow
 
 	Tray      *Tray
 	Dashboard *Dashboard
@@ -62,20 +60,17 @@ func (e *Engine) Run() error {
 	}
 	e.app = app
 
-	h, _, _ := procCreateWindowExW.Call(
-		uintptr(win.WS_EX_TOOLWINDOW|win.WS_EX_NOACTIVATE),
-		uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr("STATIC"))),
-		uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(domain.HostTitle))),
-		uintptr(win.WS_POPUP),
-		0, 0, 0, 0,
-		0, 0, 0, 0,
-	)
-	if h == 0 {
-		return errors.New("创建后台宿主窗口失败")
-	}
-	e.hostHWND = win.HWND(h)
+	err = MainWindow{
+		AssignTo: &e.mw,
+		Title:    domain.HostTitle,
+		Visible:  false,
+	}.Create()
 
-	e.hookShutdown(e.hostHWND)
+	if err != nil {
+		return fmt.Errorf("创建后台宿主窗口失败: %w", err)
+	}
+
+	e.hookShutdown()
 
 	e.modalMgr = NewModalManager()
 	e.Tray = NewTray(e)
@@ -94,11 +89,12 @@ func (e *Engine) Run() error {
 	return nil
 }
 
-func (e *Engine) hookShutdown(hwnd win.HWND) {
-	if hwnd == 0 {
+func (e *Engine) hookShutdown() {
+	if e.mw == nil || e.mw.Handle() == 0 {
 		return
 	}
 
+	hwnd := e.mw.Handle()
 	var prevWndProc uintptr
 	var shutdownOnce sync.Once
 
@@ -134,7 +130,7 @@ func (e *Engine) RunOnUI(fn func()) {
 		return
 	}
 
-	if e.hostHWND != 0 && win.GetCurrentThreadId() == win.GetWindowThreadProcessId(e.hostHWND, nil) {
+	if e.mw != nil && e.mw.Handle() != 0 && win.GetCurrentThreadId() == win.GetWindowThreadProcessId(e.mw.Handle(), nil) {
 		fn()
 		return
 	}
@@ -200,9 +196,9 @@ func (e *Engine) disposeAll() {
 		e.Tray.Dispose()
 		e.Tray = nil
 	}
-	if e.hostHWND != 0 {
-		win.DestroyWindow(e.hostHWND)
-		e.hostHWND = 0
+	if e.mw != nil {
+		e.mw.Dispose()
+		e.mw = nil
 	}
 }
 
@@ -269,7 +265,7 @@ func (e *Engine) ShowInfo(title, message string) {
 }
 
 func (e *Engine) showModalAsync(prefix, title, message string, style walk.MsgBoxStyle) {
-	if e.app == nil || e.hostHWND == 0 || e.modalMgr == nil {
+	if e.app == nil || e.mw == nil || e.modalMgr == nil {
 		slog.Warn("UI 未就绪，无法显示提示框", "title", title, "message", message)
 		return
 	}
@@ -309,11 +305,24 @@ func (e *Engine) ShowConfirm(title, message string) bool {
 }
 
 func (e *Engine) OpenYAMLFileDialog() (string, bool) {
+	if e.modalMgr == nil {
+		return "", false
+	}
+
+	const modalKey = "open_yaml_file_dialog"
 	var path string
 	var ok bool
+
 	e.RunOnUI(func() {
+		if !e.modalMgr.TryAcquire(modalKey) {
+			slog.Debug("文件选择对话框防抖拦截", "key", modalKey)
+			return
+		}
+		defer e.modalMgr.Release(modalKey)
+
 		path, ok = RunOpenYAMLFileDialog(e.activeOwner())
 	})
+
 	return path, ok
 }
 
