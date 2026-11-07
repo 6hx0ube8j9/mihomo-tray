@@ -70,7 +70,7 @@ func (e *Engine) Run() error {
 		return fmt.Errorf("创建后台宿主窗口失败: %w", err)
 	}
 
-	isableGhostToolbar(e.mw)
+	disableGhostToolbar(e.mw)
 	
 	e.hookShutdown()
 
