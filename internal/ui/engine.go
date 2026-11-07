@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"unsafe"
+	"syscall"
+	"errors"
 	"sync"
 
 	"github.com/tailscale/walk"
-	. "github.com/tailscale/walk/declarative"
 	"github.com/tailscale/win"
 	"golang.org/x/sys/windows"
 
