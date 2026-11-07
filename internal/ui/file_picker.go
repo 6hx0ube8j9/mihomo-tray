@@ -8,16 +8,11 @@ import (
 	"unsafe"
 
 	"github.com/tailscale/walk"
-	"github.com/tailscale/win"
 	"golang.org/x/sys/windows"
 )
 
-const (
-	whCBT        int32 = 5
-	hcbtActivate int32 = 5
-)
-
 var (
+	modOle32             = syscall.NewLazyDLL("ole32.dll")
 	procCoCreateInstance = modOle32.NewProc("CoCreateInstance")
 	procCoTaskMemFree    = modOle32.NewProc("CoTaskMemFree")
 
@@ -29,32 +24,7 @@ var (
 		Data1: 0xD57C7288, Data2: 0xD4AD, Data3: 0x4768,
 		Data4: [8]byte{0xBE, 0x02, 0x9D, 0x96, 0x95, 0x32, 0xD9, 0x60},
 	}
-
-	activeCbtHook   win.HHOOK
-	activeCbtOwner  win.HWND
-	cbtCallbackPtr  uintptr
 )
-
-func init() {
-	cbtCallbackPtr = syscall.NewCallback(cbtHookProc)
-}
-
-func cbtHookProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
-	if nCode == hcbtActivate {
-		dlgHwnd := win.HWND(wParam)
-		
-		if win.GetWindowLong(dlgHwnd, win.GWL_STYLE)&win.WS_CHILD == 0 {
-			x, y := calcCenteredPos(activeCbtOwner, dlgHwnd)
-			win.SetWindowPos(dlgHwnd, 0, x, y, 0, 0, win.SWP_NOSIZE|win.SWP_NOZORDER|win.SWP_NOACTIVATE)
-			
-			if activeCbtHook != 0 {
-				win.UnhookWindowsHookEx(activeCbtHook)
-				activeCbtHook = 0
-			}
-		}
-	}
-	return win.CallNextHookEx(activeCbtHook, nCode, wParam, lParam)
-}
 
 type comFilterSpec struct {
 	pszName *uint16
@@ -108,25 +78,14 @@ func RunOpenYAMLFileDialog(owner walk.Form) (string, bool) {
 	var ownerHwnd uintptr
 	if owner != nil {
 		ownerHwnd = uintptr(owner.Handle())
-		activeCbtOwner = owner.Handle()
-	} else {
-		activeCbtOwner = 0
 	}
 
-	activeCbtHook = win.SetWindowsHookEx(
-		whCBT,
-		cbtCallbackPtr,
-		0,
-		win.GetCurrentThreadId(),
-	)
-	defer func() {
-		if activeCbtHook != 0 {
-			win.UnhookWindowsHookEx(activeCbtHook)
-			activeCbtHook = 0
-		}
-	}()
+	var showRet uintptr
+	runWithCBTCenter(owner, nil, func() {
+		showRet = unknown.call(3, ownerHwnd)
+	})
 
-	if unknown.call(3, ownerHwnd) != 0 {
+	if showRet != 0 {
 		return "", false
 	}
 
@@ -134,7 +93,7 @@ func RunOpenYAMLFileDialog(owner walk.Form) (string, bool) {
 	if unknown.call(20, uintptr(unsafe.Pointer(&shellItem))) != 0 || shellItem == nil {
 		return "", false
 	}
-	defer shellItem.call(2)
+	defer shellItem.call(2) // Release
 
 	var pathPtr *uint16
 	if shellItem.call(5, 0x80058000, uintptr(unsafe.Pointer(&pathPtr))) != 0 || pathPtr == nil {
