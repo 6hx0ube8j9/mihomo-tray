@@ -41,26 +41,12 @@ func (d *Dashboard) Show() {
 }
 
 func (d *Dashboard) createWindow() {
-	const winW = 780
-	const winH = 450
-
-	monitor := walk.PrimaryMonitor()
-	workArea := monitor.WorkArea()
-	initX := workArea.X + (workArea.Width-winW)/2
-	initY := workArea.Y + (workArea.Height-winH)/2
-	if initX < 0 {
-		initX = 0
-	}
-	if initY < 0 {
-		initY = 0
-	}
-
 	err := MainWindow{
 		AssignTo: &d.window,
 		Title:    "管理配置",
 		Visible:  false,
 		MinSize:  Size{Width: 700, Height: 350},
-		Bounds:   Rectangle{X: initX, Y: initY, Width: winW, Height: winH},
+		Size:     Size{Width: 780, Height: 450},
 		Font:     Font{Family: "Microsoft YaHei", PointSize: 10},
 		Layout:   VBox{Margins: Margins{Left: 15, Top: 15, Right: 15, Bottom: 15}, Spacing: 10},
 		Children: d.ProfileView.Declarative(),
@@ -71,8 +57,15 @@ func (d *Dashboard) createWindow() {
 		return
 	}
 
+	hwnd := uintptr(d.window.Handle())
+	setWindowCloaked(hwnd, true)
+
 	disableGhostToolbar(d.window)
 	d.closePatch = ApplyHideOnClosePatch(d.window)
+	
+	centerWindow(d.window)
+
+	setWindowCloaked(hwnd, false)
 
 	if len(d.lastState.ProfileItems) > 0 || d.lastState.MixedPort != 0 {
 		d.ProfileView.RefreshData(d.lastState)
