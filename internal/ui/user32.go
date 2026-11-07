@@ -10,6 +10,8 @@ const (
 	hcbtActivate = 5
 	esWantReturn = 0x1000
 	pmRemove     = 1
+
+	dwmwaCloak = 13
 )
 
 var (
@@ -17,4 +19,17 @@ var (
 	procSetWindowsHookExW   = modUser32.NewProc("SetWindowsHookExW")
 	procUnhookWindowsHookEx = modUser32.NewProc("UnhookWindowsHookEx")
 	procCallNextHookEx      = modUser32.NewProc("CallNextHookEx")
+
+	modDwmapi                = syscall.NewLazyDLL("dwmapi.dll")
+	procDwmSetWindowAttribute = modDwmapi.NewProc("DwmSetWindowAttribute")
 )
+
+func setWindowCloaked(hwnd uintptr, cloaked bool) {
+	if procDwmSetWindowAttribute.Find() == nil {
+		var val int32
+		if cloaked {
+			val = 1
+		}
+		procDwmSetWindowAttribute.Call(hwnd, uintptr(dwmwaCloak), uintptr(unsafe.Pointer(&val)), 4)
+	}
+}
