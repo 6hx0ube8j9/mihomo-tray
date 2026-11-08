@@ -28,26 +28,27 @@ func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand)
 
 	a.asyncRun("TUN 模式", func() error {
 		if enable && !a.Platform.IsAdmin() {
-			a.Cfg.Update(func(c *domain.TrayConfig) {
-				c.Config.Tun.Enable = true
-			})
-			a.State.SetTunRequestedTime(time.Now())
-
-			restarted, err := a.Platform.Elevate()
-			if err != nil || !restarted {
-				a.Cfg.Update(func(c *domain.TrayConfig) {
-					c.Config.Tun.Enable = false
-				})
-				a.State.ClearTunStarting()
-
-				if err != nil {
-					slog.Debug("TUN 提权调用失败或被取消", "err", err)
-				}
-				return nil
+			targetDev := a.State.GetActualTunDevice()
+			if targetDev == "" {
+				targetDev = domain.DefaultTunDevice
+			}
+			if sys.IsTunActive(targetDev) {
+				slog.Warn("虚拟网卡已被占用，无法开启 TUN", "device", targetDev)
+				return ErrTunDeviceBusy
 			}
 
-			a.ExitForRestart()
-			return nil
+			originalTun := a.Cfg.GetConfig().Config.Tun.Enable
+			return a.elevateAndRestart("TUN 模式", func() {
+				a.Cfg.Update(func(c *domain.TrayConfig) {
+					c.Config.Tun.Enable = true
+				})
+				a.State.SetTunRequestedTime(time.Now())
+			}, func() {
+				a.Cfg.Update(func(c *domain.TrayConfig) {
+					c.Config.Tun.Enable = originalTun
+				})
+				a.State.ClearTunStarting()
+			})
 		}
 
 		return a.KernelTuner.ToggleTun(ctx, enable)
