@@ -203,7 +203,7 @@ func (a *Application) openProfile(targetRelPath string) error {
 		targetRelPath = a.Cfg.GetActivePath()
 	}
 	if targetRelPath == "" {
-		return errors.New("未选择任何配置文件")
+		return errors.New("未选择配置文件")
 	}
 	if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
 		return err
@@ -212,9 +212,17 @@ func (a *Application) openProfile(targetRelPath string) error {
 }
 
 func (a *Application) handleOpenConfigFile(_ context.Context, cmd domain.UICommand) {
-    a.asyncRun("打开配置", func() error { return a.openProfile(cmd.Payload) })
+	go func() {
+		if err := a.openProfile(cmd.Payload); err != nil {
+			a.notifyError("打开配置", err)
+		}
+	}()
 }
 
 func (a *Application) handleEditCurrentConfig(_ context.Context, _ domain.UICommand) {
-    a.asyncRun("编辑配置", func() error { return a.openProfile("") })
+	go func() {
+		if err := a.openProfile(""); err != nil {
+			a.notifyError("编辑配置", err)
+		}
+	}()
 }
