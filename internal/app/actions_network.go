@@ -12,21 +12,15 @@ import (
 // ============================================================================
 
 func (a *Application) handleToggleProxy(_ context.Context, cmd domain.UICommand) {
-	go func() {
-		defer a.Presenter.PushUIState()
+	enable := (cmd.Payload == "true")
+	title := "开启系统代理"
+	if !enable {
+		title = "关闭系统代理"
+	}
 
-		enable := cmd.Payload == "true"
-		err := a.ProxyGuard.SetProxy(enable)
-		if err == nil {
-			return
-		}
-
-		title := "开启系统代理"
-		if !enable {
-			title = "关闭系统代理"
-		}
-		a.notifyError(title, err)
-	}()
+	a.asyncRunError(title, func() error {
+		return a.ProxyGuard.SetProxy(enable)
+	})
 }
 
 func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand) {
