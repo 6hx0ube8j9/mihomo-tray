@@ -17,9 +17,27 @@ import (
 
 const RemoteFetchTimeout = 90 * time.Second
 
+// debugLogFullURL controls whether to log unredacted subscription URLs with sensitive tokens for debugging.
+const debugLogFullURL = false
+
+func sanitizeURL(rawURL string) string {
+	if debugLogFullURL {
+		return rawURL
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "[无效URL]"
+	}
+	u.RawQuery = ""
+	u.User = nil
+	return u.String()
+}
+
 func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPort string) (*domain.FetchResult, error) {
 	subURL = strings.TrimSpace(subURL)
-	slog.Info("开始拉取订阅", "url", subURL)
+	logURL := sanitizeURL(subURL)
+
+	slog.Info("拉取订阅", "url", logURL)
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	defer transport.CloseIdleConnections()
@@ -28,7 +46,7 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 		if u, err := url.Parse("http://127.0.0.1:" + proxyPort); err == nil {
 			transport.Proxy = http.ProxyURL(u)
 		} else {
-			slog.Warn("代理端口解析失败，降级为系统环境变量代理", "port", proxyPort)
+			slog.Warn("代理端口无效，使用系统代理", "port", proxyPort)
 		}
 	} else {
 		transport.Proxy = http.ProxyFromEnvironment
@@ -41,7 +59,7 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 
 	var resp *http.Response
 	var reqErr error
-	maxRetries := 3
+	const maxRetries = 3
 
 	for i := 0; i < maxRetries; i++ {
 		if ctx.Err() != nil {
@@ -50,7 +68,7 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 
 		req, err := http.NewRequestWithContext(ctx, "GET", subURL, nil)
 		if err != nil {
-			return nil, fmt.Errorf("无效的订阅链接格式: %w", err)
+			return nil, fmt.Errorf("无效的订阅链接: %w", err)
 		}
 
 		req.Header.Set("User-Agent", domain.DefaultUserAgent)
@@ -58,7 +76,6 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 		req.Header.Set("Connection", "keep-alive")
 
 		resp, reqErr = client.Do(req)
-
 		if reqErr == nil && resp.StatusCode < 500 {
 			break
 		}
@@ -67,7 +84,7 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
 			}
-			slog.Warn("网络不稳定，准备进行自动重试", "url", subURL, "retry", i+1, "err", reqErr)
+			slog.Warn("拉取订阅重试", "url", logURL, "retry", i+1, "err", reqErr)
 
 			select {
 			case <-ctx.Done():
@@ -78,29 +95,28 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 	}
 
 	if reqErr != nil {
-		return nil, fmt.Errorf("连接订阅服务器失败 (已重试%d次): %w", maxRetries, reqErr)
+		return nil, fmt.Errorf("请求订阅失败 (%d次重试): %w", maxRetries, reqErr)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("服务器拒绝提供配置 (HTTP %d)", resp.StatusCode)
+		return nil, fmt.Errorf("订阅服务器返回 HTTP %d", resp.StatusCode)
 	}
 
 	contentType := strings.ToLower(resp.Header.Get("Content-Type"))
 	if strings.Contains(contentType, "text/html") {
-		return nil, errors.New("订阅链接返回了网页内容而非代理配置")
+		return nil, errors.New("订阅返回内容为 HTML 网页")
 	}
 
 	tmpName, err := fs.SaveTempWithLimit(m.ProfilesDirAbs(), "sub_*.tmp", resp.Body, domain.MaxProfileBytes)
 	if err != nil {
-		return nil, fmt.Errorf("订阅写入临时文件失败: %w", err)
+		return nil, fmt.Errorf("保存临时文件失败: %w", err)
 	}
 
 	res := &domain.FetchResult{TempPath: tmpName}
 
 	if userInfo := resp.Header.Get("subscription-userinfo"); userInfo != "" {
-		parts := strings.Split(userInfo, ";")
-		for _, part := range parts {
+		for _, part := range strings.Split(userInfo, ";") {
 			kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
 			if len(kv) == 2 {
 				val, _ := strconv.ParseInt(kv[1], 10, 64)
@@ -130,7 +146,7 @@ func (m *Manager) CommitRemoteProfile(tempPath string, targetRelPath string, ite
 
 	targetAbs := m.GetProfileAbsPath(targetRelPath)
 	if err := fs.ReplaceAtomic(tempPath, targetAbs); err != nil {
-		return fmt.Errorf("保存配置文件失败: %w", err)
+		return fmt.Errorf("更新配置失败: %w", err)
 	}
 
 	m.UpsertProfile(item)
