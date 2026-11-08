@@ -72,52 +72,39 @@ func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UIComm
 			return nil
 		}
 
-		a.Cfg.Update(func(c *domain.TrayConfig) {
-			b := enable
-			c.General.Autostart = &b
-		})
-
-		restarted, err := a.Platform.Elevate()
-		if err != nil || !restarted {
+		return a.elevateAndRestart("开机自启", func() {
+			a.Cfg.Update(func(c *domain.TrayConfig) {
+				b := enable
+				c.General.Autostart = &b
+			})
+		}, func() {
 			a.Cfg.Update(func(c *domain.TrayConfig) {
 				b := !enable
 				c.General.Autostart = &b
 			})
-			if err != nil {
-				return fmt.Errorf("提权失败: %w", err)
-			}
-			return nil
-		}
-
-		a.ExitForRestart()
-		return nil
+		})
 	})
 }
 
 func (a *Application) handleToggleRunAsAdmin(_ context.Context, cmd domain.UICommand) {
 	enable := cmd.Payload == "true"
 	a.asyncRun("管理员模式", func() error {
-		a.Cfg.Update(func(c *domain.TrayConfig) {
-			c.General.RunAsAdmin = enable
-		})
-
 		if !enable || a.Platform.IsAdmin() {
+			a.Cfg.Update(func(c *domain.TrayConfig) {
+				c.General.RunAsAdmin = enable
+			})
 			return nil
 		}
 
-		restarted, err := a.Platform.Elevate()
-		if err != nil || !restarted {
+		return a.elevateAndRestart("管理员模式", func() {
+			a.Cfg.Update(func(c *domain.TrayConfig) {
+				c.General.RunAsAdmin = true
+			})
+		}, func() {
 			a.Cfg.Update(func(c *domain.TrayConfig) {
 				c.General.RunAsAdmin = false
 			})
-			if err != nil {
-				return fmt.Errorf("提权失败: %w", err)
-			}
-			return nil
-		}
-
-		a.ExitForRestart()
-		return nil
+		})
 	})
 }
 
