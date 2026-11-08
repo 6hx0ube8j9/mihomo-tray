@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"mihomo-tray/internal/domain"
-	"mihomo-tray/internal/sys"
 )
 
 // ============================================================================
@@ -34,9 +33,9 @@ func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand)
 			if targetDev == "" {
 				targetDev = domain.DefaultTunDevice
 			}
-			if sys.IsTunActive(targetDev) {
-				slog.Warn("虚拟网卡已被占用，无法开启 TUN", "device", targetDev)
-				return ErrTunDeviceBusy
+			if a.Platform.IsTunActive(targetDev) {
+				slog.Warn("虚拟网卡已被占用", "device", targetDev)
+				return domain.ErrTunDeviceBusy
 			}
 
 			originalTun := a.Cfg.GetConfig().Config.Tun.Enable
