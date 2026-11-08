@@ -31,12 +31,14 @@ func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand)
 			a.Cfg.Update(func(c *domain.TrayConfig) {
 				c.Config.Tun.Enable = true
 			})
+			a.State.SetTunRequestedTime(time.Now())
 
 			restarted, err := a.Platform.Elevate()
 			if err != nil || !restarted {
 				a.Cfg.Update(func(c *domain.TrayConfig) {
 					c.Config.Tun.Enable = false
 				})
+				a.State.ClearTunStarting()
 
 				if err != nil {
 					slog.Debug("TUN 提权调用失败或被取消", "err", err)
