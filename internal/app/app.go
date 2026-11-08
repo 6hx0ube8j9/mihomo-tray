@@ -78,6 +78,7 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 		if app.ui != nil {
 			app.ui.ShowNotification(title, msg)
 		}
+		app.Presenter.PushUIState()
 	})
 
 	app.KernelDeployer = NewKernelDeployer(cm, st, kernel, api)
