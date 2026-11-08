@@ -112,6 +112,22 @@ func (a *Application) asyncRunError(title string, task func() error) {
 	}()
 }
 
+func (a *Application) elevateAndRestart(title string, commit func(), rollback func()) error {
+	commit()
+
+	restarted, err := a.Platform.Elevate()
+	if err != nil || !restarted {
+		rollback()
+		if err != nil {
+			slog.Debug(title+" 提权调用失败或被取消", "err", err)
+		}
+		return nil
+	}
+
+	a.ExitForRestart()
+	return nil
+}
+
 // ============================================================================
 // 2. 指令路由中心 (Command Dispatcher Router)
 // ============================================================================
