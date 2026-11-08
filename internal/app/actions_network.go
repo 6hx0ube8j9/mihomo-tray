@@ -39,7 +39,7 @@ func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand)
 				})
 
 				if err != nil {
-					slog.Warn("TUN 提权调用失败或被取消", "err", err)
+					slog.Debug("TUN 提权调用失败或被取消", "err", err)
 				}
 				return nil
 			}
