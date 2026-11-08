@@ -13,9 +13,9 @@ import (
 
 func (a *Application) handleToggleProxy(_ context.Context, cmd domain.UICommand) {
 	enable := (cmd.Payload == "true")
-	title := "开启系统代理"
+	title := "开启代理"
 	if !enable {
-		title = "关闭系统代理"
+		title = "关闭代理"
 	}
 
 	a.asyncRunError(title, func() error {
