@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/sys"
 )
 
 // ============================================================================
