@@ -70,3 +70,8 @@ func (p *Platform) Elevate() (restarted bool, err error) {
 	slog.Info("提权子进程已成功唤起")
 	return true, nil
 }
+
+// IsTunActive 检查指定的虚拟网卡设备是否处于激活状态
+func (p *Platform) IsTunActive(targetDevice string) bool {
+    return sys.IsTunActive(targetDevice)
+}
