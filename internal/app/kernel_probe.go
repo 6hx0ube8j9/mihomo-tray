@@ -200,7 +200,7 @@ func (p *KernelProbe) reconcileTunStatus(
 	kernelDevice, targetDev string,
 	realAlive bool,
 ) (rollback bool, reason string, tunDiff *bool, changed bool) {
-
+	
 	if !sys.IsAdmin() {
 		return false, "", nil, false
 	}
