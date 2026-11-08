@@ -12,12 +12,22 @@ import (
 // ============================================================================
 
 func (a *Application) handleToggleProxy(_ context.Context, cmd domain.UICommand) {
-	a.asyncRun("系统代理", func() error {
-		a.ProxyGuard.SetProxy(cmd.Payload == "true")
-		return nil
-	})
-}
+	go func() {
+		defer a.Presenter.PushUIState()
 
+		enable := cmd.Payload == "true"
+		err := a.ProxyGuard.SetProxy(enable)
+		if err == nil {
+			return
+		}
+
+		title := "开启系统代理"
+		if !enable {
+			title = "关闭系统代理"
+		}
+		a.notifyError(title, err)
+	}()
+}
 
 func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand) {
 	enable := (cmd.Payload == "true")
@@ -35,7 +45,7 @@ func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand)
 				})
 
 				if err != nil {
-					slog.Warn("TUN 提权调用失败", "err", err)
+					slog.Warn("TUN 提权调用失败或被取消", "err", err)
 				}
 				return nil
 			}
@@ -44,10 +54,7 @@ func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand)
 			return nil
 		}
 
-		if err := a.KernelTuner.ToggleTun(ctx, enable); err != nil {
-			slog.Warn("TUN 模式切换失败", "enable", enable, "err", err)
-		}
-		return nil
+		return a.KernelTuner.ToggleTun(ctx, enable)
 	})
 }
 
