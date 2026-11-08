@@ -46,13 +46,13 @@ func (a *Application) handleRestartKernel(ctx context.Context, _ domain.UIComman
 }
 
 func (a *Application) handleOpenBaseDir(_ context.Context, _ domain.UICommand) {
-	a.asyncRun("打开主目录", func() error {
+	a.asyncRunError("打开主目录", func() error {
 		return a.Platform.OpenFolder(a.Cfg.BaseDir())
 	})
 }
 
 func (a *Application) handleOpenAppConfig(_ context.Context, _ domain.UICommand) {
-	a.asyncRun("打开程序配置", func() error {
+	a.asyncRunError("打开程序配置", func() error {
 		jsonPath := filepath.Join(a.Cfg.BaseDir(), domain.TrayConfigName)
 		return a.Platform.OpenFile(jsonPath)
 	})
