@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
 	"path/filepath"
 
 	"mihomo-tray/internal/domain"
