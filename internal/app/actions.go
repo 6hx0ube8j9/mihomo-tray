@@ -95,6 +95,23 @@ func (a *Application) asyncRun(title string, task func() error) {
 	}()
 }
 
+func (a *Application) asyncRunError(title string, task func() error) {
+	go func() {
+		defer a.Presenter.ForcePushUIState()
+
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("主动任务 Panic 崩溃拦截", "title", title, "panic", r)
+				a.notifyError(title, fmt.Errorf("运行时异常: %v", r))
+			}
+		}()
+
+		if err := task(); err != nil {
+			a.notifyError(title, err)
+		}
+	}()
+}
+
 // ============================================================================
 // 2. 指令路由中心 (Command Dispatcher Router)
 // ============================================================================
