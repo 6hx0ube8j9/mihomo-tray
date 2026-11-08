@@ -150,6 +150,7 @@ func (p *Presenter) hasStateChanged(curr, last *domain.UIState) bool {
 		curr.Mode != last.Mode || curr.AllowLan != last.AllowLan ||
 		curr.AutoStart != last.AutoStart || curr.RunAsAdmin != last.RunAsAdmin ||
 		curr.WebOpenMode != last.WebOpenMode ||
+		curr.RemoteWebUI != last.RemoteWebUI ||
 		curr.IsAdmin != last.IsAdmin || curr.CanAddProfile != last.CanAddProfile ||
 		curr.SystemTheme != last.SystemTheme ||
 		curr.MixedPort != last.MixedPort || curr.SocksPort != last.SocksPort ||
@@ -158,8 +159,10 @@ func (p *Presenter) hasStateChanged(curr, last *domain.UIState) bool {
 	}
 
 	for i := range curr.ProfileItems {
-		if curr.ProfileItems[i].Path != last.ProfileItems[i].Path ||
+		if curr.ProfileItems[i].Name != last.ProfileItems[i].Name ||
+			curr.ProfileItems[i].Path != last.ProfileItems[i].Path ||
 			curr.ProfileItems[i].IsActive != last.ProfileItems[i].IsActive ||
+			curr.ProfileItems[i].IsRemote != last.ProfileItems[i].IsRemote ||
 			curr.ProfileItems[i].Interval != last.ProfileItems[i].Interval ||
 			curr.ProfileItems[i].LastUpdate != last.ProfileItems[i].LastUpdate {
 			return true
