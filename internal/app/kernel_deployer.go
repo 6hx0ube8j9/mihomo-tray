@@ -46,7 +46,7 @@ func (d *KernelDeployer) ReloadConfig(ctx context.Context) error {
 		return err
 	}
 
-	slog.Debug("重载配置成功", "target", activePath)
+	slog.Info("重载配置成功", "target", activePath)
 	return nil
 }
 
@@ -66,9 +66,9 @@ func (d *KernelDeployer) DeployAndApply(ctx context.Context, targetRelPath, acti
 	}
 
 	if d.IsKernelRunning() {
-		slog.Debug("正在应用配置", "action", actionDesc, "target", targetRelPath)
+		slog.Info("正在应用配置", "action", actionDesc, "target", targetRelPath)
 		if err := d.api.ForceReloadKernel(ctx, runtimeAbs); err == nil {
-			slog.Debug("配置应用成功", "action", actionDesc, "target", targetRelPath)
+			slog.Info("配置应用成功", "action", actionDesc, "target", targetRelPath)
 			return nil
 		}
 		slog.Warn("重载配置失败，回退重启内核", "action", actionDesc, "target", targetRelPath, "err", err)
