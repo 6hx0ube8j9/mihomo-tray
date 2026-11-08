@@ -212,17 +212,9 @@ func (a *Application) openProfile(targetRelPath string) error {
 }
 
 func (a *Application) handleOpenConfigFile(_ context.Context, cmd domain.UICommand) {
-	go func() {
-		if err := a.openProfile(cmd.Payload); err != nil {
-			a.notifyError("打开配置", err)
-		}
-	}()
+    a.asyncRunError("打开配置", func() error { return a.openProfile(cmd.Payload) })
 }
 
 func (a *Application) handleEditCurrentConfig(_ context.Context, _ domain.UICommand) {
-	go func() {
-		if err := a.openProfile(""); err != nil {
-			a.notifyError("编辑配置", err)
-		}
-	}()
+    a.asyncRunError("编辑配置", func() error { return a.openProfile("") })
 }
