@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -34,21 +35,36 @@ func NewProxyGuard(cfg *config.Manager, st *state.RuntimeState, onAlert func(tit
 	}
 }
 
-func (g *ProxyGuard) SetProxy(enable bool) {
+func (g *ProxyGuard) SetProxy(enable bool) error {
 	if g.st.IsExiting() {
-		return
+		return nil
 	}
 
 	if !enable {
 		g.disableInternal()
-		return
+		return nil
+	}
+
+	portStr, hasPort := g.cfg.GetEffectiveSystemProxyPortStr()
+	if !hasPort {
+		return domain.ErrNoProxyPort
+	}
+
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	slog.Debug("设置系统代理", "enabled", true, "port", portStr)
+	if err := sys.EnableProxy(portStr); err != nil {
+		slog.Error("设置系统代理失败", "err", err)
+		return err
 	}
 
 	g.cfg.Update(func(c *domain.TrayConfig) {
 		b := true
 		c.General.SystemProxy = &b
 	})
-	g.Sync()
+	g.lastAppliedPort = portStr
+	return nil
 }
 
 func (g *ProxyGuard) Sync() {
@@ -68,17 +84,17 @@ func (g *ProxyGuard) Sync() {
 	}
 
 	if !hasPort {
-		slog.Warn("未检测到有效代理端口，已停用系统代理")
+		slog.Warn("系统代理已停用", "err", domain.ErrNoProxyPort)
 		g.disableInternalLocked()
 		if g.onAlert != nil {
-			g.onAlert("系统代理已停用", "未检测到有效代理端口")
+			g.onAlert("系统代理已停用", domain.ErrNoProxyPort.Error())
 		}
 		return
 	}
 
-	slog.Debug("设置系统代理", "enabled", true, "port", portStr)
+	slog.Debug("同步系统代理", "enabled", true, "port", portStr)
 	if err := sys.EnableProxy(portStr); err != nil {
-		slog.Error("设置系统代理失败", "err", err)
+		slog.Error("同步系统代理失败", "err", err)
 		return
 	}
 
