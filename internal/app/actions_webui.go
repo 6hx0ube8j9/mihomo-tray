@@ -127,7 +127,7 @@ func (a *Application) handleClearWebUICache(_ context.Context, _ domain.UIComman
 		}
 
 		if err := a.WebUIService.ClearCache(); err != nil {
-			a.ui.ShowError("操作失败", err.Error())
+			a.notifyError("清理缓存", err)
 			return
 		}
 
