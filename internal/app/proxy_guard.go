@@ -53,7 +53,7 @@ func (g *ProxyGuard) SetProxy(enable bool) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	slog.Debug("设置系统代理", "enabled", true, "port", portStr)
+	slog.Info("设置系统代理", "enabled", true, "port", portStr)
 	if err := sys.EnableProxy(portStr); err != nil {
 		slog.Error("设置系统代理失败", "err", err)
 		return err
