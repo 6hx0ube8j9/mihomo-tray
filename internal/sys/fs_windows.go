@@ -14,6 +14,38 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+var (
+	ErrInvalidPath         = errors.New("无效路径")
+	ErrSystemProtectedDir  = errors.New("系统保护目录")
+	ErrOtherUserProfileDir = errors.New("其他用户目录")
+	ErrDirPermissionDenied = errors.New("无写入权限")
+)
+
+func ValidateDirWritable(dir string) error {
+	if strings.TrimSpace(dir) == "" {
+		return ErrInvalidPath
+	}
+
+	cleanDir := filepath.Clean(dir)
+
+	if IsOtherUserProfileDir(cleanDir) {
+		return fmt.Errorf("%w: %s", ErrOtherUserProfileDir, cleanDir)
+	}
+
+	if IsSystemProtectedDir(cleanDir) {
+		return fmt.Errorf("%w: %s", ErrSystemProtectedDir, cleanDir)
+	}
+
+	if err := ProbeDirWritable(cleanDir); err != nil {
+		if IsPermissionError(err) {
+			return fmt.Errorf("%w: %s", ErrDirPermissionDenied, cleanDir)
+		}
+		return err
+	}
+
+	return nil
+}
+
 func IsSubOrSameDir(parent, target string) bool {
 	if parent == "" || target == "" {
 		return false
@@ -41,13 +73,13 @@ func IsSystemProtectedDir(dir string) bool {
 	}
 
 	protectedRoots := []string{
-		os.Getenv("SystemRoot"), 
+		os.Getenv("SystemRoot"),
 		os.Getenv("ProgramFiles"),
-		os.Getenv("ProgramFiles(x86)"), 
-		os.Getenv("ProgramW6432"),                            
-		filepath.Join(sysDrive, "PerfLogs"), 
-		filepath.Join(sysDrive, "Recovery"), 
-		filepath.Join(sysDrive, "$Recycle.Bin"), 
+		os.Getenv("ProgramFiles(x86)"),
+		os.Getenv("ProgramW6432"),
+		filepath.Join(sysDrive, "PerfLogs"),
+		filepath.Join(sysDrive, "Recovery"),
+		filepath.Join(sysDrive, "$Recycle.Bin"),
 		filepath.Join(sysDrive, "System Volume Information"),
 	}
 
@@ -71,7 +103,6 @@ func IsOtherUserProfileDir(dir string) bool {
 	if !IsSubOrSameDir(usersRoot, cleanDir) {
 		return false
 	}
-
 	if IsSubOrSameDir(currentUserProfile, cleanDir) {
 		return false
 	}
