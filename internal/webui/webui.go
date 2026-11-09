@@ -65,14 +65,18 @@ func emitEvent(ch chan<- Event, event Event) {
 }
 
 func (m *Manager) checkSandboxedEnvironment(baseDir string) error {
-	m.envCheckMu.Lock()
-	defer m.envCheckMu.Unlock()
+    m.envCheckMu.Lock()
+    defer m.envCheckMu.Unlock()
 
-	if !m.envChecked {
-		m.envCheckErr = sys.ValidateDirWritable(filepath.Join(baseDir, domain.WebCacheDir))
-		m.envChecked = true
-	}
-	return m.envCheckErr
+    if m.envChecked {
+        return m.envCheckErr
+    }
+
+    cacheBaseDir := filepath.Join(baseDir, domain.WebCacheDir)
+    m.envCheckErr = sys.ValidateDirWritable(cacheBaseDir)
+    m.envChecked = true
+
+    return m.envCheckErr
 }
 
 func (m *Manager) Launch(cfg Config, eventCh chan<- Event, onReady func()) {
