@@ -68,29 +68,10 @@ func (m *Manager) checkSandboxedEnvironment(baseDir string) error {
 	m.envCheckMu.Lock()
 	defer m.envCheckMu.Unlock()
 
-	if m.envChecked {
-		return m.envCheckErr
+	if !m.envChecked {
+		m.envCheckErr = sys.ValidateDirWritable(filepath.Join(baseDir, domain.WebCacheDir))
+		m.envChecked = true
 	}
-
-	cleanBase := filepath.Clean(baseDir)
-	if sys.IsOtherUserProfileDir(cleanBase) {
-		m.envCheckErr = errors.New("受限于其他用户目录权限")
-	} else if sys.IsAdmin() && sys.IsSystemProtectedDir(cleanBase) {
-		m.envCheckErr = errors.New("系统保护目录无写入权限")
-	} else {
-		cacheBaseDir := filepath.Join(cleanBase, domain.WebCacheDir)
-		if err := sys.ProbeDirWritable(cacheBaseDir); err != nil {
-			if sys.IsPermissionError(err) {
-				m.envCheckErr = errors.New("无目录写入权限")
-			} else {
-				m.envCheckErr = err
-			}
-		} else {
-			m.envCheckErr = nil
-		}
-	}
-
-	m.envChecked = true
 	return m.envCheckErr
 }
 
