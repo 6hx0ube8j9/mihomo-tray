@@ -26,7 +26,10 @@ func ValidateDirWritable(dir string) error {
 		return ErrInvalidPath
 	}
 
-	cleanDir := filepath.Clean(dir)
+	cleanDir, err := filepath.Abs(dir)
+	if err != nil {
+		return fmt.Errorf("%w: %s", ErrInvalidPath, dir)
+	}
 
 	if IsOtherUserProfileDir(cleanDir) {
 		return fmt.Errorf("%w: %s", ErrOtherUserProfileDir, cleanDir)
@@ -61,14 +64,23 @@ func IsSubOrSameDir(parent, target string) bool {
 }
 
 func IsSystemProtectedDir(dir string) bool {
-	cleanDir := filepath.Clean(dir)
-	sysDrive := os.Getenv("SystemDrive")
-	if sysDrive == "" {
-		sysDrive = "C:"
+	cleanDir, err := filepath.Abs(dir)
+	if err != nil {
+		cleanDir = filepath.Clean(dir)
 	}
 
-	trimmed := strings.TrimRight(cleanDir, `\.`)
-	if strings.EqualFold(trimmed, sysDrive) {
+	vol := filepath.VolumeName(cleanDir)
+	if vol == "" {
+		vol = os.Getenv("SystemDrive")
+		if vol == "" {
+			vol = "C:"
+		}
+	}
+
+	driveRoot := vol + string(filepath.Separator)
+
+	trimmed := strings.TrimRight(cleanDir, `/\.`)
+	if strings.EqualFold(trimmed, strings.TrimRight(vol, `/\.`)) {
 		return true
 	}
 
@@ -77,10 +89,12 @@ func IsSystemProtectedDir(dir string) bool {
 		os.Getenv("ProgramFiles"),
 		os.Getenv("ProgramFiles(x86)"),
 		os.Getenv("ProgramW6432"),
-		filepath.Join(sysDrive, "PerfLogs"),
-		filepath.Join(sysDrive, "Recovery"),
-		filepath.Join(sysDrive, "$Recycle.Bin"),
-		filepath.Join(sysDrive, "System Volume Information"),
+		filepath.Join(driveRoot, "PerfLogs"),
+		filepath.Join(driveRoot, "Recovery"),
+		filepath.Join(driveRoot, "$Recycle.Bin"),
+		filepath.Join(driveRoot, "System Volume Information"),
+		filepath.Join(driveRoot, "WindowsApps"),
+		filepath.Join(driveRoot, "WpSystem"),
 	}
 
 	for _, root := range protectedRoots {
@@ -97,7 +111,11 @@ func IsOtherUserProfileDir(dir string) bool {
 		return false
 	}
 
-	cleanDir := filepath.Clean(dir)
+	cleanDir, err := filepath.Abs(dir)
+	if err != nil {
+		cleanDir = filepath.Clean(dir)
+	}
+
 	usersRoot := filepath.Dir(currentUserProfile)
 
 	if !IsSubOrSameDir(usersRoot, cleanDir) {
@@ -138,6 +156,10 @@ func IsPermissionError(err error) bool {
 }
 
 func ProbeDirWritable(dir string) error {
+	if strings.TrimSpace(dir) == "" {
+		return ErrInvalidPath
+	}
+
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
@@ -148,10 +170,8 @@ func ProbeDirWritable(dir string) error {
 		return err
 	}
 
-	defer func() {
-		_ = probeFile.Close()
-		_ = os.Remove(probePath)
-	}()
+	_ = probeFile.Close()
+	_ = os.Remove(probePath)
 
 	return nil
 }
