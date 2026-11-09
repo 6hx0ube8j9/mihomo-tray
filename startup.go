@@ -49,7 +49,8 @@ func superviseStartup(exePath, baseDir string) (*sys.SingleInstanceGuard, io.Clo
 		dirErr = sys.ValidateDirWritable(baseDir)
 	}
 
-	taskInSync, needElevate := inspectAndSyncAutostart(cfgMgr, exePath, baseDir, admin)
+	taskInSync, needElevate := inspectAndSyncAutostart(cfgMgr, exePath, baseDir, admin, dirErr == nil)
+
 	handleElevation(cfgMgr, exePath, baseDir, isAutostart, taskInSync, needElevate, dirErr, guard, exitProcess)
 
 	return guard, logWriter, cfgMgr
@@ -98,14 +99,14 @@ func parseRestartingPID(args []string) uint32 {
 	return 0
 }
 
-func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, isAdmin bool) (taskInSync bool, needElevate bool) {
+func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, isAdmin, canWrite bool) (taskInSync, needElevate bool) {
 	osTaskExists := sys.CheckAutoStartStatus(domain.AppTaskName)
 	cfgAutostart := cfgMgr.IsAutostartEnabled()
 
 	if !osTaskExists {
 		if cfgAutostart {
 			if isAdmin {
-				slog.Info("注册自启动任务")
+				slog.Info("注册自启动计划任务")
 				taskInSync = sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
 			} else {
 				needElevate = true
@@ -119,15 +120,17 @@ func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, is
 
 		if !cfgAutostart {
 			if !isAdmin {
-				slog.Info("检测到系统已存在有效自启动任务，自动认领并同步本地配置为开启")
-				cfgMgr.Update(func(c *domain.TrayConfig) {
-					b := true
-					c.General.Autostart = &b
-				})
+				if canWrite {
+					slog.Info("认领有效自启动任务，同步本地配置")
+					cfgMgr.Update(func(c *domain.TrayConfig) {
+						b := true
+						c.General.Autostart = &b
+					})
+				}
 				return true, false
 			}
 
-			slog.Info("用户主动关闭自启动，执行计划任务注销")
+			slog.Info("用户关闭自启动，注销计划任务")
 			if sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, false) {
 				taskInSync = false
 			}
@@ -140,7 +143,7 @@ func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, is
 	if !sys.CheckPathExists(oldPath) {
 		if cfgAutostart {
 			if isAdmin {
-				slog.Info("检测到旧路径已失效，更新自启动任务", "old", oldPath, "new", exePath)
+				slog.Info("更新失效自启动任务", "path", exePath)
 				taskInSync = sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
 			} else {
 				needElevate = true
@@ -151,45 +154,59 @@ func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, is
 
 	if cfgAutostart {
 		if isAdmin {
-			slog.Info("用户显式授权管理员权限，强制覆写自启动任务指向当前路径", "old", oldPath, "new", exePath)
+			slog.Info("管理员强制覆写自启动任务指向", "path", exePath)
 			taskInSync = sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
 			return taskInSync, false
 		}
 
-		slog.Warn("已有自启动任务指向其他存活程序，当前普通权限副本放弃自启动", "path", oldPath)
-		cfgMgr.Update(func(c *domain.TrayConfig) {
-			b := false
-			c.General.Autostart = &b
-		})
+		if canWrite {
+			slog.Warn("自启动已被外部路径占用，当前实例放弃自启", "old", oldPath)
+			cfgMgr.Update(func(c *domain.TrayConfig) {
+				b := false
+				c.General.Autostart = &b
+			})
+		}
 	}
 
 	return false, false
 }
 
-func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostart, taskInSync, needElevate bool, dirErr error, guard *sys.SingleInstanceGuard, exitProcess func(int)) {
-	if sys.IsAdmin() || isAutostart {
+func handleElevation(
+	cfgMgr *config.Manager,
+	exePath, baseDir string,
+	isAutostart, taskInSync, needElevate bool,
+	dirErr error,
+	guard *sys.SingleInstanceGuard,
+	exitProcess func(int),
+) {
+	if sys.IsAdmin() {
+		return
+	}
+
+	isDirRestricted := (dirErr != nil)
+
+	if isAutostart && !isDirRestricted {
 		return
 	}
 
 	cfgAutostart := cfgMgr.IsAutostartEnabled()
 	runAsAdmin := cfgMgr.GetConfig().General.RunAsAdmin
-	isDirRestricted := (dirErr != nil)
 
 	if taskInSync && (cfgAutostart || runAsAdmin || isDirRestricted) {
-		slog.Info("检测到自启动任务已就绪，通过计划任务执行静默提权")
+		slog.Info("通过就绪的计划任务执行静默提权")
 
 		guard.Close()
 		err := sys.RunScheduledTask(domain.AppTaskName)
 		if err == nil {
-			slog.Info("计划任务静默提权成功，受限实例退出")
+			slog.Info("静默提权成功，受限实例退出")
 			exitProcess(0)
 			return
 		}
 
-		slog.Warn("计划任务静默提权失败，降级为 UAC 弹窗", "error", err)
+		slog.Warn("静默提权失败，降级为 UAC 弹窗", "err", err)
 		reacquiredGuard, isOwner := sys.TryAcquireSingleInstance(domain.AppMutexName, domain.ShowUIEventName, 0)
 		if !isOwner {
-			slog.Warn("锁已被其他实例接管，当前进程安全退出")
+			slog.Warn("单实例锁已被接管，当前进程安全退出")
 			exitProcess(0)
 			return
 		}
@@ -201,9 +218,9 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 	}
 
 	if isDirRestricted {
-		slog.Warn("程序所在目录受限，请求管理员权限", "dir", baseDir, "reason", dirErr)
+		slog.Warn("程序所在目录受限，请求管理员权限", "dir", baseDir, "err", dirErr)
 	} else {
-		slog.Info("正在请求管理员权限")
+		slog.Info("请求管理员权限")
 	}
 
 	args := BuildSelfElevationArgs()
@@ -216,12 +233,12 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 
 	if sys.IsUserCancelled(err) {
 		if runAsAdmin || isDirRestricted {
-			slog.Warn("用户取消授权，当前目录无法维持基本运行，程序退出")
+			slog.Warn("用户取消授权，受限环境无法运行，程序退出")
 			exitProcess(0)
 			return
 		}
 
-		slog.Warn("用户取消授权，以当前权限运行，并重置自启配置为 false")
+		slog.Warn("用户取消授权，以当前权限运行并关闭自启")
 		cfgMgr.Update(func(c *domain.TrayConfig) {
 			b := false
 			c.General.Autostart = &b
@@ -229,7 +246,7 @@ func handleElevation(cfgMgr *config.Manager, exePath, baseDir string, isAutostar
 		return
 	}
 
-	slog.Error("请求管理员权限失败", "error", err)
+	slog.Error("请求管理员权限失败", "err", err)
 	if runAsAdmin || isDirRestricted {
 		exitProcess(1)
 		return
@@ -243,7 +260,7 @@ func setupSignalHandler(ctx context.Context, cancel context.CancelFunc) {
 		defer signal.Stop(sigCh)
 		select {
 		case sig := <-sigCh:
-			slog.Info("收到终止信号", "signal", sig)
+			slog.Info("收到终止信号", "sig", sig)
 			cancel()
 		case <-ctx.Done():
 		}
@@ -264,7 +281,7 @@ func setupWakeEventListener(ctx context.Context, guard *sys.SingleInstanceGuard,
 			},
 		}:
 		default:
-			slog.Warn("唤醒指令发送失败，指令队列已满")
+			slog.Warn("唤醒指令队列已满，放弃发送")
 			guard.AckWake()
 		}
 	})
