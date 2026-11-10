@@ -8,8 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
-	"time"
 
 	"golang.org/x/sys/windows"
 )
@@ -39,13 +37,45 @@ func ValidateDirWritable(dir string) error {
 		return fmt.Errorf("%w: %s", ErrSystemProtectedDir, cleanDir)
 	}
 
-	if err := ProbeDirWritable(cleanDir); err != nil {
-		if IsPermissionError(err) {
-			return fmt.Errorf("%w: %s", ErrDirPermissionDenied, cleanDir)
+	if err := ProbeDirWritableZeroIO(cleanDir); err != nil {
+		return fmt.Errorf("%w: %s (%v)", ErrDirPermissionDenied, cleanDir, err)
+	}
+
+	return nil
+}
+
+func ProbeDirWritableZeroIO(dir string) error {
+	targetDir := dir
+	for {
+		if _, err := os.Stat(targetDir); err == nil {
+			break
 		}
+		parent := filepath.Dir(targetDir)
+		if parent == targetDir {
+			break
+		}
+		targetDir = parent
+	}
+
+	pUtf16, err := windows.UTF16PtrFromString(targetDir)
+	if err != nil {
 		return err
 	}
 
+	handle, err := windows.CreateFile(
+		pUtf16,
+		windows.FILE_ADD_FILE|windows.FILE_ADD_SUBDIRECTORY,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil,
+		windows.OPEN_EXISTING,
+		windows.FILE_FLAG_BACKUP_SEMANTICS,
+		0,
+	)
+	if err != nil {
+		return err
+	}
+
+	_ = windows.CloseHandle(handle)
 	return nil
 }
 
@@ -130,48 +160,4 @@ func IsOtherUserProfileDir(dir string) bool {
 	}
 
 	return true
-}
-
-func IsPermissionError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	if errors.Is(err, os.ErrPermission) {
-		return true
-	}
-
-	var errno syscall.Errno
-	if errors.As(err, &errno) {
-		switch errno {
-		case windows.ERROR_ACCESS_DENIED,
-			windows.ERROR_WRITE_PROTECT,
-			windows.ERROR_SHARING_VIOLATION,
-			windows.ERROR_CANNOT_MAKE,
-			windows.ERROR_PRIVILEGE_NOT_HELD:
-			return true
-		}
-	}
-	return false
-}
-
-func ProbeDirWritable(dir string) error {
-	if strings.TrimSpace(dir) == "" {
-		return ErrInvalidPath
-	}
-
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-
-	probePath := filepath.Join(dir, fmt.Sprintf(".probe_%d_%d", os.Getpid(), time.Now().UnixNano()))
-	probeFile, err := os.OpenFile(probePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		return err
-	}
-
-	_ = probeFile.Close()
-	_ = os.Remove(probePath)
-
-	return nil
 }
