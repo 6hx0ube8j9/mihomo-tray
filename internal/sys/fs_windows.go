@@ -64,7 +64,7 @@ func ProbeDirWritableZeroIO(dir string) error {
 
 	handle, err := windows.CreateFile(
 		pUtf16,
-		windows.FILE_ADD_FILE|windows.FILE_ADD_SUBDIRECTORY,
+		windows.FILE_WRITE_DATA|windows.FILE_APPEND_DATA,
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
 		nil,
 		windows.OPEN_EXISTING,
