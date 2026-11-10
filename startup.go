@@ -49,8 +49,8 @@ func superviseStartup(exePath, baseDir string) (*sys.SingleInstanceGuard, io.Clo
 		dirErr = sys.ValidateDirWritable(baseDir)
 	}
 
-	taskInSync, needElevate := inspectAndSyncAutostart(cfgMgr, exePath, baseDir, admin, dirErr == nil)
-
+	canWrite := admin || (dirErr == nil)
+	taskInSync, needElevate := inspectAndSyncAutostart(cfgMgr, exePath, baseDir, admin, canWrite)
 	handleElevation(cfgMgr, exePath, baseDir, isAutostart, taskInSync, needElevate, dirErr, guard, exitProcess)
 
 	return guard, logWriter, cfgMgr
@@ -121,7 +121,7 @@ func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, is
 		if !cfgAutostart {
 			if !isAdmin {
 				if canWrite {
-					slog.Info("认领有效自启动任务，同步本地配置")
+					slog.Info("认领有效自启动任务，同步本地配置为开启")
 					cfgMgr.Update(func(c *domain.TrayConfig) {
 						b := true
 						c.General.Autostart = &b
@@ -130,11 +130,13 @@ func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, is
 				return true, false
 			}
 
-			slog.Info("用户关闭自启动，注销计划任务")
+			slog.Info("检测到自启动处于关闭状态，注销现有计划任务")
 			if sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, false) {
 				taskInSync = false
 			}
+			return taskInSync, false
 		}
+
 		return taskInSync, false
 	}
 
