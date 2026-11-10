@@ -1,7 +1,6 @@
 package webui
 
 import (
-	"errors"
 	"log/slog"
 	"path/filepath"
 	"sync"
