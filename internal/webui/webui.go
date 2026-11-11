@@ -64,18 +64,18 @@ func emitEvent(ch chan<- Event, event Event) {
 }
 
 func (m *Manager) checkSandboxedEnvironment(baseDir string) error {
-    m.envCheckMu.Lock()
-    defer m.envCheckMu.Unlock()
+	m.envCheckMu.Lock()
+	defer m.envCheckMu.Unlock()
 
-    if m.envChecked {
-        return m.envCheckErr
-    }
-
-    cacheBaseDir := filepath.Join(baseDir, domain.WebCacheDir)
-    m.envCheckErr = sys.ValidateDirWritable(cacheBaseDir)
-    m.envChecked = true
-
-    return m.envCheckErr
+	if m.envChecked && m.envCheckErr == nil {
+		return nil
+	}
+	cacheBaseDir := filepath.Join(baseDir, domain.WebCacheDir)
+	m.envCheckErr = sys.ValidateDirWritable(cacheBaseDir)
+	if m.envCheckErr == nil {
+		m.envChecked = true
+	}
+	return m.envCheckErr
 }
 
 func (m *Manager) Launch(cfg Config, eventCh chan<- Event, onReady func()) {
@@ -169,7 +169,12 @@ func (m *Manager) cleanupChromium() {
 
 	pid := m.isolatedPid.Swap(0)
 	if pid != 0 {
-		time.Sleep(300 * time.Millisecond)
+		for i := 0; i < 15; i++ {
+			if !sys.IsPidRunning(pid, "") {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 		if sys.IsPidRunning(pid, "") {
 			slog.Debug("清理未响应的浏览器进程", "pid", pid)
 			sys.HardKill(pid)
@@ -199,6 +204,7 @@ func (m *Manager) IsActive() bool {
 		isChromiumActive = sys.IsPidRunning(pid, "")
 		if !isChromiumActive {
 			m.isolatedPid.Store(0)
+			m.hwnd.Store(0)
 			m.stateMu.Lock()
 			m.debugPort = ""
 			m.stateMu.Unlock()
@@ -206,6 +212,20 @@ func (m *Manager) IsActive() bool {
 	}
 
 	return isNativeActive || isChromiumActive
+}
+
+func (m *Manager) TryAcquireMaintenance() (unlock func(), ok bool) {
+	if m.IsActive() {
+		return nil, false
+	}
+	if !m.launchMu.TryLock() {
+		return nil, false
+	}
+	if m.IsActive() {
+		m.launchMu.Unlock()
+		return nil, false
+	}
+	return m.launchMu.Unlock, true
 }
 
 func (m *Manager) openSystemBrowser(finalURL string, eventCh chan<- Event) {

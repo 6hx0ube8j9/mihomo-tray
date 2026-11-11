@@ -58,16 +58,22 @@ func (m *Manager) launchChromiumAppMode(cfg Config, finalURL, appHostPort string
 }
 
 func (m *Manager) prepareDebugPort() string {
-	m.stateMu.Lock()
-	defer m.stateMu.Unlock()
+    m.stateMu.Lock()
+    port := m.debugPort
+    m.stateMu.Unlock()
 
-	if m.debugPort != "" && !IsDebugPortAlive(m.debugPort) {
-		m.debugPort = ""
-	}
-	if m.debugPort == "" {
-		m.debugPort = getCDPDebugPort()
-	}
-	return m.debugPort
+    if port != "" && !IsDebugPortAlive(port) {
+        port = ""
+    }
+
+    m.stateMu.Lock()
+    defer m.stateMu.Unlock()
+    if port == "" {
+        m.debugPort = getCDPDebugPort()
+    } else {
+        m.debugPort = port
+    }
+    return m.debugPort
 }
 
 func (m *Manager) tryAttachExistingTarget(debugPort, appHostPort string, eventCh chan<- Event) bool {

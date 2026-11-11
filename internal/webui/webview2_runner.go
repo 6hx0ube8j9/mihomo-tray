@@ -12,7 +12,6 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/jchv/go-webview2"
@@ -24,7 +23,6 @@ import (
 
 const (
 	appIconResourceID  = 1
-	webviewInitTimeout = 5 * time.Second
 )
 
 var (
@@ -53,8 +51,9 @@ func (a *webviewAdapter) Destroy() {
 		slog.Warn("WebView2 窗口无响应，执行强制隐藏", "hwnd", a.hwnd)
 		sys.HideWindow(a.hwnd)
 	}
+
 	if a.w != nil {
-		a.w.Destroy()
+		a.w.Terminate()
 	}
 }
 
@@ -78,7 +77,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 	}
 
 	initCh := make(chan bool, 1)
-	var aborted atomic.Bool
 
 	go func() {
 		runtime.LockOSThread()
@@ -138,12 +136,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		hwnd = uintptr(w.Window())
 
 		m.wvMu.Lock()
-		if aborted.Load() {
-			m.wvMu.Unlock()
-			sys.HideWindow(hwnd)
-			w.Destroy()
-			return
-		}
 		m.hwnd.Store(hwnd)
 		m.wv = &webviewAdapter{w: w, hwnd: hwnd}
 		m.wvMu.Unlock()
@@ -180,17 +172,10 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		w.Run()
 	}()
 
-	select {
-	case ok := <-initCh:
-		return ok
-	case <-time.After(webviewInitTimeout):
-		slog.Error("WebView2 启动超时")
-		aborted.Store(true)
-
-		if hwnd := m.hwnd.Load(); hwnd != 0 {
-			sys.HideWindow(hwnd)
-		}
-
+	if ok := <-initCh; !ok {
+		_ = os.RemoveAll(userDataDir)
 		return false
 	}
+
+	return true
 }

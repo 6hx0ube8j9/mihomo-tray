@@ -70,10 +70,10 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 		webuiEventCh:    make(chan webui.Event, 1),
 		UIStateNotifyCh: make(chan struct{}, 1),
 	}
-    
+
 	isDark := sys.IsDarkMode()
 	st.SetSystemTheme(domain.ThemeFromBool(isDark))
-	
+
 	app.ProxyGuard = NewProxyGuard(cm, st, func(title, msg string) {
 		if app.ui != nil {
 			app.ui.ShowNotification(title, msg)
@@ -256,15 +256,15 @@ func (a *Application) eventLoop(ctx context.Context) {
 
 	for {
 		select {
-			
-        case isDark := <-a.themeEventCh:
+
+		case isDark := <-a.themeEventCh:
 			theme := domain.ThemeFromBool(isDark)
 			slog.Info("检测到系统主题变更", "theme", theme)
 
 			a.State.SetSystemTheme(theme)
 			a.Presenter.PushUIState()
 			a.WebUI.UpdateTheme(isDark)
-			
+
 		case event := <-a.webuiEventCh:
 			if event == webui.EventError {
 				slog.Warn("Web 面板服务异常")
@@ -281,7 +281,8 @@ func (a *Application) eventLoop(ctx context.Context) {
 			a.handleUICommand(ctx, cmd)
 
 		case event := <-a.kernelEventCh:
-			if event == domain.EventKernelReady {
+			switch event {
+			case domain.EventKernelReady:
 				slog.Info("内核及 API 已就绪")
 				if a.Cfg.GetConfig().Config.Tun.Enable {
 					a.State.SetTunRequestedTime(time.Now())
@@ -298,7 +299,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 					a.ForceSyncAPI()
 				}(currentGen)
 
-			} else if event == domain.EventKernelExit {
+			case domain.EventKernelExit:
 				a.State.AdvanceProbeGen()
 				if a.Kernel.IsKilledByUs() {
 					slog.Info("内核已停止，等待重启")

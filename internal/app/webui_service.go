@@ -71,7 +71,7 @@ func (s *WebUIService) Open(forceSync func(), onReady func()) error {
 			slog.Error("Web 面板启动异常拦截", "panic", r)
 		}
 	}()
-    
+
 	s.coreMgr.Launch(wcfg, s.eventCh, onReady)
 
 	return nil
@@ -120,9 +120,11 @@ func (s *WebUIService) ReopenIfActive(forceSync func()) {
 }
 
 func (s *WebUIService) ClearCache() error {
-	if s.coreMgr.IsActive() {
-		return errors.New("请先关闭面板窗口")
+	unlock, ok := s.coreMgr.TryAcquireMaintenance()
+	if !ok {
+		return errors.New("面板正在运行或启动中，请先关闭")
 	}
+	defer unlock()
 
 	cacheDir := filepath.Join(s.cfg.BaseDir(), domain.WebCacheDir)
 	if _, err := os.Stat(cacheDir); os.IsNotExist(err) {
@@ -139,6 +141,6 @@ func (s *WebUIService) ClearCache() error {
 		time.Sleep(150 * time.Millisecond)
 	}
 
-	slog.Warn("清理面板缓存失败", "err", lastErr)
-	return errors.New("缓存被占用，请稍后重试")
+	slog.Warn("清理面板缓存失败", "path", cacheDir, "err", lastErr)
+	return errors.New("缓存文件被占用，请稍后重试")
 }
