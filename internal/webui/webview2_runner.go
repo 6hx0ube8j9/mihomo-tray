@@ -12,6 +12,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jchv/go-webview2"
@@ -23,6 +24,7 @@ import (
 
 const (
 	appIconResourceID  = 1
+	webviewInitTimeout = 15 * time.Second
 )
 
 var (
@@ -77,6 +79,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 	}
 
 	initCh := make(chan bool, 1)
+	var aborted atomic.Bool
 
 	go func() {
 		runtime.LockOSThread()
@@ -86,13 +89,16 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		var hwnd uintptr
 
 		defer func() {
+			if w != nil {
+				w.Destroy()
+			}
+		}()
+
+		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("WebView2 渲染线程异常崩溃", "err", r, "stack", string(debug.Stack()))
 				if hwnd != 0 {
 					sys.HideWindow(hwnd)
-				}
-				if w != nil {
-					w.Destroy()
 				}
 				select {
 				case initCh <- false:
@@ -136,6 +142,11 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		hwnd = uintptr(w.Window())
 
 		m.wvMu.Lock()
+		if aborted.Load() {
+			m.wvMu.Unlock()
+			sys.HideWindow(hwnd)
+			return
+		}
 		m.hwnd.Store(hwnd)
 		m.wv = &webviewAdapter{w: w, hwnd: hwnd}
 		m.wvMu.Unlock()
@@ -172,10 +183,21 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		w.Run()
 	}()
 
-	if ok := <-initCh; !ok {
-		_ = os.RemoveAll(userDataDir)
+	select {
+	case ok := <-initCh:
+		if !ok {
+			return false
+		}
+		return true
+
+	case <-time.After(webviewInitTimeout):
+		slog.Error("WebView2 启动超时，触发降级保护", "timeout", webviewInitTimeout)
+		aborted.Store(true)
+
+		if hwnd := m.hwnd.Load(); hwnd != 0 {
+			sys.HideWindow(hwnd)
+		}
+
 		return false
 	}
-
-	return true
 }

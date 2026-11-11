@@ -185,7 +185,7 @@ func FocusWindowSilky(targetHwnd uintptr) {
 
 func AllowSetForegroundWindow(pid uint32) {
 	if pid == 0 {
-		pid = 0xFFFFFFFF // ASFW_ANY
+		pid = asfwAny
 	}
 	_, _, _ = procAllowSetForeground.Call(uintptr(pid))
 }

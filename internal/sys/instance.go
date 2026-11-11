@@ -130,7 +130,7 @@ func NotifyExistingInstance(eventName string) {
 		return
 	}
 
-	AllowSetForegroundWindow(0)
+	AllowSetForegroundWindow(asfwAny)
 	
 	_ = windows.SetEvent(hEvent)
 	_ = windows.CloseHandle(hEvent)

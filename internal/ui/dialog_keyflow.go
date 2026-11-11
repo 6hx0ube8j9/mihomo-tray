@@ -260,5 +260,7 @@ func normalizeWindowHierarchy(container walk.Container) {
 			}
 			normalizeWindowHierarchy(c)
 		}
+
+		win.SetWindowPos(hwnd, win.HWND_BOTTOM, 0, 0, 0, 0, win.SWP_NOMOVE|win.SWP_NOSIZE|win.SWP_NOACTIVATE)
 	}
 }

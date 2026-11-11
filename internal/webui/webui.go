@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"errors"
 	"log/slog"
 	"path/filepath"
 	"sync"
@@ -67,14 +68,28 @@ func (m *Manager) checkSandboxedEnvironment(baseDir string) error {
 	m.envCheckMu.Lock()
 	defer m.envCheckMu.Unlock()
 
-	if m.envChecked && m.envCheckErr == nil {
+	if m.envChecked {
+		return m.envCheckErr
+	}
+
+	m.envChecked = true
+
+	cacheBaseDir := filepath.Join(baseDir, domain.WebCacheDir)
+	err := sys.ValidateDirWritable(cacheBaseDir)
+	if err == nil {
 		return nil
 	}
-	cacheBaseDir := filepath.Join(baseDir, domain.WebCacheDir)
-	m.envCheckErr = sys.ValidateDirWritable(cacheBaseDir)
-	if m.envCheckErr == nil {
-		m.envChecked = true
+
+	if errors.Is(err, sys.ErrSystemProtectedDir) ||
+		errors.Is(err, sys.ErrOtherUserProfileDir) ||
+		errors.Is(err, sys.ErrInvalidPath) {
+		m.envCheckErr = err
+		return err
 	}
+
+	time.Sleep(100 * time.Millisecond)
+	m.envCheckErr = sys.ValidateDirWritable(cacheBaseDir)
+
 	return m.envCheckErr
 }
 
@@ -83,7 +98,7 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event, onReady func()) {
 	mode := cfg.WebOpenMode
 
 	if mode == domain.WebOpenModeSystem {
-		slog.Debug("使用系统浏览器打开面板")
+		slog.Debug("启动系统浏览器")
 		if onReady != nil {
 			onReady()
 		}
@@ -92,7 +107,7 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event, onReady func()) {
 	}
 
 	if err := m.checkSandboxedEnvironment(cfg.BaseDir); err != nil {
-		slog.Warn("目录无写入权限，改用系统浏览器打开", "err", err)
+		slog.Warn("缓存目录不可写，使用系统浏览器", "err", err)
 		if onReady != nil {
 			onReady()
 		}
@@ -120,7 +135,7 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event, onReady func()) {
 			slog.Debug("内置面板已启动")
 			return
 		}
-		slog.Warn("内置面板启动失败，尝试独立浏览器")
+		slog.Warn("内置面板启动失败，切换独立浏览器")
 		m.cleanupWebView2()
 	}
 
@@ -129,7 +144,7 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event, onReady func()) {
 			slog.Debug("独立浏览器已启动")
 			return
 		}
-		slog.Warn("独立浏览器启动失败，尝试系统浏览器")
+		slog.Warn("独立浏览器启动失败，切换系统浏览器")
 		m.cleanupChromium()
 	}
 
@@ -176,7 +191,7 @@ func (m *Manager) cleanupChromium() {
 			time.Sleep(100 * time.Millisecond)
 		}
 		if sys.IsPidRunning(pid, "") {
-			slog.Debug("清理未响应的浏览器进程", "pid", pid)
+			slog.Debug("清理残留浏览器进程", "pid", pid)
 			sys.HardKill(pid)
 		}
 	}
@@ -225,7 +240,12 @@ func (m *Manager) TryAcquireMaintenance() (unlock func(), ok bool) {
 		m.launchMu.Unlock()
 		return nil, false
 	}
-	return m.launchMu.Unlock, true
+
+	var once sync.Once
+	safeUnlock := func() {
+		once.Do(m.launchMu.Unlock)
+	}
+	return safeUnlock, true
 }
 
 func (m *Manager) openSystemBrowser(finalURL string, eventCh chan<- Event) {
@@ -244,7 +264,7 @@ func (m *Manager) tryWakeCachedWindow(eventCh chan<- Event) bool {
 	}
 
 	if !sys.IsWindowAliveAndResponsive(hwnd) {
-		slog.Debug("面板窗口已失效，准备重置")
+		slog.Debug("窗口失效，正在重置")
 		m.Cleanup()
 		return false
 	}

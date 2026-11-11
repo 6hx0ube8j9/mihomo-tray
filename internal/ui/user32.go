@@ -2,41 +2,33 @@
 // required for thread-level message hooks, window subclassing, and styling.
 package ui
 
-import (
-	"syscall"
-
-	"github.com/tailscale/win"
-)
+import "syscall"
 
 const (
-	// Windows Hook 常量与状态
+	// Windows hook constants and flags
 	whGetMessage = 3
 	whCBT        = 5
 	hcbtActivate = 5
 	pmRemove     = 1
 
-	// 窗口与控件样式
+	// Window and control styles
 	esWantReturn      = 0x1000
 	wsExControlParent = 0x00010000
 	bsDefPushButton   = 0x0001
 
-	// 按钮消息
+	// Button messages
 	bmSetStyle = 0x00F4
 	bmClick    = 0x00F5
 
-	// 会话与子类化消息
+	// Session and subclassing messages
 	wmQueryEndSession = 0x0011
 	wmEndSession      = 0x0016
 	gwlpWndProc       = -4
 
-	// 系统参数与弹窗前台激活
+	// System parameters and message box flags
 	spiGetWorkArea  = 0x0030
 	mbSetForeground = 0x00010000
 	mbTopMost       = 0x00040000
-)
-
-const (
-	hwndTopMost = ^win.HWND(0) // Win32 HWND_TOPMOST (-1)
 )
 
 var (
