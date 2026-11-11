@@ -11,13 +11,6 @@ import (
 	"github.com/tailscale/win"
 )
 
-const (
-	bmClick           = 0x00F5     // Win32 BM_CLICK
-	bmSetStyle        = 0x00F4     // Win32 BM_SETSTYLE
-	bsDefPushButton   = 0x0001     // Win32 BS_DEFPUSHBUTTON
-	wsExControlParent = 0x00010000 // WS_EX_CONTROLPARENT
-)
-
 var (
 	kfOnce       sync.Once
 	kfCallback   uintptr
@@ -52,9 +45,12 @@ func keyFlowMessageProc(nCode int32, wParam uintptr, lParam unsafe.Pointer) uint
 
 		if ctx != nil && lParam != nil {
 			pMsg := (*win.MSG)(lParam)
-			if pMsg.Message == win.WM_KEYDOWN {
+
+			hFocus := win.GetFocus()
+			isOurFocus := (hFocus == ctx.dlg.Handle() || win.IsChild(ctx.dlg.Handle(), hFocus))
+
+			if pMsg.Message == win.WM_KEYDOWN && isOurFocus {
 				isCtrl := win.GetKeyState(win.VK_CONTROL) < 0
-				hFocus := win.GetFocus()
 
 				switch pMsg.WParam {
 				case win.VK_ESCAPE:
@@ -192,7 +188,7 @@ func SetupDialogKeyFlow(dlg *walk.Dialog, acceptPB, cancelPB *walk.PushButton) f
 	}
 
 	dlg.Starting().Attach(func() {
-		dlg.Synchronize(func() {
+		walk.App().Synchronize(func() {
 			focusFirstInput(inputs)
 		})
 	})
@@ -256,16 +252,13 @@ func normalizeWindowHierarchy(container walk.Container) {
 		child := children.At(i)
 		hwnd := child.Handle()
 
-		if _, ok := child.(walk.Container); ok {
+		if c, ok := child.(walk.Container); ok {
 			exStyle := win.GetWindowLong(hwnd, win.GWL_EXSTYLE)
 			if exStyle&wsExControlParent == 0 {
 				win.SetWindowLong(hwnd, win.GWL_EXSTYLE, exStyle|wsExControlParent)
+				win.SetWindowPos(hwnd, 0, 0, 0, 0, 0, win.SWP_NOMOVE|win.SWP_NOSIZE|win.SWP_NOZORDER|win.SWP_FRAMECHANGED)
 			}
-			if c, ok := child.(walk.Container); ok {
-				normalizeWindowHierarchy(c)
-			}
+			normalizeWindowHierarchy(c)
 		}
-
-		win.SetWindowPos(hwnd, win.HWND_BOTTOM, 0, 0, 0, 0, win.SWP_NOMOVE|win.SWP_NOSIZE)
 	}
 }

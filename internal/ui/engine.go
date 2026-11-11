@@ -14,12 +14,6 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-const (
-	wmQueryEndSession = 0x0011
-	wmEndSession      = 0x0016
-	gwlpWndProc       = -4
-)
-
 type Engine struct {
 	ctx           context.Context
 	cancel        context.CancelFunc

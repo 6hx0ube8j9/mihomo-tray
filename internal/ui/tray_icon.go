@@ -242,10 +242,6 @@ func (c *TrayIconController) Dispose() {
 			delete(c.icons, id)
 		}
 
-		if c.ni != nil {
-			_ = c.ni.SetVisible(false)
-			c.ni.Dispose()
-			c.ni = nil
-		}
+		c.ni = nil
 	})
 }

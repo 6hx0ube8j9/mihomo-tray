@@ -40,7 +40,15 @@ func cbtHookProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 		msgBoxHwnd := win.HWND(wParam)
 
 		x, y := calcCenteredPos(ctx.targetHWND, msgBoxHwnd)
-		win.SetWindowPos(msgBoxHwnd, 0, x, y, 0, 0, win.SWP_NOSIZE|win.SWP_NOZORDER|win.SWP_NOACTIVATE)
+
+		insertAfter := win.HWND_TOP
+		if ctx.targetHWND == 0 {
+			insertAfter = hwndTopMost
+		}
+
+		win.SetWindowPos(msgBoxHwnd, insertAfter, x, y, 0, 0, win.SWP_NOSIZE)
+		win.SetForegroundWindow(msgBoxHwnd)
+		win.SetFocus(msgBoxHwnd)
 
 		if ctx.onActivated != nil {
 			ctx.onActivated(msgBoxHwnd)
@@ -70,6 +78,10 @@ func ShowNativeMsgBox(owner walk.Form, title, message string, style walk.MsgBoxS
 			targetHWND = owner.Handle()
 			effectiveOwner = owner
 		}
+	}
+
+	if effectiveOwner == nil {
+		style |= walk.MsgBoxStyle(mbSetForeground | mbTopMost)
 	}
 
 	ctx := &cbtHookContext{

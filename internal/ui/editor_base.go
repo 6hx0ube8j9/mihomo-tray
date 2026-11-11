@@ -13,7 +13,7 @@ type EditorConfig struct {
 	Width         int
 	MinHeight     int
 	Widgets       []Widget
-	OnAccept      func() (bool, error)
+	OnAccept      func(dlg *walk.Dialog) (bool, error)
 	AcceptBtnText string
 	CancelBtnText string
 	OnReady       func(dlg *walk.Dialog)
@@ -41,7 +41,7 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 
 	submit := func() {
 		if cfg.OnAccept != nil {
-			ok, err := cfg.OnAccept()
+			ok, err := cfg.OnAccept(dlg)
 			if !ok {
 				return
 			}
@@ -55,7 +55,7 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	layoutChildren := make([]Widget, 0, len(cfg.Widgets)+2)
 	layoutChildren = append(layoutChildren, cfg.Widgets...)
 	layoutChildren = append(layoutChildren,
-		VSpacer{},					
+		VSpacer{},
 		Composite{
 			Layout: HBox{MarginsZero: true, Spacing: 10},
 			Children: []Widget{
@@ -77,13 +77,13 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	)
 
 	err := Dialog{
-		AssignTo: &dlg,
-		Title:    cfg.Title,
-		MinSize:  Size{Width: cfg.Width, Height: cfg.MinHeight},
-		Font:     Font{Family: "Microsoft YaHei", PointSize: 9},
-        Layout:   VBox{Margins: Margins{Left: 15, Top: 12, Right: 15, Bottom: 12}, Spacing: 8},
-		Children: layoutChildren,
-		FixedSize: true, 
+		AssignTo:  &dlg,
+		Title:     cfg.Title,
+		MinSize:   Size{Width: cfg.Width, Height: cfg.MinHeight},
+		Font:      Font{Family: "Microsoft YaHei", PointSize: 9},
+		Layout:    VBox{Margins: Margins{Left: 15, Top: 12, Right: 15, Bottom: 12}, Spacing: 8},
+		Children:  layoutChildren,
+		FixedSize: true,
 	}.Create(owner)
 
 	if err != nil {
@@ -102,7 +102,7 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	}
 
 	dlg.Starting().Attach(func() {
-		dlg.Synchronize(func() {
+		walk.App().Synchronize(func() {
 			centerDialog(dlg, owner)
 		})
 	})

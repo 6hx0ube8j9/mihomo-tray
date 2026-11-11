@@ -17,7 +17,6 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 
 	var addrEdit, secretEdit, remoteURLEdit *walk.LineEdit
 	var onlineCheck, sysBrowserCheck *walk.CheckBox
-	var currentDlg *walk.Dialog
 
 	toolBtn := func(text string, onClick func()) PushButton {
 		return PushButton{
@@ -41,9 +40,6 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 		Width:         430,
 		MinHeight:     240,
 		AcceptBtnText: "确定",
-		OnReady: func(dlg *walk.Dialog) {
-			currentDlg = dlg
-		},
 		Widgets: []Widget{
 			GroupBox{
 				Title:  "控制器连接",
@@ -102,13 +98,13 @@ func (e *Engine) ShowControllerEditor(defaultAddr, defaultSecret string, default
 				},
 			},
 		},
-		OnAccept: func() (bool, error) {
+		OnAccept: func(dlg *walk.Dialog) (bool, error) {
 			addr := strings.TrimSpace(addrEdit.Text())
 			secret := strings.TrimSpace(secretEdit.Text())
 			rURL := strings.TrimSpace(remoteURLEdit.Text())
 
 			showError := func(msg string) (bool, error) {
-				RunErrorDialog(currentDlg, "保存失败", msg)
+				RunErrorDialog(dlg, "保存失败", msg)
 				return false, nil
 			}
 

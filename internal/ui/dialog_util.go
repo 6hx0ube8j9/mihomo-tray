@@ -37,7 +37,7 @@ func calcCenteredPos(targetHWND, popupHWND win.HWND) (x, y int32) {
 	}
 
 	var workArea win.RECT
-	win.SystemParametersInfo(0x0030, 0, unsafe.Pointer(&workArea), 0)
+	win.SystemParametersInfo(spiGetWorkArea, 0, unsafe.Pointer(&workArea), 0)
 
 	screenW := workArea.Right - workArea.Left
 	screenH := workArea.Bottom - workArea.Top
