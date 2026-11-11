@@ -43,6 +43,7 @@ const (
 	MONITOR_DEFAULTTONEAREST = 2
 
 	dpiAwarenessPerMonitorV2 = uintptr(0xFFFFFFFC)
+	asfwAny                  = 0xFFFFFFFF
 )
 
 type point struct {
