@@ -33,12 +33,14 @@ func (a *Application) handleRestartKernel(ctx context.Context, _ domain.UIComman
 		_ = a.Cfg.ReloadFromDisk()
 		a.KernelTuner.ReconcilePrivilege()
 
+		hasActiveProfile := a.Cfg.GetActivePath() != ""
 		if err := a.KernelDeployer.RestartKernel(); err != nil {
-			if errors.Is(err, domain.ErrKernelNotReady) {
-				return nil
+			if hasActiveProfile {
+				a.FallbackToEmpty(ctx, "配置校验失败")
+				a.notifyWarn("配置加载失败", err)
+			} else {
+				slog.Warn("重启内核失败", "err", err)
 			}
-			a.FallbackToEmpty(ctx, "配置校验失败")
-			a.notifyWarn("配置校验失败", err)
 			return nil
 		}
 
