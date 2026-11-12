@@ -44,6 +44,10 @@ func (g *ProxyGuard) SetProxy(enable bool) error {
 		return nil
 	}
 
+	if g.st.GetPhase() != domain.PhaseRunning {
+		return domain.ErrKernelNotReady
+	}
+
 	portStr, hasPort := g.cfg.GetEffectiveSystemProxyPortStr()
 	if !hasPort {
 		return domain.ErrNoProxyPort
@@ -66,37 +70,44 @@ func (g *ProxyGuard) SetProxy(enable bool) error {
 }
 
 func (g *ProxyGuard) Sync() {
+	g.syncInternal()
+}
+
+func (g *ProxyGuard) syncInternal() bool {
 	if g.st.IsExiting() {
-		return
+		return false
 	}
 
 	g.mu.Lock()
-	defer g.mu.Unlock()
-
 	wantEnable := g.cfg.IsSystemProxyEnabled()
 	portStr, hasPort := g.cfg.GetEffectiveSystemProxyPortStr()
 
 	if !wantEnable {
 		g.cleanupRegistryProxyLocked(portStr)
-		return
+		g.mu.Unlock()
+		return false
 	}
 
 	if !hasPort {
 		slog.Warn("系统代理已停用", "err", domain.ErrNoProxyPort)
 		g.disableInternalLocked()
+		g.mu.Unlock()
 		if g.onAlert != nil {
 			g.onAlert("系统代理已停用", domain.ErrNoProxyPort.Error())
 		}
-		return
+		return false
 	}
 
 	slog.Debug("同步系统代理", "enabled", true, "port", portStr)
 	if err := sys.EnableProxy(portStr); err != nil {
+		g.mu.Unlock()
 		slog.Error("同步系统代理失败", "err", err)
-		return
+		return false
 	}
 
 	g.lastAppliedPort = portStr
+	g.mu.Unlock()
+	return true
 }
 
 func (g *ProxyGuard) cleanupRegistryProxyLocked(currentPortStr string) {
@@ -185,11 +196,18 @@ func (g *ProxyGuard) isStateExpected(expectedServer string) bool {
 func (g *ProxyGuard) reconcileDisconnection(ctx context.Context, expectedServer string) {
 	defer g.st.ReleaseProxyRepair()
 
+	timer := time.NewTimer(proxyQuickReconcileInterval)
+	defer timer.Stop()
+
 	for attempt := 1; attempt <= proxyQuickReconcileMaxAttempts; attempt++ {
+		if attempt > 1 {
+			timer.Reset(proxyQuickReconcileInterval)
+		}
+
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(proxyQuickReconcileInterval):
+		case <-timer.C:
 		}
 
 		if g.st.IsExiting() || !g.cfg.IsSystemProxyEnabled() {
@@ -201,9 +219,7 @@ func (g *ProxyGuard) reconcileDisconnection(ctx context.Context, expectedServer 
 			return
 		}
 
-		g.Sync()
-
-		if g.isStateExpected(expectedServer) {
+		if g.syncInternal() && g.isStateExpected(expectedServer) {
 			slog.Info("系统代理已自愈", "attempt", attempt)
 			return
 		}
