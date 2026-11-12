@@ -46,9 +46,9 @@ type Manager struct {
 	wvMu sync.RWMutex
 	wv   webviewSession
 
-	envCheckMu  sync.Mutex
-	envCheckErr error
-	envChecked  bool
+	envCheckMu    sync.Mutex
+	envCheckErr   error
+	envCheckedDir string
 }
 
 func NewManager() *Manager {
@@ -68,11 +68,12 @@ func (m *Manager) checkSandboxedEnvironment(baseDir string) error {
 	m.envCheckMu.Lock()
 	defer m.envCheckMu.Unlock()
 
-	if m.envChecked {
+	if baseDir != "" && m.envCheckedDir == baseDir {
 		return m.envCheckErr
 	}
 
-	m.envChecked = true
+	m.envCheckedDir = baseDir
+	m.envCheckErr = nil
 
 	cacheBaseDir := filepath.Join(baseDir, domain.WebCacheDir)
 	err := sys.ValidateDirWritable(cacheBaseDir)

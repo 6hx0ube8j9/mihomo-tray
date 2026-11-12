@@ -24,12 +24,13 @@ import (
 
 const (
 	appIconResourceID  = 1
-	webviewInitTimeout = 15 * time.Second
+	webviewInitTimeout = 18 * time.Second
 )
 
 var (
 	wv2CheckOnce sync.Once
 	wv2Available bool
+	wv2Broken    atomic.Bool
 )
 
 func isWebView2Available() bool {
@@ -37,7 +38,7 @@ func isWebView2Available() bool {
 		v, err := webviewloader.GetInstalledVersion()
 		wv2Available = (err == nil && v != "")
 		if !wv2Available {
-			slog.Debug("未检测到 WebView2 ，后续请求将直接降级")
+			slog.Debug("未检测到 WebView2，使用备用模式")
 		}
 	})
 	return wv2Available
@@ -50,25 +51,22 @@ type webviewAdapter struct {
 
 func (a *webviewAdapter) Destroy() {
 	if a.hwnd != 0 && sys.IsWindowHung(a.hwnd) {
-		slog.Warn("WebView2 窗口无响应，执行强制隐藏", "hwnd", a.hwnd)
+		slog.Warn("WebView2 窗口无响应，执行隐藏", "hwnd", a.hwnd)
 		sys.HideWindow(a.hwnd)
 	}
-
 	if a.w != nil {
-		a.w.Terminate()
+		a.w.Destroy()
 	}
 }
 
 func (a *webviewAdapter) SetDarkMode(isDark bool) {
 	if a.w != nil {
-		a.w.Dispatch(func() {
-			a.w.SetDarkMode(isDark)
-		})
+		a.w.SetDarkMode(isDark)
 	}
 }
 
 func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Event, onReady func()) bool {
-	if !isWebView2Available() {
+	if wv2Broken.Load() || !isWebView2Available() {
 		return false
 	}
 
@@ -89,14 +87,14 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		var hwnd uintptr
 
 		defer func() {
-			if w != nil {
+			if w != nil && w.Window() != nil {
 				w.Destroy()
 			}
 		}()
 
 		defer func() {
 			if r := recover(); r != nil {
-				slog.Error("WebView2 渲染线程异常崩溃", "err", r, "stack", string(debug.Stack()))
+				slog.Error("WebView2 渲染线程崩溃", "err", r, "stack", string(debug.Stack()))
 				if hwnd != 0 {
 					sys.HideWindow(hwnd)
 				}
@@ -132,6 +130,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		})
 
 		if w == nil {
+			wv2Broken.Store(true)
 			select {
 			case initCh <- false:
 			default:
@@ -145,16 +144,21 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		if aborted.Load() {
 			m.wvMu.Unlock()
 			sys.HideWindow(hwnd)
+			w.Destroy()
+			w.Run()
 			return
 		}
+		adapter := &webviewAdapter{w: w, hwnd: hwnd}
 		m.hwnd.Store(hwnd)
-		m.wv = &webviewAdapter{w: w, hwnd: hwnd}
+		m.wv = adapter
 		m.wvMu.Unlock()
 
 		defer func() {
-			m.hwnd.Store(0)
+			m.hwnd.CompareAndSwap(hwnd, 0)
 			m.wvMu.Lock()
-			m.wv = nil
+			if m.wv == adapter {
+				m.wv = nil
+			}
 			m.wvMu.Unlock()
 		}()
 
@@ -185,16 +189,21 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 
 	select {
 	case ok := <-initCh:
-		if !ok {
-			return false
-		}
-		return true
+		return ok
 
 	case <-time.After(webviewInitTimeout):
-		slog.Error("WebView2 启动超时，触发降级保护", "timeout", webviewInitTimeout)
-		aborted.Store(true)
+		slog.Warn("WebView2 启动超时，切换备用模式", "timeout", webviewInitTimeout)
+		wv2Broken.Store(true)
 
-		if hwnd := m.hwnd.Load(); hwnd != 0 {
+		m.wvMu.Lock()
+		aborted.Store(true)
+		if m.wv != nil {
+			m.wv.Destroy()
+			m.wv = nil
+		}
+		m.wvMu.Unlock()
+
+		if hwnd := m.hwnd.Swap(0); hwnd != 0 {
 			sys.HideWindow(hwnd)
 		}
 

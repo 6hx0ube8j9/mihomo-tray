@@ -20,6 +20,7 @@ import (
 const (
 	browserDiskCacheBytes  = "33554432"
 	wndClassChromiumPrefix = "Chrome_WidgetWin"
+	chromiumInitTimeout    = 12 * time.Second
 )
 
 var ghostCharReplacer = strings.NewReplacer(
@@ -58,22 +59,22 @@ func (m *Manager) launchChromiumAppMode(cfg Config, finalURL, appHostPort string
 }
 
 func (m *Manager) prepareDebugPort() string {
-    m.stateMu.Lock()
-    port := m.debugPort
-    m.stateMu.Unlock()
+	m.stateMu.Lock()
+	port := m.debugPort
+	m.stateMu.Unlock()
 
-    if port != "" && !IsDebugPortAlive(port) {
-        port = ""
-    }
+	if port != "" && !IsDebugPortAlive(port) {
+		port = ""
+	}
 
-    m.stateMu.Lock()
-    defer m.stateMu.Unlock()
-    if port == "" {
-        m.debugPort = getCDPDebugPort()
-    } else {
-        m.debugPort = port
-    }
-    return m.debugPort
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	if port == "" {
+		m.debugPort = getCDPDebugPort()
+	} else {
+		m.debugPort = port
+	}
+	return m.debugPort
 }
 
 func (m *Manager) tryAttachExistingTarget(debugPort, appHostPort string, eventCh chan<- Event) bool {
@@ -139,7 +140,8 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 	ticker := time.NewTicker(150 * time.Millisecond)
 	defer ticker.Stop()
 
-	timeout := time.After(3 * time.Second)
+	timer := time.NewTimer(chromiumInitTimeout)
+	defer timer.Stop()
 
 	for {
 		select {
@@ -157,7 +159,7 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 			slog.Debug("浏览器引导进程已退出，等待主窗口就绪")
 			exitCh = nil
 
-		case <-timeout:
+		case <-timer.C:
 			slog.Error("等待浏览器窗口超时")
 			return false
 
