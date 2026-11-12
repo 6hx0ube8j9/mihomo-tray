@@ -59,11 +59,9 @@ func (p *Platform) Elevate() (restarted bool, err error) {
 	if sys.IsAdmin() {
 		return false, nil
 	}
-	slog.Debug("向系统请求管理员提权")
 
 	restartingArg := fmt.Sprintf("--restarting=%d", os.Getpid())
 	if err := sys.RunAsAdmin(p.exePath, p.baseDir, restartingArg); err != nil {
-		slog.Warn("提权请求被用户取消或执行失败", "error", err)
 		return false, err
 	}
 

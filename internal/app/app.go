@@ -75,7 +75,7 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	st.SetSystemTheme(domain.ThemeFromBool(isDark))
 
 	app.ProxyGuard = NewProxyGuard(cm, st, func(title, msg string) {
-		if app.ui != nil {
+		if app.ui != nil && !app.State.IsExiting() {
 			app.ui.ShowNotification(title, msg)
 		}
 		app.Presenter.PushUIState()
@@ -116,7 +116,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	a.KernelTuner.ReconcilePrivilege()
 
 	if err := a.KernelDeployer.SyncRuntimeConfig(); err != nil {
-		slog.Warn("启动时底稿配置校验失败，执行安全回退", "err", err)
+		slog.Debug("启动配置校验失败", "err", err)
 		a.FallbackToEmpty(ctx, "配置语法校验失败")
 	}
 
@@ -154,8 +154,6 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 		slog.Info("执行退出流程")
 		a.State.ForceExitPhase()
 		a.WebUI.Cleanup()
-
-		slog.Debug("退出清理：安全比对并注销系统代理")
 		a.ProxyGuard.SafeShutdownCleanup()
 
 		if cancel != nil {
@@ -259,7 +257,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 
 		case isDark := <-a.themeEventCh:
 			theme := domain.ThemeFromBool(isDark)
-			slog.Info("检测到系统主题变更", "theme", theme)
+			slog.Debug("检测到系统主题变更", "theme", theme)
 
 			a.State.SetSystemTheme(theme)
 			a.Presenter.PushUIState()

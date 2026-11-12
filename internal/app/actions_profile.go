@@ -42,14 +42,17 @@ func (a *Application) handleRequestAddLocal(ctx context.Context, _ domain.UIComm
 		if a.ui == nil {
 			return
 		}
-		if path, ok := a.ui.OpenYAMLFileDialog(); ok {
-			targetRelPath, isFirst, err := a.ProfileHub.ImportLocal(path)
-			if err != nil {
-				a.notifyError("导入配置", err)
-				return
-			}
-			a.handleProfileAdded(ctx, targetRelPath, isFirst)
+		path, ok := a.ui.OpenYAMLFileDialog()
+		if !ok {
+			return
 		}
+
+		targetRelPath, isFirst, err := a.ProfileHub.ImportLocal(path)
+		if err != nil {
+			a.notifyError("导入配置", err)
+			return
+		}
+		a.handleProfileAdded(ctx, targetRelPath, isFirst)
 	}()
 }
 
@@ -59,71 +62,80 @@ func (a *Application) handleRequestAddRemote(ctx context.Context, _ domain.UICom
 			return
 		}
 		name, url, interval, ok := a.ui.ShowProfileInfoEditor("添加远程订阅", "", "", domain.DefaultUpdateInterval, true)
-		if ok {
-			targetRelPath, isFirst, err := a.ProfileHub.AddRemote(ctx, name, url, interval)
-			if err != nil {
-				a.notifyError("添加订阅", err)
-				return
-			}
-			a.handleProfileAdded(ctx, targetRelPath, isFirst)
+		if !ok {
+			return
 		}
+
+		targetRelPath, isFirst, err := a.ProfileHub.AddRemote(ctx, name, url, interval)
+		if err != nil {
+			a.notifyError("添加订阅", err)
+			return
+		}
+		a.handleProfileAdded(ctx, targetRelPath, isFirst)
 	}()
 }
 
 func (a *Application) handleEditProfileInfo(ctx context.Context, cmd domain.UICommand) {
-	if p, ok := a.Cfg.GetProfileByPath(cmd.Payload); ok {
-		go func(profile domain.ProfileItem) {
-			if a.ui == nil {
-				return
-			}
-			isRemote := profile.URL != ""
-			name, url, interval, ok := a.ui.ShowProfileInfoEditor("编辑信息", profile.Name, profile.URL, profile.Interval, isRemote)
-			if !ok {
-				return
-			}
-
-			if isRemote {
-				a.runExclusiveAction(state.ActionReload, "更新订阅", func() error {
-					urlChanged, err := a.ProfileHub.EditRemote(ctx, profile.Path, name, url, interval)
-					if err != nil {
-						if errors.Is(err, ErrProfileUpdating) {
-							a.notifyWarn("更新订阅", ErrProfileUpdating)
-							return nil
-						}
-						return err
-					}
-					if urlChanged && a.Cfg.GetActivePath() == profile.Path {
-						return a.applyAndSyncRuntime(ctx, profile.Path, "应用订阅地址变更")
-					}
-					return nil
-				})
-			} else {
-				if profile.Name != name {
-					profile.Name = name
-					a.Cfg.UpsertProfile(profile)
-				}
-				a.Presenter.PushUIState()
-			}
-		}(p)
+	p, ok := a.Cfg.GetProfileByPath(cmd.Payload)
+	if !ok {
+		return
 	}
-}
 
-func (a *Application) handleUpdateRemoteProfile(ctx context.Context, cmd domain.UICommand) {
-	if p, ok := a.Cfg.GetProfileByPath(cmd.Payload); ok {
+	go func(profile domain.ProfileItem) {
+		if a.ui == nil {
+			return
+		}
+		isRemote := profile.URL != ""
+		name, url, interval, ok := a.ui.ShowProfileInfoEditor("编辑信息", profile.Name, profile.URL, profile.Interval, isRemote)
+		if !ok {
+			return
+		}
+
+		if !isRemote {
+			if profile.Name != name {
+				profile.Name = name
+				a.Cfg.UpsertProfile(profile)
+			}
+			a.Presenter.PushUIState()
+			return
+		}
+
 		a.runExclusiveAction(state.ActionReload, "更新订阅", func() error {
-			if err := a.ProfileHub.UpdateRemote(ctx, p.Path); err != nil {
+			urlChanged, err := a.ProfileHub.EditRemote(ctx, profile.Path, name, url, interval)
+			if err != nil {
 				if errors.Is(err, ErrProfileUpdating) {
 					a.notifyWarn("更新订阅", ErrProfileUpdating)
 					return nil
 				}
 				return err
 			}
-			if a.Cfg.GetActivePath() == p.Path {
-				return a.applyAndSyncRuntime(ctx, p.Path, "应用订阅更新")
+			if urlChanged && a.Cfg.GetActivePath() == profile.Path {
+				return a.applyAndSyncRuntime(ctx, profile.Path, "应用订阅地址变更")
 			}
 			return nil
 		})
+	}(p)
+}
+
+func (a *Application) handleUpdateRemoteProfile(ctx context.Context, cmd domain.UICommand) {
+	p, ok := a.Cfg.GetProfileByPath(cmd.Payload)
+	if !ok {
+		return
 	}
+
+	a.runExclusiveAction(state.ActionReload, "更新订阅", func() error {
+		if err := a.ProfileHub.UpdateRemote(ctx, p.Path); err != nil {
+			if errors.Is(err, ErrProfileUpdating) {
+				a.notifyWarn("更新订阅", ErrProfileUpdating)
+				return nil
+			}
+			return err
+		}
+		if a.Cfg.GetActivePath() == p.Path {
+			return a.applyAndSyncRuntime(ctx, p.Path, "应用订阅更新")
+		}
+		return nil
+	})
 }
 
 func (a *Application) handleSetProfileInterval(_ context.Context, cmd domain.UICommand) {
@@ -208,13 +220,17 @@ func (a *Application) openProfile(targetRelPath string) error {
 	if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
 		return err
 	}
-    return a.Platform.OpenFile(a.Cfg.GetProfileAbsPath(targetRelPath))
+	return a.Platform.OpenFile(a.Cfg.GetProfileAbsPath(targetRelPath))
 }
 
 func (a *Application) handleOpenConfigFile(_ context.Context, cmd domain.UICommand) {
-    a.asyncRunError("打开配置", func() error { return a.openProfile(cmd.Payload) })
+	a.asyncRunError("打开配置", func() error {
+		return a.openProfile(cmd.Payload)
+	})
 }
 
 func (a *Application) handleEditCurrentConfig(_ context.Context, _ domain.UICommand) {
-    a.asyncRunError("编辑配置", func() error { return a.openProfile("") })
+	a.asyncRunError("编辑配置", func() error {
+		return a.openProfile("")
+	})
 }

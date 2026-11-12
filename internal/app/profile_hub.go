@@ -62,25 +62,23 @@ func (h *ProfileHub) EnsureActiveValid(ctx context.Context) bool {
 	}
 	defer h.st.ReleaseProfileLock(activePath)
 
-	slog.Info("当前活跃配置物理文件丢失，尝试拉取远程订阅恢复", "path", activePath)
+	slog.Info("活跃配置文件丢失，尝试远程拉取恢复", "path", activePath)
 	fCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	if err := h.fetchAndCommit(fCtx, activePath, p.URL, &p); err == nil {
-		slog.Info("配置已成功拉取恢复")
-		return true
-	} else {
-		slog.Warn("拉取恢复失败", "err", err)
+	if err := h.fetchAndCommit(fCtx, activePath, p.URL, &p); err != nil {
+		slog.Debug("远程拉取恢复失败", "path", activePath, "err", err)
+		return false
 	}
 
-	return false
+	slog.Info("活跃配置已拉取恢复", "path", activePath)
+	return true
 }
 
 func (h *ProfileHub) ImportLocal(sourcePath string) (targetRelPath string, isFirst bool, err error) {
 	if sourcePath == "" {
 		return "", false, nil
 	}
-	slog.Info("导入本地配置", "path", sourcePath)
 
 	if err := h.ValidateSource(sourcePath); err != nil {
 		return "", false, err
@@ -92,6 +90,7 @@ func (h *ProfileHub) ImportLocal(sourcePath string) (targetRelPath string, isFir
 	}
 
 	h.cfg.RegisterNewProfile(targetRelPath)
+	slog.Info("导入本地配置成功", "path", targetRelPath)
 	return targetRelPath, len(h.cfg.GetProfiles()) == 1, nil
 }
 
@@ -140,7 +139,7 @@ func (h *ProfileHub) UpdateRemote(ctx context.Context, targetRelPath string) err
 		return err
 	}
 
-	slog.Info("订阅更新已落盘", "path", targetRelPath)
+	slog.Info("更新远程订阅成功", "path", targetRelPath)
 	return nil
 }
 

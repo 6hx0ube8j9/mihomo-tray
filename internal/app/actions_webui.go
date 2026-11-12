@@ -13,16 +13,9 @@ import (
 // ============================================================================
 
 func (a *Application) handleOpenWebUI(_ context.Context, cmd domain.UICommand) {
-	go func() {
-		if a.ui == nil {
-			return
-		}
-
-		if err := a.WebUIService.Open(a.ForceSyncAPI, cmd.OnDone); err != nil {
-			a.ui.ShowError("提示", err.Error())
-			return
-		}
-	}()
+	a.asyncRunError("打开面板", func() error {
+		return a.WebUIService.Open(a.ForceSyncAPI, cmd.OnDone)
+	})
 }
 
 func (a *Application) handleRequestEditController(_ context.Context, _ domain.UICommand) {
@@ -36,7 +29,7 @@ func (a *Application) handleRequestEditController(_ context.Context, _ domain.UI
 		cSec := a.Cfg.GetEffectiveSecret(cfg.Config.Secret)
 		cOnline := a.Cfg.IsRemoteWebUIEnabled()
 		cRemoteURL := a.Cfg.GetEffectiveRemoteWebUIURL()
-		
+
 		cSys := a.Cfg.GetWebOpenMode() == domain.WebOpenModeSystem
 
 		nAddr, nSec, nOnline, nSys, nRemoteURL, ok := a.ui.ShowControllerEditor(cAddr, cSec, cOnline, cSys, cRemoteURL)
@@ -60,7 +53,7 @@ func (a *Application) handleRequestEditController(_ context.Context, _ domain.UI
 				bOnline, bRemoteURL := nOnline, nRemoteURL
 				c.General.RemoteWebUI = &bOnline
 				c.General.RemoteWebUIURL = &bRemoteURL
-				
+
 				if nSys {
 					m := domain.WebOpenModeSystem
 					c.General.WebOpenMode = &m
@@ -76,16 +69,14 @@ func (a *Application) handleRequestEditController(_ context.Context, _ domain.UI
 				}
 			}
 
-			if coreChanged || appChanged {
-				a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
-			}
+			a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
 			return nil
 		})
 	}()
 }
 
 func (a *Application) handleSetWebOpenMode(_ context.Context, cmd domain.UICommand) {
-	targetMode := cmd.Payload 
+	targetMode := cmd.Payload
 	a.Cfg.Update(func(c *domain.TrayConfig) {
 		c.General.WebOpenMode = &targetMode
 	})

@@ -34,8 +34,11 @@ func (a *Application) handleRestartKernel(ctx context.Context, _ domain.UIComman
 		a.KernelTuner.ReconcilePrivilege()
 
 		if err := a.KernelDeployer.RestartKernel(); err != nil {
+			if errors.Is(err, domain.ErrKernelNotReady) {
+				return nil
+			}
 			a.FallbackToEmpty(ctx, "配置校验失败")
-			a.notifyWarn("配置加载失败", err)
+			a.notifyWarn("配置校验失败", err)
 			return nil
 		}
 
@@ -62,7 +65,7 @@ func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UIComm
 	a.asyncRun("开机自启", func() error {
 		if a.Platform.IsAdmin() {
 			if !a.Platform.SetAutoStartTask(enable) {
-				return errors.New("写入计划任务失败")
+				return errors.New("写入自启任务失败")
 			}
 			a.Cfg.Update(func(c *domain.TrayConfig) {
 				b := enable

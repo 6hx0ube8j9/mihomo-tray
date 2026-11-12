@@ -73,6 +73,10 @@ func (t *KernelTuner) ToggleTun(ctx context.Context, enable bool) error {
 		return nil
 	}
 
+	if t.st.GetPhase() != domain.PhaseRunning {
+		return domain.ErrKernelNotReady
+	}
+
 	if enable {
 		targetDev := t.st.GetActualTunDevice()
 		if targetDev == "" {
@@ -80,7 +84,7 @@ func (t *KernelTuner) ToggleTun(ctx context.Context, enable bool) error {
 		}
 
 		if sys.IsTunActive(targetDev) {
-			slog.Warn("虚拟网卡已被占用，无法开启 TUN", "device", targetDev)
+			slog.Debug("虚拟网卡已被占用，无法开启 TUN", "device", targetDev)
 			return domain.ErrTunDeviceBusy
 		}
 	}

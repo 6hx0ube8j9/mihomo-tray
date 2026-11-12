@@ -32,21 +32,21 @@ func (d *KernelDeployer) IsKernelRunning() bool {
 }
 
 func (d *KernelDeployer) ReloadConfig(ctx context.Context) error {
+	if !d.IsKernelRunning() {
+		return domain.ErrKernelNotReady
+	}
+
 	activePath := d.cfg.GetActivePath()
 	runtimeAbs, err := d.prepareRuntimeConfig(activePath)
 	if err != nil {
 		return err
 	}
 
-	if !d.IsKernelRunning() {
-		return domain.ErrKernelNotReady
-	}
-
 	if err := d.api.ForceReloadKernel(ctx, runtimeAbs); err != nil {
 		return err
 	}
 
-	slog.Info("重载配置成功", "target", activePath)
+	slog.Info("重载配置成功", "path", activePath)
 	return nil
 }
 
@@ -66,12 +66,13 @@ func (d *KernelDeployer) DeployAndApply(ctx context.Context, targetRelPath, acti
 	}
 
 	if d.IsKernelRunning() {
-		slog.Info("正在应用配置", "action", actionDesc, "target", targetRelPath)
-		if err := d.api.ForceReloadKernel(ctx, runtimeAbs); err == nil {
-			slog.Info("配置应用成功", "action", actionDesc, "target", targetRelPath)
+		slog.Debug("正在应用配置", "action", actionDesc, "path", targetRelPath)
+		if reloadErr := d.api.ForceReloadKernel(ctx, runtimeAbs); reloadErr == nil {
+			slog.Info("配置应用成功", "action", actionDesc, "path", targetRelPath)
 			return nil
+		} else {
+			slog.Warn("重载配置失败，回退重启内核", "action", actionDesc, "path", targetRelPath, "err", reloadErr)
 		}
-		slog.Warn("重载配置失败，回退重启内核", "action", actionDesc, "target", targetRelPath, "err", err)
 	}
 
 	d.restartProcess()

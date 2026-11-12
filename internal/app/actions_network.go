@@ -13,7 +13,7 @@ import (
 // ============================================================================
 
 func (a *Application) handleToggleProxy(_ context.Context, cmd domain.UICommand) {
-	enable := (cmd.Payload == "true")
+	enable := cmd.Payload == "true"
 	title := "开启代理"
 	if !enable {
 		title = "关闭代理"
@@ -25,16 +25,16 @@ func (a *Application) handleToggleProxy(_ context.Context, cmd domain.UICommand)
 }
 
 func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand) {
-	enable := (cmd.Payload == "true")
+	enable := cmd.Payload == "true"
 
-	a.asyncRun("TUN 模式", func() error {
+	a.asyncRunError("TUN 模式", func() error {
 		if enable && !a.Platform.IsAdmin() {
 			targetDev := a.State.GetActualTunDevice()
 			if targetDev == "" {
 				targetDev = domain.DefaultTunDevice
 			}
 			if a.Platform.IsTunActive(targetDev) {
-				slog.Warn("虚拟网卡已被占用", "device", targetDev)
+				slog.Debug("虚拟网卡已被占用", "device", targetDev)
 				return domain.ErrTunDeviceBusy
 			}
 
@@ -57,34 +57,38 @@ func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand)
 }
 
 func (a *Application) handleSwitchMode(ctx context.Context, cmd domain.UICommand) {
-	a.asyncRun("路由模式", func() error {
+	a.asyncRunError("路由模式", func() error {
 		return a.KernelTuner.SwitchMode(ctx, cmd.Payload)
 	})
 }
 
 func (a *Application) handleToggleAllowLan(ctx context.Context, cmd domain.UICommand) {
-	a.asyncRun("局域网代理", func() error {
+	a.asyncRunError("局域网代理", func() error {
 		return a.KernelTuner.ToggleAllowLan(ctx, cmd.Payload == "true")
 	})
 }
 
 func (a *Application) handleRequestEditPort(ctx context.Context, _ domain.UICommand) {
 	go func() {
-		if a.ui != nil {
-			cMixed, cSocks, cHttp := a.KernelTuner.GetPortSnapshot()
-			nMixed, nSocks, nHttp, ok := a.ui.ShowPortEditor(cMixed, cSocks, cHttp)
-			if ok {
-				a.asyncRun("端口设置", func() error {
-					changed, err := a.KernelTuner.ApplyPortConfig(ctx, nMixed, nSocks, nHttp)
-					if err != nil {
-						return err
-					}
-					if changed && a.Cfg.IsSystemProxyEnabled() {
-						a.ProxyGuard.Sync()
-					}
-					return nil
-				})
-			}
+		if a.ui == nil {
+			return
 		}
+
+		cMixed, cSocks, cHttp := a.KernelTuner.GetPortSnapshot()
+		nMixed, nSocks, nHttp, ok := a.ui.ShowPortEditor(cMixed, cSocks, cHttp)
+		if !ok {
+			return
+		}
+
+		a.asyncRun("端口设置", func() error {
+			changed, err := a.KernelTuner.ApplyPortConfig(ctx, nMixed, nSocks, nHttp)
+			if err != nil {
+				return err
+			}
+			if changed && a.Cfg.IsSystemProxyEnabled() {
+				a.ProxyGuard.Sync()
+			}
+			return nil
+		})
 	}()
 }

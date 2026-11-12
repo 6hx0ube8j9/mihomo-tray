@@ -52,9 +52,8 @@ func (g *ProxyGuard) SetProxy(enable bool) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	slog.Info("设置系统代理", "enabled", true, "port", portStr)
+	slog.Debug("设置系统代理", "enabled", true, "port", portStr)
 	if err := sys.EnableProxy(portStr); err != nil {
-		slog.Error("设置系统代理失败", "err", err)
 		return err
 	}
 
@@ -166,7 +165,7 @@ func (g *ProxyGuard) HandleStatusChange(ctx context.Context, status sys.ProxySta
 			slog.Warn("系统代理被外部接管", "server", status.Server, "expected", expectedServer)
 			g.disableInternal()
 			if g.onAlert != nil {
-				g.onAlert("系统代理已变更", "设置被其他程序修改，已停止接管。")
+				g.onAlert("系统代理已变更", "设置被其他程序修改，已停止接管")
 			}
 		}
 		return
@@ -213,6 +212,6 @@ func (g *ProxyGuard) reconcileDisconnection(ctx context.Context, expectedServer 
 	slog.Warn("系统代理被外部多次关闭，已停止接管")
 	g.disableInternal()
 	if g.onAlert != nil {
-		g.onAlert("系统代理已变更", "设置多次被外部关闭，已停止接管。")
+		g.onAlert("系统代理已变更", "设置多次被外部关闭，已停止接管")
 	}
 }

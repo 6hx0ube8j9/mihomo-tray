@@ -46,7 +46,7 @@ func (s *WebUIService) Open(forceSync func(), onReady func()) error {
 	remoteURL := s.cfg.GetEffectiveRemoteWebUIURL()
 	openMode := s.cfg.GetWebOpenMode()
 
-	slog.Info("启动 Web 面板", "addr", addr, "mode", openMode, "remote", online)
+	slog.Debug("启动 Web 面板", "addr", addr, "mode", openMode, "remote", online)
 
 	currentTheme := s.st.GetSystemTheme()
 
@@ -141,6 +141,6 @@ func (s *WebUIService) ClearCache() error {
 		time.Sleep(150 * time.Millisecond)
 	}
 
-	slog.Warn("清理面板缓存失败", "path", cacheDir, "err", lastErr)
+	slog.Debug("清理面板缓存失败", "path", cacheDir, "err", lastErr)
 	return errors.New("缓存文件被占用，请稍后重试")
 }

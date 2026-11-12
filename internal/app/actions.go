@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -14,16 +15,19 @@ import (
 // 1. 核心调度基础设施 (Infrastructure, Runners & Notifiers)
 // ============================================================================
 
-func (a *Application) notifyError(actionTitle string, err error) {
+func (a *Application) notifyError(action string, err error) {
 	if err == nil {
 		return
 	}
-	title := actionTitle
-	if !strings.HasSuffix(title, "失败") {
+
+	title := action
+	if errors.Is(err, domain.ErrKernelNotReady) || errors.Is(err, domain.ErrSystemBusy) {
+		title = "操作失败"
+	} else if !strings.HasSuffix(title, "失败") {
 		title += "失败"
 	}
 
-	slog.Error(title, "err", err)
+	slog.Error(title, "action", action, "err", err)
 	if a.ui != nil && !a.State.IsExiting() {
 		a.ui.ShowError(title, err.Error())
 	}
@@ -33,12 +37,13 @@ func (a *Application) notifyWarn(actionTitle string, err error) {
 	if err == nil {
 		return
 	}
+
 	title := actionTitle
 	if !strings.HasSuffix(title, "失败") {
 		title += "失败"
 	}
 
-	slog.Warn(title, "err", err)
+	slog.Warn(title, "action", actionTitle, "err", err)
 	if a.ui != nil && !a.State.IsExiting() {
 		a.ui.ShowNotification(title, err.Error())
 	}
@@ -53,9 +58,7 @@ func (a *Application) notifySuccess(title, message string) {
 
 func (a *Application) runExclusiveAction(action state.KernelAction, title string, task func() error) {
 	if !a.State.TryBeginAction(action) {
-		if a.ui != nil && !a.State.IsExiting() {
-			a.ui.ShowNotification(title, "系统繁忙，正在处理其他任务，请稍后重试")
-		}
+		a.notifyWarn(title, domain.ErrSystemBusy)
 		return
 	}
 
@@ -67,7 +70,7 @@ func (a *Application) runExclusiveAction(action state.KernelAction, title string
 			a.Presenter.ForcePushUIState()
 
 			if r := recover(); r != nil {
-				slog.Error("独占任务 Panic 崩溃拦截", "action", title, "panic", r)
+				slog.Error("独占任务异常", "action", title, "panic", r)
 				a.notifyError(title, fmt.Errorf("运行时异常: %v", r))
 			}
 		}()
@@ -79,35 +82,26 @@ func (a *Application) runExclusiveAction(action state.KernelAction, title string
 }
 
 func (a *Application) asyncRun(title string, task func() error) {
-	go func() {
-		defer a.Presenter.ForcePushUIState()
-
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("异步任务 Panic 崩溃拦截", "title", title, "panic", r)
-				a.notifyWarn(title, fmt.Errorf("运行时异常: %v", r))
-			}
-		}()
-
-		if err := task(); err != nil {
-			a.notifyWarn(title, err)
-		}
-	}()
+	a.runAsync(title, a.notifyWarn, task)
 }
 
 func (a *Application) asyncRunError(title string, task func() error) {
+	a.runAsync(title, a.notifyError, task)
+}
+
+func (a *Application) runAsync(title string, onErr func(string, error), task func() error) {
 	go func() {
 		defer a.Presenter.ForcePushUIState()
 
 		defer func() {
 			if r := recover(); r != nil {
-				slog.Error("主动任务 Panic 崩溃拦截", "title", title, "panic", r)
-				a.notifyError(title, fmt.Errorf("运行时异常: %v", r))
+				slog.Error("异步任务异常", "action", title, "panic", r)
+				onErr(title, fmt.Errorf("运行时异常: %v", r))
 			}
 		}()
 
 		if err := task(); err != nil {
-			a.notifyError(title, err)
+			onErr(title, err)
 		}
 	}()
 }
@@ -119,7 +113,7 @@ func (a *Application) elevateAndRestart(title string, commit func(), rollback fu
 	if err != nil || !restarted {
 		rollback()
 		if err != nil {
-			slog.Debug(title+" 提权调用失败或被取消", "err", err)
+			slog.Debug("提权调用失败或被取消", "action", title, "err", err)
 		}
 		return nil
 	}
