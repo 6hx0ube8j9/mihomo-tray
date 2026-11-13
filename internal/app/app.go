@@ -282,11 +282,11 @@ func (a *Application) eventLoop(ctx context.Context) {
 			switch event {
 			case domain.EventKernelReady:
 				slog.Info("内核及 API 已就绪")
+				a.State.SetPhase(domain.PhaseRunning)
 				if a.Cfg.GetConfig().Config.Tun.Enable {
 					a.State.SetTunRequestedTime(time.Now())
 				}
 				a.ProxyGuard.Sync()
-				a.State.SetPhase(domain.PhaseRunning)
 
 				currentGen := a.State.AdvanceProbeGen()
 				go func(gen uint64) {

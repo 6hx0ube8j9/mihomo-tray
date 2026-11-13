@@ -104,8 +104,9 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 		}
 
 		select {
+		case <-ctx.Done():
+			return
 		case eventCh <- domain.EventKernelExit:
-		default:
 		}
 
 		if res.isCrash {
@@ -143,21 +144,21 @@ func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.K
 	slog.Debug("内核进程已启动", "pid", km.runner.Pid())
 
 	readyCtx, cancelReady := context.WithTimeout(ctx, maxCrashWindow)
-    readyErr := km.WaitForReady(readyCtx)
-    cancelReady()
+	readyErr := km.WaitForReady(readyCtx)
+	cancelReady()
 
-    switch readyErr {
-    case nil:
-        select {
-        case <-ctx.Done():
-            km.runner.Kill()
-            return sessionResult{isAppExiting: true}
-        case eventCh <- domain.EventKernelReady:
-        }
-    case context.DeadlineExceeded:
-        slog.Error("内核 API 就绪超时")
-        km.runner.Kill()
-    }
+	switch readyErr {
+	case nil:
+		select {
+		case <-ctx.Done():
+			km.runner.Kill()
+			return sessionResult{isAppExiting: true}
+		case eventCh <- domain.EventKernelReady:
+		}
+	case context.DeadlineExceeded:
+		slog.Error("内核 API 就绪超时")
+		km.runner.Kill()
+	}
 
 	waitErr := km.runner.Wait(ctx)
 	runDuration := time.Since(startTime)
@@ -330,5 +331,5 @@ func (km *KernelManager) KillCurrent() {
 }
 
 func (km *KernelManager) IsKilledByUs() bool {
-    return km.runner != nil && km.runner.IsKilledByUs()
+	return km.runner != nil && km.runner.IsKilledByUs()
 }

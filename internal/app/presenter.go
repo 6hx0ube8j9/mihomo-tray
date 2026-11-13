@@ -20,27 +20,34 @@ type Presenter struct {
 
 func NewPresenter(cfg *config.Manager, st *state.RuntimeState, notifyCh chan struct{}) *Presenter {
 	return &Presenter{
-		cfg:      cfg,
-		st:       st,
-		notifyCh: notifyCh,
+		cfg:         cfg,
+		st:          st,
+		notifyCh:    notifyCh,
+		lastUIState: domain.UIState{IconState: domain.IconStop},
 	}
 }
 
 func (p *Presenter) CalculateUIState() domain.UIState {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.calculateUIStateLocked()
+}
+
+func (p *Presenter) calculateUIStateLocked() domain.UIState {
 	cfg := p.cfg.GetConfig()
 
 	s := domain.UIState{
-		IsBusy:           p.st.IsActionBusy(),
-		IsTun:            cfg.Config.Tun.Enable,
-		IsProxy:          p.cfg.IsSystemProxyEnabled(),
-		Mode:             cfg.Config.Mode,
-		AutoStart:        p.cfg.IsAutostartEnabled(),
-		RunAsAdmin:       cfg.General.RunAsAdmin,
-		WebOpenMode:      p.cfg.GetWebOpenMode(),
-		RemoteWebUI:      p.cfg.IsRemoteWebUIEnabled(),
-		AllowLan:         p.cfg.GetEffectiveAllowLan(),
-		IsAdmin:          sys.IsAdmin(),
-		SystemTheme:      p.st.GetSystemTheme(),
+		IsBusy:      p.st.IsActionBusy(),
+		IsTun:       cfg.Config.Tun.Enable,
+		IsProxy:     p.cfg.IsSystemProxyEnabled(),
+		Mode:        cfg.Config.Mode,
+		AutoStart:   p.cfg.IsAutostartEnabled(),
+		RunAsAdmin:  cfg.General.RunAsAdmin,
+		WebOpenMode: p.cfg.GetWebOpenMode(),
+		RemoteWebUI: p.cfg.IsRemoteWebUIEnabled(),
+		AllowLan:    p.cfg.GetEffectiveAllowLan(),
+		IsAdmin:     sys.IsAdmin(),
+		SystemTheme: p.st.GetSystemTheme(),
 
 		MixedPort: p.cfg.GetEffectiveMixedPort(),
 		SocksPort: p.cfg.GetEffectivePort(cfg.Config.SocksPort, domain.DefaultSocksPort),
@@ -72,11 +79,14 @@ func (p *Presenter) CalculateUIState() domain.UIState {
 		return s
 	}
 
-	if !p.st.IsActionBusy() {
-		if p.st.GetPhase() != domain.PhaseRunning {
-			s.IconState = domain.IconStop
-			return s
-		}
+	if p.st.IsActionBusy() {
+		s.IconState = p.lastUIState.IconState
+		return s
+	}
+
+	if p.st.GetPhase() != domain.PhaseRunning {
+		s.IconState = domain.IconStop
+		return s
 	}
 
 	if !s.IsTun {
@@ -102,7 +112,7 @@ func (p *Presenter) PushUIState() {
 	}
 
 	p.mu.Lock()
-	newState := p.CalculateUIState()
+	newState := p.calculateUIStateLocked()
 	changed := p.hasStateChanged(&newState, &p.lastUIState)
 
 	if changed {
@@ -124,7 +134,7 @@ func (p *Presenter) ForcePushUIState() {
 	}
 
 	p.mu.Lock()
-	p.lastUIState = p.CalculateUIState()
+	p.lastUIState = p.calculateUIStateLocked()
 	p.mu.Unlock()
 
 	select {
