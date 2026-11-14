@@ -13,104 +13,114 @@ import (
 func applyDefaults(cfg *domain.TrayConfig) bool {
 	isTainted := false
 
-	setIfNil(&cfg.General.Autostart, domain.DefaultAutostart, &isTainted)
-	setIfNil(&cfg.General.RemoteWebUI, domain.DefaultRemoteWebUI, &isTainted)
-	setIfNil(&cfg.General.CustomBrowserEnabled, domain.DefaultCustomBrowserEnabled, &isTainted)
-	setIfNil(&cfg.General.SystemProxy, domain.DefaultSystemProxy, &isTainted)
+	applyGeneralDefaults(&cfg.General, &isTainted)
+	applyKernelDefaults(&cfg.Config, &isTainted)
+	applyProfileDefaults(&cfg.Profiles, &isTainted)
 
-	if cfg.General.WebOpenMode == nil || !domain.IsValidWebOpenMode(*cfg.General.WebOpenMode) {
+	return isTainted
+}
+
+func applyGeneralDefaults(gen *domain.GeneralConfig, isTainted *bool) {
+	setIfNil(&gen.Autostart, domain.DefaultAutostart, isTainted)
+	setIfNil(&gen.RemoteWebUI, domain.DefaultRemoteWebUI, isTainted)
+	setIfNil(&gen.CustomBrowserEnabled, domain.DefaultCustomBrowserEnabled, isTainted)
+	setIfNil(&gen.SystemProxy, domain.DefaultSystemProxy, isTainted)
+
+	if gen.WebOpenMode == nil || !domain.IsValidWebOpenMode(*gen.WebOpenMode) {
 		mode := domain.DefaultWebOpenMode
-		cfg.General.WebOpenMode = &mode
-		isTainted = true
+		gen.WebOpenMode = &mode
+		*isTainted = true
 	}
 
-	sanitizeTrimmedString(&cfg.General.CustomBrowserPath, "", &isTainted)
+	sanitizeTrimmedString(&gen.CustomBrowserPath, "", isTainted)
 
-	if !isValidTrayLogLevel(cfg.General.TrayLogLevel) {
-		cfg.General.TrayLogLevel = domain.DefaultTrayLogLevel
-		isTainted = true
+	if !isValidTrayLogLevel(gen.TrayLogLevel) {
+		gen.TrayLogLevel = domain.DefaultTrayLogLevel
+		*isTainted = true
 	}
 
-	if cfg.General.RemoteWebUIURL == nil || !netutil.IsValidHTTPURL(*cfg.General.RemoteWebUIURL) {
+	if gen.RemoteWebUIURL == nil || !netutil.IsValidHTTPURL(*gen.RemoteWebUIURL) {
 		url := domain.DefaultRemoteWebUIURL
-		cfg.General.RemoteWebUIURL = &url
-		isTainted = true
+		gen.RemoteWebUIURL = &url
+		*isTainted = true
+	}
+}
+
+func applyKernelDefaults(kcfg *domain.KernelConfig, isTainted *bool) {
+	sanitizePort(&kcfg.MixedPort, domain.DefaultMixedPort, isTainted)
+	sanitizePort(&kcfg.Port, domain.DefaultPort, isTainted)
+	sanitizePort(&kcfg.SocksPort, domain.DefaultSocksPort, isTainted)
+
+	setIfNil(&kcfg.AllowLan, domain.DefaultAllowLan, isTainted)
+	setIfNil(&kcfg.UnifiedDelay, domain.DefaultUnifiedDelay, isTainted)
+
+	if !isValidMode(kcfg.Mode) {
+		kcfg.Mode = domain.DefaultMode
+		*isTainted = true
 	}
 
-	sanitizePort(&cfg.Config.MixedPort, domain.DefaultMixedPort, &isTainted)
-	sanitizePort(&cfg.Config.Port, domain.DefaultPort, &isTainted)
-	sanitizePort(&cfg.Config.SocksPort, domain.DefaultSocksPort, &isTainted)
-
-	setIfNil(&cfg.Config.AllowLan, domain.DefaultAllowLan, &isTainted)
-	setIfNil(&cfg.Config.UnifiedDelay, domain.DefaultUnifiedDelay, &isTainted)
-
-	if !isValidMode(cfg.Config.Mode) {
-		cfg.Config.Mode = domain.DefaultMode
-		isTainted = true
-	}
-
-	if normalizedLevel, ok := normalizeKernelLogLevel(cfg.Config.LogLevel); ok {
-		if cfg.Config.LogLevel != normalizedLevel {
-			cfg.Config.LogLevel = normalizedLevel
-			isTainted = true
+	if normalizedLevel, ok := normalizeKernelLogLevel(kcfg.LogLevel); ok {
+		if kcfg.LogLevel != normalizedLevel {
+			kcfg.LogLevel = normalizedLevel
+			*isTainted = true
 		}
 	} else {
-		cfg.Config.LogLevel = domain.DefaultLogLevel
-		isTainted = true
+		kcfg.LogLevel = domain.DefaultLogLevel
+		*isTainted = true
 	}
 
-	if !netutil.IsValidHostPort(cfg.Config.ExternalController) {
-		slog.Warn("检测到非法的 ExternalController 监听地址，已自动恢复默认值", "invalid", cfg.Config.ExternalController)
-		cfg.Config.ExternalController = domain.DefaultExternalController
-		isTainted = true
+	if !netutil.IsValidHostPort(kcfg.ExternalController) {
+		slog.Warn("检测到非法的 ExternalController 监听地址，已自动恢复默认值", "invalid", kcfg.ExternalController)
+		kcfg.ExternalController = domain.DefaultExternalController
+		*isTainted = true
 	}
 
-	setIfEmpty(&cfg.Config.ExternalUI, domain.DefaultExternalUI, &isTainted)
-	setIfEmpty(&cfg.Config.ExternalUIName, domain.DefaultExternalUIName, &isTainted)
-	setIfNil(&cfg.Config.ExternalUIURL, domain.DefaultExternalUIURL, &isTainted)
+	setIfEmpty(&kcfg.ExternalUI, domain.DefaultExternalUI, isTainted)
+	setIfEmpty(&kcfg.ExternalUIName, domain.DefaultExternalUIName, isTainted)
+	setIfNil(&kcfg.ExternalUIURL, domain.DefaultExternalUIURL, isTainted)
 
-	if cfg.Config.ExternalControllerPipe != domain.IPCNamedPipe {
-		cfg.Config.ExternalControllerPipe = domain.IPCNamedPipe
-		isTainted = true
+	if kcfg.ExternalControllerPipe != domain.IPCNamedPipe {
+		kcfg.ExternalControllerPipe = domain.IPCNamedPipe
+		*isTainted = true
 	}
 
-	setIfNil(&cfg.Config.ExternalControllerCors.AllowPrivateNetwork, domain.DefaultAllowPrivateNetwork, &isTainted)
-	if cfg.Config.ExternalControllerCors.AllowOrigins == nil {
-		cfg.Config.ExternalControllerCors.AllowOrigins = append([]string(nil), domain.DefaultAllowOrigins...)
-		isTainted = true
+	setIfNil(&kcfg.ExternalControllerCors.AllowPrivateNetwork, domain.DefaultAllowPrivateNetwork, isTainted)
+	if kcfg.ExternalControllerCors.AllowOrigins == nil {
+		kcfg.ExternalControllerCors.AllowOrigins = append([]string(nil), domain.DefaultAllowOrigins...)
+		*isTainted = true
 	}
 
-	if cfg.Config.Secret == nil {
+	if kcfg.Secret == nil {
 		s := random.String(domain.DefaultSecretLength)
-		cfg.Config.Secret = &s
-		isTainted = true
-	} else if netutil.IsPublicAddress(cfg.Config.ExternalController) && strings.TrimSpace(*cfg.Config.Secret) == "" {
+		kcfg.Secret = &s
+		*isTainted = true
+	} else if netutil.IsPublicAddress(kcfg.ExternalController) && strings.TrimSpace(*kcfg.Secret) == "" {
 		s := random.String(domain.DefaultSecretLength)
-		cfg.Config.Secret = &s
-		isTainted = true
+		kcfg.Secret = &s
+		*isTainted = true
 		slog.Warn("安全拦截：已阻止外网无密码监听，系统强制生成随机访问密码")
 	}
+}
 
+func applyProfileDefaults(prof *domain.ProfileManager, isTainted *bool) {
 	var validItems []domain.ProfileItem
 	activeFound := false
-	for _, item := range cfg.Profiles.Items {
+	for _, item := range prof.Items {
 		if filepath.Dir(filepath.ToSlash(item.Path)) != domain.ProfilesDir {
-			isTainted = true
+			*isTainted = true
 			continue
 		}
 		validItems = append(validItems, item)
-		if cfg.Profiles.Active == item.Path {
+		if prof.Active == item.Path {
 			activeFound = true
 		}
 	}
-	cfg.Profiles.Items = validItems
+	prof.Items = validItems
 
-	if !activeFound && cfg.Profiles.Active != "" {
-		cfg.Profiles.Active = ""
-		isTainted = true
+	if !activeFound && prof.Active != "" {
+		prof.Active = ""
+		*isTainted = true
 	}
-
-	return isTainted
 }
 
 func sanitizePort(portPtr **int, defPort int, tainted *bool) {

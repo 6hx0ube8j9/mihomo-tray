@@ -140,14 +140,15 @@ func (m *Manager) launchBrowserMode(customEnabled bool, customPath, finalURL str
 		return
 	}
 
-	if !domain.IsValidBrowserExecutable(customPath) {
+	resolvedPath := domain.ResolveBrowserPath(customPath)
+	if !domain.IsValidBrowserExecutable(resolvedPath) {
 		slog.Error("指定浏览器路径无效或文件不存在", "path", customPath)
 		emitEvent(eventCh, EventError)
 		return
 	}
 
-	slog.Debug("启动指定浏览器打开标签页", "path", customPath)
-	m.openCustomBrowserTab(customPath, finalURL, eventCh)
+	slog.Debug("启动指定浏览器打开标签页", "path", resolvedPath)
+	m.openCustomBrowserTab(resolvedPath, finalURL, eventCh)
 }
 
 func (m *Manager) launchPureWebViewMode(cfg Config, finalURL string, eventCh chan<- Event) {
@@ -184,19 +185,21 @@ func (m *Manager) launchAppMode(cfg Config, customEnabled bool, customPath, fina
 
 	var browserPath, dirName string
 	if customEnabled {
-		if !domain.IsValidBrowserExecutable(customPath) {
+		resolvedPath := domain.ResolveBrowserPath(customPath)
+		if !domain.IsValidBrowserExecutable(resolvedPath) {
 			slog.Error("指定浏览器路径无效或文件不存在", "path", customPath)
 			emitEvent(eventCh, EventError)
 			return
 		}
-		if !domain.IsChromiumBrowserExecutable(customPath) {
-			slog.Error("App 模式仅支持 Chromium 类型浏览器", "path", customPath)
-			emitEvent(eventCh, EventError)
-			return
+		if domain.IsChromiumBrowserExecutable(resolvedPath) {
+			browserPath = resolvedPath
+			dirName = domain.ResolveCustomBrowserDataDir(resolvedPath)
+		} else {
+			slog.Warn("指定浏览器非 Chromium 内核，App 模式已忽略该配置", "path", customPath)
 		}
-		browserPath = customPath
-		dirName = domain.ResolveCustomBrowserDataDir(customPath)
-	} else {
+	}
+
+	if browserPath == "" {
 		browserPath, dirName = detectAvailableBrowser()
 		if browserPath == "" {
 			slog.Error("未检测到可用的 Chromium 内核浏览器")

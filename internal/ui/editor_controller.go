@@ -57,7 +57,7 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 	isInitializing := true
 
 	const (
-		leftColWidth   = 108
+		leftColWidth   = 100
 		smallBtnWidth  = 44
 		actionColWidth = 92 // 44 + 4 + 44 = 92
 	)
@@ -67,16 +67,6 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 			Text:      text,
 			MinSize:   Size{Width: smallBtnWidth},
 			MaxSize:   Size{Width: smallBtnWidth},
-			OnClicked: onClick,
-		}
-	}
-
-	wideBtn := func(assignTo **walk.PushButton, text string, onClick func()) PushButton {
-		return PushButton{
-			AssignTo:  assignTo,
-			Text:      text,
-			MinSize:   Size{Width: actionColWidth},
-			MaxSize:   Size{Width: actionColWidth},
 			OnClicked: onClick,
 		}
 	}
@@ -116,8 +106,8 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 
 	res := e.RunModalEditor("editor_controller", EditorConfig{
 		Title:         "Web 面板设置",
-		Width:         460,
-		MinHeight:     280,
+		Width:         520,
+		MinHeight:     230,
 		AcceptBtnText: "确定",
 		OnReady: func(dlg *walk.Dialog) {
 			activeDlg = dlg
@@ -131,7 +121,7 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 		Widgets: []Widget{
 			GroupBox{
 				Title:  "控制器连接",
-				Layout: VBox{Margins: Margins{Left: 10, Top: 10, Right: 10, Bottom: 10}, Spacing: 8},
+				Layout: VBox{Margins: Margins{Left: 10, Top: 6, Right: 10, Bottom: 8}, Spacing: 5},
 				Children: []Widget{
 					Composite{
 						Layout: HBox{MarginsZero: true, Spacing: 6},
@@ -177,29 +167,8 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 			},
 			GroupBox{
 				Title:  "启动偏好",
-				Layout: VBox{Margins: Margins{Left: 10, Top: 10, Right: 10, Bottom: 10}, Spacing: 8},
+				Layout: VBox{Margins: Margins{Left: 10, Top: 6, Right: 10, Bottom: 8}, Spacing: 5},
 				Children: []Widget{
-					Composite{
-						Layout: HBox{MarginsZero: true, Spacing: 6},
-						Children: []Widget{
-							CheckBox{
-								AssignTo: &onlineCheck,
-								Text:     "在线面板地址:",
-								Checked:  current.RemoteWebUI,
-								MinSize:  Size{Width: leftColWidth},
-							},
-							LineEdit{AssignTo: &remoteURLEdit, Text: current.RemoteWebUIURL},
-							Composite{
-								Layout:  HBox{MarginsZero: true, Spacing: 4},
-								MinSize: Size{Width: actionColWidth},
-								MaxSize: Size{Width: actionColWidth},
-								Children: []Widget{
-									copyBtn(&remoteURLEdit),
-									smallBtn("默认", func() { remoteURLEdit.SetText(domain.DefaultRemoteWebUIURL) }),
-								},
-							},
-						},
-					},
 					Composite{
 						Layout: HBox{MarginsZero: true, Spacing: 6},
 						Children: []Widget{
@@ -249,13 +218,41 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 								Text:     current.CustomBrowserPath,
 								Enabled:  current.CustomBrowserEnabled,
 							},
-							wideBtn(&browseBtn, "浏览", func() {
-								selectedPath, ok := RunOpenBrowserExeDialog(activeDlg, pathEdit.Text())
-								if !ok || selectedPath == "" {
-									return
-								}
-								pathEdit.SetText(selectedPath)
-							}),
+							PushButton{
+								AssignTo: &browseBtn,
+								Text:     "浏览",
+								MinSize:  Size{Width: smallBtnWidth},
+								MaxSize:  Size{Width: smallBtnWidth},
+								OnClicked: func() {
+									resolvedCurrent := domain.ResolveBrowserPath(pathEdit.Text())
+									selectedPath, ok := RunOpenBrowserExeDialog(activeDlg, resolvedCurrent)
+									if !ok || selectedPath == "" {
+										return
+									}
+									pathEdit.SetText(selectedPath)
+								},
+							},
+						},
+					},
+					Composite{
+						Layout: HBox{MarginsZero: true, Spacing: 6},
+						Children: []Widget{
+							CheckBox{
+								AssignTo: &onlineCheck,
+								Text:     "在线面板地址:",
+								Checked:  current.RemoteWebUI,
+								MinSize:  Size{Width: leftColWidth},
+							},
+							LineEdit{AssignTo: &remoteURLEdit, Text: current.RemoteWebUIURL},
+							Composite{
+								Layout:  HBox{MarginsZero: true, Spacing: 4},
+								MinSize: Size{Width: actionColWidth},
+								MaxSize: Size{Width: actionColWidth},
+								Children: []Widget{
+									copyBtn(&remoteURLEdit),
+									smallBtn("默认", func() { remoteURLEdit.SetText(domain.DefaultRemoteWebUIURL) }),
+								},
+							},
 						},
 					},
 				},

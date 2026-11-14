@@ -2,10 +2,13 @@ package domain
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 var nonChromiumOrHelperExes = map[string]struct{}{
@@ -68,38 +71,144 @@ var chromiumRuntimeArtifacts = []string{
 	"msedge_100_percent.pak",
 }
 
-func IsValidBrowserExecutable(exePath string) bool {
-	cleanPath := strings.TrimSpace(exePath)
-	if cleanPath == "" || !strings.EqualFold(filepath.Ext(cleanPath), ".exe") {
-		return false
+const maxChromiumCacheEntries = 64
+
+type chromiumCacheKey struct {
+	path    string
+	size    int64
+	modTime int64
+}
+
+var (
+	chromiumCacheMu sync.RWMutex
+	chromiumCache   = make(map[chromiumCacheKey]bool, 16)
+)
+
+func ResolveBrowserPath(raw string) string {
+	s := trimQuotesAndSpace(raw)
+	if s == "" || strings.IndexByte(s, '%') == -1 {
+		return s
 	}
-	fi, err := os.Stat(cleanPath)
+
+	var sb strings.Builder
+	sb.Grow(len(s) + 32)
+
+	i := 0
+	for i < len(s) {
+		pct := strings.IndexByte(s[i:], '%')
+		if pct == -1 {
+			sb.WriteString(s[i:])
+			break
+		}
+
+		pct += i
+		sb.WriteString(s[i:pct])
+
+		if pct+1 >= len(s) {
+			sb.WriteByte('%')
+			break
+		}
+
+		nextPct := strings.IndexByte(s[pct+1:], '%')
+		if nextPct == -1 {
+			sb.WriteString(s[pct:])
+			break
+		}
+
+		end := pct + 1 + nextPct
+		varName := s[pct+1 : end]
+
+		if varName != "" && !strings.ContainsAny(varName, `/\`) {
+			if val, ok := os.LookupEnv(varName); ok {
+				sb.WriteString(val)
+				i = end + 1
+				continue
+			}
+		}
+
+		sb.WriteString(s[pct:end])
+		i = end
+	}
+
+	return trimQuotesAndSpace(sb.String())
+}
+
+func trimQuotesAndSpace(s string) string {
+	s = strings.TrimSpace(s)
+	for len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		s = strings.TrimSpace(s[1 : len(s)-1])
+	}
+	return s
+}
+
+func statBrowserExecutable(resolvedPath string) (os.FileInfo, bool) {
+	if resolvedPath == "" || !strings.EqualFold(filepath.Ext(resolvedPath), ".exe") {
+		return nil, false
+	}
+	fi, err := os.Stat(resolvedPath)
 	if err != nil || fi.IsDir() {
-		return false
+		return nil, false
 	}
-	return true
+	return fi, true
+}
+
+func IsValidBrowserExecutable(exePath string) bool {
+	resolved := ResolveBrowserPath(exePath)
+	_, ok := statBrowserExecutable(resolved)
+	return ok
 }
 
 func IsChromiumBrowserExecutable(exePath string) bool {
-	if !IsValidBrowserExecutable(exePath) {
+	resolved := ResolveBrowserPath(exePath)
+	fi, ok := statBrowserExecutable(resolved)
+	if !ok {
 		return false
 	}
 
-	cleanPath := strings.TrimSpace(exePath)
-	if _, blocked := nonChromiumOrHelperExes[strings.ToLower(filepath.Base(cleanPath))]; blocked {
+	base := strings.ToLower(filepath.Base(resolved))
+	if _, blocked := nonChromiumOrHelperExes[base]; blocked {
 		return false
 	}
+	if _, known := knownChromiumMainExes[base]; known {
+		return true
+	}
 
-	realPath := cleanPath
-	if resolved, err := filepath.EvalSymlinks(cleanPath); err == nil && resolved != "" {
-		realPath = resolved
+	cacheKey := chromiumCacheKey{
+		path:    strings.ToLower(filepath.Clean(resolved)),
+		size:    fi.Size(),
+		modTime: fi.ModTime().UnixNano(),
+	}
+
+	chromiumCacheMu.RLock()
+	cachedRes, hit := chromiumCache[cacheKey]
+	chromiumCacheMu.RUnlock()
+	if hit {
+		return cachedRes
+	}
+
+	res := inspectChromiumExecutable(resolved)
+
+	chromiumCacheMu.Lock()
+	if len(chromiumCache) >= maxChromiumCacheEntries {
+		clear(chromiumCache)
+	}
+	chromiumCache[cacheKey] = res
+	chromiumCacheMu.Unlock()
+
+	return res
+}
+
+func inspectChromiumExecutable(resolvedPath string) bool {
+	realPath := resolvedPath
+	if target, err := filepath.EvalSymlinks(resolvedPath); err == nil && target != "" {
+		realPath = target
 	}
 
 	realBase := strings.ToLower(filepath.Base(realPath))
 	if _, blocked := nonChromiumOrHelperExes[realBase]; blocked {
 		return false
 	}
-	if _, ok := knownChromiumMainExes[realBase]; ok {
+	if _, known := knownChromiumMainExes[realBase]; known {
 		return true
 	}
 
@@ -130,11 +239,15 @@ func hasChromiumDirArtifacts(dir string) bool {
 		if !entry.IsDir() {
 			continue
 		}
+		name := entry.Name()
+		if name == "" || name[0] < '0' || name[0] > '9' {
+			continue
+		}
 		inspected++
 		if inspected > maxSubDirsToInspect {
 			break
 		}
-		if checkArtifactsInDir(filepath.Join(dir, entry.Name())) {
+		if checkArtifactsInDir(filepath.Join(dir, name)) {
 			return true
 		}
 	}
@@ -158,11 +271,26 @@ func hasChromiumBinarySignature(exePath string) bool {
 	}
 	defer f.Close()
 
-	const maxScanBytes = 8 * 1024 * 1024
-	buf, err := io.ReadAll(io.LimitReader(f, maxScanBytes))
-	if err != nil || len(buf) == 0 {
+	fi, err := f.Stat()
+	if err != nil {
 		return false
 	}
+
+	const maxScanBytes = 4 * 1024 * 1024
+	readSize := fi.Size()
+	if readSize <= 0 {
+		return false
+	}
+	if readSize > maxScanBytes {
+		readSize = maxScanBytes
+	}
+
+	buf := make([]byte, int(readSize))
+	n, err := io.ReadFull(f, buf)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return false
+	}
+	buf = buf[:n]
 
 	return bytes.Contains(buf, []byte("Chrome_WidgetWin")) ||
 		bytes.Contains(buf, []byte("chrome_elf")) ||
@@ -170,13 +298,16 @@ func hasChromiumBinarySignature(exePath string) bool {
 		bytes.Contains(buf, []byte("--user-data-dir"))
 }
 
-func ResolveCustomBrowserDataDir(exePath string) string {
-	cleaned := strings.TrimSpace(exePath)
-	if cleaned == "" {
-		return "browser_custom"
+func SanitizeBrowserPrefix(exePath string) string {
+	return sanitizeBrowserPrefixResolved(ResolveBrowserPath(exePath))
+}
+
+func sanitizeBrowserPrefixResolved(resolvedPath string) string {
+	if resolvedPath == "" {
+		return "browser"
 	}
 
-	base := filepath.Base(cleaned)
+	base := filepath.Base(resolvedPath)
 	if ext := filepath.Ext(base); ext != "" {
 		base = strings.TrimSuffix(base, ext)
 	}
@@ -190,9 +321,22 @@ func ResolveCustomBrowserDataDir(exePath string) string {
 		}
 	}
 
-	prefix := sb.String()
-	if prefix == "" {
-		prefix = "browser"
+	res := sb.String()
+	if res == "" {
+		return "browser"
 	}
-	return prefix + "_custom"
+	return res
+}
+
+func ResolveCustomBrowserDataDir(exePath string) string {
+	resolved := ResolveBrowserPath(exePath)
+	prefix := sanitizeBrowserPrefixResolved(resolved)
+
+	normalized := strings.ToLower(filepath.Clean(resolved))
+	sum := sha256.Sum256([]byte(normalized))
+
+	var hexBuf [16]byte
+	hex.Encode(hexBuf[:], sum[:8])
+
+	return prefix + "_" + string(hexBuf[:])
 }
