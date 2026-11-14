@@ -22,8 +22,9 @@ type Engine struct {
 	getState      func() domain.UIState
 	ReadyCh       chan struct{}
 
-	app *walk.Application
-	mw  *walk.MainWindow
+	uiThreadID uint32
+	app        *walk.Application
+	mw         *walk.MainWindow
 
 	Tray      *Tray
 	Dashboard *Dashboard
@@ -52,6 +53,7 @@ func (e *Engine) Run() error {
 	if err != nil {
 		return fmt.Errorf("初始化界面框架失败: %w", err)
 	}
+	e.uiThreadID = win.GetCurrentThreadId()
 	e.app = app
 
 	err = MainWindow{
@@ -124,7 +126,7 @@ func (e *Engine) RunOnUI(fn func()) {
 		return
 	}
 
-	if e.mw != nil && e.mw.Handle() != 0 && win.GetCurrentThreadId() == win.GetWindowThreadProcessId(e.mw.Handle(), nil) {
+	if e.uiThreadID != 0 && win.GetCurrentThreadId() == e.uiThreadID {
 		fn()
 		return
 	}
