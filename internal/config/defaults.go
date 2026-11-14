@@ -16,13 +16,16 @@ func applyDefaults(cfg *domain.TrayConfig) bool {
 	setIfNil(&cfg.General.Autostart, domain.DefaultAutostart, &isTainted)
 	setIfNil(&cfg.General.RemoteWebUI, domain.DefaultRemoteWebUI, &isTainted)
 	setIfNil(&cfg.General.SystemProxy, domain.DefaultSystemProxy, &isTainted)
-	
-	if cfg.General.WebOpenMode == nil || !isValidWebOpenMode(*cfg.General.WebOpenMode) {
+
+	if cfg.General.WebOpenMode == nil || !domain.IsValidWebOpenMode(*cfg.General.WebOpenMode) {
 		mode := domain.DefaultWebOpenMode
 		cfg.General.WebOpenMode = &mode
 		isTainted = true
 	}
-	
+
+	sanitizeTrimmedString(&cfg.General.CustomBrowserPath, "", &isTainted)
+	sanitizeTrimmedString(&cfg.General.CustomUserDataDir, "", &isTainted)
+
 	if !isValidTrayLogLevel(cfg.General.TrayLogLevel) {
 		cfg.General.TrayLogLevel = domain.DefaultTrayLogLevel
 		isTainted = true
@@ -73,7 +76,7 @@ func applyDefaults(cfg *domain.TrayConfig) bool {
 
 	setIfNil(&cfg.Config.ExternalControllerCors.AllowPrivateNetwork, domain.DefaultAllowPrivateNetwork, &isTainted)
 	if cfg.Config.ExternalControllerCors.AllowOrigins == nil {
-		cfg.Config.ExternalControllerCors.AllowOrigins = domain.DefaultAllowOrigins
+		cfg.Config.ExternalControllerCors.AllowOrigins = append([]string(nil), domain.DefaultAllowOrigins...)
 		isTainted = true
 	}
 
@@ -126,6 +129,20 @@ func sanitizePort(portPtr **int, defPort int, tainted *bool) {
 	}
 }
 
+func sanitizeTrimmedString(ptr **string, def string, tainted *bool) {
+	if *ptr == nil {
+		val := def
+		*ptr = &val
+		*tainted = true
+		return
+	}
+	trimmed := strings.TrimSpace(**ptr)
+	if trimmed != **ptr {
+		*ptr = &trimmed
+		*tainted = true
+	}
+}
+
 func isValidMode(mode string) bool {
 	switch strings.ToLower(mode) {
 	case "rule", "global", "direct":
@@ -167,14 +184,5 @@ func setIfEmpty(val *string, def string, tainted *bool) {
 	if *val == "" {
 		*val = def
 		*tainted = true
-	}
-}
-
-func isValidWebOpenMode(mode string) bool {
-	switch mode {
-	case domain.WebOpenModeSystem, domain.WebOpenModeWebView2, domain.WebOpenModeApp:
-		return true
-	default:
-		return false
 	}
 }

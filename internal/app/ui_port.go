@@ -11,7 +11,7 @@ type UIPort interface {
 	OpenYAMLFileDialog() (string, bool)
 	ShowProfileInfoEditor(title, defaultName, defaultURL string, defaultInterval int, isRemote bool) (name, url string, interval int, ok bool)
 	ShowPortEditor(cMixed, cSocks, cHttp int) (nMixed, nSocks, nHttp int, ok bool)
-	ShowControllerEditor(cAddr, cSec string, cOnline, cSys bool, cRemoteURL string) (nAddr, nSec string, nOnline, nSys bool, nRemoteURL string, ok bool)
+	ShowControllerEditor(current domain.ControllerSettings) (next domain.ControllerSettings, ok bool)
 
 	Exit()
 }

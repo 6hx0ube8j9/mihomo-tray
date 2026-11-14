@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -97,7 +98,7 @@ func (m *Manager) ReloadFromDisk() error {
 func (m *Manager) GetConfig() domain.TrayConfig {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.data
+	return m.data.Clone()
 }
 
 func (m *Manager) Update(updater func(cfg *domain.TrayConfig)) {
@@ -201,7 +202,7 @@ func (m *Manager) GetEffectiveRemoteWebUIURL() string {
 	}
 	return domain.DefaultRemoteWebUIURL
 }
-	
+
 func (m *Manager) IsSystemProxyEnabled() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -217,7 +218,7 @@ func (m *Manager) IsAutostartEnabled() bool {
 func (m *Manager) GetWebOpenMode() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.data.General.WebOpenMode != nil {
+	if m.data.General.WebOpenMode != nil && domain.IsValidWebOpenMode(*m.data.General.WebOpenMode) {
 		return *m.data.General.WebOpenMode
 	}
 	return domain.DefaultWebOpenMode
@@ -227,6 +228,51 @@ func (m *Manager) IsRemoteWebUIEnabled() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.data.General.RemoteWebUI != nil && *m.data.General.RemoteWebUI
+}
+
+func (m *Manager) GetControllerSettings() domain.ControllerSettings {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	addr := m.data.Config.ExternalController
+	if addr == "" {
+		addr = domain.DefaultExternalController
+	}
+
+	var secret string
+	if m.data.Config.Secret != nil {
+		secret = *m.data.Config.Secret
+	}
+
+	remoteWebUI := m.data.General.RemoteWebUI != nil && *m.data.General.RemoteWebUI
+
+	remoteURL := domain.DefaultRemoteWebUIURL
+	if m.data.General.RemoteWebUIURL != nil && *m.data.General.RemoteWebUIURL != "" {
+		remoteURL = *m.data.General.RemoteWebUIURL
+	}
+
+	openMode := domain.DefaultWebOpenMode
+	if m.data.General.WebOpenMode != nil && domain.IsValidWebOpenMode(*m.data.General.WebOpenMode) {
+		openMode = *m.data.General.WebOpenMode
+	}
+
+	var customPath, customDir string
+	if m.data.General.CustomBrowserPath != nil {
+		customPath = strings.TrimSpace(*m.data.General.CustomBrowserPath)
+	}
+	if m.data.General.CustomUserDataDir != nil {
+		customDir = strings.TrimSpace(*m.data.General.CustomUserDataDir)
+	}
+
+	return domain.ControllerSettings{
+		Addr:              addr,
+		Secret:            secret,
+		RemoteWebUI:       remoteWebUI,
+		RemoteWebUIURL:    remoteURL,
+		WebOpenMode:       openMode,
+		CustomBrowserPath: customPath,
+		CustomUserDataDir: customDir,
+	}
 }
 
 func (m *Manager) BaseDir() string        { return m.baseDir }

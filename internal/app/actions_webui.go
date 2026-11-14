@@ -24,22 +24,19 @@ func (a *Application) handleRequestEditController(_ context.Context, _ domain.UI
 			return
 		}
 
-		cfg := a.Cfg.GetConfig()
-		cAddr := a.Cfg.GetEffectiveExternalController()
-		cSec := a.Cfg.GetEffectiveSecret(cfg.Config.Secret)
-		cOnline := a.Cfg.IsRemoteWebUIEnabled()
-		cRemoteURL := a.Cfg.GetEffectiveRemoteWebUIURL()
-
-		cSys := a.Cfg.GetWebOpenMode() == domain.WebOpenModeSystem
-
-		nAddr, nSec, nOnline, nSys, nRemoteURL, ok := a.ui.ShowControllerEditor(cAddr, cSec, cOnline, cSys, cRemoteURL)
+		cur := a.Cfg.GetControllerSettings()
+		next, ok := a.ui.ShowControllerEditor(cur)
 		if !ok {
 			return
 		}
 
 		a.runExclusiveAction(state.ActionRestart, "面板设置", func() error {
-			coreChanged := (cAddr != nAddr) || (cSec != nSec)
-			appChanged := (cOnline != nOnline) || (cSys != nSys) || (cRemoteURL != nRemoteURL)
+			coreChanged := (cur.Addr != next.Addr) || (cur.Secret != next.Secret)
+			appChanged := (cur.RemoteWebUI != next.RemoteWebUI) ||
+				(cur.RemoteWebUIURL != next.RemoteWebUIURL) ||
+				(cur.WebOpenMode != next.WebOpenMode) ||
+				(cur.CustomBrowserPath != next.CustomBrowserPath) ||
+				(cur.CustomUserDataDir != next.CustomUserDataDir)
 
 			if !coreChanged && !appChanged {
 				return nil
@@ -47,20 +44,22 @@ func (a *Application) handleRequestEditController(_ context.Context, _ domain.UI
 
 			a.Cfg.Update(func(c *domain.TrayConfig) {
 				if coreChanged {
-					c.Config.ExternalController = nAddr
-					c.Config.Secret = &nSec
+					c.Config.ExternalController = next.Addr
+					sec := next.Secret
+					c.Config.Secret = &sec
 				}
-				bOnline, bRemoteURL := nOnline, nRemoteURL
-				c.General.RemoteWebUI = &bOnline
-				c.General.RemoteWebUIURL = &bRemoteURL
 
-				if nSys {
-					m := domain.WebOpenModeSystem
-					c.General.WebOpenMode = &m
-				} else if c.General.WebOpenMode != nil && *c.General.WebOpenMode == domain.WebOpenModeSystem {
-					m := domain.DefaultWebOpenMode
-					c.General.WebOpenMode = &m
-				}
+				online := next.RemoteWebUI
+				remoteURL := next.RemoteWebUIURL
+				openMode := domain.NormalizeWebOpenMode(next.WebOpenMode)
+				customPath := next.CustomBrowserPath
+				customDir := next.CustomUserDataDir
+
+				c.General.RemoteWebUI = &online
+				c.General.RemoteWebUIURL = &remoteURL
+				c.General.WebOpenMode = &openMode
+				c.General.CustomBrowserPath = &customPath
+				c.General.CustomUserDataDir = &customDir
 			})
 
 			if coreChanged {
@@ -76,19 +75,29 @@ func (a *Application) handleRequestEditController(_ context.Context, _ domain.UI
 }
 
 func (a *Application) handleSetWebOpenMode(_ context.Context, cmd domain.UICommand) {
-	targetMode := cmd.Payload
+	targetMode := domain.NormalizeWebOpenMode(cmd.Payload)
+	if a.Cfg.GetWebOpenMode() == targetMode {
+		return
+	}
+
 	a.Cfg.Update(func(c *domain.TrayConfig) {
 		c.General.WebOpenMode = &targetMode
 	})
 	a.Presenter.PushUIState()
+	a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
 }
 
 func (a *Application) handleToggleRemoteWebUI(_ context.Context, cmd domain.UICommand) {
 	b := (cmd.Payload == "true")
+	if a.Cfg.IsRemoteWebUIEnabled() == b {
+		return
+	}
+
 	a.Cfg.Update(func(c *domain.TrayConfig) {
 		c.General.RemoteWebUI = &b
 	})
 	a.Presenter.PushUIState()
+	a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
 }
 
 func (a *Application) handleCopyWebUIPassword(_ context.Context, _ domain.UICommand) {

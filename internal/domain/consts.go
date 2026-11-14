@@ -2,15 +2,16 @@ package domain
 
 // ================= 文件与目录名称 =================
 const (
-	AppName            = "Mihomo Tray"
-	HostTitle          = "SysTrayHost"
-	KernelExeName      = "mihomo.exe"
-	RuntimeConfigName  = "config.yaml"
-	TrayConfigName     = "mihomo-tray.json"
-	TestConfigFileName = "config.test.tmp"
-	ProfilesDir        = "profiles"
-	WebCacheDir        = "webcache"
-	
+	AppName             = "Mihomo Tray"
+	HostTitle           = "SysTrayHost"
+	KernelExeName       = "mihomo.exe"
+	RuntimeConfigName   = "config.yaml"
+	TrayConfigName      = "mihomo-tray.json"
+	TestConfigFileName  = "config.test.tmp"
+	ProfilesDir         = "profiles"
+	WebCacheDir         = "webcache"
+	WebViewCacheDirName = "webview2"
+
 	// IPCNamedPipe Windows 本地管道
 	IPCNamedPipe = `\\.\pipe\{B4C72E91-8D3A-4F20-A1E6-7D5832E904F1}`
 
@@ -28,9 +29,10 @@ const (
 
 // ================= Web 面板打开方式 =================
 const (
-	WebOpenModeSystem   = "system"
-	WebOpenModeWebView2 = "webview2"
-	WebOpenModeApp      = "app"
+	WebOpenModeAuto    = "auto"
+	WebOpenModeApp     = "app"
+	WebOpenModeBrowser = "browser"
+	WebOpenModeWebView = "webview"
 )
 
 // ================= 日志文件与时间格式 =================
@@ -117,7 +119,7 @@ const (
 	// 托盘偏好默认值
 	DefaultAutostart      = false
 	DefaultSystemProxy    = false
-	DefaultWebOpenMode    = WebOpenModeWebView2
+	DefaultWebOpenMode    = WebOpenModeAuto
 	DefaultRemoteWebUI    = false
 	DefaultRemoteWebUIURL = "https://board.zash.run.place"
 

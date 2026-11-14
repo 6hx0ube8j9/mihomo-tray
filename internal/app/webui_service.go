@@ -36,30 +36,36 @@ func NewWebUIService(cfg *config.Manager, st *state.RuntimeState, coreMgr *webui
 
 func (s *WebUIService) Open(forceSync func(), onReady func()) error {
 	if s.st.GetPhase() != domain.PhaseRunning {
+		if onReady != nil {
+			onReady()
+		}
 		return domain.ErrKernelNotReady
 	}
 
 	cfg := s.cfg.GetConfig()
-	addr := s.cfg.GetEffectiveExternalController()
-	secret := s.cfg.GetEffectiveSecret(cfg.Config.Secret)
-	online := s.cfg.IsRemoteWebUIEnabled()
-	remoteURL := s.cfg.GetEffectiveRemoteWebUIURL()
-	openMode := s.cfg.GetWebOpenMode()
+	ctrl := s.cfg.GetControllerSettings()
 
-	slog.Debug("启动 Web 面板", "addr", addr, "mode", openMode, "remote", online)
+	slog.Debug("启动 Web 面板",
+		"addr", ctrl.Addr,
+		"mode", ctrl.WebOpenMode,
+		"remote", ctrl.RemoteWebUI,
+		"customBrowser", ctrl.CustomBrowserPath != "",
+	)
 
 	currentTheme := s.st.GetSystemTheme()
 
 	wcfg := webui.Config{
-		APIAddr:        addr,
-		Secret:         secret,
-		ProxyPort:      s.cfg.GetEffectiveLocalProxyPortStr(),
-		BaseDir:        s.cfg.BaseDir(),
-		UIName:         cfg.Config.ExternalUIName,
-		WebOpenMode:    openMode,
-		RemoteWebUI:    online,
-		RemoteWebUIURL: remoteURL,
-		IsDark:         currentTheme.IsDark(),
+		APIAddr:           ctrl.Addr,
+		Secret:            ctrl.Secret,
+		ProxyPort:         s.cfg.GetEffectiveLocalProxyPortStr(),
+		BaseDir:           s.cfg.BaseDir(),
+		UIName:            cfg.Config.ExternalUIName,
+		WebOpenMode:       ctrl.WebOpenMode,
+		RemoteWebUI:       ctrl.RemoteWebUI,
+		RemoteWebUIURL:    ctrl.RemoteWebUIURL,
+		CustomBrowserPath: ctrl.CustomBrowserPath,
+		CustomUserDataDir: ctrl.CustomUserDataDir,
+		IsDark:            currentTheme.IsDark(),
 	}
 
 	if forceSync != nil {

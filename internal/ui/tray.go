@@ -19,10 +19,9 @@ type Tray struct {
 	ni       *walk.NotifyIcon
 	iconCtrl *TrayIconController
 
-		
-    notifyMu      sync.Mutex
+	notifyMu       sync.Mutex
 	recentNotifies map[string]time.Time
-	
+
 	latestState            domain.UIState
 	lastProfileFingerprint string
 
@@ -36,7 +35,10 @@ type Tray struct {
 	actAutoStart      *walk.Action
 	actRunAdmin       *walk.Action
 	actAdminMenu      *walk.Action
-	actSysBrowser     *walk.Action
+	actWebModeAuto    *walk.Action
+	actWebModeApp     *walk.Action
+	actWebModeBrowser *walk.Action
+	actWebModeWebView *walk.Action
 	actRemoteWebUI    *walk.Action
 	actAllowLan       *walk.Action
 }
@@ -86,7 +88,12 @@ func (t *Tray) UpdateState(state domain.UIState) {
 	safelySetChecked(t.actAutoStart, state.AutoStart)
 	safelySetChecked(t.actRunAdmin, state.RunAsAdmin || state.AutoStart)
 	safelySetEnabled(t.actRunAdmin, !state.AutoStart)
-	safelySetChecked(t.actSysBrowser, state.WebOpenMode == domain.WebOpenModeSystem)
+
+	safelySetChecked(t.actWebModeAuto, state.WebOpenMode == domain.WebOpenModeAuto)
+	safelySetChecked(t.actWebModeApp, state.WebOpenMode == domain.WebOpenModeApp)
+	safelySetChecked(t.actWebModeBrowser, state.WebOpenMode == domain.WebOpenModeBrowser)
+	safelySetChecked(t.actWebModeWebView, state.WebOpenMode == domain.WebOpenModeWebView)
+
 	safelySetChecked(t.actRemoteWebUI, state.RemoteWebUI)
 	safelySetChecked(t.actAllowLan, state.AllowLan)
 
@@ -110,7 +117,6 @@ func (t *Tray) UpdateState(state domain.UIState) {
 				}
 			}
 		}
-		
 	}
 }
 
@@ -159,6 +165,20 @@ func (t *Tray) buildMenuSkeleton() {
 		t.toggle(domain.ActionToggleRunAsAdmin, !t.latestState.RunAsAdmin)
 	})
 
+	webModeMenu, _ := t.addSubMenu("面板打开方式")
+	t.actWebModeAuto = t.addRadioSubAction(webModeMenu, "自动 (Auto)", true, func() {
+		t.engine.SendCommand(domain.ActionSetWebOpenMode, domain.WebOpenModeAuto)
+	})
+	t.actWebModeApp = t.addRadioSubAction(webModeMenu, "应用窗口 (App)", false, func() {
+		t.engine.SendCommand(domain.ActionSetWebOpenMode, domain.WebOpenModeApp)
+	})
+	t.actWebModeBrowser = t.addRadioSubAction(webModeMenu, "浏览器 (Browser)", false, func() {
+		t.engine.SendCommand(domain.ActionSetWebOpenMode, domain.WebOpenModeBrowser)
+	})
+	t.actWebModeWebView = t.addRadioSubAction(webModeMenu, "内置窗口 (WebView)", false, func() {
+		t.engine.SendCommand(domain.ActionSetWebOpenMode, domain.WebOpenModeWebView)
+	})
+
 	moreMenu, _ := t.addSubMenu("更多设置")
 	t.addActionTo(moreMenu, fmt.Sprintf("打开应用配置: %s", domain.TrayConfigName), func() {
 		t.engine.SendCommand(domain.ActionOpenAppConfig, "")
@@ -175,15 +195,6 @@ func (t *Tray) buildMenuSkeleton() {
 	t.actRemoteWebUI = t.addCheckableSubAction(moreMenu, "使用在线托管面板", false, func() {
 		t.toggle(domain.ActionToggleRemoteWebUI, !t.latestState.RemoteWebUI)
 	})
-
-	t.actSysBrowser = t.addCheckableSubAction(moreMenu, "始终在默认浏览器打开面板", false, func() {
-		nextMode := domain.DefaultWebOpenMode
-		if t.latestState.WebOpenMode != domain.WebOpenModeSystem {
-			nextMode = domain.WebOpenModeSystem
-		}
-		t.engine.SendCommand(domain.ActionSetWebOpenMode, nextMode)
-	})
-	
 	t.actAllowLan = t.addCheckableSubAction(moreMenu, "允许局域网代理", false, func() {
 		t.toggle(domain.ActionToggleAllowLan, !t.latestState.AllowLan)
 	})
@@ -267,7 +278,7 @@ func (t *Tray) Dispose() {
 		t.iconCtrl.Dispose()
 		t.iconCtrl = nil
 	}
-	
+
 	if t.ni != nil {
 		t.ni.Dispose()
 		t.ni = nil

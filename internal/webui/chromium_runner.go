@@ -39,9 +39,8 @@ var (
 	cachedBrowserTag  string
 )
 
-func (m *Manager) launchChromiumAppMode(cfg Config, finalURL, appHostPort string, eventCh chan<- Event, onReady func()) bool {
-	browserPath, browserTag := detectAvailableBrowser()
-	if browserPath == "" {
+func (m *Manager) launchChromiumAppMode(cfg Config, browserPath, dataDirName, finalURL, appHostPort string, eventCh chan<- Event) bool {
+	if browserPath == "" || dataDirName == "" {
 		return false
 	}
 
@@ -49,13 +48,10 @@ func (m *Manager) launchChromiumAppMode(cfg Config, finalURL, appHostPort string
 
 	if m.tryAttachExistingTarget(safeDebugPort, appHostPort, eventCh) {
 		slog.Debug("复用现有独立浏览器窗口")
-		if onReady != nil {
-			onReady()
-		}
 		return true
 	}
 
-	return m.launchIsolatedBrowser(cfg, browserPath, browserTag, finalURL, safeDebugPort, appHostPort, eventCh, onReady)
+	return m.launchIsolatedBrowser(cfg, browserPath, dataDirName, finalURL, safeDebugPort, appHostPort, eventCh)
 }
 
 func (m *Manager) prepareDebugPort() string {
@@ -88,18 +84,19 @@ func (m *Manager) tryAttachExistingTarget(debugPort, appHostPort string, eventCh
 	return m.waitForWindow(debugPort, appHostPort, targetTitle, m.isolatedPid.Load(), nil, eventCh)
 }
 
-func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, browserTag, finalURL, debugPort, appHostPort string, eventCh chan<- Event, onReady func()) bool {
-	slog.Debug("启动独立浏览器", "browser", browserTag, "port", debugPort)
+func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, dataDirName, finalURL, debugPort, appHostPort string, eventCh chan<- Event) bool {
+	slog.Debug("启动独立浏览器", "exe", browserPath, "dir", dataDirName, "port", debugPort)
 
-	userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, browserTag)
+	userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, dataDirName)
 	if err := os.MkdirAll(userDataDir, 0755); err != nil {
 		slog.Error("创建缓存目录失败", "path", userDataDir, "err", err)
 		return false
 	}
+
 	args := buildBrowserArgs(cfg, userDataDir, finalURL, debugPort)
 	cmd := exec.Command(browserPath, args...)
 	if err := cmd.Start(); err != nil {
-		slog.Error("启动浏览器进程失败", "err", err)
+		slog.Error("启动浏览器进程失败", "path", browserPath, "err", err)
 		return false
 	}
 
@@ -113,9 +110,6 @@ func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, browserTag, fin
 	}()
 
 	if m.waitForWindow(debugPort, appHostPort, "", mainPid, exitCh, eventCh) {
-		if onReady != nil {
-			onReady()
-		}
 		return true
 	}
 
@@ -314,7 +308,7 @@ func detectAvailableBrowser() (path string, tag string) {
 				return
 			}
 		}
-		slog.Debug("未检测到 Chromium 内核浏览器，后续将回退至系统默认浏览器")
+		slog.Debug("未检测到内置保底 Chromium 浏览器，后续将回退至系统默认浏览器")
 	})
 
 	return cachedBrowserPath, cachedBrowserTag

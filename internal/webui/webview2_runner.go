@@ -38,18 +38,22 @@ func isWebView2Available() bool {
 		v, err := webviewloader.GetInstalledVersion()
 		wv2Available = (err == nil && v != "")
 		if !wv2Available {
-			slog.Debug("未检测到 WebView2，使用备用模式")
+			slog.Debug("未检测到 WebView2 运行时")
 		}
 	})
 	return wv2Available
 }
 
 type webviewAdapter struct {
-	w    webview2.WebView
-	hwnd uintptr
+	w         webview2.WebView
+	hwnd      uintptr
+	destroyed atomic.Bool
 }
 
 func (a *webviewAdapter) Destroy() {
+	if !a.destroyed.CompareAndSwap(false, true) {
+		return
+	}
 	if a.hwnd != 0 && sys.IsWindowHung(a.hwnd) {
 		slog.Warn("WebView2 窗口无响应，执行隐藏", "hwnd", a.hwnd)
 		sys.HideWindow(a.hwnd)
@@ -60,17 +64,17 @@ func (a *webviewAdapter) Destroy() {
 }
 
 func (a *webviewAdapter) SetDarkMode(isDark bool) {
-	if a.w != nil {
+	if !a.destroyed.Load() && a.w != nil {
 		a.w.SetDarkMode(isDark)
 	}
 }
 
-func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Event, onReady func()) bool {
+func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Event) bool {
 	if wv2Broken.Load() || !isWebView2Available() {
 		return false
 	}
 
-	userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, domain.WebOpenModeWebView2)
+	userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, domain.WebViewCacheDirName)
 	if err := os.MkdirAll(userDataDir, 0755); err != nil {
 		slog.Error("创建 WebView2 缓存目录失败", "path", userDataDir, "err", err)
 		return false
@@ -84,10 +88,13 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		defer runtime.UnlockOSThread()
 
 		var w webview2.WebView
+		var adapter *webviewAdapter
 		var hwnd uintptr
 
 		defer func() {
-			if w != nil && w.Window() != nil {
+			if adapter != nil {
+				adapter.Destroy()
+			} else if w != nil && w.Window() != nil {
 				w.Destroy()
 			}
 		}()
@@ -139,16 +146,16 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		}
 
 		hwnd = uintptr(w.Window())
+		adapter = &webviewAdapter{w: w, hwnd: hwnd}
 
 		m.wvMu.Lock()
 		if aborted.Load() {
 			m.wvMu.Unlock()
 			sys.HideWindow(hwnd)
-			w.Destroy()
+			adapter.Destroy()
 			w.Run()
 			return
 		}
-		adapter := &webviewAdapter{w: w, hwnd: hwnd}
 		m.hwnd.Store(hwnd)
 		m.wv = adapter
 		m.wvMu.Unlock()
@@ -167,21 +174,13 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 			return false
 		})
 
+		w.Navigate(finalURL)
+		emitEvent(eventCh, EventReady)
+		sys.FocusWindowSilky(hwnd)
+
 		select {
 		case initCh <- true:
 		default:
-		}
-
-		w.Navigate(finalURL)
-		emitEvent(eventCh, EventReady)
-
-		sys.FocusWindowSilky(hwnd)
-
-		if onReady != nil {
-			go func() {
-				time.Sleep(150 * time.Millisecond)
-				onReady()
-			}()
 		}
 
 		w.Run()
@@ -192,7 +191,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		return ok
 
 	case <-time.After(webviewInitTimeout):
-		slog.Warn("WebView2 启动超时，切换备用模式", "timeout", webviewInitTimeout)
+		slog.Warn("WebView2 启动超时", "timeout", webviewInitTimeout)
 		wv2Broken.Store(true)
 
 		m.wvMu.Lock()

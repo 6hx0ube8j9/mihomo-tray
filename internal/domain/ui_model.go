@@ -13,7 +13,18 @@ const (
 type UICommand struct {
 	Action  string
 	Payload string
-	OnDone  func() 
+	OnDone  func()
+}
+
+// ControllerSettings
+type ControllerSettings struct {
+	Addr              string
+	Secret            string
+	RemoteWebUI       bool
+	RemoteWebUIURL    string
+	WebOpenMode       string
+	CustomBrowserPath string
+	CustomUserDataDir string
 }
 
 // ================= UI Action Protocol =================
@@ -52,11 +63,11 @@ const (
 	ActionExitApp          = "ExitApp"
 
 	// Web 面板偏好
-	ActionSetWebOpenMode      = "SetWebOpenMode"
-	ActionToggleRemoteWebUI   = "ToggleRemoteWebUI"
-	ActionOpenWebUI           = "OpenWebUI"
-	ActionCopyWebUIPassword   = "CopyWebUIPassword"
-	ActionClearWebUICache     = "ClearWebUICache"
+	ActionSetWebOpenMode    = "SetWebOpenMode"
+	ActionToggleRemoteWebUI = "ToggleRemoteWebUI"
+	ActionOpenWebUI         = "OpenWebUI"
+	ActionCopyWebUIPassword = "CopyWebUIPassword"
+	ActionClearWebUICache   = "ClearWebUICache"
 )
 
 type UIProfileItem struct {
@@ -69,21 +80,21 @@ type UIProfileItem struct {
 }
 
 type UIState struct {
-	IconState        IconState
-	IsBusy           bool
-	IsTun            bool
-	IsProxy          bool
-	Mode             string
-	SystemTheme      Theme
-	AutoStart        bool
-	IsAdmin          bool
-	RunAsAdmin       bool
-	WebOpenMode      string
-	RemoteWebUI      bool
-	AllowLan         bool
-	ProfileItems     []UIProfileItem
-	CanAddProfile    bool
-	MixedPort        int
-	SocksPort        int
-	HttpPort         int
+	IconState     IconState
+	IsBusy        bool
+	IsTun         bool
+	IsProxy       bool
+	Mode          string
+	SystemTheme   Theme
+	AutoStart     bool
+	IsAdmin       bool
+	RunAsAdmin    bool
+	WebOpenMode   string
+	RemoteWebUI   bool
+	AllowLan      bool
+	ProfileItems  []UIProfileItem
+	CanAddProfile bool
+	MixedPort     int
+	SocksPort     int
+	HttpPort      int
 }
