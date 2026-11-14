@@ -49,7 +49,7 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 	var addrEdit, secretEdit, remoteURLEdit, pathEdit *walk.LineEdit
 	var onlineCheck, customBrowserCheck *walk.CheckBox
 	var modeCombo *walk.ComboBox
-	var browseBtn, clearBtn *walk.PushButton
+	var browseBtn, clearBtn, remoteCopyBtn, remoteDefaultBtn *walk.PushButton
 
 	isInitializing := true
 
@@ -57,6 +57,7 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 		leftColWidth   = 104
 		smallBtnWidth  = 44
 		actionColWidth = 92 // 44 + 4 + 44 = 92
+		comboColWidth  = 138
 	)
 
 	smallBtn := func(assignTo **walk.PushButton, text string, enabled bool, onClick func()) PushButton {
@@ -70,8 +71,8 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 		}
 	}
 
-	copyBtn := func(edit **walk.LineEdit) PushButton {
-		return smallBtn(nil, "复制", true, func() {
+	copyBtn := func(assignTo **walk.PushButton, enabled bool, edit **walk.LineEdit) PushButton {
+		return smallBtn(assignTo, "复制", enabled, func() {
 			if *edit != nil {
 				_ = walk.Clipboard().SetText((*edit).Text())
 			}
@@ -90,13 +91,18 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 	}
 
 	syncState := func() {
-		if customBrowserCheck == nil || pathEdit == nil || browseBtn == nil || clearBtn == nil {
-			return
+		if customBrowserCheck != nil && pathEdit != nil && browseBtn != nil && clearBtn != nil {
+			isCustom := customBrowserCheck.Checked()
+			pathEdit.SetEnabled(isCustom)
+			browseBtn.SetEnabled(isCustom)
+			clearBtn.SetEnabled(isCustom)
 		}
-		isChecked := customBrowserCheck.Checked()
-		pathEdit.SetEnabled(isChecked)
-		browseBtn.SetEnabled(isChecked)
-		clearBtn.SetEnabled(isChecked)
+		if onlineCheck != nil && remoteURLEdit != nil && remoteCopyBtn != nil && remoteDefaultBtn != nil {
+			isOnline := onlineCheck.Checked()
+			remoteURLEdit.SetEnabled(isOnline)
+			remoteCopyBtn.SetEnabled(isOnline)
+			remoteDefaultBtn.SetEnabled(isOnline)
+		}
 	}
 
 	var activeDlg *walk.Dialog
@@ -104,7 +110,7 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 	res := e.RunModalEditor("editor_controller", EditorConfig{
 		Title:         "Web 面板设置",
 		Width:         440,
-		MinHeight:     225,
+		MinHeight:     245,
 		AcceptBtnText: "确定",
 		OnReady: func(dlg *walk.Dialog) {
 			activeDlg = dlg
@@ -116,8 +122,9 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 			syncState()
 		},
 		Widgets: []Widget{
-			Composite{
-				Layout: VBox{Margins: Margins{Left: 4, Top: 4, Right: 4, Bottom: 4}, Spacing: 8},
+			GroupBox{
+				Title:  "控制器连接",
+				Layout: VBox{Margins: Margins{Left: 10, Top: 6, Right: 10, Bottom: 8}, Spacing: 6},
 				Children: []Widget{
 					Composite{
 						Layout: HBox{MarginsZero: true, Spacing: 6},
@@ -133,7 +140,7 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 								MinSize: Size{Width: actionColWidth},
 								MaxSize: Size{Width: actionColWidth},
 								Children: []Widget{
-									copyBtn(&addrEdit),
+									copyBtn(nil, true, &addrEdit),
 									smallBtn(nil, "默认", true, func() { addrEdit.SetText(domain.DefaultExternalController) }),
 								},
 							},
@@ -153,26 +160,18 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 								MinSize: Size{Width: actionColWidth},
 								MaxSize: Size{Width: actionColWidth},
 								Children: []Widget{
-									copyBtn(&secretEdit),
+									copyBtn(nil, true, &secretEdit),
 									smallBtn(nil, "生成", true, func() { secretEdit.SetText(random.String(domain.DefaultSecretLength)) }),
 								},
 							},
 						},
 					},
-					Composite{
-						Layout:  HBox{Margins: Margins{Top: 2, Bottom: 2}},
-						MinSize: Size{Height: 5},
-						MaxSize: Size{Height: 5},
-						Children: []Widget{
-							Composite{
-								Layout:     HBox{MarginsZero: true},
-								MinSize:    Size{Height: 1},
-								MaxSize:    Size{Height: 1},
-								Background: SolidColorBrush{Color: walk.RGB(205, 210, 216)},
-								Children:   []Widget{HSpacer{}},
-							},
-						},
-					},
+				},
+			},
+			GroupBox{
+				Title:  "启动偏好",
+				Layout: VBox{Margins: Margins{Left: 10, Top: 6, Right: 10, Bottom: 8}, Spacing: 6},
+				Children: []Widget{
 					Composite{
 						Layout: HBox{MarginsZero: true, Spacing: 6},
 						Children: []Widget{
@@ -181,11 +180,16 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 								Alignment: AlignHNearVCenter,
 								MinSize:   Size{Width: leftColWidth},
 							},
-							ComboBox{
-								AssignTo: &modeCombo,
-								Model:    webOpenModeLabels(),
-								MinSize:  Size{Width: 168},
-								MaxSize:  Size{Width: 168},
+							Composite{
+								Layout:  HBox{MarginsZero: true},
+								MinSize: Size{Width: comboColWidth},
+								MaxSize: Size{Width: comboColWidth},
+								Children: []Widget{
+									ComboBox{
+										AssignTo: &modeCombo,
+										Model:    webOpenModeLabels(),
+									},
+								},
 							},
 							HSpacer{},
 						},
@@ -242,15 +246,28 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 								Text:     "在线面板地址:",
 								Checked:  current.RemoteWebUI,
 								MinSize:  Size{Width: leftColWidth},
+								OnCheckedChanged: func() {
+									if isInitializing {
+										return
+									}
+									syncState()
+									if onlineCheck.Checked() && strings.TrimSpace(remoteURLEdit.Text()) == "" {
+										remoteURLEdit.SetFocus()
+									}
+								},
 							},
-							LineEdit{AssignTo: &remoteURLEdit, Text: current.RemoteWebUIURL},
+							LineEdit{
+								AssignTo: &remoteURLEdit,
+								Text:     current.RemoteWebUIURL,
+								Enabled:  current.RemoteWebUI,
+							},
 							Composite{
 								Layout:  HBox{MarginsZero: true, Spacing: 4},
 								MinSize: Size{Width: actionColWidth},
 								MaxSize: Size{Width: actionColWidth},
 								Children: []Widget{
-									copyBtn(&remoteURLEdit),
-									smallBtn(nil, "默认", true, func() { remoteURLEdit.SetText(domain.DefaultRemoteWebUIURL) }),
+									copyBtn(&remoteCopyBtn, current.RemoteWebUI, &remoteURLEdit),
+									smallBtn(&remoteDefaultBtn, "默认", current.RemoteWebUI, func() { remoteURLEdit.SetText(domain.DefaultRemoteWebUIURL) }),
 								},
 							},
 						},
