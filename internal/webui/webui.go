@@ -28,17 +28,17 @@ const (
 )
 
 type Config struct {
-	APIAddr           string
-	Secret            string
-	ProxyPort         string
-	BaseDir           string
-	UIName            string
-	WebOpenMode       string
-	RemoteWebUI       bool
-	RemoteWebUIURL    string
-	CustomBrowserPath string
-	CustomUserDataDir string
-	IsDark            bool
+	APIAddr              string
+	Secret               string
+	ProxyPort            string
+	BaseDir              string
+	UIName               string
+	WebOpenMode          string
+	RemoteWebUI          bool
+	RemoteWebUIURL       string
+	CustomBrowserEnabled bool
+	CustomBrowserPath    string
+	IsDark               bool
 }
 
 type Manager struct {
@@ -116,37 +116,37 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event, onReady func()) {
 
 	switch mode {
 	case domain.WebOpenModeBrowser:
-		m.launchBrowserMode(customPath, finalURL, eventCh)
+		m.launchBrowserMode(cfg.CustomBrowserEnabled, customPath, finalURL, eventCh)
 
 	case domain.WebOpenModeWebView:
 		m.launchPureWebViewMode(cfg, finalURL, eventCh)
 
 	case domain.WebOpenModeApp:
-		m.launchAppMode(cfg, customPath, finalURL, appHostPort, eventCh)
+		m.launchAppMode(cfg, cfg.CustomBrowserEnabled, customPath, finalURL, appHostPort, eventCh)
 
 	default:
 		m.launchAutoMode(cfg, finalURL, appHostPort, eventCh)
 	}
 }
 
-func (m *Manager) launchBrowserMode(customPath, finalURL string, eventCh chan<- Event) {
+func (m *Manager) launchBrowserMode(customEnabled bool, customPath, finalURL string, eventCh chan<- Event) {
 	if m.IsActive() {
 		m.Cleanup()
 	}
 
-	if customPath == "" {
+	if !customEnabled {
 		slog.Debug("启动系统默认浏览器")
 		m.openSystemBrowser(finalURL, eventCh)
 		return
 	}
 
 	if !domain.IsValidBrowserExecutable(customPath) {
-		slog.Error("自定义浏览器路径无效或文件不存在", "path", customPath)
+		slog.Error("指定浏览器路径无效或文件不存在", "path", customPath)
 		emitEvent(eventCh, EventError)
 		return
 	}
 
-	slog.Debug("启动自定义浏览器打开标签页", "path", customPath)
+	slog.Debug("启动指定浏览器打开标签页", "path", customPath)
 	m.openCustomBrowserTab(customPath, finalURL, eventCh)
 }
 
@@ -175,7 +175,7 @@ func (m *Manager) launchPureWebViewMode(cfg Config, finalURL string, eventCh cha
 	emitEvent(eventCh, EventError)
 }
 
-func (m *Manager) launchAppMode(cfg Config, customPath, finalURL, appHostPort string, eventCh chan<- Event) {
+func (m *Manager) launchAppMode(cfg Config, customEnabled bool, customPath, finalURL, appHostPort string, eventCh chan<- Event) {
 	if err := m.checkSandboxedEnvironment(cfg.BaseDir); err != nil {
 		slog.Error("缓存目录不可写，无法启动独立浏览器面板", "err", err)
 		emitEvent(eventCh, EventError)
@@ -183,14 +183,19 @@ func (m *Manager) launchAppMode(cfg Config, customPath, finalURL, appHostPort st
 	}
 
 	var browserPath, dirName string
-	if customPath != "" {
+	if customEnabled {
 		if !domain.IsValidBrowserExecutable(customPath) {
-			slog.Error("自定义浏览器路径无效或文件不存在", "path", customPath)
+			slog.Error("指定浏览器路径无效或文件不存在", "path", customPath)
+			emitEvent(eventCh, EventError)
+			return
+		}
+		if !domain.IsChromiumBrowserExecutable(customPath) {
+			slog.Error("App 模式仅支持 Chromium 类型浏览器", "path", customPath)
 			emitEvent(eventCh, EventError)
 			return
 		}
 		browserPath = customPath
-		dirName = resolveCustomUserDataDir(customPath, cfg.CustomUserDataDir)
+		dirName = domain.ResolveCustomBrowserDataDir(customPath)
 	} else {
 		browserPath, dirName = detectAvailableBrowser()
 		if browserPath == "" {
@@ -257,23 +262,6 @@ func buildAppSignature(browserPath, dataDir string) string {
 	cleanPath := strings.ToLower(filepath.Clean(strings.TrimSpace(browserPath)))
 	cleanDir := strings.ToLower(strings.TrimSpace(dataDir))
 	return fmt.Sprintf("%s|%s|%s", domain.WebOpenModeApp, cleanPath, cleanDir)
-}
-
-func resolveCustomUserDataDir(customBrowserPath, rawDir string) string {
-	trimmed := strings.TrimSpace(rawDir)
-	if trimmed != "" {
-		base := filepath.Base(trimmed)
-		if domain.IsValidUserDataDirName(base) {
-			if base != trimmed {
-				slog.Warn("剥离自定义数据目录路径层级", "raw", rawDir, "dir", base)
-			}
-			return base
-		}
-	}
-
-	fallback := domain.GenerateDeterministicUserDataDir(customBrowserPath)
-	slog.Warn("自定义数据目录未配置或包含非法字符，使用确定性目录名兜底", "dir", fallback)
-	return fallback
 }
 
 func (m *Manager) getActiveSignature() string {
@@ -406,7 +394,7 @@ func (m *Manager) openSystemBrowser(finalURL string, eventCh chan<- Event) {
 func (m *Manager) openCustomBrowserTab(browserPath, finalURL string, eventCh chan<- Event) {
 	cmd := exec.Command(browserPath, finalURL)
 	if err := cmd.Start(); err != nil {
-		slog.Error("启动自定义浏览器失败", "path", browserPath, "err", err)
+		slog.Error("启动指定浏览器失败", "path", browserPath, "err", err)
 		emitEvent(eventCh, EventError)
 		return
 	}

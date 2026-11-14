@@ -117,11 +117,12 @@ const (
 	DefaultExternalUIName     = "default"
 
 	// 托盘偏好默认值
-	DefaultAutostart      = false
-	DefaultSystemProxy    = false
-	DefaultWebOpenMode    = WebOpenModeAuto
-	DefaultRemoteWebUI    = false
-	DefaultRemoteWebUIURL = "https://board.zash.run.place"
+	DefaultAutostart            = false
+	DefaultSystemProxy          = false
+	DefaultWebOpenMode          = WebOpenModeAuto
+	DefaultRemoteWebUI          = false
+	DefaultRemoteWebUIURL       = "https://board.zash.run.place"
+	DefaultCustomBrowserEnabled = false
 
 	// 订阅与业务限制
 	DefaultUserAgent      = "clash-verge (clash.meta)"

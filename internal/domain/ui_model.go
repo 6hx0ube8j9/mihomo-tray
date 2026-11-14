@@ -16,15 +16,15 @@ type UICommand struct {
 	OnDone  func()
 }
 
-// ControllerSettings
+// ControllerSettings 封装控制器连接与 Web 面板启动偏好配置
 type ControllerSettings struct {
-	Addr              string
-	Secret            string
-	RemoteWebUI       bool
-	RemoteWebUIURL    string
-	WebOpenMode       string
-	CustomBrowserPath string
-	CustomUserDataDir string
+	Addr                 string
+	Secret               string
+	RemoteWebUI          bool
+	RemoteWebUIURL       string
+	WebOpenMode          string
+	CustomBrowserEnabled bool
+	CustomBrowserPath    string
 }
 
 // ================= UI Action Protocol =================

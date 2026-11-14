@@ -49,23 +49,23 @@ func (s *WebUIService) Open(forceSync func(), onReady func()) error {
 		"addr", ctrl.Addr,
 		"mode", ctrl.WebOpenMode,
 		"remote", ctrl.RemoteWebUI,
-		"customBrowser", ctrl.CustomBrowserPath != "",
+		"customBrowser", ctrl.CustomBrowserEnabled,
 	)
 
 	currentTheme := s.st.GetSystemTheme()
 
 	wcfg := webui.Config{
-		APIAddr:           ctrl.Addr,
-		Secret:            ctrl.Secret,
-		ProxyPort:         s.cfg.GetEffectiveLocalProxyPortStr(),
-		BaseDir:           s.cfg.BaseDir(),
-		UIName:            cfg.Config.ExternalUIName,
-		WebOpenMode:       ctrl.WebOpenMode,
-		RemoteWebUI:       ctrl.RemoteWebUI,
-		RemoteWebUIURL:    ctrl.RemoteWebUIURL,
-		CustomBrowserPath: ctrl.CustomBrowserPath,
-		CustomUserDataDir: ctrl.CustomUserDataDir,
-		IsDark:            currentTheme.IsDark(),
+		APIAddr:              ctrl.Addr,
+		Secret:               ctrl.Secret,
+		ProxyPort:            s.cfg.GetEffectiveLocalProxyPortStr(),
+		BaseDir:              s.cfg.BaseDir(),
+		UIName:               cfg.Config.ExternalUIName,
+		WebOpenMode:          ctrl.WebOpenMode,
+		RemoteWebUI:          ctrl.RemoteWebUI,
+		RemoteWebUIURL:       ctrl.RemoteWebUIURL,
+		CustomBrowserEnabled: ctrl.CustomBrowserEnabled,
+		CustomBrowserPath:    ctrl.CustomBrowserPath,
+		IsDark:               currentTheme.IsDark(),
 	}
 
 	if forceSync != nil {

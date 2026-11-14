@@ -5,6 +5,7 @@ import (
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
+	"github.com/tailscale/win"
 
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/netutil"
@@ -47,11 +48,11 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 	result := current
 	initialMode := domain.NormalizeWebOpenMode(current.WebOpenMode)
 
-	var addrEdit, secretEdit, remoteURLEdit, pathEdit, dirEdit *walk.LineEdit
-	var onlineCheck, customPathCheck *walk.CheckBox
+	var addrEdit, secretEdit, remoteURLEdit, pathEdit *walk.LineEdit
+	var onlineCheck, customBrowserCheck *walk.CheckBox
 	var modeCombo *walk.ComboBox
-	var modeDescLabel, dirLabel *walk.Label
-	var browseBtn, genDirBtn *walk.PushButton
+	var modeDescLabel *walk.Label
+	var browseBtn *walk.PushButton
 
 	isInitializing := true
 
@@ -100,29 +101,15 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 	}
 
 	syncState := func() {
-		if modeCombo == nil || customPathCheck == nil || pathEdit == nil || dirEdit == nil || browseBtn == nil || genDirBtn == nil {
+		if modeCombo != nil && modeDescLabel != nil {
+			modeDescLabel.SetText(getWebOpenModeDescription(currentSelectedMode()))
+		}
+		if customBrowserCheck == nil || pathEdit == nil || browseBtn == nil {
 			return
 		}
-
-		mode := currentSelectedMode()
-		if modeDescLabel != nil {
-			modeDescLabel.SetText(getWebOpenModeDescription(mode))
-		}
-
-		isCustomAllowed := (mode == domain.WebOpenModeApp || mode == domain.WebOpenModeBrowser)
-		isAppMode := (mode == domain.WebOpenModeApp)
-		isChecked := customPathCheck.Checked()
-		hasPath := strings.TrimSpace(pathEdit.Text()) != ""
-
-		customPathCheck.SetEnabled(isCustomAllowed)
-		pathEdit.SetEnabled(isCustomAllowed && isChecked)
-		browseBtn.SetEnabled(isCustomAllowed && isChecked)
-
-		if dirLabel != nil {
-			dirLabel.SetEnabled(isAppMode && isChecked)
-		}
-		dirEdit.SetEnabled(isAppMode && isChecked)
-		genDirBtn.SetEnabled(isAppMode && isChecked && hasPath)
+		isChecked := customBrowserCheck.Checked()
+		pathEdit.SetEnabled(isChecked)
+		browseBtn.SetEnabled(isChecked)
 	}
 
 	var activeDlg *walk.Dialog
@@ -130,16 +117,13 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 	res := e.RunModalEditor("editor_controller", EditorConfig{
 		Title:         "Web 面板设置",
 		Width:         460,
-		MinHeight:     315,
+		MinHeight:     280,
 		AcceptBtnText: "确定",
 		OnReady: func(dlg *walk.Dialog) {
 			activeDlg = dlg
 			isInitializing = true
 			if modeCombo != nil {
 				_ = modeCombo.SetCurrentIndex(findWebOpenModeIndex(initialMode))
-			}
-			if customPathCheck != nil {
-				customPathCheck.SetChecked(strings.TrimSpace(current.CustomBrowserPath) != "")
 			}
 			isInitializing = false
 			syncState()
@@ -246,19 +230,16 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 						Layout: HBox{MarginsZero: true, Spacing: 6},
 						Children: []Widget{
 							CheckBox{
-								AssignTo: &customPathCheck,
-								Text:     "自定义路径:",
+								AssignTo: &customBrowserCheck,
+								Text:     "指定浏览器:",
+								Checked:  current.CustomBrowserEnabled,
 								MinSize:  Size{Width: leftColWidth},
 								OnCheckedChanged: func() {
 									if isInitializing {
 										return
 									}
-									if !customPathCheck.Checked() {
-										pathEdit.SetText("")
-										dirEdit.SetText("")
-									}
 									syncState()
-									if customPathCheck.Checked() && strings.TrimSpace(pathEdit.Text()) == "" {
+									if customBrowserCheck.Checked() && strings.TrimSpace(pathEdit.Text()) == "" {
 										pathEdit.SetFocus()
 									}
 								},
@@ -266,11 +247,7 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 							LineEdit{
 								AssignTo: &pathEdit,
 								Text:     current.CustomBrowserPath,
-								OnTextChanged: func() {
-									if !isInitializing {
-										syncState()
-									}
-								},
+								Enabled:  current.CustomBrowserEnabled,
 							},
 							wideBtn(&browseBtn, "浏览", func() {
 								selectedPath, ok := RunOpenBrowserExeDialog(activeDlg, pathEdit.Text())
@@ -278,33 +255,6 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 									return
 								}
 								pathEdit.SetText(selectedPath)
-								if currentSelectedMode() == domain.WebOpenModeApp && strings.TrimSpace(dirEdit.Text()) == "" {
-									dirEdit.SetText(domain.GenerateRandomUserDataDir(selectedPath))
-								}
-								syncState()
-							}),
-						},
-					},
-
-					Composite{
-						Layout: HBox{MarginsZero: true, Spacing: 6},
-						Children: []Widget{
-							Label{
-								AssignTo:  &dirLabel,
-								Text:      "目录名称:",
-								Alignment: AlignHNearVCenter,
-								MinSize:   Size{Width: leftColWidth},
-							},
-							LineEdit{
-								AssignTo: &dirEdit,
-								Text:     current.CustomUserDataDir,
-							},
-							wideBtn(&genDirBtn, "生成", func() {
-								p := strings.TrimSpace(pathEdit.Text())
-								if p == "" {
-									return
-								}
-								dirEdit.SetText(domain.GenerateRandomUserDataDir(p))
 							}),
 						},
 					},
@@ -316,9 +266,8 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 			secret := strings.TrimSpace(secretEdit.Text())
 			rURL := strings.TrimSpace(remoteURLEdit.Text())
 			mode := currentSelectedMode()
-			isCustom := customPathCheck.Checked()
+			isCustom := customBrowserCheck.Checked()
 			cPath := strings.TrimSpace(pathEdit.Text())
-			cDir := strings.TrimSpace(dirEdit.Text())
 
 			showError := func(msg string) (bool, error) {
 				RunErrorDialog(dlg, "保存失败", msg)
@@ -336,36 +285,35 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 				return showError("在线面板地址格式错误，请输入有效的 HTTP/HTTPS 链接。")
 			}
 
-			if mode == domain.WebOpenModeApp || mode == domain.WebOpenModeBrowser {
-				if isCustom {
-					if cPath == "" {
-						return showError("请选择或输入自定义浏览器路径。")
+			if isCustom {
+				if cPath == "" {
+					return showError("请选择或输入指定浏览器路径。")
+				}
+				if !domain.IsValidBrowserExecutable(cPath) {
+					return showError("指定浏览器文件不存在或不是有效的 .exe 程序。")
+				}
+				if mode == domain.WebOpenModeApp && !domain.IsChromiumBrowserExecutable(cPath) {
+					ret := ShowNativeMsgBox(
+						dlg,
+						"提示",
+						"app 模式仅支持 Chromium 类型浏览器，是否继续保存？",
+						walk.MsgBoxOKCancel|walk.MsgBoxIconQuestion,
+						func(win.HWND) {},
+					)
+					if ret != win.IDOK {
+						return false, nil
 					}
-					if !domain.IsValidBrowserExecutable(cPath) {
-						return showError("自定义浏览器文件不存在或路径无效。")
-					}
-					if mode == domain.WebOpenModeApp {
-						if cDir == "" {
-							return showError("独立数据目录名称不能为空。")
-						}
-						if !domain.IsValidUserDataDirName(cDir) {
-							return showError("目录名称包含非法字符或相对路径符号。")
-						}
-					}
-				} else {
-					cPath = ""
-					cDir = ""
 				}
 			}
 
 			result = domain.ControllerSettings{
-				Addr:              addr,
-				Secret:            secret,
-				RemoteWebUI:       onlineCheck.Checked(),
-				RemoteWebUIURL:    rURL,
-				WebOpenMode:       mode,
-				CustomBrowserPath: cPath,
-				CustomUserDataDir: cDir,
+				Addr:                 addr,
+				Secret:               secret,
+				RemoteWebUI:          onlineCheck.Checked(),
+				RemoteWebUIURL:       rURL,
+				WebOpenMode:          mode,
+				CustomBrowserEnabled: isCustom,
+				CustomBrowserPath:    cPath,
 			}
 			return true, nil
 		},

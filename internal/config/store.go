@@ -256,22 +256,21 @@ func (m *Manager) GetControllerSettings() domain.ControllerSettings {
 		openMode = *m.data.General.WebOpenMode
 	}
 
-	var customPath, customDir string
+	customEnabled := m.data.General.CustomBrowserEnabled != nil && *m.data.General.CustomBrowserEnabled
+
+	var customPath string
 	if m.data.General.CustomBrowserPath != nil {
 		customPath = strings.TrimSpace(*m.data.General.CustomBrowserPath)
 	}
-	if m.data.General.CustomUserDataDir != nil {
-		customDir = strings.TrimSpace(*m.data.General.CustomUserDataDir)
-	}
 
 	return domain.ControllerSettings{
-		Addr:              addr,
-		Secret:            secret,
-		RemoteWebUI:       remoteWebUI,
-		RemoteWebUIURL:    remoteURL,
-		WebOpenMode:       openMode,
-		CustomBrowserPath: customPath,
-		CustomUserDataDir: customDir,
+		Addr:                 addr,
+		Secret:               secret,
+		RemoteWebUI:          remoteWebUI,
+		RemoteWebUIURL:       remoteURL,
+		WebOpenMode:          openMode,
+		CustomBrowserEnabled: customEnabled,
+		CustomBrowserPath:    customPath,
 	}
 }
 

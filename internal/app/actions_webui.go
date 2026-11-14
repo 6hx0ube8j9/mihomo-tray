@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
@@ -35,8 +36,8 @@ func (a *Application) handleRequestEditController(_ context.Context, _ domain.UI
 			appChanged := (cur.RemoteWebUI != next.RemoteWebUI) ||
 				(cur.RemoteWebUIURL != next.RemoteWebUIURL) ||
 				(cur.WebOpenMode != next.WebOpenMode) ||
-				(cur.CustomBrowserPath != next.CustomBrowserPath) ||
-				(cur.CustomUserDataDir != next.CustomUserDataDir)
+				(cur.CustomBrowserEnabled != next.CustomBrowserEnabled) ||
+				(cur.CustomBrowserPath != next.CustomBrowserPath)
 
 			if !coreChanged && !appChanged {
 				return nil
@@ -52,14 +53,14 @@ func (a *Application) handleRequestEditController(_ context.Context, _ domain.UI
 				online := next.RemoteWebUI
 				remoteURL := next.RemoteWebUIURL
 				openMode := domain.NormalizeWebOpenMode(next.WebOpenMode)
-				customPath := next.CustomBrowserPath
-				customDir := next.CustomUserDataDir
+				customEnabled := next.CustomBrowserEnabled
+				customPath := strings.TrimSpace(next.CustomBrowserPath)
 
 				c.General.RemoteWebUI = &online
 				c.General.RemoteWebUIURL = &remoteURL
 				c.General.WebOpenMode = &openMode
+				c.General.CustomBrowserEnabled = &customEnabled
 				c.General.CustomBrowserPath = &customPath
-				c.General.CustomUserDataDir = &customDir
 			})
 
 			if coreChanged {

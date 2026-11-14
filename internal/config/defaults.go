@@ -15,6 +15,7 @@ func applyDefaults(cfg *domain.TrayConfig) bool {
 
 	setIfNil(&cfg.General.Autostart, domain.DefaultAutostart, &isTainted)
 	setIfNil(&cfg.General.RemoteWebUI, domain.DefaultRemoteWebUI, &isTainted)
+	setIfNil(&cfg.General.CustomBrowserEnabled, domain.DefaultCustomBrowserEnabled, &isTainted)
 	setIfNil(&cfg.General.SystemProxy, domain.DefaultSystemProxy, &isTainted)
 
 	if cfg.General.WebOpenMode == nil || !domain.IsValidWebOpenMode(*cfg.General.WebOpenMode) {
@@ -24,7 +25,6 @@ func applyDefaults(cfg *domain.TrayConfig) bool {
 	}
 
 	sanitizeTrimmedString(&cfg.General.CustomBrowserPath, "", &isTainted)
-	sanitizeTrimmedString(&cfg.General.CustomUserDataDir, "", &isTainted)
 
 	if !isValidTrayLogLevel(cfg.General.TrayLogLevel) {
 		cfg.General.TrayLogLevel = domain.DefaultTrayLogLevel
