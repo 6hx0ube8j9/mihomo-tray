@@ -12,32 +12,30 @@ import (
 	"mihomo-tray/internal/random"
 )
 
-var webOpenModeOptions = []string{
-	domain.WebOpenModeAuto,
-	domain.WebOpenModeApp,
-	domain.WebOpenModeBrowser,
-	domain.WebOpenModeWebView,
+type webOpenModeOption struct {
+	Value string
+	Label string
 }
 
-func getWebOpenModeDescription(mode string) string {
-	switch mode {
-	case domain.WebOpenModeAuto:
-		return "优先内置窗口，失败后自动降级"
-	case domain.WebOpenModeApp:
-		return "以无边框独立应用窗口运行"
-	case domain.WebOpenModeBrowser:
-		return "在普通浏览器标签页中打开"
-	case domain.WebOpenModeWebView:
-		return "仅使用内置 WebView2 窗口打开"
-	default:
-		return ""
+var webOpenModeOptions = []webOpenModeOption{
+	{Value: domain.WebOpenModeAuto, Label: "自动 (Auto)"},
+	{Value: domain.WebOpenModeApp, Label: "应用模式 (App)"},
+	{Value: domain.WebOpenModeBrowser, Label: "浏览器 (Browser)"},
+	{Value: domain.WebOpenModeWebView, Label: "内置窗口 (WebView)"},
+}
+
+func webOpenModeLabels() []string {
+	labels := make([]string, len(webOpenModeOptions))
+	for i, opt := range webOpenModeOptions {
+		labels[i] = opt.Label
 	}
+	return labels
 }
 
 func findWebOpenModeIndex(mode string) int {
 	normalized := domain.NormalizeWebOpenMode(mode)
-	for i, m := range webOpenModeOptions {
-		if m == normalized {
+	for i, opt := range webOpenModeOptions {
+		if opt.Value == normalized {
 			return i
 		}
 	}
@@ -51,20 +49,21 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 	var addrEdit, secretEdit, remoteURLEdit, pathEdit *walk.LineEdit
 	var onlineCheck, customBrowserCheck *walk.CheckBox
 	var modeCombo *walk.ComboBox
-	var modeDescLabel *walk.Label
-	var browseBtn *walk.PushButton
+	var browseBtn, clearBtn *walk.PushButton
 
 	isInitializing := true
 
 	const (
-		leftColWidth   = 100
+		leftColWidth   = 116
 		smallBtnWidth  = 44
 		actionColWidth = 92 // 44 + 4 + 44 = 92
 	)
 
-	smallBtn := func(text string, onClick func()) PushButton {
+	smallBtn := func(assignTo **walk.PushButton, text string, enabled bool, onClick func()) PushButton {
 		return PushButton{
+			AssignTo:  assignTo,
 			Text:      text,
+			Enabled:   enabled,
 			MinSize:   Size{Width: smallBtnWidth},
 			MaxSize:   Size{Width: smallBtnWidth},
 			OnClicked: onClick,
@@ -72,7 +71,7 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 	}
 
 	copyBtn := func(edit **walk.LineEdit) PushButton {
-		return smallBtn("复制", func() {
+		return smallBtn(nil, "复制", true, func() {
 			if *edit != nil {
 				_ = walk.Clipboard().SetText((*edit).Text())
 			}
@@ -85,29 +84,27 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 		}
 		idx := modeCombo.CurrentIndex()
 		if idx >= 0 && idx < len(webOpenModeOptions) {
-			return webOpenModeOptions[idx]
+			return webOpenModeOptions[idx].Value
 		}
 		return domain.DefaultWebOpenMode
 	}
 
 	syncState := func() {
-		if modeCombo != nil && modeDescLabel != nil {
-			modeDescLabel.SetText(getWebOpenModeDescription(currentSelectedMode()))
-		}
-		if customBrowserCheck == nil || pathEdit == nil || browseBtn == nil {
+		if customBrowserCheck == nil || pathEdit == nil || browseBtn == nil || clearBtn == nil {
 			return
 		}
 		isChecked := customBrowserCheck.Checked()
 		pathEdit.SetEnabled(isChecked)
 		browseBtn.SetEnabled(isChecked)
+		clearBtn.SetEnabled(isChecked)
 	}
 
 	var activeDlg *walk.Dialog
 
 	res := e.RunModalEditor("editor_controller", EditorConfig{
 		Title:         "Web 面板设置",
-		Width:         520,
-		MinHeight:     230,
+		Width:         440,
+		MinHeight:     220,
 		AcceptBtnText: "确定",
 		OnReady: func(dlg *walk.Dialog) {
 			activeDlg = dlg
@@ -119,9 +116,8 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 			syncState()
 		},
 		Widgets: []Widget{
-			GroupBox{
-				Title:  "控制器连接",
-				Layout: VBox{Margins: Margins{Left: 10, Top: 6, Right: 10, Bottom: 8}, Spacing: 5},
+			Composite{
+				Layout: VBox{Margins: Margins{Left: 4, Top: 4, Right: 4, Bottom: 4}, Spacing: 8},
 				Children: []Widget{
 					Composite{
 						Layout: HBox{MarginsZero: true, Spacing: 6},
@@ -138,7 +134,7 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 								MaxSize: Size{Width: actionColWidth},
 								Children: []Widget{
 									copyBtn(&addrEdit),
-									smallBtn("默认", func() { addrEdit.SetText(domain.DefaultExternalController) }),
+									smallBtn(nil, "默认", true, func() { addrEdit.SetText(domain.DefaultExternalController) }),
 								},
 							},
 						},
@@ -158,40 +154,32 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 								MaxSize: Size{Width: actionColWidth},
 								Children: []Widget{
 									copyBtn(&secretEdit),
-									smallBtn("生成", func() { secretEdit.SetText(random.String(domain.DefaultSecretLength)) }),
+									smallBtn(nil, "生成", true, func() { secretEdit.SetText(random.String(domain.DefaultSecretLength)) }),
 								},
 							},
 						},
 					},
-				},
-			},
-			GroupBox{
-				Title:  "启动偏好",
-				Layout: VBox{Margins: Margins{Left: 10, Top: 6, Right: 10, Bottom: 8}, Spacing: 5},
-				Children: []Widget{
+					Composite{
+						MinSize:    Size{Height: 1},
+						MaxSize:    Size{Height: 1},
+						Background: SolidColorBrush{Color: walk.RGB(215, 219, 224)},
+					},
 					Composite{
 						Layout: HBox{MarginsZero: true, Spacing: 6},
 						Children: []Widget{
 							Label{
-								Text:      "面板打开方式:",
+								Text:      "Web 面板打开方式:",
 								Alignment: AlignHNearVCenter,
 								MinSize:   Size{Width: leftColWidth},
 							},
 							ComboBox{
-								AssignTo:              &modeCombo,
-								Model:                 webOpenModeOptions,
-								MinSize:               Size{Width: 96},
-								MaxSize:               Size{Width: 96},
-								OnCurrentIndexChanged: func() {
-									if !isInitializing {
-										syncState()
-									}
-								},
+								AssignTo: &modeCombo,
+								Model:    webOpenModeLabels(),
 							},
-							Label{
-								AssignTo:  &modeDescLabel,
-								Text:      getWebOpenModeDescription(initialMode),
-								Alignment: AlignHNearVCenter,
+							Composite{
+								Layout:  HBox{MarginsZero: true},
+								MinSize: Size{Width: actionColWidth},
+								MaxSize: Size{Width: actionColWidth},
 							},
 						},
 					},
@@ -200,7 +188,7 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 						Children: []Widget{
 							CheckBox{
 								AssignTo: &customBrowserCheck,
-								Text:     "指定浏览器:",
+								Text:     "自定义浏览器:",
 								Checked:  current.CustomBrowserEnabled,
 								MinSize:  Size{Width: leftColWidth},
 								OnCheckedChanged: func() {
@@ -218,18 +206,23 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 								Text:     current.CustomBrowserPath,
 								Enabled:  current.CustomBrowserEnabled,
 							},
-							PushButton{
-								AssignTo: &browseBtn,
-								Text:     "浏览",
-								MinSize:  Size{Width: smallBtnWidth},
-								MaxSize:  Size{Width: smallBtnWidth},
-								OnClicked: func() {
-									resolvedCurrent := domain.ResolveBrowserPath(pathEdit.Text())
-									selectedPath, ok := RunOpenBrowserExeDialog(activeDlg, resolvedCurrent)
-									if !ok || selectedPath == "" {
-										return
-									}
-									pathEdit.SetText(selectedPath)
+							Composite{
+								Layout:  HBox{MarginsZero: true, Spacing: 4},
+								MinSize: Size{Width: actionColWidth},
+								MaxSize: Size{Width: actionColWidth},
+								Children: []Widget{
+									smallBtn(&browseBtn, "浏览", current.CustomBrowserEnabled, func() {
+										resolvedCurrent := domain.ResolveBrowserPath(pathEdit.Text())
+										selectedPath, ok := RunOpenBrowserExeDialog(activeDlg, resolvedCurrent)
+										if !ok || selectedPath == "" {
+											return
+										}
+										pathEdit.SetText(selectedPath)
+									}),
+									smallBtn(&clearBtn, "清空", current.CustomBrowserEnabled, func() {
+										pathEdit.SetText("")
+										pathEdit.SetFocus()
+									}),
 								},
 							},
 						},
@@ -250,7 +243,7 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 								MaxSize: Size{Width: actionColWidth},
 								Children: []Widget{
 									copyBtn(&remoteURLEdit),
-									smallBtn("默认", func() { remoteURLEdit.SetText(domain.DefaultRemoteWebUIURL) }),
+									smallBtn(nil, "默认", true, func() { remoteURLEdit.SetText(domain.DefaultRemoteWebUIURL) }),
 								},
 							},
 						},
@@ -284,10 +277,10 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 
 			if isCustom {
 				if cPath == "" {
-					return showError("请选择或输入指定浏览器路径。")
+					return showError("请选择或输入自定义浏览器路径。")
 				}
 				if !domain.IsValidBrowserExecutable(cPath) {
-					return showError("指定浏览器文件不存在或不是有效的 .exe 程序。")
+					return showError("自定义浏览器文件不存在或不是有效的 .exe 程序。")
 				}
 				if mode == domain.WebOpenModeApp && !domain.IsChromiumBrowserExecutable(cPath) {
 					ret := ShowNativeMsgBox(

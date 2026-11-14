@@ -169,7 +169,7 @@ func (t *Tray) buildMenuSkeleton() {
 	t.actWebModeAuto = t.addRadioSubAction(webModeMenu, "自动 (Auto)", true, func() {
 		t.engine.SendCommand(domain.ActionSetWebOpenMode, domain.WebOpenModeAuto)
 	})
-	t.actWebModeApp = t.addRadioSubAction(webModeMenu, "应用窗口 (App)", false, func() {
+	t.actWebModeApp = t.addRadioSubAction(webModeMenu, "应用模式 (App)", false, func() {
 		t.engine.SendCommand(domain.ActionSetWebOpenMode, domain.WebOpenModeApp)
 	})
 	t.actWebModeBrowser = t.addRadioSubAction(webModeMenu, "浏览器 (Browser)", false, func() {
