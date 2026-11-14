@@ -52,19 +52,15 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 
 	isInitializing := true
 
-	const (
-		smallBtnWidth  = 44
-		actionColWidth = 92 // 44 + 4 + 44 = 92
-	)
-
 	smallBtn := func(text string, onClick func()) PushButton {
 		return PushButton{
 			Text:      text,
-			MinSize:   Size{Width: smallBtnWidth},
-			MaxSize:   Size{Width: smallBtnWidth},
+			MinSize:   Size{Width: 44},
+			MaxSize:   Size{Width: 44},
 			OnClicked: onClick,
 		}
 	}
+
 	copyBtn := func(edit **walk.LineEdit) PushButton {
 		return smallBtn("复制", func() {
 			if *edit != nil {
@@ -89,7 +85,7 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 	res := e.RunModalEditor("editor_controller", EditorConfig{
 		Title:         "Web 面板设置",
 		Width:         440,
-		MinHeight:     280,
+		MinHeight:     265,
 		AcceptBtnText: "确定",
 		OnReady: func(dlg *walk.Dialog) {
 			activeDlg = dlg
@@ -132,98 +128,103 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 			},
 			GroupBox{
 				Title:  "启动偏好",
-				Layout: Grid{Columns: 2, Spacing: 6, Margins: Margins{Left: 8, Top: 10, Right: 8, Bottom: 8}},
+				Layout: VBox{Margins: Margins{Left: 8, Top: 10, Right: 8, Bottom: 8}, Spacing: 6},
 				Children: []Widget{
-					Label{
-						Text:      "Web 打开方式:",
-						Alignment: AlignHFarVCenter, 
-					},
 					Composite{
-						Layout: HBox{MarginsZero: true},
+						Layout: HBox{MarginsZero: true, Spacing: 6},
 						Children: []Widget{
+							Label{
+								Text:      "面板打开方式:",
+								Alignment: AlignHNearVCenter,
+							},
 							ComboBox{
 								AssignTo: &modeCombo,
 								Model:    webOpenModeLabels(),
 							},
-							HSpacer{}, 
-						},
-					},
-					CheckBox{
-						AssignTo: &customBrowserCheck,
-						Text:     "自定义浏览器:",
-						Checked:  current.CustomBrowserEnabled,
-						OnCheckedChanged: func() {
-							if isInitializing {
-								return
-							}
-							if customBrowserCheck.Checked() && strings.TrimSpace(pathEdit.Text()) == "" {
-								pathEdit.SetFocus()
-							}
+							HSpacer{},
 						},
 					},
 					Composite{
-						Layout: HBox{MarginsZero: true, Spacing: 4},
+						Layout: Grid{Columns: 2, MarginsZero: true, Spacing: 6},
 						Children: []Widget{
-							LineEdit{
-								AssignTo:  &pathEdit,
-								Text:      current.CustomBrowserPath,
-								CueBanner: "浏览器程序路径 (.exe)",
-								OnTextChanged: func() {
+							CheckBox{
+								AssignTo: &customBrowserCheck,
+								Text:     "自定义浏览器:",
+								Checked:  current.CustomBrowserEnabled,
+								OnCheckedChanged: func() {
 									if isInitializing {
 										return
 									}
-									if strings.TrimSpace(pathEdit.Text()) != "" && !customBrowserCheck.Checked() {
+									if customBrowserCheck.Checked() && strings.TrimSpace(pathEdit.Text()) == "" {
+										pathEdit.SetFocus()
+									}
+								},
+							},
+							Composite{
+								Layout: HBox{MarginsZero: true, Spacing: 4},
+								Children: []Widget{
+									LineEdit{
+										AssignTo:  &pathEdit,
+										Text:      current.CustomBrowserPath,
+										CueBanner: "浏览器可执行文件 (.exe)",
+										OnTextChanged: func() {
+											if isInitializing {
+												return
+											}
+											if strings.TrimSpace(pathEdit.Text()) != "" && !customBrowserCheck.Checked() {
+												customBrowserCheck.SetChecked(true)
+											}
+										},
+									},
+									smallBtn("浏览", func() {
+										resolvedCurrent := domain.ResolveBrowserPath(pathEdit.Text())
+										selectedPath, ok := RunOpenBrowserExeDialog(activeDlg, resolvedCurrent)
+										if !ok || selectedPath == "" {
+											return
+										}
+										pathEdit.SetText(selectedPath)
 										customBrowserCheck.SetChecked(true)
-									}
+									}),
+									smallBtn("清空", func() {
+										pathEdit.SetText("")
+										customBrowserCheck.SetChecked(false)
+										pathEdit.SetFocus()
+									}),
 								},
 							},
-							smallBtn("浏览", func() {
-								resolvedCurrent := domain.ResolveBrowserPath(pathEdit.Text())
-								selectedPath, ok := RunOpenBrowserExeDialog(activeDlg, resolvedCurrent)
-								if !ok || selectedPath == "" {
-									return
-								}
-								pathEdit.SetText(selectedPath)
-								customBrowserCheck.SetChecked(true)
-							}),
-							smallBtn("清空", func() {
-								pathEdit.SetText("")
-								customBrowserCheck.SetChecked(false)
-								pathEdit.SetFocus()
-							}),
-						},
-					},
-					CheckBox{
-						AssignTo: &onlineCheck,
-						Text:     "在线面板地址:",
-						Checked:  current.RemoteWebUI,
-						OnCheckedChanged: func() {
-							if isInitializing {
-								return
-							}
-							if onlineCheck.Checked() && strings.TrimSpace(remoteURLEdit.Text()) == "" {
-								remoteURLEdit.SetFocus()
-							}
-						},
-					},
-					Composite{
-						Layout: HBox{MarginsZero: true, Spacing: 4},
-						Children: []Widget{
-							LineEdit{
-								AssignTo:  &remoteURLEdit,
-								Text:      current.RemoteWebUIURL,
-								CueBanner: "输入 HTTP/HTTPS 面板地址",
-								OnTextChanged: func() {
+							CheckBox{
+								AssignTo: &onlineCheck,
+								Text:     "在线面板地址:",
+								Checked:  current.RemoteWebUI,
+								OnCheckedChanged: func() {
 									if isInitializing {
 										return
 									}
-									if strings.TrimSpace(remoteURLEdit.Text()) != "" && !onlineCheck.Checked() {
-										onlineCheck.SetChecked(true)
+									if onlineCheck.Checked() && strings.TrimSpace(remoteURLEdit.Text()) == "" {
+										remoteURLEdit.SetFocus()
 									}
 								},
 							},
-							copyBtn(&remoteURLEdit),
-							smallBtn("默认", func() { remoteURLEdit.SetText(domain.DefaultRemoteWebUIURL) }),
+							Composite{
+								Layout: HBox{MarginsZero: true, Spacing: 4},
+								Children: []Widget{
+									LineEdit{
+										AssignTo:  &remoteURLEdit,
+										Text:      current.RemoteWebUIURL,
+										CueBanner: "HTTP / HTTPS 面板地址",
+										OnTextChanged: func() {
+											if isInitializing {
+												return
+											}
+											if strings.TrimSpace(remoteURLEdit.Text()) != "" && !onlineCheck.Checked() {
+												onlineCheck.SetChecked(true)
+											}
+										},
+									},
+									copyBtn(&remoteURLEdit),
+									smallBtn("默认", func() { remoteURLEdit.SetText(domain.DefaultRemoteWebUIURL) }),
+								},
+							},
 						},
 					},
 				},
