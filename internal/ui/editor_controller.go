@@ -54,7 +54,7 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 	isInitializing := true
 
 	const (
-		leftColWidth   = 116
+		leftColWidth   = 104
 		smallBtnWidth  = 44
 		actionColWidth = 92 // 44 + 4 + 44 = 92
 	)
@@ -104,7 +104,7 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 	res := e.RunModalEditor("editor_controller", EditorConfig{
 		Title:         "Web 面板设置",
 		Width:         440,
-		MinHeight:     220,
+		MinHeight:     225,
 		AcceptBtnText: "确定",
 		OnReady: func(dlg *walk.Dialog) {
 			activeDlg = dlg
@@ -160,27 +160,34 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 						},
 					},
 					Composite{
-						MinSize:    Size{Height: 1},
-						MaxSize:    Size{Height: 1},
-						Background: SolidColorBrush{Color: walk.RGB(215, 219, 224)},
+						Layout:  HBox{Margins: Margins{Top: 2, Bottom: 2}},
+						MinSize: Size{Height: 5},
+						MaxSize: Size{Height: 5},
+						Children: []Widget{
+							Composite{
+								Layout:     HBox{MarginsZero: true},
+								MinSize:    Size{Height: 1},
+								MaxSize:    Size{Height: 1},
+								Background: SolidColorBrush{Color: walk.RGB(205, 210, 216)},
+								Children:   []Widget{HSpacer{}},
+							},
+						},
 					},
 					Composite{
 						Layout: HBox{MarginsZero: true, Spacing: 6},
 						Children: []Widget{
 							Label{
-								Text:      "Web 面板打开方式:",
+								Text:      "Web 打开方式:",
 								Alignment: AlignHNearVCenter,
 								MinSize:   Size{Width: leftColWidth},
 							},
 							ComboBox{
 								AssignTo: &modeCombo,
 								Model:    webOpenModeLabels(),
+								MinSize:  Size{Width: 168},
+								MaxSize:  Size{Width: 168},
 							},
-							Composite{
-								Layout:  HBox{MarginsZero: true},
-								MinSize: Size{Width: actionColWidth},
-								MaxSize: Size{Width: actionColWidth},
-							},
+							HSpacer{},
 						},
 					},
 					Composite{
@@ -266,27 +273,27 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 
 			switch {
 			case !netutil.IsValidHostPort(addr):
-				return showError("监听地址格式错误。")
+				return showError("监听地址格式无效")
 			case netutil.IsPublicAddress(addr) && secret == "":
-				return showError("当前地址支持外网访问，密钥不能为空。")
+				return showError("公网监听时密钥不能为空")
 			case secret != "" && !domain.IsValidSecret(secret):
-				return showError("密钥包含非法字符，仅支持英文字母、数字及常用符号。")
+				return showError("密钥包含非法字符")
 			case !netutil.IsValidHTTPURL(rURL):
-				return showError("在线面板地址格式错误，请输入有效的 HTTP/HTTPS 链接。")
+				return showError("在线面板地址无效")
 			}
 
 			if isCustom {
 				if cPath == "" {
-					return showError("请选择或输入自定义浏览器路径。")
+					return showError("请输入浏览器路径")
 				}
 				if !domain.IsValidBrowserExecutable(cPath) {
-					return showError("自定义浏览器文件不存在或不是有效的 .exe 程序。")
+					return showError("浏览器路径无效或文件不存在")
 				}
 				if mode == domain.WebOpenModeApp && !domain.IsChromiumBrowserExecutable(cPath) {
 					ret := ShowNativeMsgBox(
 						dlg,
 						"提示",
-						"app 模式仅支持 Chromium 类型浏览器，是否继续保存？",
+						"app 模式仅支持 Chromium 浏览器，是否继续保存？",
 						walk.MsgBoxOKCancel|walk.MsgBoxIconQuestion,
 						func(win.HWND) {},
 					)
