@@ -136,20 +136,16 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 				Children: []Widget{
 					Label{
 						Text:      "Web 打开方式:",
-						Alignment: AlignHNearVCenter,
+						Alignment: AlignHFarVCenter, 
 					},
 					Composite{
-						Layout: HBox{MarginsZero: true, Spacing: 4},
+						Layout: HBox{MarginsZero: true},
 						Children: []Widget{
 							ComboBox{
 								AssignTo: &modeCombo,
 								Model:    webOpenModeLabels(),
 							},
-							Composite{
-								Layout:  HBox{MarginsZero: true},
-								MinSize: Size{Width: actionColWidth},
-								MaxSize: Size{Width: actionColWidth},
-							},
+							HSpacer{}, 
 						},
 					},
 					CheckBox{
@@ -171,7 +167,7 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 							LineEdit{
 								AssignTo:  &pathEdit,
 								Text:      current.CustomBrowserPath,
-								CueBanner: "点击浏览选择 .exe",
+								CueBanner: "浏览器程序路径 (.exe)",
 								OnTextChanged: func() {
 									if isInitializing {
 										return
