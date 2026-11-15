@@ -46,6 +46,7 @@ func smallActionBtn(text string, onClick func()) PushButton {
 	return PushButton{
 		Text:      text,
 		MinSize:   Size{Width: 48},
+		MaxSize:   Size{Width: 48},
 		OnClicked: onClick,
 	}
 }
@@ -106,8 +107,7 @@ func (f *controllerEditorForm) onReady(dlg *walk.Dialog) {
 		}
 	}
 	if maxW > 0 && f.addrLabel != nil {
-		logicalW := f.addrLabel.IntTo96DPI(maxW)
-		_ = f.addrLabel.SetMinMaxSize(walk.Size{Width: logicalW}, walk.Size{})
+		_ = f.addrLabel.SetMinMaxSize(walk.Size{Width: maxW}, walk.Size{})
 	}
 }
 
