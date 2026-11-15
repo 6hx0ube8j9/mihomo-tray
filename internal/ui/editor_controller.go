@@ -190,8 +190,7 @@ func (f *controllerEditorForm) focusIfCheckedEmpty(check *walk.CheckBox, edit *w
 }
 
 func (f *controllerEditorForm) browseBrowserExe() {
-	resolvedCurrent := domain.ResolveBrowserPath(f.pathEdit.Text())
-	selectedPath, ok := RunOpenBrowserExeDialog(f.activeDlg, resolvedCurrent)
+	selectedPath, ok := RunOpenBrowserExeDialog(f.activeDlg, f.pathEdit.Text())
 	if !ok || selectedPath == "" {
 		return
 	}
