@@ -3,10 +3,10 @@
 package ui
 
 import (
-	"unsafe"
-
 	"github.com/tailscale/walk"
 	"github.com/tailscale/win"
+
+	"mihomo-tray/internal/sys"
 )
 
 func ActivateWindow(hwnd win.HWND) {
@@ -20,43 +20,73 @@ func ActivateWindow(hwnd win.HWND) {
 	win.SetFocus(hwnd)
 }
 
+func clampScreenPos(pos, minPos, maxPos int) int {
+	if maxPos < minPos {
+		return minPos
+	}
+	if pos < minPos {
+		return minPos
+	}
+	if pos > maxPos {
+		return maxPos
+	}
+	return pos
+}
+
 func calcCenteredPos(targetHWND, popupHWND win.HWND) (x, y int32) {
 	var popRect win.RECT
 	win.GetWindowRect(popupHWND, &popRect)
-	dlgW := popRect.Right - popRect.Left
-	dlgH := popRect.Bottom - popRect.Top
+	dlgW := int(popRect.Right - popRect.Left)
+	dlgH := int(popRect.Bottom - popRect.Top)
+
+	usableW, usableH, startX, startY := sys.GetDisplayWorkArea()
 
 	if targetHWND != 0 && win.IsWindowVisible(targetHWND) && !win.IsIconic(targetHWND) {
 		var targetRect win.RECT
 		win.GetWindowRect(targetHWND, &targetRect)
 
-		centerCX := targetRect.Left + (targetRect.Right-targetRect.Left)/2
-		centerCY := targetRect.Top + (targetRect.Bottom-targetRect.Top)/2
+		centerCX := int(targetRect.Left + (targetRect.Right-targetRect.Left)/2)
+		centerCY := int(targetRect.Top + (targetRect.Bottom-targetRect.Top)/2)
 
-		return centerCX - dlgW/2, centerCY - dlgH/2
+		xPos := clampScreenPos(centerCX-dlgW/2, startX, startX+usableW-dlgW)
+		yPos := clampScreenPos(centerCY-dlgH/2, startY, startY+usableH-dlgH)
+		return int32(xPos), int32(yPos)
 	}
 
-	var workArea win.RECT
-	win.SystemParametersInfo(spiGetWorkArea, 0, unsafe.Pointer(&workArea), 0)
+	xPos := clampScreenPos(startX+(usableW-dlgW)/2, startX, startX+usableW-dlgW)
+	yPos := clampScreenPos(startY+(usableH-dlgH)/2, startY, startY+usableH-dlgH)
+	return int32(xPos), int32(yPos)
+}
 
-	screenW := workArea.Right - workArea.Left
-	screenH := workArea.Bottom - workArea.Top
-	x = workArea.Left + (screenW-dlgW)/2
-	y = workArea.Top + (screenH-dlgH)/2
-
-	if x < workArea.Left {
-		x = workArea.Left
-	} else if x+dlgW > workArea.Right {
-		x = workArea.Right - dlgW
+func centerWindow(w *walk.MainWindow) {
+	if w == nil || w.Handle() == 0 {
+		return
 	}
 
-	if y < workArea.Top {
-		y = workArea.Top
-	} else if y+dlgH > workArea.Bottom {
-		y = workArea.Bottom - dlgH
+	hwnd := w.Handle()
+	var rect win.RECT
+	if !win.GetWindowRect(hwnd, &rect) {
+		return
 	}
 
-	return x, y
+	winW := int(rect.Right - rect.Left)
+	winH := int(rect.Bottom - rect.Top)
+	usableW, usableH, startX, startY := sys.GetDisplayWorkArea()
+
+	flags := uint32(win.SWP_NOZORDER | win.SWP_NOACTIVATE | win.SWP_NOSIZE)
+	if usableW > 0 && winW > usableW {
+		winW = usableW
+		flags &^= win.SWP_NOSIZE
+	}
+	if usableH > 0 && winH > usableH {
+		winH = usableH
+		flags &^= win.SWP_NOSIZE
+	}
+
+	x := clampScreenPos(startX+(usableW-winW)/2, startX, startX+usableW-winW)
+	y := clampScreenPos(startY+(usableH-winH)/2, startY, startY+usableH-winH)
+
+	win.SetWindowPos(hwnd, 0, int32(x), int32(y), int32(winW), int32(winH), flags)
 }
 
 func centerDialog(dlg *walk.Dialog, owner walk.Form) {
@@ -82,7 +112,6 @@ func restoreFocus(parent walk.Form, hActive win.HWND) {
 		win.SetFocus(hActive)
 	}
 }
-
 
 // Idempotent action helpers that avoid redundant Win32 message broadcasts.
 func safelySetChecked(act *walk.Action, checked bool) {
