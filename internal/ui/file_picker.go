@@ -3,7 +3,6 @@ package ui
 import (
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/tailscale/walk"
 	"github.com/tailscale/win"
@@ -29,19 +28,21 @@ func RunOpenBrowserExeDialog(owner walk.Form, currentPath string) (string, bool)
 
 	if resolved := domain.ResolveBrowserPath(currentPath); resolved != "" {
 		candidate := filepath.Clean(filepath.FromSlash(resolved))
-		if fi, err := os.Stat(candidate); err != nil || !fi.IsDir() {
-			candidate = filepath.Dir(candidate)
-		}
-		for candidate != "" && candidate != "." {
-			if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
-				dlg.InitialDirPath = candidate
-				break
+		if filepath.IsAbs(candidate) {
+			if fi, err := os.Stat(candidate); err != nil || !fi.IsDir() {
+				candidate = filepath.Dir(candidate)
 			}
-			parent := filepath.Dir(candidate)
-			if parent == candidate {
-				break
+			for candidate != "" && candidate != "." {
+				if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
+					dlg.InitialDirPath = candidate
+					break
+				}
+				parent := filepath.Dir(candidate)
+				if parent == candidate {
+					break
+				}
+				candidate = parent
 			}
-			candidate = parent
 		}
 	}
 

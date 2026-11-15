@@ -12,6 +12,8 @@ import (
 	"mihomo-tray/internal/random"
 )
 
+const controllerLabelColWidth = 96
+
 type webOpenModeOption struct {
 	Value string
 	Label string
@@ -99,24 +101,33 @@ func (f *controllerEditorForm) onReady(dlg *walk.Dialog) {
 }
 
 func (f *controllerEditorForm) widgets() []Widget {
+
 	return []Widget{
 		GroupBox{
 			Title:  "控制器连接",
 			Layout: Grid{Columns: 2},
 			Children: []Widget{
-				Label{Text: "监听地址", Alignment: AlignHNearVCenter},
+				Label{
+					Text:      "监听地址",
+					Alignment: AlignHNearVCenter,
+					MinSize:   Size{Width: controllerLabelColWidth},
+				},
 				Composite{
 					Layout: HBox{MarginsZero: true},
 					Children: []Widget{
 						LineEdit{
-							AssignTo:  &f.addrEdit,
-							Text:      f.current.Addr,
+							AssignTo: &f.addrEdit,
+							Text:     f.current.Addr,
 						},
 						copyLineEditBtn(&f.addrEdit),
 						smallActionBtn("默认", func() { f.addrEdit.SetText(domain.DefaultExternalController) }),
 					},
 				},
-				Label{Text: "访问密钥", Alignment: AlignHNearVCenter},
+				Label{
+					Text:      "访问密钥",
+					Alignment: AlignHNearVCenter,
+					MinSize:   Size{Width: controllerLabelColWidth},
+				},
 				Composite{
 					Layout: HBox{MarginsZero: true},
 					Children: []Widget{
@@ -131,7 +142,11 @@ func (f *controllerEditorForm) widgets() []Widget {
 			Title:  "启动偏好",
 			Layout: Grid{Columns: 2},
 			Children: []Widget{
-				Label{Text: "Web 打开方式", Alignment: AlignHNearVCenter},
+				Label{
+					Text:      "Web 打开方式",
+					Alignment: AlignHNearVCenter,
+					MinSize:   Size{Width: controllerLabelColWidth},
+				},
 				Composite{
 					Layout: HBox{MarginsZero: true},
 					Children: []Widget{
@@ -147,6 +162,7 @@ func (f *controllerEditorForm) widgets() []Widget {
 					AssignTo:         &f.customBrowserCheck,
 					Text:             "自定义浏览器",
 					Checked:          f.current.CustomBrowserEnabled,
+					MinSize:          Size{Width: controllerLabelColWidth},
 					OnCheckedChanged: func() { f.focusIfCheckedEmpty(f.customBrowserCheck, f.pathEdit) },
 				},
 				Composite{
@@ -165,14 +181,15 @@ func (f *controllerEditorForm) widgets() []Widget {
 					AssignTo:         &f.onlineCheck,
 					Text:             "在线面板地址",
 					Checked:          f.current.RemoteWebUI,
+					MinSize:          Size{Width: controllerLabelColWidth},
 					OnCheckedChanged: func() { f.focusIfCheckedEmpty(f.onlineCheck, f.remoteURLEdit) },
 				},
 				Composite{
 					Layout: HBox{MarginsZero: true},
 					Children: []Widget{
 						LineEdit{
-							AssignTo:  &f.remoteURLEdit,
-							Text:      f.current.RemoteWebUIURL,
+							AssignTo: &f.remoteURLEdit,
+							Text:     f.current.RemoteWebUIURL,
 						},
 						copyLineEditBtn(&f.remoteURLEdit),
 						smallActionBtn("默认", func() { f.remoteURLEdit.SetText(domain.DefaultRemoteWebUIURL) }),
@@ -195,6 +212,7 @@ func (f *controllerEditorForm) browseBrowserExe() {
 		return
 	}
 	f.pathEdit.SetText(selectedPath)
+	f.customBrowserCheck.SetChecked(true)
 }
 
 func (f *controllerEditorForm) clearBrowserExe() {
@@ -221,6 +239,10 @@ func (f *controllerEditorForm) onAccept(dlg *walk.Dialog) (bool, error) {
 	isCustom := f.customBrowserCheck.Checked()
 	cPath := strings.TrimSpace(f.pathEdit.Text())
 
+	if !f.onlineCheck.Checked() && rURL == "" {
+		rURL = domain.DefaultRemoteWebUIURL
+	}
+
 	fail := func(target *walk.LineEdit, msg string) (bool, error) {
 		if target != nil {
 			target.SetFocus()
@@ -237,13 +259,6 @@ func (f *controllerEditorForm) onAccept(dlg *walk.Dialog) (bool, error) {
 	case secret != "" && !domain.IsValidSecret(secret):
 		return fail(f.secretEdit, "密钥包含非法字符")
 	case !netutil.IsValidHTTPURL(rURL):
-		return fail(f.remoteURLEdit, "在线面板地址无效")
-	}
-
-	if !f.onlineCheck.Checked() && rURL == "" {
-		rURL = domain.DefaultRemoteWebUIURL
-	}
-	if !netutil.IsValidHTTPURL(rURL) {
 		return fail(f.remoteURLEdit, "在线面板地址无效")
 	}
 
