@@ -111,7 +111,6 @@ func (f *controllerEditorForm) widgets() []Widget {
 						LineEdit{
 							AssignTo:  &f.addrEdit,
 							Text:      f.current.Addr,
-							CueBanner: domain.DefaultExternalController,
 						},
 						copyLineEditBtn(&f.addrEdit),
 						smallActionBtn("默认", func() { f.addrEdit.SetText(domain.DefaultExternalController) }),
@@ -174,7 +173,6 @@ func (f *controllerEditorForm) widgets() []Widget {
 						LineEdit{
 							AssignTo:  &f.remoteURLEdit,
 							Text:      f.current.RemoteWebUIURL,
-							CueBanner: "HTTP/HTTPS 面板地址",
 						},
 						copyLineEditBtn(&f.remoteURLEdit),
 						smallActionBtn("默认", func() { f.remoteURLEdit.SetText(domain.DefaultRemoteWebUIURL) }),
@@ -239,6 +237,8 @@ func (f *controllerEditorForm) onAccept(dlg *walk.Dialog) (bool, error) {
 		return fail(f.secretEdit, "公网监听时密钥不能为空")
 	case secret != "" && !domain.IsValidSecret(secret):
 		return fail(f.secretEdit, "密钥包含非法字符")
+	case !netutil.IsValidHTTPURL(rURL):
+		return fail(f.remoteURLEdit, "在线面板地址无效")
 	}
 
 	if !f.onlineCheck.Checked() && rURL == "" {
