@@ -7,6 +7,8 @@ import (
 
 	"github.com/tailscale/walk"
 	"github.com/tailscale/win"
+
+	"mihomo-tray/internal/domain"
 )
 
 func RunOpenYAMLFileDialog(owner walk.Form) (string, bool) {
@@ -25,10 +27,21 @@ func RunOpenBrowserExeDialog(owner walk.Form, currentPath string) (string, bool)
 	dlg.Filter = "可执行文件 (*.exe)|*.exe|所有文件 (*.*)|*.*"
 	dlg.Flags = win.OFN_EXPLORER | win.OFN_FILEMUSTEXIST | win.OFN_PATHMUSTEXIST | win.OFN_HIDEREADONLY
 
-	if trimmed := strings.TrimSpace(currentPath); trimmed != "" {
-		cleanDir := filepath.Clean(filepath.FromSlash(filepath.Dir(trimmed)))
-		if fi, err := os.Stat(cleanDir); err == nil && fi.IsDir() {
-			dlg.InitialDirPath = cleanDir
+	if resolved := domain.ResolveBrowserPath(currentPath); resolved != "" {
+		candidate := filepath.Clean(filepath.FromSlash(resolved))
+		if fi, err := os.Stat(candidate); err != nil || !fi.IsDir() {
+			candidate = filepath.Dir(candidate)
+		}
+		for candidate != "" && candidate != "." {
+			if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
+				dlg.InitialDirPath = candidate
+				break
+			}
+			parent := filepath.Dir(candidate)
+			if parent == candidate {
+				break
+			}
+			candidate = parent
 		}
 	}
 
