@@ -108,7 +108,7 @@ func (f *controllerEditorForm) widgets() []Widget {
 			Layout: Grid{Columns: 2},
 			Children: []Widget{
 				Label{
-					Text:      "监听地址",
+					Text:      "外部控制地址",
 					Alignment: AlignHNearVCenter,
 					MinSize:   Size{Width: controllerLabelColWidth},
 				},
@@ -124,7 +124,7 @@ func (f *controllerEditorForm) widgets() []Widget {
 					},
 				},
 				Label{
-					Text:      "访问密钥",
+					Text:      "接口访问密钥",
 					Alignment: AlignHNearVCenter,
 					MinSize:   Size{Width: controllerLabelColWidth},
 				},
@@ -253,9 +253,9 @@ func (f *controllerEditorForm) onAccept(dlg *walk.Dialog) (bool, error) {
 
 	switch {
 	case !netutil.IsValidHostPort(addr):
-		return fail(f.addrEdit, "监听地址格式无效")
+		return fail(f.addrEdit, "外部控制地址格式无效")
 	case netutil.IsPublicAddress(addr) && secret == "":
-		return fail(f.secretEdit, "公网监听时密钥不能为空")
+		return fail(f.secretEdit, "当前外部控制地址支持公网访问，密钥不能为空")
 	case secret != "" && !domain.IsValidSecret(secret):
 		return fail(f.secretEdit, "密钥包含非法字符")
 	case !netutil.IsValidHTTPURL(rURL):
@@ -264,7 +264,7 @@ func (f *controllerEditorForm) onAccept(dlg *walk.Dialog) (bool, error) {
 
 	if isCustom {
 		if cPath == "" {
-			return fail(f.pathEdit, "请输入浏览器路径")
+			return fail(f.pathEdit, "请输入自定义浏览器路径")
 		}
 		if !domain.IsValidBrowserExecutable(cPath) {
 			return fail(f.pathEdit, "浏览器路径无效或文件不存在")
