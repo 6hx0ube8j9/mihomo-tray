@@ -134,7 +134,7 @@ func (f *controllerEditorForm) widgets() []Widget {
 			Title:  "启动偏好",
 			Layout: Grid{Columns: 2, Spacing: 6, Margins: Margins{Left: 8, Top: 10, Right: 8, Bottom: 8}},
 			Children: []Widget{
-				Label{Text: "面板打开方式", Alignment: AlignHNearVCenter},
+				Label{Text: "Web 打开方式", Alignment: AlignHNearVCenter},
 				Composite{
 					Layout: HBox{MarginsZero: true},
 					Children: []Widget{
@@ -155,7 +155,6 @@ func (f *controllerEditorForm) widgets() []Widget {
 							AssignTo:      &f.pathEdit,
 							Text:          f.current.CustomBrowserPath,
 							CueBanner:     "浏览器可执行文件 (.exe)",
-							OnTextChanged: func() { f.autoCheckOnInput(f.pathEdit, f.customBrowserCheck) },
 						},
 						smallActionBtn("浏览", f.browseBrowserExe),
 						smallActionBtn("清空", f.clearBrowserExe),
@@ -173,7 +172,7 @@ func (f *controllerEditorForm) widgets() []Widget {
 						LineEdit{
 							AssignTo:      &f.remoteURLEdit,
 							Text:          f.current.RemoteWebUIURL,
-							CueBanner:     "HTTP / HTTPS 面板地址",
+							CueBanner:     "HTTP/HTTPS 面板地址",
 							OnTextChanged: func() { f.autoCheckOnInput(f.remoteURLEdit, f.onlineCheck) },
 						},
 						copyLineEditBtn(&f.remoteURLEdit),
@@ -204,7 +203,6 @@ func (f *controllerEditorForm) browseBrowserExe() {
 		return
 	}
 	f.pathEdit.SetText(selectedPath)
-	f.customBrowserCheck.SetChecked(true)
 }
 
 func (f *controllerEditorForm) clearBrowserExe() {
@@ -266,7 +264,7 @@ func (f *controllerEditorForm) onAccept(dlg *walk.Dialog) (bool, error) {
 			ret := ShowNativeMsgBox(
 				dlg,
 				"提示",
-				"app 模式仅支持 Chromium 浏览器，是否继续保存？",
+				"应用模式仅支持 Chromium 浏览器，是否继续保存？",
 				walk.MsgBoxOKCancel|walk.MsgBoxIconQuestion,
 				func(win.HWND) {},
 			)
