@@ -108,7 +108,7 @@ func (f *controllerEditorForm) widgets() []Widget {
 	return []Widget{
 		GroupBox{
 			Title:  "控制器连接",
-			Layout: Grid{Columns: 2, Spacing: 6, Margins: Margins{Left: 8, Top: 10, Right: 8, Bottom: 8}},
+			Layout: Grid{Columns: 2},
 			Children: []Widget{
 				Label{Text: "监听地址", Alignment: AlignHNearVCenter},
 				Composite{
@@ -132,7 +132,7 @@ func (f *controllerEditorForm) widgets() []Widget {
 		},
 		GroupBox{
 			Title:  "启动偏好",
-			Layout: Grid{Columns: 2, Spacing: 6, Margins: Margins{Left: 8, Top: 10, Right: 8, Bottom: 8}},
+			Layout: Grid{Columns: 2},
 			Children: []Widget{
 				Label{Text: "Web 打开方式", Alignment: AlignHNearVCenter},
 				Composite{
@@ -172,7 +172,6 @@ func (f *controllerEditorForm) widgets() []Widget {
 						LineEdit{
 							AssignTo:      &f.remoteURLEdit,
 							Text:          f.current.RemoteWebUIURL,
-							CueBanner:     "HTTP/HTTPS 面板地址",
 							OnTextChanged: func() { f.autoCheckOnInput(f.remoteURLEdit, f.onlineCheck) },
 						},
 						copyLineEditBtn(&f.remoteURLEdit),
