@@ -64,8 +64,9 @@ type controllerEditorForm struct {
 	result         domain.ControllerSettings
 	activeDlg      *walk.Dialog
 	isInitializing bool
-    
+
 	addrLabel          *walk.Label
+	modeLabel          *walk.Label
 	addrEdit           *walk.LineEdit
 	secretEdit         *walk.LineEdit
 	remoteURLEdit      *walk.LineEdit
@@ -99,15 +100,19 @@ func (f *controllerEditorForm) onReady(dlg *walk.Dialog) {
 	f.isInitializing = false
 
 	maxW := 0
-	for _, w := range []walk.Widget{f.customBrowserCheck, f.onlineCheck} {
+	for _, w := range []walk.Widget{f.addrLabel, f.modeLabel, f.customBrowserCheck, f.onlineCheck} {
 		if w != nil {
 			if hint := w.SizeHint().Width; hint > maxW {
 				maxW = hint
 			}
 		}
 	}
-	if maxW > 0 && f.addrLabel != nil {
-		_ = f.addrLabel.SetMinMaxSize(walk.Size{Width: maxW}, walk.Size{})
+	if maxW > 0 {
+		for _, lbl := range []*walk.Label{f.addrLabel, f.modeLabel} {
+			if lbl != nil {
+				_ = lbl.SetMinMaxSize(walk.Size{Width: maxW}, walk.Size{})
+			}
+		}
 	}
 }
 
@@ -153,6 +158,7 @@ func (f *controllerEditorForm) widgets() []Widget {
 			Layout: Grid{Columns: 2},
 			Children: []Widget{
 				Label{
+					AssignTo:  &f.modeLabel,
 					Text:      "Web 打开方式",
 					Alignment: AlignHNearVCenter,
 				},
