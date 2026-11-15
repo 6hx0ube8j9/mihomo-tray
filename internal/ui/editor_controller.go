@@ -106,9 +106,11 @@ func (f *controllerEditorForm) onReady(dlg *walk.Dialog) {
 		}
 	}
 	if maxW > 0 && f.addrLabel != nil {
-		_ = f.addrLabel.SetMinMaxSize(walk.Size{Width: maxW}, walk.Size{})
+		logicalW := f.addrLabel.IntTo96DPI(maxW)
+		_ = f.addrLabel.SetMinMaxSize(walk.Size{Width: logicalW}, walk.Size{})
 	}
 }
+
 func (f *controllerEditorForm) widgets() []Widget {
 
 	return []Widget{
