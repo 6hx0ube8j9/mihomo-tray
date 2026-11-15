@@ -12,8 +12,6 @@ import (
 	"mihomo-tray/internal/random"
 )
 
-const controllerLabelColWidth = 92
-
 type webOpenModeOption struct {
 	Value string
 	Label string
@@ -48,7 +46,6 @@ func smallActionBtn(text string, onClick func()) PushButton {
 	return PushButton{
 		Text:      text,
 		MinSize:   Size{Width: 48},
-		MaxSize:   Size{Width: 48},
 		OnClicked: onClick,
 	}
 }
@@ -66,7 +63,8 @@ type controllerEditorForm struct {
 	result         domain.ControllerSettings
 	activeDlg      *walk.Dialog
 	isInitializing bool
-
+    
+	addrLabel          *walk.Label
 	addrEdit           *walk.LineEdit
 	secretEdit         *walk.LineEdit
 	remoteURLEdit      *walk.LineEdit
@@ -98,8 +96,19 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 func (f *controllerEditorForm) onReady(dlg *walk.Dialog) {
 	f.activeDlg = dlg
 	f.isInitializing = false
-}
 
+	maxW := 0
+	for _, w := range []walk.Widget{f.customBrowserCheck, f.onlineCheck} {
+		if w != nil {
+			if hint := w.SizeHint().Width; hint > maxW {
+				maxW = hint
+			}
+		}
+	}
+	if maxW > 0 && f.addrLabel != nil {
+		_ = f.addrLabel.SetMinMaxSize(walk.Size{Width: maxW}, walk.Size{})
+	}
+}
 func (f *controllerEditorForm) widgets() []Widget {
 
 	return []Widget{
@@ -108,9 +117,9 @@ func (f *controllerEditorForm) widgets() []Widget {
 			Layout: Grid{Columns: 2},
 			Children: []Widget{
 				Label{
+					AssignTo:  &f.addrLabel,
 					Text:      "外部控制地址",
 					Alignment: AlignHNearVCenter,
-					MinSize:   Size{Width: controllerLabelColWidth},
 				},
 				Composite{
 					Layout: HBox{MarginsZero: true},
@@ -126,7 +135,6 @@ func (f *controllerEditorForm) widgets() []Widget {
 				Label{
 					Text:      "接口访问密钥",
 					Alignment: AlignHNearVCenter,
-					MinSize:   Size{Width: controllerLabelColWidth},
 				},
 				Composite{
 					Layout: HBox{MarginsZero: true},
@@ -145,7 +153,6 @@ func (f *controllerEditorForm) widgets() []Widget {
 				Label{
 					Text:      "Web 打开方式",
 					Alignment: AlignHNearVCenter,
-					MinSize:   Size{Width: controllerLabelColWidth},
 				},
 				Composite{
 					Layout: HBox{MarginsZero: true},
@@ -162,7 +169,6 @@ func (f *controllerEditorForm) widgets() []Widget {
 					AssignTo:         &f.customBrowserCheck,
 					Text:             "自定义浏览器",
 					Checked:          f.current.CustomBrowserEnabled,
-					MinSize:          Size{Width: controllerLabelColWidth},
 					OnCheckedChanged: func() { f.focusIfCheckedEmpty(f.customBrowserCheck, f.pathEdit) },
 				},
 				Composite{
@@ -181,7 +187,6 @@ func (f *controllerEditorForm) widgets() []Widget {
 					AssignTo:         &f.onlineCheck,
 					Text:             "在线面板地址",
 					Checked:          f.current.RemoteWebUI,
-					MinSize:          Size{Width: controllerLabelColWidth},
 					OnCheckedChanged: func() { f.focusIfCheckedEmpty(f.onlineCheck, f.remoteURLEdit) },
 				},
 				Composite{

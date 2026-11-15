@@ -11,7 +11,7 @@ func (e *Engine) ShowPortEditor(defaultMixed, defaultSocks, defaultHttp int) (in
 	var mixedEdit, socksEdit, httpEdit *walk.NumberEdit
 
 	portLabel := func(name string) Label {
-		return Label{Text: name + " 端口", Alignment: AlignHNearVCenter}
+		return Label{Text: name + " 端口", Alignment: AlignHFarVCenter}
 	}
 
 	portNumberEdit := func(assign **walk.NumberEdit, val int) NumberEdit {
