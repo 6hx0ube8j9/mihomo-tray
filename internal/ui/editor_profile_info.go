@@ -18,25 +18,24 @@ func (e *Engine) ShowProfileInfoEditor(title, defaultName, defaultUrl string, de
 	var intervalEdit *walk.NumberEdit
 
 	formLabel := func(text string, enabled bool) Label {
-		return Label{Text: text, Alignment: AlignHFarVCenter, Enabled: enabled}
+		return Label{Text: text, Alignment: AlignHNearVCenter, Enabled: enabled}
 	}
 
 	res := e.RunModalEditor("editor_profile_info", EditorConfig{
 		Title:         title,
 		Width:         450,
-		MinHeight:     145,
 		AcceptBtnText: "确定",
 		Widgets: []Widget{
 			Composite{
-				Layout: Grid{Columns: 2, Spacing: 10, MarginsZero: true},
+				Layout: Grid{Columns: 2, MarginsZero: true},
 				Children: []Widget{
-					formLabel("配置名称:", true),
+					formLabel("配置名称", true),
 					LineEdit{AssignTo: &nameEdit, Text: defaultName},
 
-					formLabel("订阅链接:", isRemote),
+					formLabel("订阅链接", isRemote),
 					LineEdit{AssignTo: &urlEdit, Text: defaultUrl, Enabled: isRemote},
 
-					formLabel("更新频率:", isRemote),
+					formLabel("更新频率", isRemote),
 					Composite{
 						Layout:  HBox{MarginsZero: true},
 						Enabled: isRemote,
@@ -60,10 +59,12 @@ func (e *Engine) ShowProfileInfoEditor(title, defaultName, defaultUrl string, de
 			inputUrl := strings.TrimSpace(urlEdit.Text())
 
 			if inputName == "" {
+				nameEdit.SetFocus()
 				RunErrorDialog(dlg, "输入错误", "配置名称不能为空。")
 				return false, nil
 			}
 			if isRemote && !netutil.IsValidHTTPURL(inputUrl) {
+				urlEdit.SetFocus()
 				RunErrorDialog(dlg, "输入错误", "请输入有效的 HTTP/HTTPS 订阅链接。")
 				return false, nil
 			}

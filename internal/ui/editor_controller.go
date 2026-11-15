@@ -12,7 +12,7 @@ import (
 	"mihomo-tray/internal/random"
 )
 
-const controllerLabelColWidth = 96
+const controllerLabelColWidth = 92
 
 type webOpenModeOption struct {
 	Value string
@@ -101,12 +101,11 @@ func (f *controllerEditorForm) onReady(dlg *walk.Dialog) {
 }
 
 func (f *controllerEditorForm) widgets() []Widget {
-	groupMargins := Margins{Left: 8, Top: 10, Right: 8, Bottom: 8}
 
 	return []Widget{
 		GroupBox{
 			Title:  "控制器连接",
-			Layout: Grid{Columns: 2, Spacing: 6, Margins: groupMargins},
+			Layout: Grid{Columns: 2},
 			Children: []Widget{
 				Label{
 					Text:      "外部控制地址",
@@ -114,7 +113,7 @@ func (f *controllerEditorForm) widgets() []Widget {
 					MinSize:   Size{Width: controllerLabelColWidth},
 				},
 				Composite{
-					Layout: HBox{MarginsZero: true, Spacing: 4},
+					Layout: HBox{MarginsZero: true},
 					Children: []Widget{
 						LineEdit{
 							AssignTo: &f.addrEdit,
@@ -130,7 +129,7 @@ func (f *controllerEditorForm) widgets() []Widget {
 					MinSize:   Size{Width: controllerLabelColWidth},
 				},
 				Composite{
-					Layout: HBox{MarginsZero: true, Spacing: 4},
+					Layout: HBox{MarginsZero: true},
 					Children: []Widget{
 						LineEdit{AssignTo: &f.secretEdit, Text: f.current.Secret},
 						copyLineEditBtn(&f.secretEdit),
@@ -141,7 +140,7 @@ func (f *controllerEditorForm) widgets() []Widget {
 		},
 		GroupBox{
 			Title:  "启动偏好",
-			Layout: Grid{Columns: 2, Spacing: 6, Margins: groupMargins},
+			Layout: Grid{Columns: 2},
 			Children: []Widget{
 				Label{
 					Text:      "Web 打开方式",
@@ -149,7 +148,7 @@ func (f *controllerEditorForm) widgets() []Widget {
 					MinSize:   Size{Width: controllerLabelColWidth},
 				},
 				Composite{
-					Layout: HBox{MarginsZero: true, Spacing: 4},
+					Layout: HBox{MarginsZero: true},
 					Children: []Widget{
 						ComboBox{
 							AssignTo:     &f.modeCombo,
@@ -167,7 +166,7 @@ func (f *controllerEditorForm) widgets() []Widget {
 					OnCheckedChanged: func() { f.focusIfCheckedEmpty(f.customBrowserCheck, f.pathEdit) },
 				},
 				Composite{
-					Layout: HBox{MarginsZero: true, Spacing: 4},
+					Layout: HBox{MarginsZero: true},
 					Children: []Widget{
 						LineEdit{
 							AssignTo:  &f.pathEdit,
@@ -186,7 +185,7 @@ func (f *controllerEditorForm) widgets() []Widget {
 					OnCheckedChanged: func() { f.focusIfCheckedEmpty(f.onlineCheck, f.remoteURLEdit) },
 				},
 				Composite{
-					Layout: HBox{MarginsZero: true, Spacing: 4},
+					Layout: HBox{MarginsZero: true},
 					Children: []Widget{
 						LineEdit{
 							AssignTo: &f.remoteURLEdit,
@@ -254,9 +253,9 @@ func (f *controllerEditorForm) onAccept(dlg *walk.Dialog) (bool, error) {
 
 	switch {
 	case !netutil.IsValidHostPort(addr):
-		return fail(f.addrEdit, "监听地址格式无效")
+		return fail(f.addrEdit, "外部控制地址格式无效")
 	case netutil.IsPublicAddress(addr) && secret == "":
-		return fail(f.secretEdit, "公网监听时密钥不能为空")
+		return fail(f.secretEdit, "当前外部控制地址支持公网访问，密钥不能为空")
 	case secret != "" && !domain.IsValidSecret(secret):
 		return fail(f.secretEdit, "密钥包含非法字符")
 	case !netutil.IsValidHTTPURL(rURL):
@@ -265,7 +264,7 @@ func (f *controllerEditorForm) onAccept(dlg *walk.Dialog) (bool, error) {
 
 	if isCustom {
 		if cPath == "" {
-			return fail(f.pathEdit, "请输入浏览器路径")
+			return fail(f.pathEdit, "请输入自定义浏览器路径")
 		}
 		if !domain.IsValidBrowserExecutable(cPath) {
 			return fail(f.pathEdit, "浏览器路径无效或文件不存在")
