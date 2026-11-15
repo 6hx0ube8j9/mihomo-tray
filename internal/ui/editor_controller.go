@@ -12,6 +12,8 @@ import (
 	"mihomo-tray/internal/random"
 )
 
+const controllerLabelColWidth = 88
+
 type webOpenModeOption struct {
 	Value string
 	Label string
@@ -108,6 +110,7 @@ func (f *controllerEditorForm) widgets() []Widget {
 				Label{
 					Text:      "外部控制地址",
 					Alignment: AlignHNearVCenter,
+					MinSize:   Size{Width: controllerLabelColWidth},
 				},
 				Composite{
 					Layout: HBox{MarginsZero: true},
@@ -123,6 +126,7 @@ func (f *controllerEditorForm) widgets() []Widget {
 				Label{
 					Text:      "接口访问密钥",
 					Alignment: AlignHNearVCenter,
+					MinSize:   Size{Width: controllerLabelColWidth},
 				},
 				Composite{
 					Layout: HBox{MarginsZero: true},
@@ -141,6 +145,7 @@ func (f *controllerEditorForm) widgets() []Widget {
 				Label{
 					Text:      "Web 打开方式",
 					Alignment: AlignHNearVCenter,
+					MinSize:   Size{Width: controllerLabelColWidth},
 				},
 				Composite{
 					Layout: HBox{MarginsZero: true},
@@ -157,6 +162,7 @@ func (f *controllerEditorForm) widgets() []Widget {
 					AssignTo:         &f.customBrowserCheck,
 					Text:             "自定义浏览器",
 					Checked:          f.current.CustomBrowserEnabled,
+					MinSize:          Size{Width: controllerLabelColWidth},
 					OnCheckedChanged: func() { f.focusIfCheckedEmpty(f.customBrowserCheck, f.pathEdit) },
 				},
 				Composite{
@@ -175,6 +181,7 @@ func (f *controllerEditorForm) widgets() []Widget {
 					AssignTo:         &f.onlineCheck,
 					Text:             "在线面板地址",
 					Checked:          f.current.RemoteWebUI,
+					MinSize:          Size{Width: controllerLabelColWidth},
 					OnCheckedChanged: func() { f.focusIfCheckedEmpty(f.onlineCheck, f.remoteURLEdit) },
 				},
 				Composite{
