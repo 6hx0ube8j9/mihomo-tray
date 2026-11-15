@@ -110,7 +110,7 @@ func (f *controllerEditorForm) onReady(dlg *walk.Dialog) {
 	if maxW > 0 {
 		for _, lbl := range []*walk.Label{f.addrLabel, f.modeLabel} {
 			if lbl != nil {
-				_ = lbl.SetMinMaxSize(walk.Size{Width: maxW}, walk.Size{})
+				_ = lbl.SetMinMaxSizePixels(walk.Size{Width: maxW}, walk.Size{})
 			}
 		}
 	}
