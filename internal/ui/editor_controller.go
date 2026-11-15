@@ -45,8 +45,8 @@ func findWebOpenModeIndex(mode string) int {
 func smallActionBtn(text string, onClick func()) PushButton {
 	return PushButton{
 		Text:      text,
-		MinSize:   Size{Width: 44},
-		MaxSize:   Size{Width: 44},
+		MinSize:   Size{Width: 48},
+		MaxSize:   Size{Width: 48},
 		OnClicked: onClick,
 	}
 }
@@ -84,7 +84,6 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 	res := e.RunModalEditor("editor_controller", EditorConfig{
 		Title:         "Web 面板设置",
 		Width:         440,
-		MinHeight:     265,
 		AcceptBtnText: "确定",
 		OnReady:       form.onReady,
 		Widgets:       form.widgets(),
@@ -96,11 +95,6 @@ func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain
 
 func (f *controllerEditorForm) onReady(dlg *walk.Dialog) {
 	f.activeDlg = dlg
-	f.isInitializing = true
-	if f.modeCombo != nil {
-		initialMode := domain.NormalizeWebOpenMode(f.current.WebOpenMode)
-		_ = f.modeCombo.SetCurrentIndex(findWebOpenModeIndex(initialMode))
-	}
 	f.isInitializing = false
 }
 
@@ -112,16 +106,20 @@ func (f *controllerEditorForm) widgets() []Widget {
 			Children: []Widget{
 				Label{Text: "监听地址", Alignment: AlignHNearVCenter},
 				Composite{
-					Layout: HBox{MarginsZero: true, Spacing: 4},
+					Layout: HBox{MarginsZero: true},
 					Children: []Widget{
-						LineEdit{AssignTo: &f.addrEdit, Text: f.current.Addr},
+						LineEdit{
+							AssignTo:  &f.addrEdit,
+							Text:      f.current.Addr,
+							CueBanner: domain.DefaultExternalController,
+						},
 						copyLineEditBtn(&f.addrEdit),
 						smallActionBtn("默认", func() { f.addrEdit.SetText(domain.DefaultExternalController) }),
 					},
 				},
 				Label{Text: "访问密钥", Alignment: AlignHNearVCenter},
 				Composite{
-					Layout: HBox{MarginsZero: true, Spacing: 4},
+					Layout: HBox{MarginsZero: true},
 					Children: []Widget{
 						LineEdit{AssignTo: &f.secretEdit, Text: f.current.Secret},
 						copyLineEditBtn(&f.secretEdit),
@@ -138,7 +136,11 @@ func (f *controllerEditorForm) widgets() []Widget {
 				Composite{
 					Layout: HBox{MarginsZero: true},
 					Children: []Widget{
-						ComboBox{AssignTo: &f.modeCombo, Model: webOpenModeLabels()},
+						ComboBox{
+							AssignTo:     &f.modeCombo,
+							Model:        webOpenModeLabels(),
+							CurrentIndex: findWebOpenModeIndex(f.current.WebOpenMode),
+						},
 						HSpacer{},
 					},
 				},
@@ -149,12 +151,12 @@ func (f *controllerEditorForm) widgets() []Widget {
 					OnCheckedChanged: func() { f.focusIfCheckedEmpty(f.customBrowserCheck, f.pathEdit) },
 				},
 				Composite{
-					Layout: HBox{MarginsZero: true, Spacing: 4},
+					Layout: HBox{MarginsZero: true},
 					Children: []Widget{
 						LineEdit{
-							AssignTo:      &f.pathEdit,
-							Text:          f.current.CustomBrowserPath,
-							CueBanner:     "浏览器可执行文件 (.exe)",
+							AssignTo:  &f.pathEdit,
+							Text:      f.current.CustomBrowserPath,
+							CueBanner: "浏览器可执行文件 (.exe)",
 						},
 						smallActionBtn("浏览", f.browseBrowserExe),
 						smallActionBtn("清空", f.clearBrowserExe),
@@ -167,12 +169,12 @@ func (f *controllerEditorForm) widgets() []Widget {
 					OnCheckedChanged: func() { f.focusIfCheckedEmpty(f.onlineCheck, f.remoteURLEdit) },
 				},
 				Composite{
-					Layout: HBox{MarginsZero: true, Spacing: 4},
+					Layout: HBox{MarginsZero: true},
 					Children: []Widget{
 						LineEdit{
-							AssignTo:      &f.remoteURLEdit,
-							Text:          f.current.RemoteWebUIURL,
-							OnTextChanged: func() { f.autoCheckOnInput(f.remoteURLEdit, f.onlineCheck) },
+							AssignTo:  &f.remoteURLEdit,
+							Text:      f.current.RemoteWebUIURL,
+							CueBanner: "HTTP/HTTPS 面板地址",
 						},
 						copyLineEditBtn(&f.remoteURLEdit),
 						smallActionBtn("默认", func() { f.remoteURLEdit.SetText(domain.DefaultRemoteWebUIURL) }),
@@ -186,12 +188,6 @@ func (f *controllerEditorForm) widgets() []Widget {
 func (f *controllerEditorForm) focusIfCheckedEmpty(check *walk.CheckBox, edit *walk.LineEdit) {
 	if !f.isInitializing && check.Checked() && strings.TrimSpace(edit.Text()) == "" {
 		edit.SetFocus()
-	}
-}
-
-func (f *controllerEditorForm) autoCheckOnInput(edit *walk.LineEdit, check *walk.CheckBox) {
-	if !f.isInitializing && strings.TrimSpace(edit.Text()) != "" && !check.Checked() {
-		check.SetChecked(true)
 	}
 }
 
