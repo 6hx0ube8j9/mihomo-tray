@@ -34,6 +34,11 @@ func applyGeneralDefaults(gen *domain.GeneralConfig, isTainted *bool) {
 
 	sanitizeTrimmedString(&gen.CustomBrowserPath, "", isTainted)
 
+	if *gen.CustomBrowserEnabled && *gen.CustomBrowserPath == "" {
+		*gen.CustomBrowserEnabled = false
+		*isTainted = true
+	}
+
 	if !isValidTrayLogLevel(gen.TrayLogLevel) {
 		gen.TrayLogLevel = domain.DefaultTrayLogLevel
 		*isTainted = true

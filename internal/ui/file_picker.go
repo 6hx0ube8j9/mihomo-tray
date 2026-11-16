@@ -1,31 +1,44 @@
 package ui
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 
 	"github.com/tailscale/walk"
-	"github.com/tailscale/win"
 
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/sys"
 )
 
-func RunOpenYAMLFileDialog(owner walk.Form) (string, bool) {
-	dlg := new(walk.FileDialog)
-	dlg.Title = "导入本地配置"
-	dlg.Filter = "YAML 配置文件 (*.yaml;*.yml)|*.yaml;*.yml|所有文件 (*.*)|*.*"
-	dlg.Flags = win.OFN_EXPLORER | win.OFN_FILEMUSTEXIST | win.OFN_HIDEREADONLY
+func ownerWindowHandle(owner walk.Form) uintptr {
+	if owner != nil {
+		return uintptr(owner.Handle())
+	}
+	return 0
+}
 
-	ok, _ := dlg.ShowOpen(owner)
-	return dlg.FilePath, ok
+func RunOpenYAMLFileDialog(owner walk.Form) (string, bool) {
+	selected, ok, err := sys.OpenFileDialog(sys.FileDialogOptions{
+		OwnerHWND: ownerWindowHandle(owner),
+		Title:     "导入本地配置",
+		Filters: []sys.FileFilter{
+			{Name: "YAML 配置文件 (*.yaml;*.yml)", Spec: "*.yaml;*.yml"},
+			{Name: "所有文件 (*.*)", Spec: "*.*"},
+		},
+	})
+	if err != nil {
+		slog.Warn("打开配置文件选择对话框失败", "err", err)
+		return "", false
+	}
+	if !ok {
+		return "", false
+	}
+	return filepath.Clean(filepath.FromSlash(selected)), true
 }
 
 func RunOpenBrowserExeDialog(owner walk.Form, currentPath string) (string, bool) {
-	dlg := new(walk.FileDialog)
-	dlg.Title = "选择浏览器可执行文件"
-	dlg.Filter = "可执行文件 (*.exe)|*.exe|所有文件 (*.*)|*.*"
-	dlg.Flags = win.OFN_EXPLORER | win.OFN_FILEMUSTEXIST | win.OFN_PATHMUSTEXIST | win.OFN_HIDEREADONLY
-
+	var initialDir string
 	if resolved := domain.ResolveBrowserPath(currentPath); resolved != "" {
 		candidate := filepath.Clean(filepath.FromSlash(resolved))
 		if filepath.IsAbs(candidate) {
@@ -34,7 +47,7 @@ func RunOpenBrowserExeDialog(owner walk.Form, currentPath string) (string, bool)
 			}
 			for candidate != "" && candidate != "." {
 				if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
-					dlg.InitialDirPath = candidate
+					initialDir = candidate
 					break
 				}
 				parent := filepath.Dir(candidate)
@@ -46,9 +59,21 @@ func RunOpenBrowserExeDialog(owner walk.Form, currentPath string) (string, bool)
 		}
 	}
 
-	ok, _ := dlg.ShowOpen(owner)
+	selected, ok, err := sys.OpenFileDialog(sys.FileDialogOptions{
+		OwnerHWND:  ownerWindowHandle(owner),
+		Title:      "选择浏览器可执行文件",
+		InitialDir: initialDir,
+		Filters: []sys.FileFilter{
+			{Name: "可执行文件 (*.exe)", Spec: "*.exe"},
+			{Name: "所有文件 (*.*)", Spec: "*.*"},
+		},
+	})
+	if err != nil {
+		slog.Warn("打开浏览器选择对话框失败", "err", err)
+		return "", false
+	}
 	if !ok {
 		return "", false
 	}
-	return filepath.Clean(filepath.FromSlash(dlg.FilePath)), true
+	return filepath.Clean(filepath.FromSlash(selected)), true
 }

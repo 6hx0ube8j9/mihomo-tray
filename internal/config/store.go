@@ -256,12 +256,14 @@ func (m *Manager) GetControllerSettings() domain.ControllerSettings {
 		openMode = *m.data.General.WebOpenMode
 	}
 
-	customEnabled := m.data.General.CustomBrowserEnabled != nil && *m.data.General.CustomBrowserEnabled
-
 	var customPath string
 	if m.data.General.CustomBrowserPath != nil {
 		customPath = strings.TrimSpace(*m.data.General.CustomBrowserPath)
 	}
+
+	customEnabled := m.data.General.CustomBrowserEnabled != nil &&
+		*m.data.General.CustomBrowserEnabled &&
+		customPath != ""
 
 	return domain.ControllerSettings{
 		Addr:                 addr,
