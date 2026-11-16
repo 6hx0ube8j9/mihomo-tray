@@ -12,7 +12,7 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
-const notifyCooldown = 2500 * time.Millisecond
+const notifyCooldown = 3 * time.Second
 
 type Tray struct {
 	engine   *Engine
@@ -243,7 +243,13 @@ func (t *Tray) rebuildProfilesMenu(state domain.UIState) {
 }
 
 func (t *Tray) ShowNotification(title, message string) {
-	if t.ni == nil {
+	if t.ni == nil || t.engine == nil {
+		return
+	}
+
+	title = strings.TrimSpace(title)
+	message = strings.TrimSpace(message)
+	if title == "" && message == "" {
 		return
 	}
 
@@ -251,12 +257,10 @@ func (t *Tray) ShowNotification(title, message string) {
 	now := time.Now()
 
 	t.notifyMu.Lock()
-	lastTime, exists := t.recentNotifies[key]
-	if exists && now.Sub(lastTime) < notifyCooldown {
+	if lastTime, exists := t.recentNotifies[key]; exists && now.Sub(lastTime) < notifyCooldown {
 		t.notifyMu.Unlock()
 		return
 	}
-
 	t.recentNotifies[key] = now
 
 	if len(t.recentNotifies) > 20 {
@@ -268,9 +272,14 @@ func (t *Tray) ShowNotification(title, message string) {
 	}
 	t.notifyMu.Unlock()
 
-	if err := t.ni.ShowInfo(title, message); err != nil {
-		slog.Warn("托盘通知失败", "title", title, "err", err)
-	}
+	t.engine.PostUI(func() {
+		if t.ni == nil {
+			return
+		}
+		if err := t.ni.ShowWarning(title, message); err != nil {
+			slog.Warn("托盘通知失败", "title", title, "err", err)
+		}
+	})
 }
 
 func (t *Tray) Dispose() {

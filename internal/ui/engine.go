@@ -144,6 +144,19 @@ func (e *Engine) RunOnUI(fn func()) {
 	}
 }
 
+func (e *Engine) PostUI(fn func()) {
+	if e.app == nil || e.ctx.Err() != nil {
+		return
+	}
+
+	if e.uiThreadID != 0 && win.GetCurrentThreadId() == e.uiThreadID {
+		fn()
+		return
+	}
+
+	e.app.Synchronize(fn)
+}
+
 func (e *Engine) listenState() {
 	for {
 		select {
@@ -324,9 +337,7 @@ func (e *Engine) OpenYAMLFileDialog() (string, bool) {
 
 func (e *Engine) ShowNotification(title, message string) {
 	if e.Tray != nil {
-		e.RunOnUI(func() {
-			e.Tray.ShowNotification(title, message)
-		})
+		e.Tray.ShowNotification(title, message)
 	}
 }
 
