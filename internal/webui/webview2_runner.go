@@ -122,7 +122,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 			)
 		}
 
-		cleanupCreateHook := sys.PrepareThreadTopMostOnCreate()
 		w = webview2.NewWithOptions(webview2.WebViewOptions{
 			AutoFocus:                  true,
 			DataPath:                   userDataDir,
@@ -136,7 +135,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 				DarkMode: cfg.IsDark,
 			},
 		})
-		cleanupCreateHook()
 
 		if w == nil {
 			wv2Broken.Store(true)
@@ -148,7 +146,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		}
 
 		hwnd = uintptr(w.Window())
-		sys.FocusWindowSilky(hwnd)
 		adapter = &webviewAdapter{w: w, hwnd: hwnd}
 
 		m.wvMu.Lock()
@@ -179,7 +176,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 
 		w.Navigate(finalURL)
 		emitEvent(eventCh, EventReady)
-		sys.FocusWindowSilky(hwnd)
 
 		select {
 		case initCh <- true:

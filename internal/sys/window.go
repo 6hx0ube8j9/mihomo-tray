@@ -23,11 +23,6 @@ var (
 	procAttachThreadInput    = modUser32.NewProc("AttachThreadInput")
 	procAllowSetForeground   = modUser32.NewProc("AllowSetForegroundWindow")
 	procGetWindow            = modUser32.NewProc("GetWindow")
-	procGetParent            = modUser32.NewProc("GetParent")
-	procGetWindowLongPtr     = modUser32.NewProc("GetWindowLongPtrW")
-	procSetWindowsHookEx     = modUser32.NewProc("SetWindowsHookExW")
-	procCallNextHookEx       = modUser32.NewProc("CallNextHookEx")
-	procUnhookWindowsHookEx  = modUser32.NewProc("UnhookWindowsHookEx")
 	procIsIconic             = modUser32.NewProc("IsIconic")
 	procIsWindow             = modUser32.NewProc("IsWindow")
 	procIsHungAppWindow      = modUser32.NewProc("IsHungAppWindow")
@@ -50,11 +45,6 @@ const (
 	SM_CXSCREEN              = 0
 	SM_CYSCREEN              = 1
 	MONITOR_DEFAULTTONEAREST = 2
-
-	whCBT         = 5
-	hcbtCreateWnd = 3
-	gwlStyle      = ^uintptr(15) // -16
-	wsChild       = 0x40000000
 
 	hwndTopMost   = ^uintptr(0) // -1
 	hwndNoTopMost = ^uintptr(1) // -2
@@ -100,47 +90,7 @@ type enumContext struct {
 var (
 	enumCtxMap sync.Map
 	enumCtxID  atomic.Uintptr
-	cbtHookMap sync.Map
 )
-
-type cbtHookEntry struct {
-	hhook uintptr
-}
-
-var cbtHookCallback = windows.NewCallback(func(nCode int32, wParam uintptr, lParam uintptr) uintptr {
-	if nCode == hcbtCreateWnd && wParam != 0 {
-		tid := windows.GetCurrentThreadId()
-		if v, ok := cbtHookMap.Load(tid); ok {
-			parent, _, _ := procGetParent.Call(wParam)
-			style, _, _ := procGetWindowLongPtr.Call(wParam, gwlStyle)
-			if parent == 0 && (style&wsChild) == 0 {
-				entry := v.(*cbtHookEntry)
-				cbtHookMap.Delete(tid)
-				procUnhookWindowsHookEx.Call(entry.hhook)
-				procSetWindowPos.Call(wParam, hwndTopMost, 0, 0, 0, 0, swpNoMove|swpNoSize|swpNoActivate)
-			}
-		}
-	}
-	ret, _, _ := procCallNextHookEx.Call(0, uintptr(nCode), wParam, lParam)
-	return ret
-})
-
-func PrepareThreadTopMostOnCreate() func() {
-	tid := windows.GetCurrentThreadId()
-	entry := &cbtHookEntry{}
-	hhook, _, _ := procSetWindowsHookEx.Call(whCBT, cbtHookCallback, 0, uintptr(tid))
-	if hhook == 0 {
-		return func() {}
-	}
-	entry.hhook = hhook
-	cbtHookMap.Store(tid, entry)
-
-	return func() {
-		if _, loaded := cbtHookMap.LoadAndDelete(tid); loaded {
-			procUnhookWindowsHookEx.Call(hhook)
-		}
-	}
-}
 
 func init() {
 	if ret, _, _ := procSetProcessDpiContext.Call(dpiAwarenessPerMonitorV2); ret == 0 {
