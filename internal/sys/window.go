@@ -10,25 +10,31 @@ import (
 )
 
 var (
-	procEnumWindows              = modUser32.NewProc("EnumWindows")
-	procGetClassName             = modUser32.NewProc("GetClassNameW")
-	procIsWindowVisible          = modUser32.NewProc("IsWindowVisible")
-	procGetWindowThread          = modUser32.NewProc("GetWindowThreadProcessId")
-	procGetWindowText            = modUser32.NewProc("GetWindowTextW")
-	procShowWindow               = modUser32.NewProc("ShowWindow")
-	procSetForeground            = modUser32.NewProc("SetForegroundWindow")
-	procGetForegroundWindow      = modUser32.NewProc("GetForegroundWindow")
-	procBringWindowToTop         = modUser32.NewProc("BringWindowToTop")
-	procAttachThreadInput        = modUser32.NewProc("AttachThreadInput")
-	procAllowSetForeground       = modUser32.NewProc("AllowSetForegroundWindow")
-	procGetWindow                = modUser32.NewProc("GetWindow")
-	procIsIconic                 = modUser32.NewProc("IsIconic")
-	procIsWindow                 = modUser32.NewProc("IsWindow")
-	procIsHungAppWindow          = modUser32.NewProc("IsHungAppWindow")
-	procSetProcessDpiContext     = modUser32.NewProc("SetProcessDpiAwarenessContext")
-	procSetProcessDPIAware       = modUser32.NewProc("SetProcessDPIAware")
-	procGetSystemMetrics         = modUser32.NewProc("GetSystemMetrics")
-	procSystemParametersInfo     = modUser32.NewProc("SystemParametersInfoW")
+	procEnumWindows          = modUser32.NewProc("EnumWindows")
+	procGetClassName         = modUser32.NewProc("GetClassNameW")
+	procIsWindowVisible      = modUser32.NewProc("IsWindowVisible")
+	procGetWindowThread      = modUser32.NewProc("GetWindowThreadProcessId")
+	procGetWindowText        = modUser32.NewProc("GetWindowTextW")
+	procShowWindow           = modUser32.NewProc("ShowWindow")
+	procSetForeground        = modUser32.NewProc("SetForegroundWindow")
+	procGetForegroundWindow  = modUser32.NewProc("GetForegroundWindow")
+	procBringWindowToTop     = modUser32.NewProc("BringWindowToTop")
+	procSetWindowPos         = modUser32.NewProc("SetWindowPos")
+	procAttachThreadInput    = modUser32.NewProc("AttachThreadInput")
+	procAllowSetForeground   = modUser32.NewProc("AllowSetForegroundWindow")
+	procGetWindow            = modUser32.NewProc("GetWindow")
+	procGetParent            = modUser32.NewProc("GetParent")
+	procGetWindowLongPtr     = modUser32.NewProc("GetWindowLongPtrW")
+	procSetWindowsHookEx     = modUser32.NewProc("SetWindowsHookExW")
+	procCallNextHookEx       = modUser32.NewProc("CallNextHookEx")
+	procUnhookWindowsHookEx  = modUser32.NewProc("UnhookWindowsHookEx")
+	procIsIconic             = modUser32.NewProc("IsIconic")
+	procIsWindow             = modUser32.NewProc("IsWindow")
+	procIsHungAppWindow      = modUser32.NewProc("IsHungAppWindow")
+	procSetProcessDpiContext = modUser32.NewProc("SetProcessDpiAwarenessContext")
+	procSetProcessDPIAware   = modUser32.NewProc("SetProcessDPIAware")
+	procGetSystemMetrics     = modUser32.NewProc("GetSystemMetrics")
+	procSystemParametersInfo = modUser32.NewProc("SystemParametersInfoW")
 
 	procGetCursorPos    = modUser32.NewProc("GetCursorPos")
 	procMonitorFromRect = modUser32.NewProc("MonitorFromRect")
@@ -44,6 +50,17 @@ const (
 	SM_CXSCREEN              = 0
 	SM_CYSCREEN              = 1
 	MONITOR_DEFAULTTONEAREST = 2
+
+	whCBT         = 5
+	hcbtCreateWnd = 3
+	gwlStyle      = ^uintptr(15) // -16
+	wsChild       = 0x40000000
+
+	hwndTopMost   = ^uintptr(0) // -1
+	hwndNoTopMost = ^uintptr(1) // -2
+	swpNoSize     = 0x0001
+	swpNoMove     = 0x0002
+	swpNoActivate = 0x0010
 
 	dpiAwarenessPerMonitorV2 = uintptr(0xFFFFFFFC)
 	asfwAny                  = 0xFFFFFFFF
@@ -83,7 +100,47 @@ type enumContext struct {
 var (
 	enumCtxMap sync.Map
 	enumCtxID  atomic.Uintptr
+	cbtHookMap sync.Map
 )
+
+type cbtHookEntry struct {
+	hhook uintptr
+}
+
+var cbtHookCallback = windows.NewCallback(func(nCode int32, wParam uintptr, lParam uintptr) uintptr {
+	if nCode == hcbtCreateWnd && wParam != 0 {
+		tid := windows.GetCurrentThreadId()
+		if v, ok := cbtHookMap.Load(tid); ok {
+			parent, _, _ := procGetParent.Call(wParam)
+			style, _, _ := procGetWindowLongPtr.Call(wParam, gwlStyle)
+			if parent == 0 && (style&wsChild) == 0 {
+				entry := v.(*cbtHookEntry)
+				cbtHookMap.Delete(tid)
+				procUnhookWindowsHookEx.Call(entry.hhook)
+				procSetWindowPos.Call(wParam, hwndTopMost, 0, 0, 0, 0, swpNoMove|swpNoSize|swpNoActivate)
+			}
+		}
+	}
+	ret, _, _ := procCallNextHookEx.Call(0, uintptr(nCode), wParam, lParam)
+	return ret
+})
+
+func PrepareThreadTopMostOnCreate() func() {
+	tid := windows.GetCurrentThreadId()
+	entry := &cbtHookEntry{}
+	hhook, _, _ := procSetWindowsHookEx.Call(whCBT, cbtHookCallback, 0, uintptr(tid))
+	if hhook == 0 {
+		return func() {}
+	}
+	entry.hhook = hhook
+	cbtHookMap.Store(tid, entry)
+
+	return func() {
+		if _, loaded := cbtHookMap.LoadAndDelete(tid); loaded {
+			procUnhookWindowsHookEx.Call(hhook)
+		}
+	}
+}
 
 func init() {
 	if ret, _, _ := procSetProcessDpiContext.Call(dpiAwarenessPerMonitorV2); ret == 0 {
@@ -183,6 +240,9 @@ func FocusWindowSilky(targetHwnd uintptr) {
 	} else if !IsWindowVisible(targetHwnd) {
 		procShowWindow.Call(targetHwnd, SW_SHOW)
 	}
+
+	procSetWindowPos.Call(targetHwnd, hwndTopMost, 0, 0, 0, 0, swpNoMove|swpNoSize|swpNoActivate)
+	procSetWindowPos.Call(targetHwnd, hwndNoTopMost, 0, 0, 0, 0, swpNoMove|swpNoSize|swpNoActivate)
 
 	procBringWindowToTop.Call(targetHwnd)
 	if ret, _, _ := procSetForeground.Call(targetHwnd); ret != 0 {

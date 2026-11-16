@@ -102,7 +102,7 @@ func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, dataDirName, fi
 
 	mainPid := uint32(cmd.Process.Pid)
 	m.isolatedPid.Store(mainPid)
-	sys.AllowSetForegroundWindow(mainPid)
+	sys.AllowSetForegroundWindow(0)
 
 	exitCh := make(chan error, 1)
 	go func() {
