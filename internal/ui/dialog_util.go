@@ -1,5 +1,3 @@
-// Package ui provides window management helpers including dialog centering,
-// screen bounds clamping, style locking, and focus restoration.
 package ui
 
 import (
@@ -35,7 +33,9 @@ func clampScreenPos(pos, minPos, maxPos int) int {
 
 func calcCenteredPos(targetHWND, popupHWND win.HWND) (x, y int32) {
 	var popRect win.RECT
-	win.GetWindowRect(popupHWND, &popRect)
+	if !win.GetWindowRect(popupHWND, &popRect) {
+		return 0, 0
+	}
 	dlgW := int(popRect.Right - popRect.Left)
 	dlgH := int(popRect.Bottom - popRect.Top)
 
@@ -43,14 +43,14 @@ func calcCenteredPos(targetHWND, popupHWND win.HWND) (x, y int32) {
 
 	if targetHWND != 0 && win.IsWindowVisible(targetHWND) && !win.IsIconic(targetHWND) {
 		var targetRect win.RECT
-		win.GetWindowRect(targetHWND, &targetRect)
+		if win.GetWindowRect(targetHWND, &targetRect) {
+			centerCX := int(targetRect.Left + (targetRect.Right-targetRect.Left)/2)
+			centerCY := int(targetRect.Top + (targetRect.Bottom-targetRect.Top)/2)
 
-		centerCX := int(targetRect.Left + (targetRect.Right-targetRect.Left)/2)
-		centerCY := int(targetRect.Top + (targetRect.Bottom-targetRect.Top)/2)
-
-		xPos := clampScreenPos(centerCX-dlgW/2, startX, startX+usableW-dlgW)
-		yPos := clampScreenPos(centerCY-dlgH/2, startY, startY+usableH-dlgH)
-		return int32(xPos), int32(yPos)
+			xPos := clampScreenPos(centerCX-dlgW/2, startX, startX+usableW-dlgW)
+			yPos := clampScreenPos(centerCY-dlgH/2, startY, startY+usableH-dlgH)
+			return int32(xPos), int32(yPos)
+		}
 	}
 
 	xPos := clampScreenPos(startX+(usableW-dlgW)/2, startX, startX+usableW-dlgW)
@@ -104,13 +104,11 @@ func centerDialog(dlg *walk.Dialog, owner walk.Form) {
 }
 
 func restoreFocus(parent walk.Form, hActive win.HWND) {
-	if parent != nil && parent.Visible() && !win.IsIconic(parent.Handle()) {
-		win.SetForegroundWindow(parent.Handle())
-		win.SetFocus(parent.Handle())
-	} else if hActive != 0 && win.IsWindowVisible(hActive) && !win.IsIconic(hActive) {
-		win.SetForegroundWindow(hActive)
-		win.SetFocus(hActive)
+	if parent != nil && parent.Visible() {
+		ActivateWindow(parent.Handle())
+		return
 	}
+	ActivateWindow(hActive)
 }
 
 // Idempotent action helpers that avoid redundant Win32 message broadcasts.

@@ -276,7 +276,7 @@ func (t *Tray) ShowNotification(title, message string) {
 		if t.ni == nil {
 			return
 		}
-		if err := t.ni.ShowWarning(title, message); err != nil {
+		if err := t.ni.ShowInfo(title, message); err != nil {
 			slog.Warn("托盘通知失败", "title", title, "err", err)
 		}
 	})

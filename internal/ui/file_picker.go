@@ -28,7 +28,7 @@ func RunOpenYAMLFileDialog(owner walk.Form) (string, bool) {
 		},
 	})
 	if err != nil {
-		slog.Warn("打开配置文件选择对话框失败", "err", err)
+		slog.Warn("打开配置文件选择框失败", "err", err)
 		return "", false
 	}
 	if !ok {
@@ -61,7 +61,7 @@ func RunOpenBrowserExeDialog(owner walk.Form, currentPath string) (string, bool)
 
 	selected, ok, err := sys.OpenFileDialog(sys.FileDialogOptions{
 		OwnerHWND:  ownerWindowHandle(owner),
-		Title:      "选择浏览器可执行文件",
+		Title:      "选择文件",
 		InitialDir: initialDir,
 		Filters: []sys.FileFilter{
 			{Name: "可执行文件 (*.exe)", Spec: "*.exe"},
@@ -69,7 +69,7 @@ func RunOpenBrowserExeDialog(owner walk.Form, currentPath string) (string, bool)
 		},
 	})
 	if err != nil {
-		slog.Warn("打开浏览器选择对话框失败", "err", err)
+		slog.Warn("打开浏览器选择框失败", "err", err)
 		return "", false
 	}
 	if !ok {
