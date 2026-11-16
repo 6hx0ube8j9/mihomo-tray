@@ -10,22 +10,25 @@ import (
 )
 
 var (
-	procEnumWindows          = modUser32.NewProc("EnumWindows")
-	procGetClassName         = modUser32.NewProc("GetClassNameW")
-	procIsWindowVisible      = modUser32.NewProc("IsWindowVisible")
-	procGetWindowThread      = modUser32.NewProc("GetWindowThreadProcessId")
-	procGetWindowText        = modUser32.NewProc("GetWindowTextW")
-	procShowWindow           = modUser32.NewProc("ShowWindow")
-	procSetForeground        = modUser32.NewProc("SetForegroundWindow")
-	procAllowSetForeground   = modUser32.NewProc("AllowSetForegroundWindow")
-	procGetWindow            = modUser32.NewProc("GetWindow")
-	procIsIconic             = modUser32.NewProc("IsIconic")
-	procIsWindow             = modUser32.NewProc("IsWindow")
-	procIsHungAppWindow      = modUser32.NewProc("IsHungAppWindow")
-	procSetProcessDpiContext = modUser32.NewProc("SetProcessDpiAwarenessContext")
-	procSetProcessDPIAware   = modUser32.NewProc("SetProcessDPIAware")
-	procGetSystemMetrics     = modUser32.NewProc("GetSystemMetrics")
-	procSystemParametersInfo = modUser32.NewProc("SystemParametersInfoW")
+	procEnumWindows              = modUser32.NewProc("EnumWindows")
+	procGetClassName             = modUser32.NewProc("GetClassNameW")
+	procIsWindowVisible          = modUser32.NewProc("IsWindowVisible")
+	procGetWindowThread          = modUser32.NewProc("GetWindowThreadProcessId")
+	procGetWindowText            = modUser32.NewProc("GetWindowTextW")
+	procShowWindow               = modUser32.NewProc("ShowWindow")
+	procSetForeground            = modUser32.NewProc("SetForegroundWindow")
+	procGetForegroundWindow      = modUser32.NewProc("GetForegroundWindow")
+	procBringWindowToTop         = modUser32.NewProc("BringWindowToTop")
+	procAttachThreadInput        = modUser32.NewProc("AttachThreadInput")
+	procAllowSetForeground       = modUser32.NewProc("AllowSetForegroundWindow")
+	procGetWindow                = modUser32.NewProc("GetWindow")
+	procIsIconic                 = modUser32.NewProc("IsIconic")
+	procIsWindow                 = modUser32.NewProc("IsWindow")
+	procIsHungAppWindow          = modUser32.NewProc("IsHungAppWindow")
+	procSetProcessDpiContext     = modUser32.NewProc("SetProcessDpiAwarenessContext")
+	procSetProcessDPIAware       = modUser32.NewProc("SetProcessDPIAware")
+	procGetSystemMetrics         = modUser32.NewProc("GetSystemMetrics")
+	procSystemParametersInfo     = modUser32.NewProc("SystemParametersInfoW")
 
 	procGetCursorPos    = modUser32.NewProc("GetCursorPos")
 	procMonitorFromRect = modUser32.NewProc("MonitorFromRect")
@@ -181,7 +184,28 @@ func FocusWindowSilky(targetHwnd uintptr) {
 		procShowWindow.Call(targetHwnd, SW_SHOW)
 	}
 
-	procSetForeground.Call(targetHwnd)
+	procBringWindowToTop.Call(targetHwnd)
+	if ret, _, _ := procSetForeground.Call(targetHwnd); ret != 0 {
+		return
+	}
+
+	fgHwnd, _, _ := procGetForegroundWindow.Call()
+	if fgHwnd == 0 || fgHwnd == targetHwnd {
+		return
+	}
+
+	fgThreadID, _, _ := procGetWindowThread.Call(fgHwnd, 0)
+	curThreadID := uintptr(windows.GetCurrentThreadId())
+	if fgThreadID == 0 || fgThreadID == curThreadID {
+		return
+	}
+
+	attached, _, _ := procAttachThreadInput.Call(curThreadID, fgThreadID, 1)
+	if attached != 0 {
+		procBringWindowToTop.Call(targetHwnd)
+		procSetForeground.Call(targetHwnd)
+		procAttachThreadInput.Call(curThreadID, fgThreadID, 0)
+	}
 }
 
 func AllowSetForegroundWindow(pid uint32) {

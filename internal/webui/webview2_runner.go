@@ -123,7 +123,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		}
 
 		w = webview2.NewWithOptions(webview2.WebViewOptions{
-			AutoFocus:                  false,
+			AutoFocus:                  true,
 			DataPath:                   userDataDir,
 			AdditionalBrowserArguments: additionalArgs,
 			WindowOptions: webview2.WindowOptions{
@@ -146,6 +146,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		}
 
 		hwnd = uintptr(w.Window())
+		sys.FocusWindowSilky(hwnd)
 		adapter = &webviewAdapter{w: w, hwnd: hwnd}
 
 		m.wvMu.Lock()
@@ -176,7 +177,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 
 		w.Navigate(finalURL)
 		emitEvent(eventCh, EventReady)
-		sys.FocusWindowSilky(hwnd)
 
 		select {
 		case initCh <- true:

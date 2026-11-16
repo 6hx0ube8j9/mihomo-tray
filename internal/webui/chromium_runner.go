@@ -132,7 +132,7 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 	realBrowserPid := mainPid
 	var activatedTargetID string
 
-	ticker := time.NewTicker(150 * time.Millisecond)
+	ticker := time.NewTicker(30 * time.Millisecond)
 	defer ticker.Stop()
 
 	timer := time.NewTimer(chromiumInitTimeout)
