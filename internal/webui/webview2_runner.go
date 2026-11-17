@@ -197,11 +197,14 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 		if aborted.Load() {
 			m.wvMu.Unlock()
 			sys.HideWindow(hwnd)
+			adapter.Destroy()
+			w.Run()
 			return
 		}
 		oldWV := m.wv
 		m.hwnd.Store(hwnd)
 		m.wv = adapter
+		wv2Broken.Store(false)
 		m.wvMu.Unlock()
 
 		if oldWV != nil {
@@ -231,7 +234,6 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 			return false
 		})
 
-		wv2Broken.Store(false)
 		w.Navigate(finalURL)
 		emitEvent(eventCh, EventReady)
 
@@ -249,10 +251,10 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 
 	case <-time.After(webviewInitTimeout):
 		slog.Error("WebView2 启动超时", "timeout", webviewInitTimeout)
-		wv2Broken.Store(true)
 
 		m.wvMu.Lock()
 		aborted.Store(true)
+		wv2Broken.Store(true)
 		staleWV := m.wv
 		m.wv = nil
 		m.wvMu.Unlock()
