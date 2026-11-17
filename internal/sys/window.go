@@ -185,6 +185,12 @@ func FocusWindowSilky(targetHwnd uintptr) {
 		return
 	}
 
+	if IsWindowVisible(targetHwnd) && !IsIconic(targetHwnd) {
+		if fgHwnd, _, _ := procGetForegroundWindow.Call(); fgHwnd == targetHwnd {
+			return
+		}
+	}
+
 	if IsIconic(targetHwnd) {
 		procShowWindow.Call(targetHwnd, SW_RESTORE)
 	} else if !IsWindowVisible(targetHwnd) {

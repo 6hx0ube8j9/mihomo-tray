@@ -22,13 +22,49 @@ import (
 
 const (
 	appIconResourceID  = 1
-	webviewInitTimeout = 18 * time.Second
+	webviewInitTimeout = 12 * time.Second
 )
 
 var (
-	wv2CheckOnce sync.Once
-	wv2Available bool
+	wv2CheckOnce    sync.Once
+	wv2Available    bool
+	wv2Broken       atomic.Bool
+	wv2CacheCleaned atomic.Bool
 )
+
+func isCorruptCacheError(err error) bool {
+	code, ok := webview2.HRESULTCode(err)
+	if !ok {
+		return false
+	}
+	switch code {
+	case 0x8007139F, // ERROR_INVALID_STATE
+		0x80070570, // ERROR_FILE_CORRUPT
+		0x80070017: // ERROR_CRC
+		return true
+	default:
+		return false
+	}
+}
+
+func tryCleanCorruptWebViewCache(userDataDir string, initErr error) {
+	if !isCorruptCacheError(initErr) {
+		return
+	}
+	if !wv2CacheCleaned.CompareAndSwap(false, true) {
+		return
+	}
+
+	cleanDir := filepath.Clean(userDataDir)
+	if cleanDir == "" || cleanDir == "." || filepath.Dir(cleanDir) == cleanDir || filepath.Base(cleanDir) != domain.WebViewCacheDirName {
+		return
+	}
+
+	slog.Warn("清理异常 WebView2 缓存", "path", cleanDir)
+	if err := os.RemoveAll(cleanDir); err != nil {
+		slog.Debug("清理 WebView2 缓存失败", "path", cleanDir, "err", err)
+	}
+}
 
 func isWebView2Available() bool {
 	wv2CheckOnce.Do(func() {
@@ -52,7 +88,7 @@ func (a *webviewAdapter) Destroy() {
 		return
 	}
 	if a.hwnd != 0 && sys.IsWindowHung(a.hwnd) {
-		slog.Warn("WebView2 窗口无响应，执行隐藏", "hwnd", a.hwnd)
+		slog.Warn("WebView2 窗口无响应", "hwnd", a.hwnd)
 		sys.HideWindow(a.hwnd)
 	}
 	if a.w != nil {
@@ -80,6 +116,10 @@ func (m *Manager) cleanupWebView2() {
 
 func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh chan<- Event) bool {
 	if !isWebView2Available() {
+		return false
+	}
+	if cfg.WebOpenMode != domain.WebOpenModeWebView && wv2Broken.Load() {
+		slog.Debug("WebView2 已熔断，跳过")
 		return false
 	}
 
@@ -111,6 +151,7 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("WebView2 渲染线程崩溃", "err", r, "stack", string(debug.Stack()))
+				wv2Broken.Store(true)
 				if hwnd != 0 {
 					sys.HideWindow(hwnd)
 				}
@@ -124,7 +165,8 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 		winW, winH := calculateWindowSize()
 		additionalArgs := strings.Join(buildProxyArgs(cfg.ProxyPort), " ")
 
-		w = webview2.NewWithOptions(webview2.WebViewOptions{
+		var err error
+		w, err = webview2.NewWithOptionsE(webview2.WebViewOptions{
 			AutoFocus:                  true,
 			DataPath:                   userDataDir,
 			AdditionalBrowserArguments: additionalArgs,
@@ -137,8 +179,10 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 				DarkMode: cfg.IsDark,
 			},
 		})
-
-		if w == nil {
+		if err != nil {
+			slog.Error("WebView2 初始化失败", "err", err)
+			wv2Broken.Store(true)
+			tryCleanCorruptWebViewCache(userDataDir, err)
 			select {
 			case initCh <- false:
 			default:
@@ -155,9 +199,14 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 			sys.HideWindow(hwnd)
 			return
 		}
+		oldWV := m.wv
 		m.hwnd.Store(hwnd)
 		m.wv = adapter
 		m.wvMu.Unlock()
+
+		if oldWV != nil {
+			oldWV.Destroy()
+		}
 
 		defer func() {
 			m.hwnd.CompareAndSwap(hwnd, 0)
@@ -168,11 +217,21 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 			m.wvMu.Unlock()
 		}()
 
+		w.SetProcessFailedHandler(func(ev webview2.ProcessFailedEvent) {
+			if ev.IsFatal {
+				slog.Error("WebView2 进程异常退出", "err", ev.Err())
+				adapter.Destroy()
+				return
+			}
+			slog.Warn("WebView2 辅助进程异常", "err", ev.Err())
+		})
+
 		w.SetNewWindowHandler(func(url string) bool {
-			slog.Debug("阻止 WebView2 弹出新窗口", "url", url)
+			slog.Debug("拦截 WebView2 弹窗", "url", url)
 			return false
 		})
 
+		wv2Broken.Store(false)
 		w.Navigate(finalURL)
 		emitEvent(eventCh, EventReady)
 
@@ -189,13 +248,18 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 		return ok
 
 	case <-time.After(webviewInitTimeout):
-		slog.Warn("WebView2 启动超时", "timeout", webviewInitTimeout)
+		slog.Error("WebView2 启动超时", "timeout", webviewInitTimeout)
+		wv2Broken.Store(true)
 
 		m.wvMu.Lock()
 		aborted.Store(true)
+		staleWV := m.wv
 		m.wv = nil
 		m.wvMu.Unlock()
 
+		if staleWV != nil {
+			staleWV.Destroy()
+		}
 		if hwnd := m.hwnd.Swap(0); hwnd != 0 {
 			sys.HideWindow(hwnd)
 		}
