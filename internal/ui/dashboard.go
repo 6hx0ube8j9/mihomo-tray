@@ -44,6 +44,7 @@ func (d *Dashboard) createWindow() {
 	err := MainWindow{
 		AssignTo: &d.window,
 		Title:    "管理配置",
+		Icon:     1,
 		Visible:  false,
 		MinSize:  Size{Width: 700, Height: 350},
 		Size:     Size{Width: 780, Height: 450},

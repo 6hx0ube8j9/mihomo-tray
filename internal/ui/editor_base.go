@@ -87,8 +87,12 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 	}.Create(owner)
 
 	if err != nil {
-		slog.Error("模态编辑器窗口创建失败", "title", cfg.Title, "err", err)
+		slog.Error("创建窗口失败", "title", cfg.Title, "err", err)
 		return EditorResult{Accepted: false, Error: err}
+	}
+
+	if icon, iconErr := walk.NewIconFromResourceId(1); iconErr == nil {
+		_ = dlg.SetIcon(icon)
 	}
 
 	cleanupKeyFlow := SetupDialogKeyFlow(dlg, acceptPB, cancelPB)

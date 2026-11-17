@@ -21,11 +21,14 @@ type cbtHookContext struct {
 var (
 	cbtHookMu      sync.Mutex
 	cbtHookMap     = make(map[uint32]*cbtHookContext)
+	cbtOnce        sync.Once
 	globalCallback uintptr
 )
 
-func init() {
-	globalCallback = syscall.NewCallback(cbtHookProc)
+func ensureCBTHookCallback() {
+	cbtOnce.Do(func() {
+		globalCallback = syscall.NewCallback(cbtHookProc)
+	})
 }
 
 func cbtHookProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
@@ -90,6 +93,8 @@ func ShowNativeMsgBox(owner walk.Form, title, message string, style walk.MsgBoxS
 		delete(cbtHookMap, tid)
 		cbtHookMu.Unlock()
 	}()
+    
+	ensureCBTHookCallback()
 
 	hHook, _, err := procSetWindowsHookExW.Call(uintptr(whCBT), globalCallback, 0, uintptr(tid))
 	if hHook == 0 {
