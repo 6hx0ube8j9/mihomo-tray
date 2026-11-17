@@ -11,6 +11,7 @@ const (
 	ProfilesDir         = "profiles"
 	WebCacheDir         = "webcache"
 	WebViewCacheDirName = "webview2"
+	FallbackCacheAppDir = "NetTrayAgent"
 
 	// IPCNamedPipe Windows 本地管道
 	IPCNamedPipe = `\\.\pipe\{B4C72E91-8D3A-4F20-A1E6-7D5832E904F1}`

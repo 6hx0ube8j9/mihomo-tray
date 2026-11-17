@@ -3,9 +3,7 @@
 package webui
 
 import (
-	"fmt"
 	"log/slog"
-	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -30,7 +28,6 @@ const (
 var (
 	wv2CheckOnce sync.Once
 	wv2Available bool
-	wv2Broken    atomic.Bool
 )
 
 func isWebView2Available() bool {
@@ -69,12 +66,24 @@ func (a *webviewAdapter) SetDarkMode(isDark bool) {
 	}
 }
 
-func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Event) bool {
-	if wv2Broken.Load() || !isWebView2Available() {
+func (m *Manager) cleanupWebView2() {
+	m.wvMu.Lock()
+	if m.wv != nil {
+		slog.Debug("关闭内置面板")
+		m.wv.Destroy()
+		m.wv = nil
+	}
+	m.wvMu.Unlock()
+
+	m.hwnd.Store(0)
+}
+
+func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh chan<- Event) bool {
+	if !isWebView2Available() {
 		return false
 	}
 
-	userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, domain.WebViewCacheDirName)
+	userDataDir := filepath.Join(cacheRoot, domain.WebViewCacheDirName)
 	if err := os.MkdirAll(userDataDir, 0755); err != nil {
 		slog.Error("创建 WebView2 缓存目录失败", "path", userDataDir, "err", err)
 		return false
@@ -113,14 +122,7 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		}()
 
 		winW, winH := calculateWindowSize()
-
-		var additionalArgs string
-		if p := strings.TrimSpace(cfg.ProxyPort); p != "" && p != "0" {
-			additionalArgs = fmt.Sprintf(
-				"--proxy-server=%s --proxy-bypass-list=127.0.0.1;localhost;<local>",
-				net.JoinHostPort("127.0.0.1", p),
-			)
-		}
+		additionalArgs := strings.Join(buildProxyArgs(cfg.ProxyPort), " ")
 
 		w = webview2.NewWithOptions(webview2.WebViewOptions{
 			AutoFocus:                  true,
@@ -137,7 +139,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		})
 
 		if w == nil {
-			wv2Broken.Store(true)
 			select {
 			case initCh <- false:
 			default:
@@ -152,8 +153,6 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 		if aborted.Load() {
 			m.wvMu.Unlock()
 			sys.HideWindow(hwnd)
-			adapter.Destroy()
-			w.Run()
 			return
 		}
 		m.hwnd.Store(hwnd)
@@ -191,14 +190,10 @@ func (m *Manager) launchWebView2(cfg Config, finalURL string, eventCh chan<- Eve
 
 	case <-time.After(webviewInitTimeout):
 		slog.Warn("WebView2 启动超时", "timeout", webviewInitTimeout)
-		wv2Broken.Store(true)
 
 		m.wvMu.Lock()
 		aborted.Store(true)
-		if m.wv != nil {
-			m.wv.Destroy()
-			m.wv = nil
-		}
+		m.wv = nil
 		m.wvMu.Unlock()
 
 		if hwnd := m.hwnd.Swap(0); hwnd != 0 {

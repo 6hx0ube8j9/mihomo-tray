@@ -2,10 +2,7 @@ package app
 
 import (
 	"context"
-	"errors"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -126,27 +123,5 @@ func (s *WebUIService) ReopenIfActive(forceSync func()) {
 }
 
 func (s *WebUIService) ClearCache() error {
-	unlock, ok := s.coreMgr.TryAcquireMaintenance()
-	if !ok {
-		return errors.New("面板正在运行或启动中，请先关闭")
-	}
-	defer unlock()
-
-	cacheDir := filepath.Join(s.cfg.BaseDir(), domain.WebCacheDir)
-	if _, err := os.Stat(cacheDir); os.IsNotExist(err) {
-		return nil
-	}
-
-	var lastErr error
-	for i := 0; i < 3; i++ {
-		err := os.RemoveAll(cacheDir)
-		if err == nil {
-			return nil
-		}
-		lastErr = err
-		time.Sleep(150 * time.Millisecond)
-	}
-
-	slog.Debug("清理面板缓存失败", "path", cacheDir, "err", lastErr)
-	return errors.New("缓存文件被占用，请稍后重试")
+	return s.coreMgr.ClearCache(s.cfg.BaseDir())
 }

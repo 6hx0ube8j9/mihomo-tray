@@ -2,8 +2,9 @@ package webui
 
 import (
 	"errors"
-	"fmt"
 	"log/slog"
+	"net"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/fs"
 	"mihomo-tray/internal/sys"
 )
 
@@ -52,9 +54,8 @@ type Manager struct {
 	wvMu sync.RWMutex
 	wv   webviewSession
 
-	envCheckMu    sync.Mutex
-	envCheckErr   error
-	envCheckedDir string
+	cacheDirMu       sync.Mutex
+	resolvedCacheDir string
 }
 
 func NewManager() *Manager {
@@ -70,34 +71,112 @@ func emitEvent(ch chan<- Event, event Event) {
 	}
 }
 
-func (m *Manager) checkSandboxedEnvironment(baseDir string) error {
-	m.envCheckMu.Lock()
-	defer m.envCheckMu.Unlock()
-
-	if baseDir != "" && m.envCheckedDir == baseDir {
-		return m.envCheckErr
-	}
-
-	m.envCheckedDir = baseDir
-	m.envCheckErr = nil
-
-	cacheBaseDir := filepath.Join(baseDir, domain.WebCacheDir)
-	err := sys.ValidateDirWritable(cacheBaseDir)
-	if err == nil {
+func buildProxyArgs(proxyPort string) []string {
+	p := strings.TrimSpace(proxyPort)
+	if p == "" || p == "0" {
 		return nil
 	}
+	return []string{
+		"--proxy-server=" + net.JoinHostPort(domain.LocalhostIP, p),
+		"--proxy-bypass-list=127.0.0.1;localhost;<local>",
+	}
+}
 
-	if errors.Is(err, sys.ErrSystemProtectedDir) ||
-		errors.Is(err, sys.ErrOtherUserProfileDir) ||
-		errors.Is(err, sys.ErrInvalidPath) {
-		m.envCheckErr = err
-		return err
+func (m *Manager) resolveCacheRoot(baseDir string) (string, error) {
+	m.cacheDirMu.Lock()
+	defer m.cacheDirMu.Unlock()
+
+	if m.resolvedCacheDir != "" {
+		return m.resolvedCacheDir, nil
 	}
 
-	time.Sleep(100 * time.Millisecond)
-	m.envCheckErr = sys.ValidateDirWritable(cacheBaseDir)
+	var primaryErr error
+	if baseDir != "" {
+		primaryRoot := filepath.Join(baseDir, domain.WebCacheDir)
+		if err := sys.ValidateDirWritable(primaryRoot); err == nil {
+			m.resolvedCacheDir = primaryRoot
+			return primaryRoot, nil
+		} else {
+			primaryErr = err
+		}
+	}
 
-	return m.envCheckErr
+	if userCache, err := os.UserCacheDir(); err == nil && userCache != "" {
+		fallbackRoot := filepath.Join(userCache, domain.FallbackCacheAppDir, domain.WebCacheDir)
+		if err := sys.ValidateDirWritable(fallbackRoot); err == nil {
+			slog.Debug("当前目录受限，缓存已切换至 LocalAppData", "path", fallbackRoot)
+			m.resolvedCacheDir = fallbackRoot
+			return fallbackRoot, nil
+		} else if primaryErr == nil {
+			primaryErr = err
+		}
+	}
+
+	if primaryErr != nil {
+		return "", primaryErr
+	}
+	return "", sys.ErrInvalidPath
+}
+
+func (m *Manager) ClearCache(baseDir string) error {
+	if m.IsActive() {
+		return errors.New("面板正在运行或启动中，请先关闭")
+	}
+	if !m.launchMu.TryLock() {
+		return errors.New("面板正在运行或启动中，请先关闭")
+	}
+	defer m.launchMu.Unlock()
+
+	if m.IsActive() {
+		return errors.New("面板正在运行或启动中，请先关闭")
+	}
+
+	m.cacheDirMu.Lock()
+	m.resolvedCacheDir = ""
+	m.cacheDirMu.Unlock()
+
+	var targets []string
+	if baseDir != "" {
+		targets = append(targets, filepath.Clean(filepath.Join(baseDir, domain.WebCacheDir)))
+	}
+
+	var fallbackParent string
+	if userCache, err := os.UserCacheDir(); err == nil && userCache != "" {
+		fallbackParent = filepath.Clean(filepath.Join(userCache, domain.FallbackCacheAppDir))
+		fallbackCache := filepath.Join(fallbackParent, domain.WebCacheDir)
+		if len(targets) == 0 || !strings.EqualFold(targets[0], fallbackCache) {
+			targets = append(targets, fallbackCache)
+		}
+	}
+
+	var lastErr error
+	for _, cacheDir := range targets {
+		var dirErr error
+		for i := 0; i < 2; i++ {
+			if err := os.RemoveAll(cacheDir); err == nil {
+				dirErr = nil
+				break
+			} else {
+				dirErr = err
+				if i == 0 {
+					time.Sleep(120 * time.Millisecond)
+				}
+			}
+		}
+		if dirErr != nil {
+			lastErr = dirErr
+			slog.Debug("清理面板缓存失败", "path", cacheDir, "err", dirErr)
+		}
+	}
+
+	if fallbackParent != "" {
+		_ = os.Remove(fallbackParent)
+	}
+
+	if lastErr != nil {
+		return errors.New("缓存文件被占用，请稍后重试")
+	}
+	return nil
 }
 
 func (m *Manager) Launch(cfg Config, eventCh chan<- Event, onReady func()) {
@@ -140,8 +219,8 @@ func (m *Manager) launchBrowserMode(customEnabled bool, customPath, finalURL str
 		return
 	}
 
-	resolvedPath := domain.ResolveBrowserPath(customPath)
-	if !domain.IsValidBrowserExecutable(resolvedPath) {
+	resolvedPath := fs.ResolveBrowserPath(customPath)
+	if !fs.IsValidBrowserExecutable(resolvedPath) {
 		slog.Error("指定浏览器路径无效或文件不存在", "path", customPath)
 		emitEvent(eventCh, EventError)
 		return
@@ -152,7 +231,8 @@ func (m *Manager) launchBrowserMode(customEnabled bool, customPath, finalURL str
 }
 
 func (m *Manager) launchPureWebViewMode(cfg Config, finalURL string, eventCh chan<- Event) {
-	if err := m.checkSandboxedEnvironment(cfg.BaseDir); err != nil {
+	cacheRoot, err := m.resolveCacheRoot(cfg.BaseDir)
+	if err != nil {
 		slog.Error("缓存目录不可写，无法启动内置 WebView2 面板", "err", err)
 		emitEvent(eventCh, EventError)
 		return
@@ -165,7 +245,7 @@ func (m *Manager) launchPureWebViewMode(cfg Config, finalURL string, eventCh cha
 		return
 	}
 
-	if m.launchWebView2(cfg, finalURL, eventCh) {
+	if m.launchWebView2(cfg, cacheRoot, finalURL, eventCh) {
 		m.setActiveSignature(sig)
 		slog.Debug("内置面板已启动", "mode", sig)
 		return
@@ -177,7 +257,8 @@ func (m *Manager) launchPureWebViewMode(cfg Config, finalURL string, eventCh cha
 }
 
 func (m *Manager) launchAppMode(cfg Config, customEnabled bool, customPath, finalURL, appHostPort string, eventCh chan<- Event) {
-	if err := m.checkSandboxedEnvironment(cfg.BaseDir); err != nil {
+	cacheRoot, err := m.resolveCacheRoot(cfg.BaseDir)
+	if err != nil {
 		slog.Error("缓存目录不可写，无法启动独立浏览器面板", "err", err)
 		emitEvent(eventCh, EventError)
 		return
@@ -185,22 +266,22 @@ func (m *Manager) launchAppMode(cfg Config, customEnabled bool, customPath, fina
 
 	var browserPath, dirName string
 	if customEnabled {
-		resolvedPath := domain.ResolveBrowserPath(customPath)
-		if !domain.IsValidBrowserExecutable(resolvedPath) {
+		resolvedPath := fs.ResolveBrowserPath(customPath)
+		if !fs.IsValidBrowserExecutable(resolvedPath) {
 			slog.Error("指定浏览器路径无效或文件不存在", "path", customPath)
 			emitEvent(eventCh, EventError)
 			return
 		}
-		if domain.IsChromiumBrowserExecutable(resolvedPath) {
+		if fs.IsChromiumBrowserExecutable(resolvedPath) {
 			browserPath = resolvedPath
-			dirName = domain.ResolveCustomBrowserDataDir(resolvedPath)
+			dirName = resolveCustomBrowserDataDir(resolvedPath)
 		} else {
 			slog.Warn("指定浏览器非 Chromium 内核，App 模式已忽略该配置", "path", customPath)
 		}
 	}
 
 	if browserPath == "" {
-		browserPath, dirName = detectAvailableBrowser()
+		browserPath, dirName = fs.DetectChromiumBrowser()
 		if browserPath == "" {
 			slog.Error("未检测到可用的 Chromium 内核浏览器")
 			emitEvent(eventCh, EventError)
@@ -215,7 +296,7 @@ func (m *Manager) launchAppMode(cfg Config, customEnabled bool, customPath, fina
 		return
 	}
 
-	if m.launchChromiumAppMode(cfg, browserPath, dirName, finalURL, appHostPort, eventCh) {
+	if m.launchChromiumAppMode(cfg, cacheRoot, browserPath, dirName, finalURL, appHostPort, eventCh) {
 		m.setActiveSignature(sig)
 		slog.Debug("独立浏览器面板已启动", "exe", browserPath, "dir", dirName)
 		return
@@ -227,7 +308,8 @@ func (m *Manager) launchAppMode(cfg Config, customEnabled bool, customPath, fina
 }
 
 func (m *Manager) launchAutoMode(cfg Config, finalURL, appHostPort string, eventCh chan<- Event) {
-	if err := m.checkSandboxedEnvironment(cfg.BaseDir); err != nil {
+	cacheRoot, err := m.resolveCacheRoot(cfg.BaseDir)
+	if err != nil {
 		slog.Warn("缓存目录不可写，使用系统浏览器", "err", err)
 		m.openSystemBrowser(finalURL, eventCh)
 		return
@@ -240,7 +322,7 @@ func (m *Manager) launchAutoMode(cfg Config, finalURL, appHostPort string, event
 		return
 	}
 
-	if m.launchWebView2(cfg, finalURL, eventCh) {
+	if m.launchWebView2(cfg, cacheRoot, finalURL, eventCh) {
 		m.setActiveSignature(sig)
 		slog.Debug("内置面板已启动", "mode", sig)
 		return
@@ -248,8 +330,8 @@ func (m *Manager) launchAutoMode(cfg Config, finalURL, appHostPort string, event
 	slog.Warn("内置面板启动失败，切换独立浏览器")
 	m.cleanupWebView2()
 
-	if browserPath, browserTag := detectAvailableBrowser(); browserPath != "" {
-		if m.launchChromiumAppMode(cfg, browserPath, browserTag, finalURL, appHostPort, eventCh) {
+	if browserPath, browserTag := fs.DetectChromiumBrowser(); browserPath != "" {
+		if m.launchChromiumAppMode(cfg, cacheRoot, browserPath, browserTag, finalURL, appHostPort, eventCh) {
 			m.setActiveSignature(sig)
 			slog.Debug("独立浏览器已启动", "browser", browserTag)
 			return
@@ -259,12 +341,6 @@ func (m *Manager) launchAutoMode(cfg Config, finalURL, appHostPort string, event
 	m.cleanupChromium()
 
 	m.openSystemBrowser(finalURL, eventCh)
-}
-
-func buildAppSignature(browserPath, dataDir string) string {
-	cleanPath := strings.ToLower(filepath.Clean(strings.TrimSpace(browserPath)))
-	cleanDir := strings.ToLower(strings.TrimSpace(dataDir))
-	return fmt.Sprintf("%s|%s|%s", domain.WebOpenModeApp, cleanPath, cleanDir)
 }
 
 func (m *Manager) getActiveSignature() string {
@@ -291,46 +367,6 @@ func (m *Manager) Cleanup() {
 	m.cleanupWebView2()
 	m.cleanupChromium()
 	m.setActiveSignature("")
-}
-
-func (m *Manager) cleanupWebView2() {
-	m.wvMu.Lock()
-	if m.wv != nil {
-		slog.Debug("关闭内置面板")
-		m.wv.Destroy()
-		m.wv = nil
-	}
-	m.wvMu.Unlock()
-
-	m.hwnd.Store(0)
-}
-
-func (m *Manager) cleanupChromium() {
-	m.stateMu.Lock()
-	safeDebugPort := m.debugPort
-	m.debugPort = ""
-	m.stateMu.Unlock()
-
-	if safeDebugPort != "" {
-		slog.Debug("关闭独立浏览器面板")
-		CloseAllWebUITargets(safeDebugPort)
-	}
-
-	pid := m.isolatedPid.Swap(0)
-	if pid != 0 {
-		for i := 0; i < 15; i++ {
-			if !sys.IsPidRunning(pid, "") {
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-		if sys.IsPidRunning(pid, "") {
-			slog.Debug("清理残留浏览器进程", "pid", pid)
-			sys.HardKill(pid)
-		}
-	}
-
-	m.hwnd.Store(0)
 }
 
 func (m *Manager) UpdateTheme(isDark bool) {
@@ -364,25 +400,6 @@ func (m *Manager) IsActive() bool {
 	}
 
 	return isNativeActive || isChromiumActive
-}
-
-func (m *Manager) TryAcquireMaintenance() (unlock func(), ok bool) {
-	if m.IsActive() {
-		return nil, false
-	}
-	if !m.launchMu.TryLock() {
-		return nil, false
-	}
-	if m.IsActive() {
-		m.launchMu.Unlock()
-		return nil, false
-	}
-
-	var once sync.Once
-	safeUnlock := func() {
-		once.Do(m.launchMu.Unlock)
-	}
-	return safeUnlock, true
 }
 
 func (m *Manager) openSystemBrowser(finalURL string, eventCh chan<- Event) {

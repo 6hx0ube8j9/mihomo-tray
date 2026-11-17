@@ -11,13 +11,19 @@ import (
 )
 
 const (
-	fallbackDebugPort1 = "53819"
-	fallbackDebugPort2 = "53820"
-	cdpHost            = domain.LocalhostIP
+	fallbackDebugPort = "53819"
+	cdpHost           = domain.LocalhostIP
 )
 
 var cdpClient = &http.Client{
 	Timeout: 300 * time.Millisecond,
+}
+
+type cdpTarget struct {
+	ID    string `json:"id"`
+	Type  string `json:"type"`
+	Title string `json:"title"`
+	URL   string `json:"url"`
 }
 
 func buildCDPBaseURL(port string) string {
@@ -31,23 +37,19 @@ func buildCDPActionURL(port, action, targetID string) string {
 func getCDPDebugPort() string {
 	port, err := netutil.GetFreePort(cdpHost)
 	if err != nil {
-		return fallbackDebugPort1
+		return fallbackDebugPort
 	}
 	return port
 }
 
-func safeGet(url string) (*http.Response, error) {
-	return cdpClient.Get(url)
-}
-
-func getCDPTargets(debugPort string) ([]map[string]interface{}, error) {
-	resp, err := safeGet(buildCDPBaseURL(debugPort))
+func getCDPTargets(debugPort string) ([]cdpTarget, error) {
+	resp, err := cdpClient.Get(buildCDPBaseURL(debugPort))
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	var targets []map[string]interface{}
+	var targets []cdpTarget
 	if err := json.NewDecoder(resp.Body).Decode(&targets); err != nil {
 		return nil, err
 	}
@@ -66,27 +68,21 @@ func GetWebUITarget(debugPort string) (id string, title string, found bool) {
 	}
 
 	for _, t := range targets {
-		targetType, _ := t["type"].(string)
-		if targetType != "" && targetType != "page" {
+		if t.Type != "" && t.Type != "page" {
 			continue
 		}
-
-		pURL, _ := t["url"].(string)
-		if pURL != "" && pURL != "about:blank" {
-			id, _ = t["id"].(string)
-			title, _ = t["title"].(string)
-			return id, title, true
+		if t.URL != "" && t.URL != "about:blank" {
+			return t.ID, t.Title, true
 		}
 	}
 	return "", "", false
 }
 
 func ActivateTarget(debugPort, targetID string) error {
-	resp, err := safeGet(buildCDPActionURL(debugPort, "activate", targetID))
+	resp, err := cdpClient.Get(buildCDPActionURL(debugPort, "activate", targetID))
 	if err != nil {
 		return err
 	}
-	
 	defer resp.Body.Close()
 	return nil
 }
@@ -97,8 +93,8 @@ func CloseAllWebUITargets(debugPort string) {
 		return
 	}
 	for _, t := range targets {
-		if id, ok := t["id"].(string); ok {
-			if closeResp, closeErr := safeGet(buildCDPActionURL(debugPort, "close", id)); closeErr == nil {
+		if t.ID != "" {
+			if closeResp, closeErr := cdpClient.Get(buildCDPActionURL(debugPort, "close", t.ID)); closeErr == nil {
 				_ = closeResp.Body.Close()
 			}
 		}

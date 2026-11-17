@@ -1,9 +1,7 @@
-package domain
+package fs
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"io"
 	"os"
 	"path/filepath"
@@ -79,10 +77,59 @@ type chromiumCacheKey struct {
 	modTime int64
 }
 
+type chromiumCandidate struct {
+	path string
+	tag  string
+}
+
 var (
 	chromiumCacheMu sync.RWMutex
 	chromiumCache   = make(map[chromiumCacheKey]bool, 16)
+
+	candidatesOnce     sync.Once
+	standardCandidates []chromiumCandidate
+
+	detectOnce          sync.Once
+	defaultChromiumPath string
+	defaultChromiumTag  string
 )
+
+func getStandardCandidates() []chromiumCandidate {
+	candidatesOnce.Do(func() {
+		pf86 := os.Getenv("ProgramFiles(x86)")
+		pf := os.Getenv("ProgramFiles")
+		localApp := os.Getenv("LocalAppData")
+
+		raw := []struct {
+			root string
+			sub  string
+			tag  string
+		}{
+			{pf86, `Microsoft\Edge\Application\msedge.exe`, "edge"},
+			{pf, `Microsoft\Edge\Application\msedge.exe`, "edge"},
+			{localApp, `Microsoft\Edge\Application\msedge.exe`, "edge"},
+			{pf, `Google\Chrome\Application\chrome.exe`, "chrome"},
+			{pf86, `Google\Chrome\Application\chrome.exe`, "chrome"},
+			{localApp, `Google\Chrome\Application\chrome.exe`, "chrome"},
+			{pf, `BraveSoftware\Brave-Browser\Application\brave.exe`, "brave"},
+			{localApp, `BraveSoftware\Brave-Browser\Application\brave.exe`, "brave"},
+			{localApp, `Vivaldi\Application\vivaldi.exe`, "vivaldi"},
+			{pf, `Vivaldi\Application\vivaldi.exe`, "vivaldi"},
+			{pf86, `Vivaldi\Application\vivaldi.exe`, "vivaldi"},
+		}
+
+		standardCandidates = make([]chromiumCandidate, 0, len(raw))
+		for _, c := range raw {
+			if c.root != "" {
+				standardCandidates = append(standardCandidates, chromiumCandidate{
+					path: filepath.Clean(filepath.Join(c.root, c.sub)),
+					tag:  c.tag,
+				})
+			}
+		}
+	})
+	return standardCandidates
+}
 
 func ResolveBrowserPath(raw string) string {
 	s := trimQuotesAndSpace(raw)
@@ -133,28 +180,37 @@ func ResolveBrowserPath(raw string) string {
 	return trimQuotesAndSpace(sb.String())
 }
 
-func trimQuotesAndSpace(s string) string {
-	s = strings.TrimSpace(s)
-	for len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-		s = strings.TrimSpace(s[1 : len(s)-1])
+func ResolveNearestDir(rawPath string) string {
+	resolved := ResolveBrowserPath(rawPath)
+	if resolved == "" {
+		return ""
 	}
-	return s
-}
 
-func statBrowserExecutable(resolvedPath string) (os.FileInfo, bool) {
-	if resolvedPath == "" || !strings.EqualFold(filepath.Ext(resolvedPath), ".exe") {
-		return nil, false
+	candidate := filepath.Clean(filepath.FromSlash(resolved))
+	if !filepath.IsAbs(candidate) {
+		return ""
 	}
-	fi, err := os.Stat(resolvedPath)
-	if err != nil || fi.IsDir() {
-		return nil, false
+
+	if fi, err := os.Stat(candidate); err != nil || !fi.IsDir() {
+		candidate = filepath.Dir(candidate)
 	}
-	return fi, true
+
+	for candidate != "" && candidate != "." {
+		if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
+			return candidate
+		}
+		parent := filepath.Dir(candidate)
+		if parent == candidate {
+			break
+		}
+		candidate = parent
+	}
+
+	return ""
 }
 
 func IsValidBrowserExecutable(exePath string) bool {
-	resolved := ResolveBrowserPath(exePath)
-	_, ok := statBrowserExecutable(resolved)
+	_, ok := statBrowserExecutable(ResolveBrowserPath(exePath))
 	return ok
 }
 
@@ -165,12 +221,8 @@ func IsChromiumBrowserExecutable(exePath string) bool {
 		return false
 	}
 
-	base := strings.ToLower(filepath.Base(resolved))
-	if _, blocked := nonChromiumOrHelperExes[base]; blocked {
-		return false
-	}
-	if _, known := knownChromiumMainExes[base]; known {
-		return true
+	if isChromium, decided := classifyBrowserBase(filepath.Base(resolved)); decided {
+		return isChromium
 	}
 
 	cacheKey := chromiumCacheKey{
@@ -198,18 +250,86 @@ func IsChromiumBrowserExecutable(exePath string) bool {
 	return res
 }
 
+func DetectChromiumBrowser() (path string, tag string) {
+	detectOnce.Do(func() {
+		for _, c := range getStandardCandidates() {
+			if _, ok := statBrowserExecutable(c.path); ok {
+				defaultChromiumPath = c.path
+				defaultChromiumTag = c.tag
+				return
+			}
+		}
+	})
+	return defaultChromiumPath, defaultChromiumTag
+}
+
+func MatchStandardChromium(exePath string) (string, bool) {
+	resolved := ResolveBrowserPath(exePath)
+	if resolved == "" {
+		return "", false
+	}
+
+	candidates := getStandardCandidates()
+	cleanTarget := filepath.Clean(resolved)
+
+	for _, c := range candidates {
+		if strings.EqualFold(cleanTarget, c.path) {
+			return c.tag, true
+		}
+	}
+
+	if target, err := filepath.EvalSymlinks(cleanTarget); err == nil && target != "" {
+		realTarget := filepath.Clean(target)
+		if !strings.EqualFold(realTarget, cleanTarget) {
+			for _, c := range candidates {
+				if strings.EqualFold(realTarget, c.path) {
+					return c.tag, true
+				}
+			}
+		}
+	}
+
+	return "", false
+}
+
+func trimQuotesAndSpace(s string) string {
+	s = strings.TrimSpace(s)
+	for len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		s = strings.TrimSpace(s[1 : len(s)-1])
+	}
+	return s
+}
+
+func statBrowserExecutable(resolvedPath string) (os.FileInfo, bool) {
+	if resolvedPath == "" || !strings.EqualFold(filepath.Ext(resolvedPath), ".exe") {
+		return nil, false
+	}
+	fi, err := os.Stat(resolvedPath)
+	if err != nil || fi.IsDir() {
+		return nil, false
+	}
+	return fi, true
+}
+
+func classifyBrowserBase(baseName string) (isChromium bool, decided bool) {
+	lower := strings.ToLower(baseName)
+	if _, blocked := nonChromiumOrHelperExes[lower]; blocked {
+		return false, true
+	}
+	if _, known := knownChromiumMainExes[lower]; known {
+		return true, true
+	}
+	return false, false
+}
+
 func inspectChromiumExecutable(resolvedPath string) bool {
 	realPath := resolvedPath
 	if target, err := filepath.EvalSymlinks(resolvedPath); err == nil && target != "" {
 		realPath = target
 	}
 
-	realBase := strings.ToLower(filepath.Base(realPath))
-	if _, blocked := nonChromiumOrHelperExes[realBase]; blocked {
-		return false
-	}
-	if _, known := knownChromiumMainExes[realBase]; known {
-		return true
+	if isChromium, decided := classifyBrowserBase(filepath.Base(realPath)); decided {
+		return isChromium
 	}
 
 	if hasChromiumDirArtifacts(filepath.Dir(realPath)) {
@@ -223,7 +343,6 @@ func hasChromiumDirArtifacts(dir string) bool {
 	if dir == "" {
 		return false
 	}
-
 	if checkArtifactsInDir(dir) {
 		return true
 	}
@@ -251,7 +370,6 @@ func hasChromiumDirArtifacts(dir string) bool {
 			return true
 		}
 	}
-
 	return false
 }
 
@@ -296,47 +414,4 @@ func hasChromiumBinarySignature(exePath string) bool {
 		bytes.Contains(buf, []byte("chrome_elf")) ||
 		bytes.Contains(buf, []byte("msedge_elf")) ||
 		bytes.Contains(buf, []byte("--user-data-dir"))
-}
-
-func SanitizeBrowserPrefix(exePath string) string {
-	return sanitizeBrowserPrefixResolved(ResolveBrowserPath(exePath))
-}
-
-func sanitizeBrowserPrefixResolved(resolvedPath string) string {
-	if resolvedPath == "" {
-		return "browser"
-	}
-
-	base := filepath.Base(resolvedPath)
-	if ext := filepath.Ext(base); ext != "" {
-		base = strings.TrimSuffix(base, ext)
-	}
-	base = strings.ToLower(base)
-
-	var sb strings.Builder
-	for i := 0; i < len(base); i++ {
-		c := base[i]
-		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
-			sb.WriteByte(c)
-		}
-	}
-
-	res := sb.String()
-	if res == "" {
-		return "browser"
-	}
-	return res
-}
-
-func ResolveCustomBrowserDataDir(exePath string) string {
-	resolved := ResolveBrowserPath(exePath)
-	prefix := sanitizeBrowserPrefixResolved(resolved)
-
-	normalized := strings.ToLower(filepath.Clean(resolved))
-	sum := sha256.Sum256([]byte(normalized))
-
-	var hexBuf [16]byte
-	hex.Encode(hexBuf[:], sum[:8])
-
-	return prefix + "_" + string(hexBuf[:])
 }

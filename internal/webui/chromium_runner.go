@@ -3,17 +3,19 @@
 package webui
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"log/slog"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/fs"
 	"mihomo-tray/internal/sys"
 )
 
@@ -33,13 +35,82 @@ var standardBrowserSuffixes = []string{
 	"brave", "vivaldi", "opera", "chromium",
 }
 
-var (
-	browserCheckOnce  sync.Once
-	cachedBrowserPath string
-	cachedBrowserTag  string
-)
+func buildAppSignature(browserPath, dataDir string) string {
+	cleanPath := strings.ToLower(filepath.Clean(strings.TrimSpace(browserPath)))
+	cleanDir := strings.ToLower(strings.TrimSpace(dataDir))
+	return fmt.Sprintf("%s|%s|%s", domain.WebOpenModeApp, cleanPath, cleanDir)
+}
 
-func (m *Manager) launchChromiumAppMode(cfg Config, browserPath, dataDirName, finalURL, appHostPort string, eventCh chan<- Event) bool {
+func resolveCustomBrowserDataDir(exePath string) string {
+	if tag, ok := fs.MatchStandardChromium(exePath); ok {
+		return tag
+	}
+
+	resolved := fs.ResolveBrowserPath(exePath)
+	prefix := sanitizeBrowserPrefixResolved(resolved)
+	normalized := strings.ToLower(filepath.Clean(resolved))
+	sum := sha256.Sum256([]byte(normalized))
+
+	var hexBuf [16]byte
+	hex.Encode(hexBuf[:], sum[:8])
+
+	return prefix + "_" + string(hexBuf[:])
+}
+
+func sanitizeBrowserPrefixResolved(resolvedPath string) string {
+	if resolvedPath == "" {
+		return "browser"
+	}
+
+	base := filepath.Base(resolvedPath)
+	if ext := filepath.Ext(base); ext != "" {
+		base = strings.TrimSuffix(base, ext)
+	}
+	base = strings.ToLower(base)
+
+	var sb strings.Builder
+	for i := 0; i < len(base); i++ {
+		c := base[i]
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
+			sb.WriteByte(c)
+		}
+	}
+
+	if sb.Len() == 0 {
+		return "browser"
+	}
+	return sb.String()
+}
+
+func (m *Manager) cleanupChromium() {
+	m.stateMu.Lock()
+	safeDebugPort := m.debugPort
+	m.debugPort = ""
+	m.stateMu.Unlock()
+
+	if safeDebugPort != "" {
+		slog.Debug("关闭独立浏览器面板")
+		CloseAllWebUITargets(safeDebugPort)
+	}
+
+	pid := m.isolatedPid.Swap(0)
+	if pid != 0 {
+		for i := 0; i < 15; i++ {
+			if !sys.IsPidRunning(pid, "") {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if sys.IsPidRunning(pid, "") {
+			slog.Debug("清理残留浏览器进程", "pid", pid)
+			sys.HardKill(pid)
+		}
+	}
+
+	m.hwnd.Store(0)
+}
+
+func (m *Manager) launchChromiumAppMode(cfg Config, cacheRoot, browserPath, dataDirName, finalURL, appHostPort string, eventCh chan<- Event) bool {
 	if browserPath == "" || dataDirName == "" {
 		return false
 	}
@@ -51,7 +122,7 @@ func (m *Manager) launchChromiumAppMode(cfg Config, browserPath, dataDirName, fi
 		return true
 	}
 
-	return m.launchIsolatedBrowser(cfg, browserPath, dataDirName, finalURL, safeDebugPort, appHostPort, eventCh)
+	return m.launchIsolatedBrowser(cfg, cacheRoot, browserPath, dataDirName, finalURL, safeDebugPort, appHostPort, eventCh)
 }
 
 func (m *Manager) prepareDebugPort() string {
@@ -84,10 +155,10 @@ func (m *Manager) tryAttachExistingTarget(debugPort, appHostPort string, eventCh
 	return m.waitForWindow(debugPort, appHostPort, targetTitle, m.isolatedPid.Load(), nil, eventCh)
 }
 
-func (m *Manager) launchIsolatedBrowser(cfg Config, browserPath, dataDirName, finalURL, debugPort, appHostPort string, eventCh chan<- Event) bool {
+func (m *Manager) launchIsolatedBrowser(cfg Config, cacheRoot, browserPath, dataDirName, finalURL, debugPort, appHostPort string, eventCh chan<- Event) bool {
 	slog.Debug("启动独立浏览器", "exe", browserPath, "dir", dataDirName, "port", debugPort)
 
-	userDataDir := filepath.Join(cfg.BaseDir, domain.WebCacheDir, dataDirName)
+	userDataDir := filepath.Join(cacheRoot, dataDirName)
 	if err := os.MkdirAll(userDataDir, 0755); err != nil {
 		slog.Error("创建缓存目录失败", "path", userDataDir, "err", err)
 		return false
@@ -132,7 +203,7 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 	realBrowserPid := mainPid
 	var activatedTargetID string
 
-	ticker := time.NewTicker(30 * time.Millisecond)
+	ticker := time.NewTicker(80 * time.Millisecond)
 	defer ticker.Stop()
 
 	timer := time.NewTimer(chromiumInitTimeout)
@@ -262,54 +333,6 @@ func buildBrowserArgs(cfg Config, userDataDir, finalURL, debugPort string) []str
 		"--disable-features=Translate,LanguageDetection,PasswordLeakDetection,AutofillAddressProfileSavePrompt,AutofillCreditCardSavePrompt,PasswordManager,PasswordManagerEnabled",
 	}
 
-	if p := strings.TrimSpace(cfg.ProxyPort); p != "" && p != "0" {
-		args = append(args,
-			"--proxy-server="+net.JoinHostPort("127.0.0.1", p),
-			"--proxy-bypass-list=127.0.0.1;localhost;<local>",
-		)
-	}
+	args = append(args, buildProxyArgs(cfg.ProxyPort)...)
 	return args
-}
-
-func detectAvailableBrowser() (path string, tag string) {
-	browserCheckOnce.Do(func() {
-		pf86 := os.Getenv("ProgramFiles(x86)")
-		pf := os.Getenv("ProgramFiles")
-		localApp := os.Getenv("LocalAppData")
-
-		type browserCandidate struct {
-			root string
-			sub  string
-			tag  string
-		}
-
-		candidates := []browserCandidate{
-			{pf86, `Microsoft\Edge\Application\msedge.exe`, "edge"},
-			{pf, `Microsoft\Edge\Application\msedge.exe`, "edge"},
-			{localApp, `Microsoft\Edge\Application\msedge.exe`, "edge"},
-			{pf, `Google\Chrome\Application\chrome.exe`, "chrome"},
-			{pf86, `Google\Chrome\Application\chrome.exe`, "chrome"},
-			{localApp, `Google\Chrome\Application\chrome.exe`, "chrome"},
-			{pf, `BraveSoftware\Brave-Browser\Application\brave.exe`, "brave"},
-			{localApp, `BraveSoftware\Brave-Browser\Application\brave.exe`, "brave"},
-			{localApp, `Vivaldi\Application\vivaldi.exe`, "vivaldi"},
-			{pf, `Vivaldi\Application\vivaldi.exe`, "vivaldi"},
-			{pf86, `Vivaldi\Application\vivaldi.exe`, "vivaldi"},
-		}
-
-		for _, c := range candidates {
-			if c.root == "" {
-				continue
-			}
-			fullPath := filepath.Join(c.root, c.sub)
-			if _, err := os.Stat(fullPath); err == nil {
-				cachedBrowserPath = fullPath
-				cachedBrowserTag = c.tag
-				return
-			}
-		}
-		slog.Debug("未检测到内置保底 Chromium 浏览器，后续将回退至系统默认浏览器")
-	})
-
-	return cachedBrowserPath, cachedBrowserTag
 }

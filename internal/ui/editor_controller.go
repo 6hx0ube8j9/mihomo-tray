@@ -8,6 +8,7 @@ import (
 	"github.com/tailscale/win"
 
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/fs"
 	"mihomo-tray/internal/netutil"
 	"mihomo-tray/internal/random"
 )
@@ -279,10 +280,10 @@ func (f *controllerEditorForm) onAccept(dlg *walk.Dialog) (bool, error) {
 		if cPath == "" {
 			return fail(f.pathEdit, "请输入自定义浏览器路径")
 		}
-		if !domain.IsValidBrowserExecutable(cPath) {
+		if !fs.IsValidBrowserExecutable(cPath) {
 			return fail(f.pathEdit, "浏览器路径无效或文件不存在")
 		}
-		if mode == domain.WebOpenModeApp && !domain.IsChromiumBrowserExecutable(cPath) {
+		if mode == domain.WebOpenModeApp && !fs.IsChromiumBrowserExecutable(cPath) {
 			ret := ShowNativeMsgBox(
 				dlg,
 				"提示",
