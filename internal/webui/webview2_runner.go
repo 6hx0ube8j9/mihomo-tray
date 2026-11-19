@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"runtime"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -133,18 +132,12 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 	var aborted atomic.Bool
 
 	go func() {
-		runtime.LockOSThread()
-		defer runtime.UnlockOSThread()
-
-		var w webview2.WebView
 		var adapter *webviewAdapter
 		var hwnd uintptr
 
 		defer func() {
 			if adapter != nil {
 				adapter.Destroy()
-			} else if w != nil && w.Window() != nil {
-				w.Destroy()
 			}
 		}()
 
@@ -165,8 +158,7 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 		winW, winH := calculateWindowSize()
 		additionalArgs := strings.Join(buildProxyArgs(cfg.ProxyPort), " ")
 
-		var err error
-		w, err = webview2.NewWithOptionsE(webview2.WebViewOptions{
+		w, err := webview2.NewWithOptionsErr(webview2.WebViewOptions{
 			AutoFocus:                  true,
 			DataPath:                   userDataDir,
 			AdditionalBrowserArguments: additionalArgs,
@@ -229,11 +221,6 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 			slog.Warn("WebView2 辅助进程异常", "err", ev.Err())
 		})
 
-		w.SetNewWindowHandler(func(url string) bool {
-			slog.Debug("拦截 WebView2 弹窗", "url", url)
-			return false
-		})
-
 		w.Navigate(finalURL)
 		emitEvent(eventCh, EventReady)
 
@@ -243,6 +230,7 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 		}
 
 		w.Run()
+		adapter.destroyed.Store(true)
 	}()
 
 	select {
