@@ -1,6 +1,7 @@
 package sys
 
 import (
+	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -10,6 +11,9 @@ import (
 )
 
 var (
+	shcoreDLL            = windows.NewLazySystemDLL("shcore.dll")
+	procGetDpiForMonitor = shcoreDLL.NewProc("GetDpiForMonitor")
+
 	procEnumWindows          = modUser32.NewProc("EnumWindows")
 	procGetClassName         = modUser32.NewProc("GetClassNameW")
 	procIsWindowVisible      = modUser32.NewProc("IsWindowVisible")
@@ -28,6 +32,7 @@ var (
 	procIsHungAppWindow      = modUser32.NewProc("IsHungAppWindow")
 	procSetProcessDpiContext = modUser32.NewProc("SetProcessDpiAwarenessContext")
 	procSetProcessDPIAware   = modUser32.NewProc("SetProcessDPIAware")
+	procGetDpiForSystem      = modUser32.NewProc("GetDpiForSystem")
 	procGetSystemMetrics     = modUser32.NewProc("GetSystemMetrics")
 	procSystemParametersInfo = modUser32.NewProc("SystemParametersInfoW")
 
@@ -52,7 +57,8 @@ const (
 	swpNoMove     = 0x0002
 	swpNoActivate = 0x0010
 
-	dpiAwarenessPerMonitorV2 = uintptr(0xFFFFFFFC)
+	dpiAwarenessPerMonitorV2 = ^uintptr(3) // -4
+	mdtEffectiveDPI          = 0
 	asfwAny                  = 0xFFFFFFFF
 )
 
@@ -98,7 +104,33 @@ func init() {
 	}
 }
 
+func monitorDPIScale(hMonitor uintptr) float64 {
+	if hMonitor != 0 && procGetDpiForMonitor.Find() == nil {
+		var dpiX, dpiY uint32
+		hr, _, _ := procGetDpiForMonitor.Call(
+			hMonitor,
+			mdtEffectiveDPI,
+			uintptr(unsafe.Pointer(&dpiX)),
+			uintptr(unsafe.Pointer(&dpiY)),
+		)
+		if hr == 0 && dpiX >= 96 {
+			return math.Round(float64(dpiX)/96.0*100) / 100
+		}
+	}
+	if procGetDpiForSystem.Find() == nil {
+		if dpi, _, _ := procGetDpiForSystem.Call(); dpi >= 96 {
+			return math.Round(float64(dpi)/96.0*100) / 100
+		}
+	}
+	return 1.0
+}
+
 func GetDisplayWorkArea() (usableW, usableH, startX, startY int) {
+	usableW, usableH, startX, startY, _ = GetDisplayMetrics()
+	return
+}
+
+func GetDisplayMetrics() (usableW, usableH, startX, startY int, dpiScale float64) {
 	var pt point
 	if ret, _, _ := procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt))); ret != 0 {
 		r := rect{
@@ -117,7 +149,7 @@ func GetDisplayWorkArea() (usableW, usableH, startX, startY int) {
 				startX = int(mi.RcWork.Left)
 				startY = int(mi.RcWork.Top)
 				if usableW > 0 && usableH > 0 {
-					return
+					return usableW, usableH, startX, startY, monitorDPIScale(hMonitor)
 				}
 			}
 		}
@@ -130,13 +162,13 @@ func GetDisplayWorkArea() (usableW, usableH, startX, startY int) {
 		startX = int(workArea[0])
 		startY = int(workArea[1])
 		if usableW > 0 && usableH > 0 {
-			return
+			return usableW, usableH, startX, startY, monitorDPIScale(0)
 		}
 	}
 
 	scrW, _, _ := procGetSystemMetrics.Call(SM_CXSCREEN)
 	scrH, _, _ := procGetSystemMetrics.Call(SM_CYSCREEN)
-	return int(scrW), int(scrH), 0, 0
+	return int(scrW), int(scrH), 0, 0, monitorDPIScale(0)
 }
 
 var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam uintptr) uintptr {

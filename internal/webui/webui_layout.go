@@ -1,14 +1,16 @@
 package webui
 
 import (
+	"math"
+
 	"mihomo-tray/internal/sys"
 )
 
 const (
-	minWindowWidth  = 1000
-	minWindowHeight = 680
-	maxWindowWidth  = 2400
-	maxWindowHeight = 1350
+	minLogicalWidth  = 900
+	minLogicalHeight = 580
+	maxLogicalWidth  = 1600
+	maxLogicalHeight = 1000
 
 	fallbackWorkAreaWidth  = 1280
 	fallbackWorkAreaHeight = 800
@@ -31,28 +33,36 @@ const (
 )
 
 func calculateWindowSize() (winW, winH int) {
-    usableW, usableH, _, _ := sys.GetDisplayWorkArea()
-    return computeWindowSize(usableW, usableH)
+	usableW, usableH, _, _, dpiScale := sys.GetDisplayMetrics()
+	return computeWindowSize(usableW, usableH, dpiScale)
 }
 
 func calculateWindowBounds() (winW, winH, winX, winY int) {
-    usableW, usableH, startX, startY := sys.GetDisplayWorkArea()
-    winW, winH = computeWindowSize(usableW, usableH)
-    winX = startX + (usableW-winW)/2
-    winY = startY + (usableH-winH)/2
-    return
+	usableW, usableH, startX, startY, dpiScale := sys.GetDisplayMetrics()
+	winW, winH = computeWindowSize(usableW, usableH, dpiScale)
+	winX = startX + (usableW-winW)/2
+	winY = startY + (usableH-winH)/2
+	return
 }
 
-func computeWindowSize(usableW, usableH int) (winW, winH int) {
+func computeWindowSize(usableW, usableH int, dpiScale float64) (winW, winH int) {
 	if usableW <= 0 || usableH <= 0 {
 		usableW = fallbackWorkAreaWidth
 		usableH = fallbackWorkAreaHeight
 	}
+	if dpiScale < 1.0 {
+		dpiScale = 1.0
+	}
 
 	scaleW, scaleH := resolveViewportScale(float64(usableW) / float64(usableH))
 
-	winW = clamp(int(float64(usableW)*scaleW), minWindowWidth, maxWindowWidth)
-	winH = clamp(int(float64(usableH)*scaleH), minWindowHeight, maxWindowHeight)
+	minW := int(math.Round(float64(minLogicalWidth) * dpiScale))
+	minH := int(math.Round(float64(minLogicalHeight) * dpiScale))
+	maxW := int(math.Round(float64(maxLogicalWidth) * dpiScale))
+	maxH := int(math.Round(float64(maxLogicalHeight) * dpiScale))
+
+	winW = clamp(int(float64(usableW)*scaleW), minW, maxW)
+	winH = clamp(int(float64(usableH)*scaleH), minH, maxH)
 
 	maxSafeW := int(float64(usableW) * maxSafeMarginRatio)
 	maxSafeH := int(float64(usableH) * maxSafeMarginRatio)
