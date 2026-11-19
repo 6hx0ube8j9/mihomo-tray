@@ -18,7 +18,7 @@ import (
 
 const (
 	maxCrashWindow      = 30 * time.Minute
-	readyTimeout        = 3 * time.Minute
+	readyTimeout        = 30 * time.Minute
 	readyPollInterval   = 200 * time.Millisecond
 	slowPollInterval    = 2 * time.Second
 	quickCrashThreshold = 5 * time.Second
