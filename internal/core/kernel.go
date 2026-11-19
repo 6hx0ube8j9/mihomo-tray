@@ -18,6 +18,7 @@ import (
 
 const (
 	maxCrashWindow      = 30 * time.Minute
+	readyTimeout        = 3 * time.Minute
 	readyPollInterval   = 200 * time.Millisecond
 	slowPollInterval    = 2 * time.Second
 	quickCrashThreshold = 5 * time.Second
@@ -103,10 +104,14 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 			return
 		}
 
+		exitEvent := domain.EventKernelStopped
+		if res.isCrash {
+			exitEvent = domain.EventKernelCrashed
+		}
 		select {
 		case <-ctx.Done():
 			return
-		case eventCh <- domain.EventKernelExit:
+		case eventCh <- exitEvent:
 		}
 
 		if res.isCrash {
@@ -140,10 +145,11 @@ func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.K
 			isAppExiting: ctx.Err() != nil || km.st.IsExiting(),
 		}
 	}
+	defer km.client.CloseIdleConnections()
 
 	slog.Debug("内核进程已启动", "pid", km.runner.Pid())
 
-	readyCtx, cancelReady := context.WithTimeout(ctx, maxCrashWindow)
+	readyCtx, cancelReady := context.WithTimeout(ctx, readyTimeout)
 	readyErr := km.WaitForReady(readyCtx)
 	cancelReady()
 

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unsafe"
 
@@ -22,6 +23,7 @@ const (
 )
 
 type Job struct {
+	mu     sync.Mutex
 	handle windows.Handle
 }
 
@@ -34,13 +36,35 @@ func NewKillOnCloseJob() (*Job, error) {
 }
 
 func (j *Job) Assign(pid int) {
-	if j != nil && j.handle != 0 {
+	if j == nil {
+		return
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.handle != 0 {
 		assignProcessToJob(j.handle, pid)
 	}
 }
 
+func (j *Job) Terminate(exitCode uint32) error {
+	if j == nil {
+		return nil
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.handle != 0 {
+		return windows.TerminateJobObject(j.handle, exitCode)
+	}
+	return nil
+}
+
 func (j *Job) Close() error {
-	if j != nil && j.handle != 0 {
+	if j == nil {
+		return nil
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.handle != 0 {
 		err := windows.CloseHandle(j.handle)
 		j.handle = 0
 		return err

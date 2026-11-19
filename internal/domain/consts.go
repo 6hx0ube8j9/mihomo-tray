@@ -88,7 +88,8 @@ type KernelEvent int
 
 const (
 	EventKernelReady KernelEvent = iota
-	EventKernelExit
+	EventKernelStopped
+	EventKernelCrashed
 )
 
 // ================= 默认配置策略 =================

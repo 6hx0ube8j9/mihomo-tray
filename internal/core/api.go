@@ -59,6 +59,13 @@ func NewAPIClient(pipePath string) *APIClient {
 	}
 }
 
+func (c *APIClient) CloseIdleConnections() {
+	if c == nil || c.httpClient == nil {
+		return
+	}
+	c.httpClient.CloseIdleConnections()
+}
+
 func (c *APIClient) Ping(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost/version", nil)
 	if err != nil {

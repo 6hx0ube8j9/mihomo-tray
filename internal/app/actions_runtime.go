@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"path/filepath"
 
 	"mihomo-tray/internal/domain"
@@ -38,6 +39,8 @@ func (a *Application) handleRestartKernel(ctx context.Context, _ domain.UIComman
 			if hasActiveProfile {
 				a.FallbackToEmpty(ctx, "配置校验失败")
 				a.notifyWarn("配置加载失败", err)
+			} else {
+				slog.Error("重启内核失败", "err", err)
 			}
 			return nil
 		}

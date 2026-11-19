@@ -160,7 +160,6 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 			cancel()
 		}
 
-		a.Kernel.KillCurrent()
 		a.Kernel.Close()
 		slog.Info("应用已安全退出")
 	})
@@ -297,17 +296,18 @@ func (a *Application) eventLoop(ctx context.Context) {
 					a.ForceSyncAPI()
 				}(currentGen)
 
-			case domain.EventKernelExit:
+			case domain.EventKernelStopped:
 				a.State.AdvanceProbeGen()
-				if a.Kernel.IsKilledByUs() {
-					slog.Info("内核已停止，等待重启")
-				} else {
-					slog.Warn("内核进程异常退出")
-				}
+				slog.Info("内核已停止，等待重启")
+				a.State.SetPhase(domain.PhaseInitializing)
+
+			case domain.EventKernelCrashed:
+				a.State.AdvanceProbeGen()
+				slog.Warn("内核进程异常退出")
 				a.State.SetPhase(domain.PhaseInitializing)
 			}
 			a.Presenter.PushUIState()
-
+			 
 		case <-a.tunEventCh:
 			if !a.State.IsExiting() && !a.State.IsActionBusy() {
 				a.ForceSyncAPI()

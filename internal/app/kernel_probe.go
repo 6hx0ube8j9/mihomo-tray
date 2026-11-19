@@ -89,7 +89,7 @@ func checkPortDiff(cfgPort *int, kernelPort int) bool {
 }
 
 func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
-	if p.st.IsExiting() || p.st.IsActionBusy() {
+	if p.st.IsExiting() || p.st.IsActionBusy() || p.st.GetPhase() != domain.PhaseRunning {
 		return ProbeResult{}
 	}
 
@@ -101,7 +101,7 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 		return ProbeResult{}
 	}
 
-	if p.st.IsExiting() || p.st.IsActionBusy() {
+	if p.st.IsExiting() || p.st.IsActionBusy() || p.st.GetPhase() != domain.PhaseRunning {
 		return ProbeResult{}
 	}
 

@@ -2,7 +2,9 @@ package core
 
 import (
 	"context"
+	"errors"
 	"io"
+	"log/slog"
 	"os/exec"
 	"sync"
 	"sync/atomic"
@@ -12,9 +14,15 @@ import (
 	"mihomo-tray/internal/sys"
 )
 
+const (
+	pipeWaitDelay      = 2 * time.Second
+	killWaitExitBudget = 3 * time.Second
+)
+
 type ProcessRunner struct {
-	job          *sys.Job
+	activeJob    *sys.Job
 	activeCmd    *exec.Cmd
+	waitDone     chan struct{}
 	currentPid   atomic.Uint32
 	isKilledByUs atomic.Bool
 
@@ -23,16 +31,18 @@ type ProcessRunner struct {
 }
 
 func NewProcessRunner() *ProcessRunner {
-	job, _ := sys.NewKillOnCloseJob()
-	return &ProcessRunner{
-		job: job,
-	}
+	return &ProcessRunner{}
 }
 
 func (r *ProcessRunner) Close() {
 	r.Kill()
-	if r.job != nil {
-		_ = r.job.Close()
+	r.mu.Lock()
+	job := r.activeJob
+	r.activeJob = nil
+	r.mu.Unlock()
+	if job != nil {
+		_ = job.Terminate(0)
+		_ = job.Close()
 	}
 }
 
@@ -46,48 +56,75 @@ func (r *ProcessRunner) Start(workDir, targetExe, runtimeConfig string, out io.W
 	cmd.SysProcAttr = sys.BackgroundProcAttr()
 	cmd.Stdout = out
 	cmd.Stderr = out
+	cmd.WaitDelay = pipeWaitDelay
+
+	job, _ := sys.NewKillOnCloseJob()
 
 	if err := cmd.Start(); err != nil {
+		if job != nil {
+			_ = job.Close()
+		}
 		return err
+	}
+
+	if job != nil {
+		job.Assign(cmd.Process.Pid)
 	}
 
 	r.mu.Lock()
 	r.activeCmd = cmd
+	r.activeJob = job
+	r.waitDone = nil
 	r.currentPid.Store(uint32(cmd.Process.Pid))
 	r.isKilledByUs.Store(false)
 	r.mu.Unlock()
-	
-    if r.job != nil {
-		r.job.Assign(cmd.Process.Pid)
-	}
 	return nil
 }
 
 func (r *ProcessRunner) Wait(ctx context.Context) error {
 	r.mu.Lock()
 	cmd := r.activeCmd
-	r.mu.Unlock()
-
 	if cmd == nil {
+		r.mu.Unlock()
 		return nil
 	}
-
 	waitDone := make(chan struct{})
+	r.waitDone = waitDone
+	r.mu.Unlock()
+
+	cancelWatch := make(chan struct{})
 	go func() {
 		select {
 		case <-ctx.Done():
 			r.Kill()
-		case <-waitDone:
+		case <-cancelWatch:
 		}
 	}()
 
 	err := cmd.Wait()
-	close(waitDone)
+	close(cancelWatch)
 
 	r.mu.Lock()
+	job := r.activeJob
 	r.activeCmd = nil
+	r.activeJob = nil
+	r.waitDone = nil
 	r.currentPid.Store(0)
 	r.mu.Unlock()
+
+	if job != nil {
+		_ = job.Terminate(0)
+		_ = job.Close()
+	} else if errors.Is(err, exec.ErrWaitDelay) {
+		r.CleanupOrphans()
+	}
+
+	close(waitDone)
+
+	if errors.Is(err, exec.ErrWaitDelay) && cmd.ProcessState != nil && cmd.ProcessState.ExitCode() == 0 {
+		slog.Info("检测到内核自行退出或完成升级，准备重新接管")
+		return nil
+	}
 
 	return err
 }
@@ -98,6 +135,8 @@ func (r *ProcessRunner) Kill() {
 
 	r.mu.Lock()
 	cmd := r.activeCmd
+	job := r.activeJob
+	waitDone := r.waitDone
 	pid := r.currentPid.Load()
 
 	if cmd == nil || cmd.Process == nil || pid == 0 {
@@ -109,11 +148,18 @@ func (r *ProcessRunner) Kill() {
 	r.mu.Unlock()
 
 	forceKill := func() {
+		if job != nil {
+			_ = job.Terminate(0)
+		}
 		_ = cmd.Process.Kill()
-		sys.HardKill(pid)
+		if sys.IsPidRunning(pid, domain.KernelExeName) {
+			sys.HardKill(pid)
+		}
 	}
 
-	if err := sys.SendCtrlBreak(pid); err != nil {
+	if !sys.IsPidRunning(pid, domain.KernelExeName) {
+		forceKill()
+	} else if err := sys.SendCtrlBreak(pid); err != nil {
 		forceKill()
 	} else {
 		exited := false
@@ -127,9 +173,19 @@ func (r *ProcessRunner) Kill() {
 
 		if !exited {
 			forceKill()
+		} else if job != nil {
+			_ = job.Terminate(0)
 		}
 	}
-	time.Sleep(100 * time.Millisecond)
+
+	if waitDone != nil {
+		select {
+		case <-waitDone:
+		case <-time.After(killWaitExitBudget):
+		}
+	} else {
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func (r *ProcessRunner) Pid() uint32 {
