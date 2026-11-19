@@ -297,7 +297,7 @@ func (m *Manager) findAndFocusWebUI(targetTitle, appHostPort string, targetPid u
 
 	if targetHwnd != 0 {
 		m.hwnd.Store(targetHwnd)
-		sys.FocusWindowSilky(targetHwnd)
+		sys.BringWindowToFront(targetHwnd)
 		return true
 	}
 	return false

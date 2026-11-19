@@ -32,40 +32,74 @@ const (
 	scaleDefaultH = 0.80
 )
 
+// calculateWindowSize returns the target window size in physical pixels for Win32/WebView2.
 func calculateWindowSize() (winW, winH int) {
-	usableW, usableH, _, _, dpiScale := sys.GetDisplayMetrics()
-	return computeWindowSize(usableW, usableH, dpiScale)
+	m := sys.GetCursorDisplayMetrics()
+	return computeWindowSize(m.WorkWidth, m.WorkHeight, m.DPIScale)
 }
 
+// calculateWindowBounds returns window size and centered position in DIP (logical pixels)
+// for Chromium's --window-size and --window-position flags.
 func calculateWindowBounds() (winW, winH, winX, winY int) {
-	usableW, usableH, startX, startY, dpiScale := sys.GetDisplayMetrics()
-	winW, winH = computeWindowSize(usableW, usableH, dpiScale)
-	winX = startX + (usableW-winW)/2
-	winY = startY + (usableH-winH)/2
+	m := sys.GetCursorDisplayMetrics()
+	workW, workH := m.WorkWidth, m.WorkHeight
+	if workW <= 0 || workH <= 0 {
+		workW = fallbackWorkAreaWidth
+		workH = fallbackWorkAreaHeight
+	}
+
+	scale := m.DPIScale
+	if scale < 1.0 {
+		scale = 1.0
+	}
+	primaryScale := m.PrimaryDPIScale
+	if primaryScale < 1.0 {
+		primaryScale = scale
+	}
+
+	physW, physH := computeWindowSize(workW, workH, scale)
+	physX := m.WorkLeft + (workW-physW)/2
+	physY := m.WorkTop + (workH-physH)/2
+
+	winW = int(math.Round(float64(physW) / scale))
+	winH = int(math.Round(float64(physH) / scale))
+	winX = screenCoordToDIP(physX, m.MonitorLeft, scale, primaryScale)
+	winY = screenCoordToDIP(physY, m.MonitorTop, scale, primaryScale)
 	return
 }
 
-func computeWindowSize(usableW, usableH int, dpiScale float64) (winW, winH int) {
-	if usableW <= 0 || usableH <= 0 {
-		usableW = fallbackWorkAreaWidth
-		usableH = fallbackWorkAreaHeight
+func screenCoordToDIP(physPos, monOrigin int, scale, primaryScale float64) int {
+	var originDIP float64
+	if monOrigin > 0 {
+		originDIP = float64(monOrigin) / primaryScale
+	} else if monOrigin < 0 {
+		originDIP = float64(monOrigin) / scale
+	}
+	offsetDIP := float64(physPos-monOrigin) / scale
+	return int(math.Round(originDIP + offsetDIP))
+}
+
+func computeWindowSize(workW, workH int, dpiScale float64) (winW, winH int) {
+	if workW <= 0 || workH <= 0 {
+		workW = fallbackWorkAreaWidth
+		workH = fallbackWorkAreaHeight
 	}
 	if dpiScale < 1.0 {
 		dpiScale = 1.0
 	}
 
-	scaleW, scaleH := resolveViewportScale(float64(usableW) / float64(usableH))
+	scaleW, scaleH := resolveViewportScale(float64(workW) / float64(workH))
 
 	minW := int(math.Round(float64(minLogicalWidth) * dpiScale))
 	minH := int(math.Round(float64(minLogicalHeight) * dpiScale))
 	maxW := int(math.Round(float64(maxLogicalWidth) * dpiScale))
 	maxH := int(math.Round(float64(maxLogicalHeight) * dpiScale))
 
-	winW = clamp(int(float64(usableW)*scaleW), minW, maxW)
-	winH = clamp(int(float64(usableH)*scaleH), minH, maxH)
+	winW = clamp(int(float64(workW)*scaleW), minW, maxW)
+	winH = clamp(int(float64(workH)*scaleH), minH, maxH)
 
-	maxSafeW := int(float64(usableW) * maxSafeMarginRatio)
-	maxSafeH := int(float64(usableH) * maxSafeMarginRatio)
+	maxSafeW := int(float64(workW) * maxSafeMarginRatio)
+	maxSafeH := int(float64(workH) * maxSafeMarginRatio)
 	if winW > maxSafeW {
 		winW = maxSafeW
 	}

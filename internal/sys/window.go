@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	shcoreDLL            = windows.NewLazySystemDLL("shcore.dll")
-	procGetDpiForMonitor = shcoreDLL.NewProc("GetDpiForMonitor")
+	modShcore            = windows.NewLazySystemDLL("shcore.dll")
+	procGetDpiForMonitor = modShcore.NewProc("GetDpiForMonitor")
 
 	procEnumWindows          = modUser32.NewProc("EnumWindows")
 	procGetClassName         = modUser32.NewProc("GetClassNameW")
@@ -22,8 +22,10 @@ var (
 	procShowWindow           = modUser32.NewProc("ShowWindow")
 	procSetForeground        = modUser32.NewProc("SetForegroundWindow")
 	procGetForegroundWindow  = modUser32.NewProc("GetForegroundWindow")
+	procSetFocus             = modUser32.NewProc("SetFocus")
 	procBringWindowToTop     = modUser32.NewProc("BringWindowToTop")
 	procSetWindowPos         = modUser32.NewProc("SetWindowPos")
+	procGetWindowRect        = modUser32.NewProc("GetWindowRect")
 	procAttachThreadInput    = modUser32.NewProc("AttachThreadInput")
 	procAllowSetForeground   = modUser32.NewProc("AllowSetForegroundWindow")
 	procGetWindow            = modUser32.NewProc("GetWindow")
@@ -35,31 +37,38 @@ var (
 	procGetDpiForSystem      = modUser32.NewProc("GetDpiForSystem")
 	procGetSystemMetrics     = modUser32.NewProc("GetSystemMetrics")
 	procSystemParametersInfo = modUser32.NewProc("SystemParametersInfoW")
-
-	procGetCursorPos    = modUser32.NewProc("GetCursorPos")
-	procMonitorFromRect = modUser32.NewProc("MonitorFromRect")
-	procGetMonitorInfoW = modUser32.NewProc("GetMonitorInfoW")
+	procGetCursorPos         = modUser32.NewProc("GetCursorPos")
+	procMonitorFromRect      = modUser32.NewProc("MonitorFromRect")
+	procMonitorFromWindow    = modUser32.NewProc("MonitorFromWindow")
+	procGetMonitorInfoW      = modUser32.NewProc("GetMonitorInfoW")
 )
 
 const (
-	SW_HIDE                  = 0
-	SW_SHOW                  = 5
-	SW_RESTORE               = 9
-	GW_OWNER                 = 4
-	SPI_GETWORKAREA          = 0x0030
-	SM_CXSCREEN              = 0
-	SM_CYSCREEN              = 1
-	MONITOR_DEFAULTTONEAREST = 2
+	swHide    = 0
+	swShow    = 5
+	swRestore = 9
 
+	gwOwner         = 4
+	spiGetWorkArea  = 0x0030
+	smCxScreen      = 0
+	smCyScreen      = 1
+	asfwAny         = 0xFFFFFFFF
+	mdtEffectiveDPI = 0
+
+	monitorDefaultToPrimary = 1
+	monitorDefaultToNearest = 2
+	monitorInfoPrimary      = 1
+
+	hwndTop       = 0
 	hwndTopMost   = ^uintptr(0) // -1
 	hwndNoTopMost = ^uintptr(1) // -2
+
 	swpNoSize     = 0x0001
 	swpNoMove     = 0x0002
+	swpNoZOrder   = 0x0004
 	swpNoActivate = 0x0010
 
 	dpiAwarenessPerMonitorV2 = ^uintptr(3) // -4
-	mdtEffectiveDPI          = 0
-	asfwAny                  = 0xFFFFFFFF
 )
 
 type point struct {
@@ -81,6 +90,19 @@ type monitorInfo struct {
 	DwFlags   uint32
 }
 
+// DisplayMetrics describes the work area, monitor origin, and DPI scale of a display.
+type DisplayMetrics struct {
+	WorkLeft        int
+	WorkTop         int
+	WorkWidth       int
+	WorkHeight      int
+	MonitorLeft     int
+	MonitorTop      int
+	DPIScale        float64
+	PrimaryDPIScale float64
+}
+
+// WindowInfo summarizes a top-level Win32 window returned during enumeration.
 type WindowInfo struct {
 	Hwnd      uintptr
 	Pid       uint32
@@ -101,6 +123,70 @@ var (
 func init() {
 	if ret, _, _ := procSetProcessDpiContext.Call(dpiAwarenessPerMonitorV2); ret == 0 {
 		_, _, _ = procSetProcessDPIAware.Call()
+	}
+}
+
+// -------------------- Display & Monitor --------------------
+
+// GetCursorDisplayMetrics returns metrics for the display containing the mouse cursor.
+func GetCursorDisplayMetrics() DisplayMetrics {
+	var pt point
+	if ret, _, _ := procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt))); ret != 0 {
+		r := rect{
+			Left:   pt.X,
+			Top:    pt.Y,
+			Right:  pt.X + 1,
+			Bottom: pt.Y + 1,
+		}
+		hMonitor, _, _ := procMonitorFromRect.Call(uintptr(unsafe.Pointer(&r)), monitorDefaultToNearest)
+		if mi, ok := queryMonitorInfo(hMonitor); ok {
+			workW := int(mi.RcWork.Right - mi.RcWork.Left)
+			workH := int(mi.RcWork.Bottom - mi.RcWork.Top)
+			if workW > 0 && workH > 0 {
+				scale := monitorDPIScale(hMonitor)
+				primaryScale := scale
+				if mi.DwFlags&monitorInfoPrimary == 0 {
+					primaryScale = primaryMonitorDPIScale()
+				}
+				return DisplayMetrics{
+					WorkLeft:        int(mi.RcWork.Left),
+					WorkTop:         int(mi.RcWork.Top),
+					WorkWidth:       workW,
+					WorkHeight:      workH,
+					MonitorLeft:     int(mi.RcMonitor.Left),
+					MonitorTop:      int(mi.RcMonitor.Top),
+					DPIScale:        scale,
+					PrimaryDPIScale: primaryScale,
+				}
+			}
+		}
+	}
+
+	scale := primaryMonitorDPIScale()
+
+	var workArea [4]int32
+	if ret, _, _ := procSystemParametersInfo.Call(spiGetWorkArea, 0, uintptr(unsafe.Pointer(&workArea[0])), 0); ret != 0 {
+		workW := int(workArea[2] - workArea[0])
+		workH := int(workArea[3] - workArea[1])
+		if workW > 0 && workH > 0 {
+			return DisplayMetrics{
+				WorkLeft:        int(workArea[0]),
+				WorkTop:         int(workArea[1]),
+				WorkWidth:       workW,
+				WorkHeight:      workH,
+				DPIScale:        scale,
+				PrimaryDPIScale: scale,
+			}
+		}
+	}
+
+	scrW, _, _ := procGetSystemMetrics.Call(smCxScreen)
+	scrH, _, _ := procGetSystemMetrics.Call(smCyScreen)
+	return DisplayMetrics{
+		WorkWidth:       int(scrW),
+		WorkHeight:      int(scrH),
+		DPIScale:        scale,
+		PrimaryDPIScale: scale,
 	}
 }
 
@@ -125,51 +211,198 @@ func monitorDPIScale(hMonitor uintptr) float64 {
 	return 1.0
 }
 
-func GetDisplayWorkArea() (usableW, usableH, startX, startY int) {
-	usableW, usableH, startX, startY, _ = GetDisplayMetrics()
-	return
+func primaryMonitorDPIScale() float64 {
+	r := rect{Left: 0, Top: 0, Right: 1, Bottom: 1}
+	hPrimary, _, _ := procMonitorFromRect.Call(uintptr(unsafe.Pointer(&r)), monitorDefaultToPrimary)
+	return monitorDPIScale(hPrimary)
 }
 
-func GetDisplayMetrics() (usableW, usableH, startX, startY int, dpiScale float64) {
-	var pt point
-	if ret, _, _ := procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt))); ret != 0 {
-		r := rect{
-			Left:   pt.X,
-			Top:    pt.Y,
-			Right:  pt.X + 1,
-			Bottom: pt.Y + 1,
-		}
-		hMonitor, _, _ := procMonitorFromRect.Call(uintptr(unsafe.Pointer(&r)), MONITOR_DEFAULTTONEAREST)
-		if hMonitor != 0 {
-			var mi monitorInfo
-			mi.CbSize = uint32(unsafe.Sizeof(mi))
-			if ret, _, _ := procGetMonitorInfoW.Call(hMonitor, uintptr(unsafe.Pointer(&mi))); ret != 0 {
-				usableW = int(mi.RcWork.Right - mi.RcWork.Left)
-				usableH = int(mi.RcWork.Bottom - mi.RcWork.Top)
-				startX = int(mi.RcWork.Left)
-				startY = int(mi.RcWork.Top)
-				if usableW > 0 && usableH > 0 {
-					return usableW, usableH, startX, startY, monitorDPIScale(hMonitor)
-				}
+func queryMonitorInfo(hMonitor uintptr) (monitorInfo, bool) {
+	if hMonitor == 0 {
+		return monitorInfo{}, false
+	}
+	var mi monitorInfo
+	mi.CbSize = uint32(unsafe.Sizeof(mi))
+	ret, _, _ := procGetMonitorInfoW.Call(hMonitor, uintptr(unsafe.Pointer(&mi)))
+	return mi, ret != 0
+}
+
+func queryWindowRect(hwnd uintptr) (rect, bool) {
+	var r rect
+	ret, _, _ := procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&r)))
+	return r, ret != 0
+}
+
+func cursorWorkArea() (workW, workH, workLeft, workTop int) {
+	m := GetCursorDisplayMetrics()
+	return m.WorkWidth, m.WorkHeight, m.WorkLeft, m.WorkTop
+}
+
+func windowWorkArea(hwnd uintptr) (workW, workH, workLeft, workTop int) {
+	if hwnd != 0 {
+		hMonitor, _, _ := procMonitorFromWindow.Call(hwnd, monitorDefaultToNearest)
+		if mi, ok := queryMonitorInfo(hMonitor); ok {
+			w := int(mi.RcWork.Right - mi.RcWork.Left)
+			h := int(mi.RcWork.Bottom - mi.RcWork.Top)
+			if w > 0 && h > 0 {
+				return w, h, int(mi.RcWork.Left), int(mi.RcWork.Top)
 			}
 		}
 	}
+	return cursorWorkArea()
+}
 
-	var workArea [4]int32
-	if ret, _, _ := procSystemParametersInfo.Call(SPI_GETWORKAREA, 0, uintptr(unsafe.Pointer(&workArea[0])), 0); ret != 0 {
-		usableW = int(workArea[2] - workArea[0])
-		usableH = int(workArea[3] - workArea[1])
-		startX = int(workArea[0])
-		startY = int(workArea[1])
-		if usableW > 0 && usableH > 0 {
-			return usableW, usableH, startX, startY, monitorDPIScale(0)
+func clampCoord(pos, minPos, maxPos int) int {
+	if maxPos < minPos {
+		return minPos
+	}
+	if pos < minPos {
+		return minPos
+	}
+	if pos > maxPos {
+		return maxPos
+	}
+	return pos
+}
+
+// -------------------- Positioning & Layout --------------------
+
+// CenterWindow centers hwnd within the cursor display's work area, clamping its size if oversized.
+func CenterWindow(hwnd uintptr) {
+	if hwnd == 0 {
+		return
+	}
+
+	r, ok := queryWindowRect(hwnd)
+	if !ok {
+		return
+	}
+
+	winW := int(r.Right - r.Left)
+	winH := int(r.Bottom - r.Top)
+	workW, workH, workLeft, workTop := cursorWorkArea()
+
+	flags := uintptr(swpNoZOrder | swpNoActivate | swpNoSize)
+	if workW > 0 && winW > workW {
+		winW = workW
+		flags &^= swpNoSize
+	}
+	if workH > 0 && winH > workH {
+		winH = workH
+		flags &^= swpNoSize
+	}
+
+	x := clampCoord(workLeft+(workW-winW)/2, workLeft, workLeft+workW-winW)
+	y := clampCoord(workTop+(workH-winH)/2, workTop, workTop+workH-winH)
+
+	_, _, _ = procSetWindowPos.Call(hwnd, 0, uintptr(int32(x)), uintptr(int32(y)), 0, 0, swpNoSize|swpNoZOrder|swpNoActivate)
+}
+
+// CenterWindowOnOwner centers hwnd over ownerHwnd within the owner's monitor work area,
+// or falls back to the cursor display's work area when ownerHwnd is unavailable.
+func CenterWindowOnOwner(hwnd, ownerHwnd uintptr) {
+	if hwnd == 0 {
+		return
+	}
+
+	popRect, ok := queryWindowRect(hwnd)
+	if !ok {
+		return
+	}
+	winW := int(popRect.Right - popRect.Left)
+	winH := int(popRect.Bottom - popRect.Top)
+
+	if ownerHwnd != 0 && IsWindowVisible(ownerHwnd) && !IsWindowMinimized(ownerHwnd) {
+		if ownerRect, ok := queryWindowRect(ownerHwnd); ok {
+			workW, workH, workLeft, workTop := windowWorkArea(ownerHwnd)
+			centerX := int(ownerRect.Left + (ownerRect.Right-ownerRect.Left)/2)
+			centerY := int(ownerRect.Top + (ownerRect.Bottom-ownerRect.Top)/2)
+			x := clampCoord(centerX-winW/2, workLeft, workLeft+workW-winW)
+			y := clampCoord(centerY-winH/2, workTop, workTop+workH-winH)
+			_, _, _ = procSetWindowPos.Call(hwnd, hwndTop, uintptr(int32(x)), uintptr(int32(y)), 0, 0, swpNoSize)
+			return
 		}
 	}
 
-	scrW, _, _ := procGetSystemMetrics.Call(SM_CXSCREEN)
-	scrH, _, _ := procGetSystemMetrics.Call(SM_CYSCREEN)
-	return int(scrW), int(scrH), 0, 0, monitorDPIScale(0)
+	workW, workH, workLeft, workTop := cursorWorkArea()
+	x := clampCoord(workLeft+(workW-winW)/2, workLeft, workLeft+workW-winW)
+	y := clampCoord(workTop+(workH-winH)/2, workTop, workTop+workH-winH)
+	_, _, _ = procSetWindowPos.Call(hwnd, hwndTop, uintptr(int32(x)), uintptr(int32(y)), 0, 0, swpNoSize)
 }
+
+// -------------------- Focus & Visibility --------------------
+
+// ActivateWindow restores a minimized window and gives it foreground focus.
+func ActivateWindow(hwnd uintptr) {
+	if hwnd == 0 || !IsWindowVisible(hwnd) {
+		return
+	}
+	if IsWindowMinimized(hwnd) {
+		_, _, _ = procShowWindow.Call(hwnd, swRestore)
+	}
+	_, _, _ = procSetForeground.Call(hwnd)
+	_, _, _ = procSetFocus.Call(hwnd)
+}
+
+// BringWindowToFront forcefully raises and focuses hwnd, falling back to AttachThreadInput
+// when Windows foreground lock blocks SetForegroundWindow.
+func BringWindowToFront(hwnd uintptr) {
+	if hwnd == 0 {
+		return
+	}
+
+	if IsWindowVisible(hwnd) && !IsWindowMinimized(hwnd) {
+		if fgHwnd, _, _ := procGetForegroundWindow.Call(); fgHwnd == hwnd {
+			return
+		}
+	}
+
+	if IsWindowMinimized(hwnd) {
+		_, _, _ = procShowWindow.Call(hwnd, swRestore)
+	} else if !IsWindowVisible(hwnd) {
+		_, _, _ = procShowWindow.Call(hwnd, swShow)
+	}
+
+	_, _, _ = procSetWindowPos.Call(hwnd, hwndTopMost, 0, 0, 0, 0, swpNoMove|swpNoSize|swpNoActivate)
+	_, _, _ = procSetWindowPos.Call(hwnd, hwndNoTopMost, 0, 0, 0, 0, swpNoMove|swpNoSize|swpNoActivate)
+
+	_, _, _ = procBringWindowToTop.Call(hwnd)
+	if ret, _, _ := procSetForeground.Call(hwnd); ret != 0 {
+		return
+	}
+
+	fgHwnd, _, _ := procGetForegroundWindow.Call()
+	if fgHwnd == 0 || fgHwnd == hwnd {
+		return
+	}
+
+	fgThreadID, _, _ := procGetWindowThread.Call(fgHwnd, 0)
+	curThreadID := uintptr(windows.GetCurrentThreadId())
+	if fgThreadID == 0 || fgThreadID == curThreadID {
+		return
+	}
+
+	if attached, _, _ := procAttachThreadInput.Call(curThreadID, fgThreadID, 1); attached != 0 {
+		_, _, _ = procBringWindowToTop.Call(hwnd)
+		_, _, _ = procSetForeground.Call(hwnd)
+		_, _, _ = procAttachThreadInput.Call(curThreadID, fgThreadID, 0)
+	}
+}
+
+func AllowSetForegroundWindow(pid uint32) {
+	if pid == 0 {
+		pid = asfwAny
+	}
+	_, _, _ = procAllowSetForeground.Call(uintptr(pid))
+}
+
+func HideWindow(hwnd uintptr) {
+	if hwnd != 0 {
+		_, _, _ = procShowWindow.Call(hwnd, swHide)
+	}
+}
+
+// -------------------- Enumeration & Queries --------------------
 
 var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam uintptr) uintptr {
 	v, ok := enumCtxMap.Load(lParam)
@@ -178,21 +411,21 @@ var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam uintptr)
 	}
 	ctx := v.(*enumContext)
 
-	owner, _, _ := procGetWindow.Call(hwnd, GW_OWNER)
+	owner, _, _ := procGetWindow.Call(hwnd, gwOwner)
 	if owner != 0 {
 		return 1
 	}
 
 	var clsBuf [256]uint16
-	procGetClassName.Call(hwnd, uintptr(unsafe.Pointer(&clsBuf[0])), 256)
+	_, _, _ = procGetClassName.Call(hwnd, uintptr(unsafe.Pointer(&clsBuf[0])), 256)
 	clsName := windows.UTF16ToString(clsBuf[:])
 
 	var titleBuf [512]uint16
-	procGetWindowText.Call(hwnd, uintptr(unsafe.Pointer(&titleBuf[0])), 512)
+	_, _, _ = procGetWindowText.Call(hwnd, uintptr(unsafe.Pointer(&titleBuf[0])), 512)
 	wndTitle := strings.TrimSpace(windows.UTF16ToString(titleBuf[:]))
 
 	var wndPid uint32
-	procGetWindowThread.Call(hwnd, uintptr(unsafe.Pointer(&wndPid)))
+	_, _, _ = procGetWindowThread.Call(hwnd, uintptr(unsafe.Pointer(&wndPid)))
 
 	if ctx.matcher(WindowInfo{Hwnd: hwnd, Pid: wndPid, ClassName: clsName, Title: wndTitle}) {
 		ctx.targetHwnd = hwnd
@@ -208,75 +441,8 @@ func FindTopWindow(matcher func(info WindowInfo) bool) uintptr {
 	enumCtxMap.Store(id, ctx)
 	defer enumCtxMap.Delete(id)
 
-	procEnumWindows.Call(enumWindowsCallback, id)
+	_, _, _ = procEnumWindows.Call(enumWindowsCallback, id)
 	return ctx.targetHwnd
-}
-
-func FocusWindowSilky(targetHwnd uintptr) {
-	if targetHwnd == 0 {
-		return
-	}
-
-	if IsWindowVisible(targetHwnd) && !IsIconic(targetHwnd) {
-		if fgHwnd, _, _ := procGetForegroundWindow.Call(); fgHwnd == targetHwnd {
-			return
-		}
-	}
-
-	if IsIconic(targetHwnd) {
-		procShowWindow.Call(targetHwnd, SW_RESTORE)
-	} else if !IsWindowVisible(targetHwnd) {
-		procShowWindow.Call(targetHwnd, SW_SHOW)
-	}
-
-	procSetWindowPos.Call(targetHwnd, hwndTopMost, 0, 0, 0, 0, swpNoMove|swpNoSize|swpNoActivate)
-	procSetWindowPos.Call(targetHwnd, hwndNoTopMost, 0, 0, 0, 0, swpNoMove|swpNoSize|swpNoActivate)
-
-	procBringWindowToTop.Call(targetHwnd)
-	if ret, _, _ := procSetForeground.Call(targetHwnd); ret != 0 {
-		return
-	}
-
-	fgHwnd, _, _ := procGetForegroundWindow.Call()
-	if fgHwnd == 0 || fgHwnd == targetHwnd {
-		return
-	}
-
-	fgThreadID, _, _ := procGetWindowThread.Call(fgHwnd, 0)
-	curThreadID := uintptr(windows.GetCurrentThreadId())
-	if fgThreadID == 0 || fgThreadID == curThreadID {
-		return
-	}
-
-	attached, _, _ := procAttachThreadInput.Call(curThreadID, fgThreadID, 1)
-	if attached != 0 {
-		procBringWindowToTop.Call(targetHwnd)
-		procSetForeground.Call(targetHwnd)
-		procAttachThreadInput.Call(curThreadID, fgThreadID, 0)
-	}
-}
-
-func AllowSetForegroundWindow(pid uint32) {
-	if pid == 0 {
-		pid = asfwAny
-	}
-	_, _, _ = procAllowSetForeground.Call(uintptr(pid))
-}
-
-func HideWindow(hwnd uintptr) {
-	if hwnd != 0 {
-		procShowWindow.Call(hwnd, SW_HIDE)
-	}
-}
-
-func IsWindowVisible(hwnd uintptr) bool {
-	vis, _, _ := procIsWindowVisible.Call(hwnd)
-	return vis != 0
-}
-
-func IsIconic(hwnd uintptr) bool {
-	min, _, _ := procIsIconic.Call(hwnd)
-	return min != 0
 }
 
 func IsWindow(hwnd uintptr) bool {
@@ -287,17 +453,26 @@ func IsWindow(hwnd uintptr) bool {
 	return ret != 0
 }
 
+func IsWindowVisible(hwnd uintptr) bool {
+	if hwnd == 0 {
+		return false
+	}
+	vis, _, _ := procIsWindowVisible.Call(hwnd)
+	return vis != 0
+}
+
+func IsWindowMinimized(hwnd uintptr) bool {
+	if hwnd == 0 {
+		return false
+	}
+	min, _, _ := procIsIconic.Call(hwnd)
+	return min != 0
+}
+
 func IsWindowHung(hwnd uintptr) bool {
 	if hwnd == 0 {
 		return false
 	}
 	ret, _, _ := procIsHungAppWindow.Call(hwnd)
 	return ret != 0
-}
-
-func IsWindowAliveAndResponsive(hwnd uintptr) bool {
-	if hwnd == 0 {
-		return false
-	}
-	return IsWindowVisible(hwnd) && !IsWindowHung(hwnd)
 }

@@ -432,13 +432,13 @@ func (m *Manager) tryWakeCachedWindow(eventCh chan<- Event) bool {
 		return false
 	}
 
-	if !sys.IsWindowAliveAndResponsive(hwnd) {
+	if !sys.IsWindowVisible(hwnd) || sys.IsWindowHung(hwnd) {
 		slog.Debug("窗口失效，正在重置")
 		m.Cleanup()
 		return false
 	}
 
-	sys.FocusWindowSilky(hwnd)
+	sys.BringWindowToFront(hwnd)
 	emitEvent(eventCh, EventReady)
 	return true
 }

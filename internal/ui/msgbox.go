@@ -9,6 +9,8 @@ import (
 
 	"github.com/tailscale/walk"
 	"github.com/tailscale/win"
+
+	"mihomo-tray/internal/sys"
 )
 
 type cbtHookContext struct {
@@ -42,8 +44,7 @@ func cbtHookProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 		ctx.centered = true
 		msgBoxHwnd := win.HWND(wParam)
 
-		x, y := calcCenteredPos(ctx.targetHWND, msgBoxHwnd)
-		win.SetWindowPos(msgBoxHwnd, 0, x, y, 0, 0, win.SWP_NOSIZE|win.SWP_NOZORDER|win.SWP_NOACTIVATE)
+		sys.CenterWindowOnOwner(uintptr(msgBoxHwnd), uintptr(ctx.targetHWND))
 
 		if ctx.onActivated != nil {
 			ctx.onActivated(msgBoxHwnd)
@@ -93,7 +94,7 @@ func ShowNativeMsgBox(owner walk.Form, title, message string, style walk.MsgBoxS
 		delete(cbtHookMap, tid)
 		cbtHookMu.Unlock()
 	}()
-    
+
 	ensureCBTHookCallback()
 
 	hHook, _, err := procSetWindowsHookExW.Call(uintptr(whCBT), globalCallback, 0, uintptr(tid))
