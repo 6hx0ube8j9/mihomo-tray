@@ -91,8 +91,10 @@ func createKillOnCloseJob() (windows.Handle, error) {
 	)
 	if err != nil {
 		slog.Error("配置 Job Object 退出策略失败", "err", err)
+		_ = windows.CloseHandle(h)
+		return 0, err
 	}
-	return h, err
+	return h, nil
 }
 
 func assignProcessToJob(hJob windows.Handle, pid int) {

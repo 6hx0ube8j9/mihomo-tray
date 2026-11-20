@@ -47,8 +47,9 @@ func NewAPIClient(pipePath string) *APIClient {
 			Transport: &http.Transport{
 				Proxy: nil,
 				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-					timeout := pipeDialTimeout
-					return winio.DialPipe(pipePath, &timeout)
+					dialCtx, cancel := context.WithTimeout(ctx, pipeDialTimeout)
+					defer cancel()
+					return winio.DialPipeContext(dialCtx, pipePath)
 				},
 				MaxIdleConns:          100,
 				MaxIdleConnsPerHost:   100,
@@ -71,15 +72,15 @@ func (c *APIClient) Ping(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	
+
 	_, _ = io.Copy(io.Discard, resp.Body)
-	
+
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
 	}
@@ -107,15 +108,6 @@ func (c *APIClient) UpdateMode(ctx context.Context, mode string) error {
 
 func (c *APIClient) UpdateAllowLan(ctx context.Context, enable bool) error {
 	return c.SyncConfigToKernel(ctx, map[string]any{apiKeyAllowLan: enable})
-}
-
-func (c *APIClient) SyncAllRuntime(ctx context.Context, mode string, allowLan bool, tunEnable bool, tunDevice string) error {
-	payload := map[string]any{
-		apiKeyTun:      buildTunPayload(tunEnable, tunDevice),
-		apiKeyMode:     mode,
-		apiKeyAllowLan: allowLan,
-	}
-	return c.SyncConfigToKernel(ctx, payload)
 }
 
 func (c *APIClient) ForceReloadKernel(ctx context.Context, runtimeAbs string) error {

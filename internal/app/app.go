@@ -231,7 +231,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 		}
 	}
 
-	adjustPollInterval := func() {
+	adjustPollInterval := func() bool {
 		isUserActive := time.Since(lastUserAction) < pollIdleThreshold
 		isWebActive := a.WebUI.IsActive()
 
@@ -247,8 +247,10 @@ func (a *Application) eventLoop(ctx context.Context) {
 
 			if wasIdle && targetInterval == pollActiveInterval {
 				tryPollAPI()
+				return true
 			}
 		}
+		return false
 	}
 
 	for {
@@ -307,7 +309,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 				a.State.SetPhase(domain.PhaseInitializing)
 			}
 			a.Presenter.PushUIState()
-			 
+
 		case <-a.tunEventCh:
 			if !a.State.IsExiting() && !a.State.IsActionBusy() {
 				a.ForceSyncAPI()
@@ -318,13 +320,15 @@ func (a *Application) eventLoop(ctx context.Context) {
 			a.Presenter.PushUIState()
 
 		case <-ticker.C:
-			adjustPollInterval()
-			tryPollAPI()
+			if !adjustPollInterval() {
+				tryPollAPI()
+			}
 
 		case <-a.apiPollCh:
 			lastUserAction = time.Now()
-			adjustPollInterval()
-			tryPollAPI()
+			if !adjustPollInterval() {
+				tryPollAPI()
+			}
 
 		case <-subTicker.C:
 			a.ProfileUpdater.Trigger(ctx)

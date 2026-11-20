@@ -31,9 +31,49 @@ var ErrKernelExitedEarly = errors.New("内核进程已提前退出")
 
 type sessionResult struct {
 	runDuration  time.Duration
+	wasReady     bool
 	isCrash      bool
 	crashLog     string
 	isAppExiting bool
+}
+
+type crashBackoff struct {
+	count      int
+	firstCrash time.Time
+	delay      time.Duration
+}
+
+func newCrashBackoff() crashBackoff {
+	return crashBackoff{delay: defaultRestartDelay}
+}
+
+func (b *crashBackoff) reset() {
+	b.count = 0
+	b.firstCrash = time.Time{}
+	b.delay = defaultRestartDelay
+}
+
+func (b *crashBackoff) recordCrash(runDuration time.Duration) bool {
+	if runDuration >= quickCrashThreshold {
+		return false
+	}
+
+	now := time.Now()
+	if b.firstCrash.IsZero() || now.Sub(b.firstCrash) >= maxCrashWindow {
+		b.firstCrash = now
+		b.count = 1
+	} else {
+		b.count++
+	}
+	return b.count >= maxConsecutiveCrash
+}
+
+func (b *crashBackoff) advanceDelay() {
+	next := b.delay * 2
+	if next > maxRestartDelay {
+		next = maxRestartDelay
+	}
+	b.delay = next
 }
 
 type KernelManager struct {
@@ -80,9 +120,7 @@ func (km *KernelManager) Close() {
 }
 
 func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.KernelEvent) {
-	currentDelay := defaultRestartDelay
-	consecutiveCrashes := 0
-	var firstCrashTime time.Time
+	backoff := newCrashBackoff()
 
 	km.runner.CleanupOrphans()
 
@@ -93,9 +131,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 		}
 
 		if km.waitIfPaused(ctx) {
-			consecutiveCrashes = 0
-			firstCrashTime = time.Time{}
-			currentDelay = defaultRestartDelay
+			backoff.reset()
 			continue
 		}
 
@@ -115,14 +151,12 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 		}
 
 		if res.isCrash {
-			currentDelay = km.handleSessionCrash(res, &consecutiveCrashes, &firstCrashTime, currentDelay)
+			km.handleSessionCrash(res, &backoff)
 		} else {
-			consecutiveCrashes = 0
-			firstCrashTime = time.Time{}
-			currentDelay = defaultRestartDelay
+			backoff.reset()
 		}
 
-		km.waitBackoff(ctx, currentDelay)
+		km.waitBackoff(ctx, backoff.delay)
 	}
 }
 
@@ -175,6 +209,7 @@ func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.K
 
 	return sessionResult{
 		runDuration:  runDuration,
+		wasReady:     readyErr == nil,
 		isCrash:      isCrash,
 		crashLog:     strings.TrimSpace(errBuf.String()),
 		isAppExiting: isAppExiting,
@@ -220,45 +255,34 @@ func (km *KernelManager) WaitForReady(ctx context.Context) error {
 	}
 }
 
-func (km *KernelManager) handleSessionCrash(res sessionResult, crashCount *int, firstCrashTime *time.Time, currentDelay time.Duration) time.Duration {
-	wasRunning := km.st.GetPhase() == domain.PhaseRunning
+func (km *KernelManager) handleSessionCrash(res sessionResult, backoff *crashBackoff) {
 	upperLog := strings.ToUpper(res.crashLog)
-	isConfigFatal := strings.Contains(upperLog, "FATA") || strings.Contains(upperLog, "PANIC")
+	isFatal := strings.Contains(upperLog, "FATA") || strings.Contains(upperLog, "PANIC")
 
-	if res.runDuration < quickCrashThreshold || isConfigFatal {
-		if res.crashLog != "" {
-			km.logger.WriteLog(res.crashLog)
-		}
+	if (res.runDuration < quickCrashThreshold || isFatal) && res.crashLog != "" {
+		km.logger.WriteLog(res.crashLog)
 	}
 
-	if isConfigFatal {
-		slog.Error("配置存在致命错误，已暂停启动")
+	if isFatal {
+		slog.Error("内核遇到致命错误，已暂停启动")
+		backoff.reset()
 		km.HaltDaemon()
-		return defaultRestartDelay
+		return
 	}
 
-	if wasRunning {
-		*crashCount = 0
-		*firstCrashTime = time.Time{}
-	}
-	if firstCrashTime.IsZero() {
-		*firstCrashTime = time.Now()
+	if res.wasReady && res.runDuration >= quickCrashThreshold {
+		backoff.reset()
+		return
 	}
 
-	if time.Since(*firstCrashTime) >= maxCrashWindow {
-		*firstCrashTime = time.Now()
-		*crashCount = 1
-	} else if res.runDuration < quickCrashThreshold {
-		*crashCount++
-	}
-
-	if *crashCount >= maxConsecutiveCrash {
+	if backoff.recordCrash(res.runDuration) {
 		slog.Error("内核异常退出超限，守护进程已挂起保护")
+		backoff.reset()
 		km.HaltDaemon()
-		return defaultRestartDelay
+		return
 	}
 
-	return km.calculateBackoff(currentDelay, maxRestartDelay)
+	backoff.advanceDelay()
 }
 
 func (km *KernelManager) waitIfPaused(ctx context.Context) bool {
@@ -295,14 +319,6 @@ func (km *KernelManager) runPreStartHook() {
 	}
 }
 
-func (km *KernelManager) calculateBackoff(current, max time.Duration) time.Duration {
-	next := current * 2
-	if next > max {
-		return max
-	}
-	return next
-}
-
 func (km *KernelManager) HaltDaemon() {
 	km.mu.Lock()
 	km.isPaused = true
@@ -334,8 +350,4 @@ func (km *KernelManager) KillCurrent() {
 	if km.runner != nil {
 		km.runner.Kill()
 	}
-}
-
-func (km *KernelManager) IsKilledByUs() bool {
-	return km.runner != nil && km.runner.IsKilledByUs()
 }

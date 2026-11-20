@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -64,12 +65,15 @@ func (m *Manager) LoadAndInitMemory() {
 }
 
 func (m *Manager) ReloadFromDisk() error {
+	m.ioMu.Lock()
+	defer m.ioMu.Unlock()
+
 	jsonPath := filepath.Join(m.baseDir, domain.TrayConfigName)
 	content, err := os.ReadFile(jsonPath)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			slog.Warn("应用配置丢失，已从内存恢复")
-			m.FlushInitialState()
+			m.flushIOLocked()
 			return nil
 		}
 		return err
@@ -78,7 +82,7 @@ func (m *Manager) ReloadFromDisk() error {
 	var newCfg domain.TrayConfig
 	if err := json.Unmarshal(content, &newCfg); err != nil {
 		slog.Warn("应用配置损坏，已从内存恢复", "err", err)
-		m.FlushInitialState()
+		m.flushIOLocked()
 		return nil
 	}
 
@@ -89,7 +93,7 @@ func (m *Manager) ReloadFromDisk() error {
 	m.mu.Unlock()
 
 	if isTainted {
-		m.FlushInitialState()
+		m.flushIOLocked()
 	}
 
 	return nil
@@ -115,6 +119,21 @@ func (m *Manager) Update(updater func(cfg *domain.TrayConfig)) {
 		return
 	}
 
+	m.writeDiskIOLocked(snapshotBytes)
+}
+
+func (m *Manager) flushIOLocked() {
+	m.mu.RLock()
+	snapshotBytes, err := json.MarshalIndent(m.data, "", "  ")
+	m.mu.RUnlock()
+	if err != nil {
+		slog.Error("应用配置序列化失败", "err", err)
+		return
+	}
+	m.writeDiskIOLocked(snapshotBytes)
+}
+
+func (m *Manager) writeDiskIOLocked(snapshotBytes []byte) {
 	cfgPath := filepath.Join(m.baseDir, domain.TrayConfigName)
 
 	if existingBytes, err := os.ReadFile(cfgPath); err == nil && bytes.Equal(existingBytes, snapshotBytes) {

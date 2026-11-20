@@ -20,6 +20,7 @@ type WebUIService struct {
 
 	reopenMu     sync.Mutex
 	reopenCancel context.CancelFunc
+	reopenGen    uint64
 }
 
 func NewWebUIService(cfg *config.Manager, st *state.RuntimeState, coreMgr *webui.Manager, eventCh chan webui.Event) *WebUIService {
@@ -90,14 +91,19 @@ func (s *WebUIService) ReopenIfActive(forceSync func()) {
 	if s.reopenCancel != nil {
 		s.reopenCancel()
 	}
+	s.reopenGen++
+	gen := s.reopenGen
 	ctx, cancel := context.WithCancel(context.Background())
 	s.reopenCancel = cancel
 	s.reopenMu.Unlock()
 
 	go func() {
 		defer func() {
+			cancel()
 			s.reopenMu.Lock()
-			s.reopenCancel = nil
+			if s.reopenGen == gen {
+				s.reopenCancel = nil
+			}
 			s.reopenMu.Unlock()
 		}()
 
