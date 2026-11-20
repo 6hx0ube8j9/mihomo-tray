@@ -76,7 +76,7 @@ func (a *Application) handleRequestEditController(_ context.Context, _ domain.UI
 }
 
 func (a *Application) handleSetWebOpenMode(_ context.Context, cmd domain.UICommand) {
- 	targetMode := domain.NormalizeWebOpenMode(cmd.Payload)
+	targetMode := domain.NormalizeWebOpenMode(cmd.Payload)
 	changed := a.Cfg.TryUpdate(func(c *domain.TrayConfig) bool {
 		if c.EffectiveWebOpenMode() == targetMode {
 			return false
@@ -85,15 +85,15 @@ func (a *Application) handleSetWebOpenMode(_ context.Context, cmd domain.UIComma
 		return true
 	})
 	if !changed {
- 		return
- 	}
+		return
+	}
 
- 	a.Presenter.PushUIState()
- 	a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
- }
+	a.Presenter.PushUIState()
+	a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
+}
 
 func (a *Application) handleToggleRemoteWebUI(_ context.Context, cmd domain.UICommand) {
- 	b := (cmd.Payload == "true")
+	b := (cmd.Payload == "true")
 	changed := a.Cfg.TryUpdate(func(c *domain.TrayConfig) bool {
 		if c.IsRemoteWebUIEnabled() == b {
 			return false
@@ -102,12 +102,12 @@ func (a *Application) handleToggleRemoteWebUI(_ context.Context, cmd domain.UICo
 		return true
 	})
 	if !changed {
- 		return
- 	}
+		return
+	}
 
- 	a.Presenter.PushUIState()
- 	a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
- }
+	a.Presenter.PushUIState()
+	a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
+}
 
 func (a *Application) handleCopyWebUIPassword(_ context.Context, _ domain.UICommand) {
 	secret := a.Cfg.GetConfig().EffectiveSecret()

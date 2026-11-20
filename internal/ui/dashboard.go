@@ -5,7 +5,9 @@ import (
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
+
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/sys"
 )
 
 type Dashboard struct {
@@ -37,7 +39,7 @@ func (d *Dashboard) Show() {
 	if !d.window.Visible() {
 		d.window.Show()
 	}
-	ActivateWindow(d.window.Handle())
+	sys.ActivateWindow(uintptr(d.window.Handle()))
 }
 
 func (d *Dashboard) createWindow() {
@@ -60,7 +62,7 @@ func (d *Dashboard) createWindow() {
 
 	disableGhostToolbar(d.window)
 	d.closePatch = ApplyHideOnClosePatch(d.window)
-	centerWindow(d.window)
+	sys.CenterWindow(uintptr(d.window.Handle()))
 
 	if len(d.lastState.ProfileItems) > 0 || d.lastState.MixedPort != 0 {
 		d.ProfileView.RefreshData(d.lastState)

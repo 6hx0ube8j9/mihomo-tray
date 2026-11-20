@@ -378,3 +378,22 @@ func (t *Tray) addSeparator() {
 func (t *Tray) addSeparatorTo(menu *walk.Menu) {
 	menu.Actions().Add(walk.NewSeparatorAction())
 }
+
+// Idempotent action helpers that avoid redundant Win32 message broadcasts.
+func safelySetChecked(act *walk.Action, checked bool) {
+	if act != nil && act.Checked() != checked {
+		act.SetChecked(checked)
+	}
+}
+
+func safelySetEnabled(act *walk.Action, enabled bool) {
+	if act != nil && act.Enabled() != enabled {
+		act.SetEnabled(enabled)
+	}
+}
+
+func safelySetText(act *walk.Action, text string) {
+	if act != nil && act.Text() != text {
+		act.SetText(text)
+	}
+}

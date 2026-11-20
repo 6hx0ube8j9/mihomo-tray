@@ -132,10 +132,10 @@ func NotifyExistingInstance(eventName string) {
 	}
 
 	AllowSetForegroundWindow(asfwAny)
-	
+
 	_ = windows.SetEvent(hEvent)
 	_ = windows.CloseHandle(hEvent)
-	
+
 	slog.Debug("已发送唤醒信号，等待面板打开...")
 
 	if hAck != 0 {

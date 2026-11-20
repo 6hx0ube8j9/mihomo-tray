@@ -143,7 +143,7 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 	}
 
 	finalYAML := append([]byte(yamlHeader), outBytes...)
-	
+
 	return &ComposeResult{
 		YAML:      finalYAML,
 		TunDevice: tunDevice,
@@ -176,7 +176,7 @@ func patchTunNode(rootMap *yaml.Node, enable bool) (tunDevice string, extraTop [
 		if tunDevice == "" {
 			tunDevice = domain.DefaultTunDevice
 		}
-		
+
 		enableIdx, _ := findKey(tunV, "enable")
 		if enableIdx > 0 {
 			var newVal yaml.Node

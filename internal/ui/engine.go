@@ -163,6 +163,8 @@ func (e *Engine) listenState() {
 		case <-e.ctx.Done():
 			if e.app != nil {
 				e.app.Synchronize(func() {
+					
+					// Dispose UI windows and WndProc hooks on the UI thread before exiting the message loop.
 					e.disposeAll()
 					e.app.Exit(0)
 				})

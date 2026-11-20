@@ -193,7 +193,7 @@ func handleElevation(
 
 	cfg := cfgMgr.GetConfig()
 	cfgAutostart := cfg.IsAutostartEnabled()
-	runAsAdmin := cfg.General.RunAsAdmin	
+	runAsAdmin := cfg.General.RunAsAdmin
 
 	if taskInSync && (cfgAutostart || runAsAdmin || isDirRestricted) {
 		slog.Info("通过就绪的计划任务执行静默提权")

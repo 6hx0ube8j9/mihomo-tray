@@ -71,5 +71,5 @@ func (p *Platform) Elevate() (restarted bool, err error) {
 
 // IsTunActive 检查指定的虚拟网卡设备是否处于激活状态
 func (p *Platform) IsTunActive(targetDevice string) bool {
-    return sys.IsTunActive(targetDevice)
+	return sys.IsTunActive(targetDevice)
 }

@@ -17,10 +17,10 @@ var (
 	procEmptyClipboard   = modUser32.NewProc("EmptyClipboard")
 	procSetClipboardData = modUser32.NewProc("SetClipboardData")
 
-	procGlobalAlloc  = modKernel32.NewProc("GlobalAlloc")
-	procGlobalFree   = modKernel32.NewProc("GlobalFree")
-	procGlobalLock   = modKernel32.NewProc("GlobalLock")
-	procGlobalUnlock = modKernel32.NewProc("GlobalUnlock")
+	procGlobalAlloc   = modKernel32.NewProc("GlobalAlloc")
+	procGlobalFree    = modKernel32.NewProc("GlobalFree")
+	procGlobalLock    = modKernel32.NewProc("GlobalLock")
+	procGlobalUnlock  = modKernel32.NewProc("GlobalUnlock")
 	procRtlMoveMemory = modKernel32.NewProc("RtlMoveMemory")
 )
 
@@ -41,7 +41,7 @@ func WriteToClipboard(text string) error {
 	if err != nil {
 		return fmt.Errorf("构造剪贴板数据失败: %w", err)
 	}
-	
+
 	if err := openClipboardWithRetry(8, 15*time.Millisecond); err != nil {
 		procGlobalFree.Call(hMem)
 		return err

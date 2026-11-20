@@ -28,7 +28,7 @@ func SaveTempWithLimit(dir, pattern string, r io.Reader, maxBytes int64) (string
 			_ = os.Remove(tmpPath)
 		}
 	}()
-  
+
 	n, err := io.Copy(tmp, io.LimitReader(r, maxBytes+1))
 	if err != nil {
 		return "", fmt.Errorf("数据传输写入失败: %w", err)

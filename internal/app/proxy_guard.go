@@ -168,9 +168,9 @@ func (g *ProxyGuard) HandleStatusChange(ctx context.Context, status sys.ProxySta
 	}
 	cfg := g.cfg.GetConfig()
 	if !cfg.IsSystemProxyEnabled() {
- 		return
- 	}
- 
+		return
+	}
+
 	expectedPort, ok := cfg.EffectiveSystemProxyPortStr()
 	if !ok {
 		g.disableInternal()

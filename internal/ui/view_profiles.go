@@ -11,10 +11,10 @@ import (
 )
 
 type ProfileView struct {
-	engine         *Engine
-	tableView      *walk.TableView
-	model          *ProfileModel
-	portsLabel     *walk.Label
+	engine     *Engine
+	tableView  *walk.TableView
+	model      *ProfileModel
+	portsLabel *walk.Label
 
 	actionSwitch   *walk.Action
 	actionEditText *walk.Action
@@ -126,7 +126,7 @@ func (v *ProfileView) Declarative() []Widget {
 
 func (v *ProfileView) RefreshData(state domain.UIState) {
 	v.isBusy = state.IsBusy
-	
+
 	v.updatePortsLabel(state)
 	v.renderTableItems(state.ProfileItems)
 	v.updateActionState()
@@ -209,7 +209,7 @@ func (v *ProfileView) updateActionState() {
 	hasSelection := idx >= 0 && idx < len(v.model.Items)
 
 	var canSwitch, canUpdate, canMoveUp, canMoveDown bool
-	
+
 	if hasSelection && !v.isBusy {
 		item := v.model.Items[idx]
 		canSwitch = !item.IsActive

@@ -6,6 +6,8 @@ import (
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
 	"github.com/tailscale/win"
+
+	"mihomo-tray/internal/sys"
 )
 
 type EditorConfig struct {
@@ -105,18 +107,28 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 		cfg.OnReady(dlg)
 	}
 
+	center := func() {
+		var ownerHwnd uintptr
+		if owner != nil && owner.Visible() {
+			ownerHwnd = uintptr(owner.Handle())
+		}
+		sys.CenterWindowOnOwner(uintptr(dlg.Handle()), ownerHwnd)
+	}
+
 	dlg.Starting().Attach(func() {
-		walk.App().Synchronize(func() {
-			centerDialog(dlg, owner)
-		})
+		walk.App().Synchronize(center)
 	})
 
-	dlg.SizeChanged().Attach(func() {
-		centerDialog(dlg, owner)
-	})
+	// With FixedSize: true, walk may defer final height calculation (e.g. VSpacer)
+	// past Starting(); re-centering on SizeChanged prevents a downward visual offset.
+	dlg.SizeChanged().Attach(center)
 
 	dlg.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-		restoreFocus(owner, hActive)
+		if owner != nil && owner.Visible() {
+			sys.ActivateWindow(uintptr(owner.Handle()))
+			return
+		}
+		sys.ActivateWindow(uintptr(hActive))
 	})
 
 	dlg.Run()

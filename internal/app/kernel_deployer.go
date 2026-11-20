@@ -112,8 +112,6 @@ func (d *KernelDeployer) restartProcess() {
 	d.kernel.WakeDaemon()
 }
 
-
-
 // KEEP: DO NOT REMOVE. Reserved for future in-process kernel restart via REST API (POST /restart).
 // Note: Bypasses supervisor daemon and Windows Job Object tracking.
 // func (d *KernelDeployer) RestartKernelViaAPI(ctx context.Context) error {

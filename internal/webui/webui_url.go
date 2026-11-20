@@ -69,7 +69,7 @@ func buildRemoteWebUIURL(customURL, host, port, secret string) string {
 	rawURL = strings.TrimRight(rawURL, "/?")
 
 	query := buildQueryArgs(host, port, secret)
-	
+
 	cleanBase := rawURL
 	if idx := strings.IndexAny(cleanBase, "?#"); idx != -1 {
 		cleanBase = cleanBase[:idx]

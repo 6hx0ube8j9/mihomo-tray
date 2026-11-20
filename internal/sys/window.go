@@ -301,7 +301,11 @@ func CenterWindow(hwnd uintptr) {
 }
 
 // CenterWindowOnOwner centers hwnd over ownerHwnd within the owner's monitor work area,
-// or falls back to the cursor display's work area when ownerHwnd is unavailable.
+// falling back to the cursor display's work area when ownerHwnd is unavailable.
+//
+// Uses GetWindowRect symmetrically on both windows so invisible DWM drop shadows cancel
+// out, and preserves size, Z-order, and activation so it is safe to call from
+// HCBT_ACTIVATE hooks (e.g. MB_TOPMOST message boxes) and resize callbacks.
 func CenterWindowOnOwner(hwnd, ownerHwnd uintptr) {
 	if hwnd == 0 {
 		return

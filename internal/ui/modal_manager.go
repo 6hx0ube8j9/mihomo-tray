@@ -5,6 +5,8 @@ import (
 	"sync"
 
 	"github.com/tailscale/win"
+
+	"mihomo-tray/internal/sys"
 )
 
 type ModalManager struct {
@@ -24,7 +26,7 @@ func (m *ModalManager) TryAcquire(key string) bool {
 
 	if hwnd, exists := m.active[key]; exists {
 		slog.Debug("弹窗已存在，激活已有窗口", "key", key, "hwnd", hwnd)
-		ActivateWindow(hwnd)
+		sys.ActivateWindow(uintptr(hwnd))
 		return false
 	}
 

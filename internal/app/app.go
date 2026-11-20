@@ -82,24 +82,24 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	})
 
 	app.KernelDeployer = NewKernelDeployer(cm, st, kernel, api)
- 
+
 	app.Platform = NewPlatform(cm.ExePath(), cm.BaseDir())
 
- 	app.ProfileHub = NewProfileHub(cm, st, func() string {
- 		if app.KernelDeployer.IsKernelRunning() {
+	app.ProfileHub = NewProfileHub(cm, st, func() string {
+		if app.KernelDeployer.IsKernelRunning() {
 			port, _ := app.Cfg.GetConfig().EffectiveSystemProxyPortStr()
 			return port
- 		}
- 		return ""
- 	})
- 
+		}
+		return ""
+	})
+
 	app.Presenter = NewPresenter(cm, st, app.Platform, app.UIStateNotifyCh)
- 	app.ProfileUpdater = NewProfileUpdater(cm, st, app.ProfileHub, app.Presenter.PushUIState)
+	app.ProfileUpdater = NewProfileUpdater(cm, st, app.ProfileHub, app.Presenter.PushUIState)
 	app.Probe = NewKernelProbe(cm, st, api, app.Platform)
 	app.KernelTuner = NewKernelTuner(cm, st, api, app.Platform, app.ForceSyncAPI)
- 	app.WebUIService = NewWebUIService(cm, st, app.WebUI, app.webuiEventCh)
- 
- 	return app
+	app.WebUIService = NewWebUIService(cm, st, app.WebUI, app.webuiEventCh)
+
+	return app
 }
 
 func (a *Application) SetUIPort(ui UIPort) {

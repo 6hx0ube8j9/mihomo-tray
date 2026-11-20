@@ -1,10 +1,12 @@
+//go:build ignore
+
 package ui
 
 import "mihomo-tray/internal/domain"
 
 /*
 NOTE: Win32/CGO Access Violation Fallback
-Keep this as a backup. If the app ever crashes on exit (due to Walk framework updates 
+Keep this as a backup. If the app ever crashes on exit (due to Walk framework updates
 or Windows environment quirks), call `forceSafeExit(t.engine)` in tray.go instead.
 */
 

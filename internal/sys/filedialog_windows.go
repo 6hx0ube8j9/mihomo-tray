@@ -97,7 +97,7 @@ func (o *comObject) release() {
 func OpenFileDialog(opts FileDialogOptions) (string, bool, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-	
+
 	hrInit, _, _ := procCoInitializeEx.Call(0, coinitApartmentThreaded|coinitDisableOle1DDE)
 	switch uint32(hrInit) {
 	case sOK, sFalse:
