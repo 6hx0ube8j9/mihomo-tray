@@ -53,7 +53,7 @@ type Application struct {
 
 func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	api := core.NewAPIClient(domain.IPCNamedPipe)
-	kernel := core.NewKernelManager(cm, st, api)
+	kernel := core.NewKernelManager(core.MihomoDaemonSpec(cm.BaseDir(), st.IsExiting, api))
 
 	app := &Application{
 		Cfg:             cm,
@@ -83,20 +83,26 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 
 	app.KernelDeployer = NewKernelDeployer(cm, st, kernel, api)
 
+	app.Platform = NewPlatform(cm.ExePath(), cm.BaseDir())
+
 	app.ProfileHub = NewProfileHub(cm, st, func() string {
 		if app.KernelDeployer.IsKernelRunning() {
 			return app.Cfg.GetEffectiveLocalProxyPortStr()
 		}
 		return ""
+	}, func(content []byte, isActive bool) error {
+		if isActive {
+			_, err := core.ValidateRuntimeYAML(cm.GetConfig(), content, cm.BaseDir())
+			return err
+		}
+		_, err := core.ComposeRuntimeYAML(cm.GetConfig(), content)
+		return err
 	})
 
 	app.Presenter = NewPresenter(cm, st, app.UIStateNotifyCh)
 	app.ProfileUpdater = NewProfileUpdater(cm, st, app.ProfileHub, app.Presenter.PushUIState)
-	app.Probe = NewKernelProbe(cm, st, api)
-
-	app.Platform = NewPlatform(cm.ExePath(), cm.BaseDir())
-
-	app.KernelTuner = NewKernelTuner(cm, st, api, app.ForceSyncAPI)
+	app.Probe = NewKernelProbe(cm, st, api, app.Platform)
+	app.KernelTuner = NewKernelTuner(cm, st, api, app.Platform, app.ForceSyncAPI)
 	app.WebUIService = NewWebUIService(cm, st, app.WebUI, app.webuiEventCh)
 
 	return app

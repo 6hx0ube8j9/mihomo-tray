@@ -11,7 +11,6 @@ import (
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/netutil"
 	"mihomo-tray/internal/state"
-	"mihomo-tray/internal/sys"
 )
 
 const apiSyncTimeout = 3 * time.Second
@@ -20,14 +19,16 @@ type KernelTuner struct {
 	cfg       *config.Manager
 	st        *state.RuntimeState
 	api       *core.APIClient
+	platform  *Platform
 	forceSync func()
 }
 
-func NewKernelTuner(cfg *config.Manager, st *state.RuntimeState, api *core.APIClient, forceSync func()) *KernelTuner {
+func NewKernelTuner(cfg *config.Manager, st *state.RuntimeState, api *core.APIClient, platform *Platform, forceSync func()) *KernelTuner {
 	return &KernelTuner{
 		cfg:       cfg,
 		st:        st,
 		api:       api,
+		platform:  platform,
 		forceSync: forceSync,
 	}
 }
@@ -83,7 +84,7 @@ func (t *KernelTuner) ToggleTun(ctx context.Context, enable bool) error {
 			targetDev = domain.DefaultTunDevice
 		}
 
-		if sys.IsTunActive(targetDev) {
+		if t.platform.IsTunActive(targetDev) {
 			slog.Debug("虚拟网卡已被占用，无法开启 TUN", "device", targetDev)
 			return domain.ErrTunDeviceBusy
 		}
@@ -171,7 +172,7 @@ func (t *KernelTuner) ApplyPortConfig(ctx context.Context, mixed, socks, httpPor
 }
 
 func (t *KernelTuner) ReconcilePrivilege() {
-	if sys.IsAdmin() {
+	if t.platform.IsAdmin() {
 		return
 	}
 	if t.cfg.GetConfig().Config.Tun.Enable {

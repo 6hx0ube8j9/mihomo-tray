@@ -19,10 +19,7 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-var (
-	kernel32DLL             = windows.NewLazySystemDLL("kernel32.dll")
-	procMultiByteToWideChar = kernel32DLL.NewProc("MultiByteToWideChar")
-)
+var procMultiByteToWideChar = modKernel32.NewProc("MultiByteToWideChar")
 
 func getSchtasksPath() string {
 	sysRoot := os.Getenv("SystemRoot")

@@ -6,10 +6,36 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/fs"
 )
+
+func GetKernelPath(baseDir string) string {
+	return filepath.Join(baseDir, domain.KernelExeName)
+}
+
+func MihomoDaemonSpec(baseDir string, isExiting func() bool, client *APIClient) DaemonSpec {
+	spec := DaemonSpec{
+		BaseDir: baseDir,
+		ExeName: domain.KernelExeName,
+		BuildArgs: func(absBaseDir string) []string {
+			runtimeAbs := filepath.Join(absBaseDir, domain.RuntimeConfigName)
+			return []string{"-d", ".", "-f", runtimeAbs}
+		},
+		IsExiting: isExiting,
+		IsFatalLog: func(crashLog string) bool {
+			upper := strings.ToUpper(crashLog)
+			return strings.Contains(upper, "FATA") || strings.Contains(upper, "PANIC")
+		},
+	}
+	if client != nil {
+		spec.Ping = client.Ping
+		spec.OnSessionEnd = client.CloseIdleConnections
+	}
+	return spec
+}
 
 type DeployResult struct {
 	RuntimeAbs  string
@@ -23,18 +49,22 @@ func ValidateRuntimeYAML(cfg domain.TrayConfig, sourceBytes []byte, baseDir stri
 		return nil, err
 	}
 
-	testConfigAbs := filepath.Join(baseDir, domain.TestConfigFileName)
-	if err := os.WriteFile(testConfigAbs, res.YAML, 0644); err != nil {
-		return nil, fmt.Errorf("write test config: %w", err)
-	}
-	defer os.Remove(testConfigAbs)
-
-	kernelPath := GetKernelPath(baseDir)
-	if err := ValidateConfig(kernelPath, baseDir, testConfigAbs); err != nil {
+	if err := validateComposedYAML(res.YAML, baseDir); err != nil {
 		return nil, err
 	}
 
 	return res, nil
+}
+
+func validateComposedYAML(yamlBytes []byte, baseDir string) error {
+	testConfigAbs := filepath.Join(baseDir, domain.TestConfigFileName)
+	if err := os.WriteFile(testConfigAbs, yamlBytes, 0644); err != nil {
+		return fmt.Errorf("write test config: %w", err)
+	}
+	defer os.Remove(testConfigAbs)
+
+	kernelPath := GetKernelPath(baseDir)
+	return ValidateConfig(kernelPath, baseDir, testConfigAbs)
 }
 
 func DeployRuntimeConfig(cfg domain.TrayConfig, relPath string, baseDir string) (*DeployResult, error) {
@@ -48,22 +78,23 @@ func DeployRuntimeConfig(cfg domain.TrayConfig, relPath string, baseDir string) 
 		sourceBytes = content
 	}
 
-	runtimeAbs := filepath.Join(baseDir, domain.RuntimeConfigName)
-
-	if existingContent, err := os.ReadFile(runtimeAbs); err == nil {
-		res, err := ComposeRuntimeYAML(cfg, sourceBytes)
-		if err == nil && bytes.Equal(bytes.TrimSpace(existingContent), bytes.TrimSpace(res.YAML)) {
-			slog.Debug("配置内容无变动，跳过校验与落盘")
-			return &DeployResult{
-				RuntimeAbs:  runtimeAbs,
-				TunDevice:   res.TunDevice,
-				IsUnchanged: true,
-			}, nil
-		}
+	res, err := ComposeRuntimeYAML(cfg, sourceBytes)
+	if err != nil {
+		return nil, err
 	}
 
-	res, err := ValidateRuntimeYAML(cfg, sourceBytes, baseDir)
-	if err != nil {
+	runtimeAbs := filepath.Join(baseDir, domain.RuntimeConfigName)
+	if existingContent, err := os.ReadFile(runtimeAbs); err == nil &&
+		bytes.Equal(bytes.TrimSpace(existingContent), bytes.TrimSpace(res.YAML)) {
+		slog.Debug("配置内容无变动，跳过校验与落盘")
+		return &DeployResult{
+			RuntimeAbs:  runtimeAbs,
+			TunDevice:   res.TunDevice,
+			IsUnchanged: true,
+		}, nil
+	}
+
+	if err := validateComposedYAML(res.YAML, baseDir); err != nil {
 		return nil, err
 	}
 

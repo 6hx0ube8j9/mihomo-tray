@@ -10,7 +10,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/sys"
 )
 
@@ -20,6 +19,8 @@ const (
 )
 
 type ProcessRunner struct {
+	exeName string
+
 	activeJob    *sys.Job
 	activeCmd    *exec.Cmd
 	waitDone     chan struct{}
@@ -30,8 +31,8 @@ type ProcessRunner struct {
 	killMu sync.Mutex
 }
 
-func NewProcessRunner() *ProcessRunner {
-	return &ProcessRunner{}
+func NewProcessRunner(exeName string) *ProcessRunner {
+	return &ProcessRunner{exeName: exeName}
 }
 
 func (r *ProcessRunner) Close() {
@@ -47,11 +48,14 @@ func (r *ProcessRunner) Close() {
 }
 
 func (r *ProcessRunner) CleanupOrphans() {
-	sys.KillOtherProcessesByName(domain.KernelExeName, 0)
+	if r.exeName == "" {
+		return
+	}
+	sys.KillOtherProcessesByName(r.exeName, 0)
 }
 
-func (r *ProcessRunner) Start(workDir, targetExe, runtimeConfig string, out io.Writer) error {
-	cmd := exec.Command(targetExe, "-d", ".", "-f", runtimeConfig)
+func (r *ProcessRunner) Start(workDir, targetExe string, args []string, out io.Writer) error {
+	cmd := exec.Command(targetExe, args...)
 	cmd.Dir = workDir
 	cmd.SysProcAttr = sys.BackgroundProcAttr()
 	cmd.Stdout = out
@@ -152,19 +156,19 @@ func (r *ProcessRunner) Kill() {
 			_ = job.Terminate(0)
 		}
 		_ = cmd.Process.Kill()
-		if sys.IsPidRunning(pid, domain.KernelExeName) {
+		if sys.IsPidRunning(pid, r.exeName) {
 			sys.HardKill(pid)
 		}
 	}
 
-	if !sys.IsPidRunning(pid, domain.KernelExeName) {
+	if !sys.IsPidRunning(pid, r.exeName) {
 		forceKill()
 	} else if err := sys.SendCtrlBreak(pid); err != nil {
 		forceKill()
 	} else {
 		exited := false
 		for i := 0; i < 30; i++ {
-			if !sys.IsPidRunning(pid, domain.KernelExeName) {
+			if !sys.IsPidRunning(pid, r.exeName) {
 				exited = true
 				break
 			}
@@ -194,7 +198,7 @@ func (r *ProcessRunner) Pid() uint32 {
 
 func (r *ProcessRunner) IsRunning() bool {
 	pid := r.currentPid.Load()
-	return pid != 0 && sys.IsPidRunning(pid, domain.KernelExeName)
+	return pid != 0 && sys.IsPidRunning(pid, r.exeName)
 }
 
 func (r *ProcessRunner) IsKilledByUs() bool {

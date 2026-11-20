@@ -10,22 +10,23 @@ import (
 	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
-	"mihomo-tray/internal/sys"
 )
 
 const kernelAPIPollTimeout = 1500 * time.Millisecond
 
 type KernelProbe struct {
-	cfg *config.Manager
-	st  *state.RuntimeState
-	api *core.APIClient
+	cfg      *config.Manager
+	st       *state.RuntimeState
+	api      *core.APIClient
+	platform *Platform
 }
 
-func NewKernelProbe(cfg *config.Manager, st *state.RuntimeState, api *core.APIClient) *KernelProbe {
+func NewKernelProbe(cfg *config.Manager, st *state.RuntimeState, api *core.APIClient, platform *Platform) *KernelProbe {
 	return &KernelProbe{
-		cfg: cfg,
-		st:  st,
-		api: api,
+		cfg:      cfg,
+		st:       st,
+		api:      api,
+		platform: platform,
 	}
 }
 
@@ -118,7 +119,13 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 		res.Changed = true
 	}
 
-	realAlive := sys.IsTunActive(targetDev)
+	cfg := p.cfg.GetConfig()
+	wantTun := cfg.Config.Tun.Enable
+
+	realAlive := false
+	if wantTun || resp.Tun.Enable || p.st.IsTunAlive() {
+		realAlive = p.platform.IsTunActive(targetDev)
+	}
 	if p.st.IsTunAlive() != realAlive {
 		p.st.SetTunAlive(realAlive)
 		if !realAlive {
@@ -128,9 +135,6 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 		}
 		res.Changed = true
 	}
-
-	cfg := p.cfg.GetConfig()
-	wantTun := cfg.Config.Tun.Enable
 
 	tunRollback, reason, tunEnableDiff, tunChanged := p.reconcileTunStatus(wantTun, resp.Tun.Enable, resp.Tun.Device, targetDev, realAlive)
 	if tunRollback {
@@ -200,7 +204,7 @@ func (p *KernelProbe) reconcileTunStatus(
 	kernelDevice, targetDev string,
 	realAlive bool,
 ) (rollback bool, reason string, tunDiff *bool, changed bool) {
-	if !sys.IsAdmin() {
+	if !p.platform.IsAdmin() {
 		return false, "", nil, false
 	}
 

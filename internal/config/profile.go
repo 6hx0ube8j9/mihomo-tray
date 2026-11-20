@@ -78,7 +78,7 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 	dstAbs := m.GetProfileAbsPath(finalRelPath)
 
 	if err := fs.CopyFileWithLimit(absSrc, dstAbs, domain.MaxProfileBytes); err != nil {
-		return "", false, err 
+		return "", false, err
 	}
 
 	return finalRelPath, true, nil
@@ -112,15 +112,6 @@ func (m *Manager) UpsertProfile(item domain.ProfileItem) {
 		}
 		cfg.Profiles.Items = append(cfg.Profiles.Items, item)
 	})
-}
-
-func (m *Manager) GetActivePathAbs() string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if m.data.Profiles.Active == "" {
-		return ""
-	}
-	return m.GetProfileAbsPath(m.data.Profiles.Active)
 }
 
 func (m *Manager) GetActivePath() string {
@@ -180,8 +171,8 @@ func (m *Manager) DeleteProfile(relPath string) error {
 
 	absPath := m.GetProfileAbsPath(relPath)
 	var removeErr error
-	if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
-		removeErr = err 
+	if err := os.Remove(absPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		removeErr = err
 	}
 
 	m.RemoveProfile(relPath)
@@ -233,7 +224,7 @@ func (m *Manager) ValidatePhysicalFile(relPath string) error {
 
 	fi, err := os.Stat(absPath)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("%s: 目标文件不存在", fileName)
 		}
 		return err
@@ -248,7 +239,7 @@ func resolveUniqueProfileRelPath(profilesDirAbs, baseName string) string {
 	candidate := baseName
 	for i := 1; ; i++ {
 		target := filepath.Join(profilesDirAbs, candidate+profileFileExt)
-		if _, err := os.Stat(target); os.IsNotExist(err) {
+		if _, err := os.Stat(target); errors.Is(err, os.ErrNotExist) {
 			break
 		}
 		candidate = fmt.Sprintf("%s_%d", baseName, i)

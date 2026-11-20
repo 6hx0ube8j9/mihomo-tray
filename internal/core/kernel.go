@@ -9,10 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/logger"
-	"mihomo-tray/internal/state"
 	"mihomo-tray/internal/sys"
 )
 
@@ -28,6 +26,16 @@ const (
 )
 
 var ErrKernelExitedEarly = errors.New("内核进程已提前退出")
+
+type DaemonSpec struct {
+	BaseDir      string
+	ExeName      string
+	BuildArgs    func(absBaseDir string) []string
+	IsExiting    func() bool
+	Ping         func(ctx context.Context) error
+	OnSessionEnd func()
+	IsFatalLog   func(crashLog string) bool
+}
 
 type sessionResult struct {
 	runDuration  time.Duration
@@ -77,10 +85,8 @@ func (b *crashBackoff) advanceDelay() {
 }
 
 type KernelManager struct {
-	cfg    *config.Manager
-	st     *state.RuntimeState
+	spec   DaemonSpec
 	logger *logger.CoreLogger
-	client *APIClient
 	runner *ProcessRunner
 
 	mu           sync.Mutex
@@ -89,17 +95,11 @@ type KernelManager struct {
 	preStartHook func()
 }
 
-func GetKernelPath(baseDir string) string {
-	return filepath.Join(baseDir, domain.KernelExeName)
-}
-
-func NewKernelManager(cfg *config.Manager, st *state.RuntimeState, client *APIClient) *KernelManager {
+func NewKernelManager(spec DaemonSpec) *KernelManager {
 	return &KernelManager{
-		cfg:    cfg,
-		st:     st,
-		logger: logger.NewCoreLogger(cfg.BaseDir()),
-		client: client,
-		runner: NewProcessRunner(),
+		spec:   spec,
+		logger: logger.NewCoreLogger(spec.BaseDir),
+		runner: NewProcessRunner(spec.ExeName),
 		wakeCh: make(chan struct{}, 1),
 	}
 }
@@ -125,7 +125,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 	km.runner.CleanupOrphans()
 
 	for {
-		if ctx.Err() != nil || km.st.IsExiting() {
+		if ctx.Err() != nil || km.isExiting() {
 			km.runner.Kill()
 			return
 		}
@@ -163,23 +163,29 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.KernelEvent) sessionResult {
 	km.runPreStartHook()
 
-	target := GetKernelPath(km.cfg.BaseDir())
-	absBaseDir, _ := filepath.Abs(km.cfg.BaseDir())
-	runtimeAbs := filepath.Join(absBaseDir, domain.RuntimeConfigName)
+	absBaseDir, _ := filepath.Abs(km.spec.BaseDir)
+	target := filepath.Join(absBaseDir, km.spec.ExeName)
+
+	var args []string
+	if km.spec.BuildArgs != nil {
+		args = km.spec.BuildArgs(absBaseDir)
+	}
 
 	errBuf := logger.NewTailBuffer()
 	startTime := time.Now()
 
-	if err := km.runner.Start(absBaseDir, target, runtimeAbs, errBuf); err != nil {
+	if err := km.runner.Start(absBaseDir, target, args, errBuf); err != nil {
 		km.logger.WriteLog(err.Error())
 		return sessionResult{
 			runDuration:  0,
 			isCrash:      true,
 			crashLog:     err.Error(),
-			isAppExiting: ctx.Err() != nil || km.st.IsExiting(),
+			isAppExiting: ctx.Err() != nil || km.isExiting(),
 		}
 	}
-	defer km.client.CloseIdleConnections()
+	if km.spec.OnSessionEnd != nil {
+		defer km.spec.OnSessionEnd()
+	}
 
 	slog.Debug("内核进程已启动", "pid", km.runner.Pid())
 
@@ -204,7 +210,7 @@ func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.K
 	runDuration := time.Since(startTime)
 
 	isShutdown := sys.IsSystemShuttingDown()
-	isAppExiting := ctx.Err() != nil || km.st.IsExiting() || isShutdown
+	isAppExiting := ctx.Err() != nil || km.isExiting() || isShutdown
 	isCrash := (waitErr != nil || readyErr != nil) && !km.runner.IsKilledByUs() && !isAppExiting
 
 	return sessionResult{
@@ -217,6 +223,10 @@ func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.K
 }
 
 func (km *KernelManager) WaitForReady(ctx context.Context) error {
+	if km.spec.Ping == nil {
+		return nil
+	}
+
 	ticker := time.NewTicker(readyPollInterval)
 	defer ticker.Stop()
 
@@ -228,7 +238,7 @@ func (km *KernelManager) WaitForReady(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			if km.st.IsExiting() {
+			if km.isExiting() {
 				return context.Canceled
 			}
 
@@ -237,7 +247,7 @@ func (km *KernelManager) WaitForReady(ctx context.Context) error {
 			}
 
 			reqCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			err := km.client.Ping(reqCtx)
+			err := km.spec.Ping(reqCtx)
 			cancel()
 
 			if err == nil {
@@ -256,8 +266,7 @@ func (km *KernelManager) WaitForReady(ctx context.Context) error {
 }
 
 func (km *KernelManager) handleSessionCrash(res sessionResult, backoff *crashBackoff) {
-	upperLog := strings.ToUpper(res.crashLog)
-	isFatal := strings.Contains(upperLog, "FATA") || strings.Contains(upperLog, "PANIC")
+	isFatal := km.spec.IsFatalLog != nil && km.spec.IsFatalLog(res.crashLog)
 
 	if (res.runDuration < quickCrashThreshold || isFatal) && res.crashLog != "" {
 		km.logger.WriteLog(res.crashLog)
@@ -283,6 +292,10 @@ func (km *KernelManager) handleSessionCrash(res sessionResult, backoff *crashBac
 	}
 
 	backoff.advanceDelay()
+}
+
+func (km *KernelManager) isExiting() bool {
+	return km.spec.IsExiting != nil && km.spec.IsExiting()
 }
 
 func (km *KernelManager) waitIfPaused(ctx context.Context) bool {
@@ -340,10 +353,6 @@ func (km *KernelManager) IsPaused() bool {
 	km.mu.Lock()
 	defer km.mu.Unlock()
 	return km.isPaused
-}
-
-func (km *KernelManager) IsRunning() bool {
-	return km.runner != nil && km.runner.IsRunning()
 }
 
 func (km *KernelManager) KillCurrent() {
