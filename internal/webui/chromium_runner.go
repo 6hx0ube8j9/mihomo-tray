@@ -3,9 +3,6 @@
 package webui
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -14,8 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"mihomo-tray/internal/domain"
-	"mihomo-tray/internal/fs"
 	"mihomo-tray/internal/sys"
 )
 
@@ -35,53 +30,6 @@ var standardBrowserSuffixes = []string{
 	"brave", "vivaldi", "opera", "chromium",
 }
 
-func buildAppSignature(browserPath, dataDir string) string {
-	cleanPath := strings.ToLower(filepath.Clean(strings.TrimSpace(browserPath)))
-	cleanDir := strings.ToLower(strings.TrimSpace(dataDir))
-	return fmt.Sprintf("%s|%s|%s", domain.WebOpenModeApp, cleanPath, cleanDir)
-}
-
-func resolveCustomBrowserDataDir(exePath string) string {
-	if tag, ok := fs.MatchStandardChromium(exePath); ok {
-		return tag
-	}
-
-	resolved := fs.ResolveBrowserPath(exePath)
-	prefix := sanitizeBrowserPrefixResolved(resolved)
-	normalized := strings.ToLower(filepath.Clean(resolved))
-	sum := sha256.Sum256([]byte(normalized))
-
-	var hexBuf [16]byte
-	hex.Encode(hexBuf[:], sum[:8])
-
-	return prefix + "_" + string(hexBuf[:])
-}
-
-func sanitizeBrowserPrefixResolved(resolvedPath string) string {
-	if resolvedPath == "" {
-		return "browser"
-	}
-
-	base := filepath.Base(resolvedPath)
-	if ext := filepath.Ext(base); ext != "" {
-		base = strings.TrimSuffix(base, ext)
-	}
-	base = strings.ToLower(base)
-
-	var sb strings.Builder
-	for i := 0; i < len(base); i++ {
-		c := base[i]
-		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
-			sb.WriteByte(c)
-		}
-	}
-
-	if sb.Len() == 0 {
-		return "browser"
-	}
-	return sb.String()
-}
-
 func (m *Manager) cleanupChromium() {
 	m.stateMu.Lock()
 	safeDebugPort := m.debugPort
@@ -89,7 +37,6 @@ func (m *Manager) cleanupChromium() {
 	m.stateMu.Unlock()
 
 	if safeDebugPort != "" {
-		slog.Debug("关闭独立浏览器面板")
 		CloseAllWebUITargets(safeDebugPort)
 	}
 
@@ -102,7 +49,7 @@ func (m *Manager) cleanupChromium() {
 			time.Sleep(100 * time.Millisecond)
 		}
 		if sys.IsPidRunning(pid, "") {
-			slog.Debug("清理残留浏览器进程", "pid", pid)
+			slog.Debug("结束残留浏览器进程", "pid", pid)
 			sys.HardKill(pid)
 		}
 	}
@@ -110,19 +57,17 @@ func (m *Manager) cleanupChromium() {
 	m.hwnd.Store(0)
 }
 
-func (m *Manager) launchChromiumAppMode(cfg Config, cacheRoot, browserPath, dataDirName, finalURL, appHostPort string, eventCh chan<- Event) bool {
+func (m *Manager) launchChromiumApp(cfg Config, cacheRoot, browserPath, dataDirName, finalURL, appHostPort string, eventCh chan<- Event) bool {
 	if browserPath == "" || dataDirName == "" {
 		return false
 	}
 
 	safeDebugPort := m.prepareDebugPort()
-
-	if m.tryAttachExistingTarget(safeDebugPort, appHostPort, eventCh) {
-		slog.Debug("复用现有独立浏览器窗口")
+	if m.tryAttachExistingWindow(safeDebugPort, appHostPort, eventCh) {
 		return true
 	}
 
-	return m.launchIsolatedBrowser(cfg, cacheRoot, browserPath, dataDirName, finalURL, safeDebugPort, appHostPort, eventCh)
+	return m.startBrowserProcess(cfg, cacheRoot, browserPath, dataDirName, finalURL, safeDebugPort, appHostPort, eventCh)
 }
 
 func (m *Manager) prepareDebugPort() string {
@@ -144,30 +89,27 @@ func (m *Manager) prepareDebugPort() string {
 	return m.debugPort
 }
 
-func (m *Manager) tryAttachExistingTarget(debugPort, appHostPort string, eventCh chan<- Event) bool {
+func (m *Manager) tryAttachExistingWindow(debugPort, appHostPort string, eventCh chan<- Event) bool {
 	targetID, targetTitle, found := GetWebUITarget(debugPort)
 	if !found {
 		return false
 	}
-	slog.Debug("激活现有浏览器实例", "port", debugPort, "targetId", targetID)
 	_ = ActivateTarget(debugPort, targetID)
 
 	return m.waitForWindow(debugPort, appHostPort, targetTitle, m.isolatedPid.Load(), nil, eventCh)
 }
 
-func (m *Manager) launchIsolatedBrowser(cfg Config, cacheRoot, browserPath, dataDirName, finalURL, debugPort, appHostPort string, eventCh chan<- Event) bool {
-	slog.Debug("启动独立浏览器", "exe", browserPath, "dir", dataDirName, "port", debugPort)
-
+func (m *Manager) startBrowserProcess(cfg Config, cacheRoot, browserPath, dataDirName, finalURL, debugPort, appHostPort string, eventCh chan<- Event) bool {
 	userDataDir := filepath.Join(cacheRoot, dataDirName)
 	if err := os.MkdirAll(userDataDir, 0755); err != nil {
-		slog.Error("创建缓存目录失败", "path", userDataDir, "err", err)
+		slog.Warn("创建浏览器缓存目录失败", "path", userDataDir, "err", err)
 		return false
 	}
 
 	args := buildBrowserArgs(cfg, userDataDir, finalURL, debugPort)
 	cmd := exec.Command(browserPath, args...)
 	if err := cmd.Start(); err != nil {
-		slog.Error("启动浏览器进程失败", "path", browserPath, "err", err)
+		slog.Warn("启动浏览器进程失败", "path", browserPath, "err", err)
 		return false
 	}
 
@@ -184,13 +126,10 @@ func (m *Manager) launchIsolatedBrowser(cfg Config, cacheRoot, browserPath, data
 		return true
 	}
 
-	slog.Warn("等待浏览器窗口就绪失败，清理残留进程")
 	realPid := m.isolatedPid.Load()
-
 	if realPid != 0 && realPid != mainPid && sys.IsPidRunning(realPid, "") {
 		sys.HardKill(realPid)
 	}
-
 	if sys.IsPidRunning(mainPid, "") {
 		sys.HardKill(mainPid)
 	}
@@ -221,12 +160,10 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 				slog.Warn("浏览器进程异常退出", "err", err)
 				return false
 			}
-
-			slog.Debug("浏览器引导进程已退出，等待主窗口就绪")
 			exitCh = nil
 
 		case <-timer.C:
-			slog.Error("等待浏览器窗口超时")
+			slog.Warn("等待浏览器窗口超时", "timeout", chromiumInitTimeout)
 			return false
 
 		case <-ticker.C:
@@ -249,7 +186,7 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 			}
 
 			if isLive || titleToSearch != "" || realBrowserPid != 0 {
-				if m.findAndFocusWebUI(titleToSearch, appHostPort, realBrowserPid) {
+				if m.findAndFocusWindow(titleToSearch, appHostPort, realBrowserPid) {
 					emitEvent(eventCh, EventReady)
 					return true
 				}
@@ -258,7 +195,7 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 	}
 }
 
-func (m *Manager) findAndFocusWebUI(targetTitle, appHostPort string, targetPid uint32) bool {
+func (m *Manager) findAndFocusWindow(targetTitle, appHostPort string, targetPid uint32) bool {
 	exactTitle := strings.TrimSpace(targetTitle)
 	fallbackAnchor := strings.ToLower(strings.TrimSpace(appHostPort))
 

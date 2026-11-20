@@ -165,7 +165,7 @@ func (t *Tray) buildMenuSkeleton() {
 		t.toggle(domain.ActionToggleRunAsAdmin, !t.latestState.RunAsAdmin)
 	})
 
-	webModeMenu, _ := t.addSubMenu("面板打开方式")
+	webModeMenu, _ := t.addSubMenu("Web 打开方式")
 	t.actWebModeAuto = t.addRadioSubAction(webModeMenu, "自动选择 (Auto)", true, func() {
 		t.engine.SendCommand(domain.ActionSetWebOpenMode, domain.WebOpenModeAuto)
 	})
@@ -184,10 +184,10 @@ func (t *Tray) buildMenuSkeleton() {
 		t.engine.SendCommand(domain.ActionOpenAppConfig, "")
 	})
 	t.addSeparatorTo(moreMenu)
-	t.addActionTo(moreMenu, "复制面板密码", func() {
+	t.addActionTo(moreMenu, "复制接口访问密码", func() {
 		t.engine.SendCommand(domain.ActionCopyWebUIPassword, "")
 	})
-	t.addActionTo(moreMenu, "清除面板缓存", func() {
+	t.addActionTo(moreMenu, "清除 Web 面板缓存", func() {
 		t.engine.SendCommand(domain.ActionClearWebUICache, "")
 	})
 
@@ -224,7 +224,7 @@ func (t *Tray) rebuildProfilesMenu(state domain.UIState) {
 
 	if len(state.ProfileItems) == 0 {
 		emptyAction := walk.NewAction()
-		emptyAction.SetText("暂无配置")
+		emptyAction.SetText("无配置")
 		emptyAction.SetEnabled(false)
 		actions.Add(emptyAction)
 		return

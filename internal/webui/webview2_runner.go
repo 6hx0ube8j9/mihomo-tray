@@ -46,7 +46,7 @@ func isCorruptCacheError(err error) bool {
 	}
 }
 
-func tryCleanCorruptWebViewCache(userDataDir string, initErr error) {
+func cleanCorruptWebViewCache(userDataDir string, initErr error) {
 	if !isCorruptCacheError(initErr) {
 		return
 	}
@@ -59,10 +59,8 @@ func tryCleanCorruptWebViewCache(userDataDir string, initErr error) {
 		return
 	}
 
-	slog.Warn("清理异常 WebView2 缓存", "path", cleanDir)
-	if err := os.RemoveAll(cleanDir); err != nil {
-		slog.Debug("清理 WebView2 缓存失败", "path", cleanDir, "err", err)
-	}
+	slog.Warn("清理损坏的 WebView2 缓存", "path", cleanDir)
+	_ = os.RemoveAll(cleanDir)
 }
 
 func isWebView2Available() bool {
@@ -104,7 +102,6 @@ func (a *webviewAdapter) SetDarkMode(isDark bool) {
 func (m *Manager) cleanupWebView2() {
 	m.wvMu.Lock()
 	if m.wv != nil {
-		slog.Debug("关闭内置面板")
 		m.wv.Destroy()
 		m.wv = nil
 	}
@@ -118,13 +115,12 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 		return false
 	}
 	if cfg.WebOpenMode != domain.WebOpenModeWebView && wv2Broken.Load() {
-		slog.Debug("WebView2 已熔断，跳过")
 		return false
 	}
 
 	userDataDir := filepath.Join(cacheRoot, domain.WebViewCacheDirName)
 	if err := os.MkdirAll(userDataDir, 0755); err != nil {
-		slog.Error("创建 WebView2 缓存目录失败", "path", userDataDir, "err", err)
+		slog.Warn("创建 WebView2 缓存目录失败", "path", userDataDir, "err", err)
 		return false
 	}
 
@@ -143,7 +139,7 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 
 		defer func() {
 			if r := recover(); r != nil {
-				slog.Error("WebView2 渲染线程崩溃", "err", r, "stack", string(debug.Stack()))
+				slog.Error("WebView2 运行崩溃", "err", r, "stack", string(debug.Stack()))
 				wv2Broken.Store(true)
 				if hwnd != 0 {
 					sys.HideWindow(hwnd)
@@ -172,9 +168,9 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 			},
 		})
 		if err != nil {
-			slog.Error("WebView2 初始化失败", "err", err)
+			slog.Warn("WebView2 初始化失败", "err", err)
 			wv2Broken.Store(true)
-			tryCleanCorruptWebViewCache(userDataDir, err)
+			cleanCorruptWebViewCache(userDataDir, err)
 			select {
 			case initCh <- false:
 			default:
@@ -218,7 +214,7 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 				adapter.Destroy()
 				return
 			}
-			slog.Warn("WebView2 辅助进程异常", "err", ev.Err())
+			slog.Warn("WebView2 子进程异常", "err", ev.Err())
 		})
 
 		w.Navigate(finalURL)
@@ -238,7 +234,7 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 		return ok
 
 	case <-time.After(webviewInitTimeout):
-		slog.Error("WebView2 启动超时", "timeout", webviewInitTimeout)
+		slog.Warn("WebView2 启动超时", "timeout", webviewInitTimeout)
 
 		m.wvMu.Lock()
 		aborted.Store(true)

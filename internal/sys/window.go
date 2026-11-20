@@ -482,3 +482,8 @@ func IsWindowHung(hwnd uintptr) bool {
 	ret, _, _ := procIsHungAppWindow.Call(hwnd)
 	return ret != 0
 }
+
+func GetForegroundWindow() uintptr {
+	hwnd, _, _ := procGetForegroundWindow.Call()
+	return hwnd
+}

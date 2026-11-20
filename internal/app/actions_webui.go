@@ -112,7 +112,7 @@ func (a *Application) handleToggleRemoteWebUI(_ context.Context, cmd domain.UICo
 func (a *Application) handleCopyWebUIPassword(_ context.Context, _ domain.UICommand) {
 	secret := a.Cfg.GetConfig().EffectiveSecret()
 	if secret == "" {
-		a.notifyWarn("复制密码", errors.New("当前未设置面板密码"))
+		a.notifyWarn("复制密码", errors.New("当前未设置密码"))
 		return
 	}
 
@@ -130,7 +130,7 @@ func (a *Application) handleClearWebUICache(_ context.Context, _ domain.UIComman
 			return
 		}
 
-		if !a.ui.ShowConfirm("清理缓存", "确定清空面板本地缓存？") {
+		if !a.ui.ShowConfirm("清理缓存", "确定清空 Web 面板缓存？") {
 			return
 		}
 
@@ -139,6 +139,6 @@ func (a *Application) handleClearWebUICache(_ context.Context, _ domain.UIComman
 			return
 		}
 
-		a.notifySuccess("清理完成", "面板缓存已清空")
+		a.notifySuccess("清理完成", "Web 面板缓存已清空")
 	}()
 }

@@ -5,7 +5,6 @@ import (
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
-	"github.com/tailscale/win"
 
 	"mihomo-tray/internal/sys"
 )
@@ -34,7 +33,7 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 		cfg.CancelBtnText = "取消"
 	}
 
-	hActive := win.GetForegroundWindow()
+	hActive := sys.GetForegroundWindow()
 
 	var dlg *walk.Dialog
 	var acceptPB, cancelPB *walk.PushButton
@@ -128,7 +127,7 @@ func RunEditor(owner walk.Form, cfg EditorConfig) EditorResult {
 			sys.ActivateWindow(uintptr(owner.Handle()))
 			return
 		}
-		sys.ActivateWindow(uintptr(hActive))
+		sys.ActivateWindow(hActive)
 	})
 
 	dlg.Run()

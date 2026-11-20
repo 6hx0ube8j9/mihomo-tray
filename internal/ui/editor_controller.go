@@ -5,7 +5,6 @@ import (
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
-	"github.com/tailscale/win"
 
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/fs"
@@ -141,7 +140,7 @@ func (f *controllerEditorForm) widgets() []Widget {
 					},
 				},
 				Label{
-					Text:      "接口访问密钥",
+					Text:      "接口访问密码",
 					Alignment: AlignHNearVCenter,
 				},
 				Composite{
@@ -269,9 +268,9 @@ func (f *controllerEditorForm) onAccept(dlg *walk.Dialog) (bool, error) {
 	case !netutil.IsValidHostPort(addr):
 		return fail(f.addrEdit, "外部控制地址格式无效")
 	case netutil.IsPublicAddress(addr) && secret == "":
-		return fail(f.secretEdit, "当前外部控制地址支持公网访问，密钥不能为空")
+		return fail(f.secretEdit, "当前外部控制地址支持公网访问，密码不能为空")
 	case secret != "" && !domain.IsValidSecret(secret):
-		return fail(f.secretEdit, "密钥包含非法字符")
+		return fail(f.secretEdit, "密码包含非法字符")
 	case !netutil.IsValidHTTPURL(rURL):
 		return fail(f.remoteURLEdit, "在线面板地址无效")
 	}
@@ -280,18 +279,11 @@ func (f *controllerEditorForm) onAccept(dlg *walk.Dialog) (bool, error) {
 		if cPath == "" {
 			return fail(f.pathEdit, "请输入自定义浏览器路径")
 		}
-		if !fs.IsValidBrowserExecutable(cPath) {
+		if !fs.IsBrowserExecutable(cPath) {
 			return fail(f.pathEdit, "浏览器路径无效或文件不存在")
 		}
-		if mode == domain.WebOpenModeApp && !fs.IsChromiumBrowserExecutable(cPath) {
-			ret := ShowNativeMsgBox(
-				dlg,
-				"提示",
-				"应用模式仅支持 Chromium 浏览器，是否继续保存？",
-				walk.MsgBoxOKCancel|walk.MsgBoxIconQuestion,
-				func(win.HWND) {},
-			)
-			if ret != win.IDOK {
+		if mode == domain.WebOpenModeApp && !fs.IsChromiumBrowser(cPath) {
+			if !RunConfirmDialog(dlg, "提示", "应用模式仅支持 Chromium 浏览器，是否继续保存？") {
 				f.pathEdit.SetFocus()
 				return false, nil
 			}

@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"syscall"
 	"sync"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
 	"github.com/tailscale/win"
-	"golang.org/x/sys/windows"
 
 	"mihomo-tray/internal/domain"
 )
@@ -94,7 +94,7 @@ func (e *Engine) hookShutdown() {
 	var prevWndProc uintptr
 	var shutdownOnce sync.Once
 
-	newWndProc := windows.NewCallback(func(h win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
+	newWndProc := syscall.NewCallback(func(h win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
 		switch msg {
 		case wmQueryEndSession:
 			return 1
@@ -248,14 +248,13 @@ func (e *Engine) RunModalEditor(key string, cfg EditorConfig) EditorResult {
 
 	e.RunOnUI(func() {
 		if !e.modalMgr.TryAcquire(key) {
-			slog.Debug("模态窗口防抖拦截", "key", key)
 			return
 		}
 		defer e.modalMgr.Release(key)
 
 		originalOnReady := cfg.OnReady
 		cfg.OnReady = func(dlg *walk.Dialog) {
-			e.modalMgr.RegisterHWND(key, dlg.Handle())
+			e.modalMgr.RegisterHWND(key, uintptr(dlg.Handle()))
 			if originalOnReady != nil {
 				originalOnReady(dlg)
 			}
@@ -289,7 +288,7 @@ func (e *Engine) showModalAsync(prefix, title, message string, style walk.MsgBox
 		defer e.modalMgr.Release(key)
 
 		ShowNativeMsgBox(e.activeOwner(), title, message, style, func(hwnd win.HWND) {
-			e.modalMgr.RegisterHWND(key, hwnd)
+			e.modalMgr.RegisterHWND(key, uintptr(hwnd))
 		})
 	})
 }
@@ -308,7 +307,7 @@ func (e *Engine) ShowConfirm(title, message string) bool {
 		defer e.modalMgr.Release(key)
 
 		res := ShowNativeMsgBox(e.activeOwner(), title, message, walk.MsgBoxOKCancel|walk.MsgBoxIconQuestion, func(hwnd win.HWND) {
-			e.modalMgr.RegisterHWND(key, hwnd)
+			e.modalMgr.RegisterHWND(key, uintptr(hwnd))
 		})
 		result = (res == win.IDOK)
 	})
@@ -326,7 +325,6 @@ func (e *Engine) OpenYAMLFileDialog() (string, bool) {
 
 	e.RunOnUI(func() {
 		if !e.modalMgr.TryAcquire(modalKey) {
-			slog.Debug("文件选择对话框防抖拦截", "key", modalKey)
 			return
 		}
 		defer e.modalMgr.Release(modalKey)

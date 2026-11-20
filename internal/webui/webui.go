@@ -2,6 +2,7 @@ package webui
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"os"
@@ -16,6 +17,8 @@ import (
 	"mihomo-tray/internal/fs"
 	"mihomo-tray/internal/sys"
 )
+
+var errPanelBusy = errors.New("面板正在运行或启动中，请先关闭")
 
 type webviewSession interface {
 	Destroy()
@@ -82,6 +85,12 @@ func buildProxyArgs(proxyPort string) []string {
 	}
 }
 
+func buildAppSignature(browserPath, dataDir string) string {
+	cleanPath := strings.ToLower(filepath.Clean(strings.TrimSpace(browserPath)))
+	cleanDir := strings.ToLower(strings.TrimSpace(dataDir))
+	return fmt.Sprintf("%s|%s|%s", domain.WebOpenModeApp, cleanPath, cleanDir)
+}
+
 func (m *Manager) resolveCacheRoot(baseDir string) (string, error) {
 	m.cacheDirMu.Lock()
 	defer m.cacheDirMu.Unlock()
@@ -104,7 +113,7 @@ func (m *Manager) resolveCacheRoot(baseDir string) (string, error) {
 	if userCache, err := os.UserCacheDir(); err == nil && userCache != "" {
 		fallbackRoot := filepath.Join(userCache, domain.FallbackCacheAppDir, domain.WebCacheDir)
 		if err := sys.ValidateDirWritable(fallbackRoot); err == nil {
-			slog.Debug("当前目录受限，缓存已切换至 LocalAppData", "path", fallbackRoot)
+			slog.Debug("缓存切换至用户目录", "path", fallbackRoot)
 			m.resolvedCacheDir = fallbackRoot
 			return fallbackRoot, nil
 		} else if primaryErr == nil {
@@ -119,16 +128,13 @@ func (m *Manager) resolveCacheRoot(baseDir string) (string, error) {
 }
 
 func (m *Manager) ClearCache(baseDir string) error {
-	if m.IsActive() {
-		return errors.New("面板正在运行或启动中，请先关闭")
-	}
 	if !m.launchMu.TryLock() {
-		return errors.New("面板正在运行或启动中，请先关闭")
+		return errPanelBusy
 	}
 	defer m.launchMu.Unlock()
 
 	if m.IsActive() {
-		return errors.New("面板正在运行或启动中，请先关闭")
+		return errPanelBusy
 	}
 
 	m.cacheDirMu.Lock()
@@ -165,7 +171,7 @@ func (m *Manager) ClearCache(baseDir string) error {
 		}
 		if dirErr != nil {
 			lastErr = dirErr
-			slog.Debug("清理面板缓存失败", "path", cacheDir, "err", dirErr)
+			slog.Warn("清理面板缓存失败", "path", cacheDir, "err", dirErr)
 		}
 	}
 
@@ -196,13 +202,10 @@ func (m *Manager) Launch(cfg Config, eventCh chan<- Event, onReady func()) {
 	switch mode {
 	case domain.WebOpenModeBrowser:
 		m.launchBrowserMode(cfg.CustomBrowserEnabled, customPath, finalURL, eventCh)
-
 	case domain.WebOpenModeWebView:
-		m.launchPureWebViewMode(cfg, finalURL, eventCh)
-
+		m.launchWebViewMode(cfg, finalURL, eventCh)
 	case domain.WebOpenModeApp:
 		m.launchAppMode(cfg, cfg.CustomBrowserEnabled, customPath, finalURL, appHostPort, eventCh)
-
 	default:
 		m.launchAutoMode(cfg, finalURL, appHostPort, eventCh)
 	}
@@ -214,133 +217,143 @@ func (m *Manager) launchBrowserMode(customEnabled bool, customPath, finalURL str
 	}
 
 	if !customEnabled {
-		slog.Debug("启动系统默认浏览器")
 		m.openSystemBrowser(finalURL, eventCh)
 		return
 	}
 
 	resolvedPath := fs.ResolveBrowserPath(customPath)
-	if !fs.IsValidBrowserExecutable(resolvedPath) {
-		slog.Error("指定浏览器路径无效或文件不存在", "path", customPath)
+	if !fs.IsBrowserExecutable(resolvedPath) {
+		slog.Error("自定义浏览器路径无效", "path", customPath)
 		emitEvent(eventCh, EventError)
 		return
 	}
 
-	slog.Debug("启动指定浏览器打开标签页", "path", resolvedPath)
 	m.openCustomBrowserTab(resolvedPath, finalURL, eventCh)
 }
 
-func (m *Manager) launchPureWebViewMode(cfg Config, finalURL string, eventCh chan<- Event) {
+func (m *Manager) launchWebViewMode(cfg Config, finalURL string, eventCh chan<- Event) {
 	cacheRoot, err := m.resolveCacheRoot(cfg.BaseDir)
 	if err != nil {
-		slog.Error("缓存目录不可写，无法启动内置 WebView2 面板", "err", err)
+		slog.Error("WebView2 缓存目录不可写", "err", err)
 		emitEvent(eventCh, EventError)
 		return
 	}
 
 	const sig = domain.WebOpenModeWebView
-	m.reconcileSessionLocked(sig)
-
-	if m.tryWakeCachedWindow(eventCh) {
+	if m.tryReuseWindow(sig, eventCh) {
 		return
 	}
 
-	if m.launchWebView2(cfg, cacheRoot, finalURL, eventCh) {
-		m.setActiveSignature(sig)
-		slog.Debug("内置面板已启动", "mode", sig)
+	if m.startWebViewWindow(cfg, cacheRoot, finalURL, sig, eventCh) {
 		return
 	}
 
-	slog.Error("内置 WebView2 面板启动失败")
-	m.cleanupWebView2()
+	slog.Error("WebView2 启动失败")
 	emitEvent(eventCh, EventError)
 }
 
 func (m *Manager) launchAppMode(cfg Config, customEnabled bool, customPath, finalURL, appHostPort string, eventCh chan<- Event) {
 	cacheRoot, err := m.resolveCacheRoot(cfg.BaseDir)
 	if err != nil {
-		slog.Error("缓存目录不可写，无法启动独立浏览器面板", "err", err)
+		slog.Error("App 应用模式缓存目录不可写", "err", err)
 		emitEvent(eventCh, EventError)
 		return
 	}
 
-	var browserPath, dirName string
-	if customEnabled {
-		resolvedPath := fs.ResolveBrowserPath(customPath)
-		if !fs.IsValidBrowserExecutable(resolvedPath) {
-			slog.Error("指定浏览器路径无效或文件不存在", "path", customPath)
-			emitEvent(eventCh, EventError)
-			return
-		}
-		if fs.IsChromiumBrowserExecutable(resolvedPath) {
-			browserPath = resolvedPath
-			dirName = resolveCustomBrowserDataDir(resolvedPath)
-		} else {
-			slog.Warn("指定浏览器非 Chromium 内核，App 模式已忽略该配置", "path", customPath)
-		}
-	}
-
-	if browserPath == "" {
-		browserPath, dirName = fs.DetectChromiumBrowser()
-		if browserPath == "" {
-			slog.Error("未检测到可用的 Chromium 内核浏览器")
-			emitEvent(eventCh, EventError)
-			return
-		}
+	browserPath, dirName, ok := resolveAppBrowser(customEnabled, customPath)
+	if !ok {
+		emitEvent(eventCh, EventError)
+		return
 	}
 
 	sig := buildAppSignature(browserPath, dirName)
-	m.reconcileSessionLocked(sig)
-
-	if m.tryWakeCachedWindow(eventCh) {
+	if m.tryReuseWindow(sig, eventCh) {
 		return
 	}
 
-	if m.launchChromiumAppMode(cfg, cacheRoot, browserPath, dirName, finalURL, appHostPort, eventCh) {
-		m.setActiveSignature(sig)
-		slog.Debug("独立浏览器面板已启动", "exe", browserPath, "dir", dirName)
+	if m.startChromiumWindow(cfg, cacheRoot, browserPath, dirName, finalURL, appHostPort, sig, eventCh) {
 		return
 	}
 
-	slog.Error("独立浏览器面板启动失败", "exe", browserPath, "dir", dirName)
-	m.cleanupChromium()
+	slog.Error("App 应用模式启动失败", "path", browserPath)
 	emitEvent(eventCh, EventError)
 }
 
 func (m *Manager) launchAutoMode(cfg Config, finalURL, appHostPort string, eventCh chan<- Event) {
 	cacheRoot, err := m.resolveCacheRoot(cfg.BaseDir)
 	if err != nil {
-		slog.Warn("缓存目录不可写，使用系统浏览器", "err", err)
+		slog.Warn("缓存目录不可写，改用系统浏览器", "err", err)
 		m.openSystemBrowser(finalURL, eventCh)
 		return
 	}
 
 	const sig = domain.WebOpenModeAuto
-	m.reconcileSessionLocked(sig)
-
-	if m.tryWakeCachedWindow(eventCh) {
+	if m.tryReuseWindow(sig, eventCh) {
 		return
 	}
 
-	if m.launchWebView2(cfg, cacheRoot, finalURL, eventCh) {
-		m.setActiveSignature(sig)
-		slog.Debug("内置面板已启动", "mode", sig)
+	if m.startWebViewWindow(cfg, cacheRoot, finalURL, sig, eventCh) {
 		return
 	}
-	slog.Warn("内置面板启动失败，切换独立浏览器")
-	m.cleanupWebView2()
 
-	if browserPath, browserTag := fs.DetectChromiumBrowser(); browserPath != "" {
-		if m.launchChromiumAppMode(cfg, cacheRoot, browserPath, browserTag, finalURL, appHostPort, eventCh) {
-			m.setActiveSignature(sig)
-			slog.Debug("独立浏览器已启动", "browser", browserTag)
+	if browserPath, dirName := fs.DetectChromiumBrowser(); browserPath != "" {
+		slog.Debug("WebView2 不可用，改用 App 应用模式", "browser", dirName)
+		if m.startChromiumWindow(cfg, cacheRoot, browserPath, dirName, finalURL, appHostPort, sig, eventCh) {
 			return
 		}
 	}
-	slog.Warn("独立浏览器启动失败，切换系统浏览器")
-	m.cleanupChromium()
 
 	m.openSystemBrowser(finalURL, eventCh)
+}
+
+func resolveAppBrowser(customEnabled bool, customPath string) (browserPath, dirName string, ok bool) {
+	if customEnabled {
+		resolvedPath := fs.ResolveBrowserPath(customPath)
+		if !fs.IsBrowserExecutable(resolvedPath) {
+			slog.Error("自定义浏览器路径无效", "path", customPath)
+			return "", "", false
+		}
+		if fs.IsChromiumBrowser(resolvedPath) {
+			return resolvedPath, fs.ResolveBrowserDataDir(resolvedPath), true
+		}
+		slog.Warn("自定义浏览器不支持 App 应用模式，改用自动检测", "path", customPath)
+	}
+
+	browserPath, dirName = fs.DetectChromiumBrowser()
+	if browserPath == "" {
+		slog.Error("未找到支持 App 应用模式的浏览器")
+		return "", "", false
+	}
+	return browserPath, dirName, true
+}
+
+func (m *Manager) startWebViewWindow(cfg Config, cacheRoot, finalURL, sig string, eventCh chan<- Event) bool {
+	if m.launchWebView2(cfg, cacheRoot, finalURL, eventCh) {
+		m.setActiveSignature(sig)
+		slog.Debug("WebView2 已启动", "mode", sig)
+		return true
+	}
+	m.cleanupWebView2()
+	return false
+}
+
+func (m *Manager) startChromiumWindow(cfg Config, cacheRoot, browserPath, dirName, finalURL, appHostPort, sig string, eventCh chan<- Event) bool {
+	if m.launchChromiumApp(cfg, cacheRoot, browserPath, dirName, finalURL, appHostPort, eventCh) {
+		m.setActiveSignature(sig)
+		slog.Debug("App 应用模式已启动", "browser", dirName)
+		return true
+	}
+	m.cleanupChromium()
+	return false
+}
+
+func (m *Manager) tryReuseWindow(targetSig string, eventCh chan<- Event) bool {
+	if currSig := m.getActiveSignature(); currSig != "" && currSig != targetSig {
+		slog.Debug("面板配置变更，重启窗口", "from", currSig, "to", targetSig)
+		m.Cleanup()
+		return false
+	}
+	return m.tryWakeCachedWindow(eventCh)
 }
 
 func (m *Manager) getActiveSignature() string {
@@ -353,14 +366,6 @@ func (m *Manager) setActiveSignature(sig string) {
 	m.stateMu.Lock()
 	m.activeSignature = sig
 	m.stateMu.Unlock()
-}
-
-func (m *Manager) reconcileSessionLocked(targetSig string) {
-	currSig := m.getActiveSignature()
-	if currSig != "" && currSig != targetSig {
-		slog.Debug("面板启动配置发生变更，重建运行实例", "from", currSig, "to", targetSig)
-		m.Cleanup()
-	}
 }
 
 func (m *Manager) Cleanup() {
@@ -403,6 +408,7 @@ func (m *Manager) IsActive() bool {
 }
 
 func (m *Manager) openSystemBrowser(finalURL string, eventCh chan<- Event) {
+	slog.Debug("启动系统浏览器")
 	if err := sys.ExecuteSystemCommand(`"` + finalURL + `"`); err == nil {
 		emitEvent(eventCh, EventReady)
 	} else {
@@ -412,9 +418,10 @@ func (m *Manager) openSystemBrowser(finalURL string, eventCh chan<- Event) {
 }
 
 func (m *Manager) openCustomBrowserTab(browserPath, finalURL string, eventCh chan<- Event) {
+	slog.Debug("启动自定义浏览器", "path", browserPath)
 	cmd := exec.Command(browserPath, finalURL)
 	if err := cmd.Start(); err != nil {
-		slog.Error("启动指定浏览器失败", "path", browserPath, "err", err)
+		slog.Error("启动自定义浏览器失败", "path", browserPath, "err", err)
 		emitEvent(eventCh, EventError)
 		return
 	}
@@ -433,7 +440,7 @@ func (m *Manager) tryWakeCachedWindow(eventCh chan<- Event) bool {
 	}
 
 	if !sys.IsWindowVisible(hwnd) || sys.IsWindowHung(hwnd) {
-		slog.Debug("窗口失效，正在重置")
+		slog.Debug("面板窗口失效，重新打开")
 		m.Cleanup()
 		return false
 	}

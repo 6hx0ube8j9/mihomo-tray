@@ -4,19 +4,17 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/tailscale/win"
-
 	"mihomo-tray/internal/sys"
 )
 
 type ModalManager struct {
 	mu     sync.Mutex
-	active map[string]win.HWND
+	active map[string]uintptr
 }
 
 func NewModalManager() *ModalManager {
 	return &ModalManager{
-		active: make(map[string]win.HWND),
+		active: make(map[string]uintptr),
 	}
 }
 
@@ -25,8 +23,10 @@ func (m *ModalManager) TryAcquire(key string) bool {
 	defer m.mu.Unlock()
 
 	if hwnd, exists := m.active[key]; exists {
-		slog.Debug("弹窗已存在，激活已有窗口", "key", key, "hwnd", hwnd)
-		sys.ActivateWindow(uintptr(hwnd))
+		if hwnd != 0 {
+			slog.Debug("弹窗已存在，激活已有窗口", "key", key, "hwnd", hwnd)
+			sys.ActivateWindow(hwnd)
+		}
 		return false
 	}
 
@@ -34,7 +34,7 @@ func (m *ModalManager) TryAcquire(key string) bool {
 	return true
 }
 
-func (m *ModalManager) RegisterHWND(key string, hwnd win.HWND) {
+func (m *ModalManager) RegisterHWND(key string, hwnd uintptr) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
