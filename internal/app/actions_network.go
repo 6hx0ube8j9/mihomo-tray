@@ -29,10 +29,7 @@ func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand)
 
 	a.asyncRunError("TUN 模式", func() error {
 		if enable && !a.Platform.IsAdmin() {
-			targetDev := a.State.GetActualTunDevice()
-			if targetDev == "" {
-				targetDev = domain.DefaultTunDevice
-			}
+			targetDev := a.State.GetEffectiveTunDevice()
 			if a.Platform.IsTunActive(targetDev) {
 				slog.Debug("虚拟网卡已被占用", "device", targetDev)
 				return domain.ErrTunDeviceBusy
@@ -85,7 +82,7 @@ func (a *Application) handleRequestEditPort(ctx context.Context, _ domain.UIComm
 			if err != nil {
 				return err
 			}
-			if changed && a.Cfg.IsSystemProxyEnabled() {
+			if changed && a.Cfg.GetConfig().IsSystemProxyEnabled() {
 				a.ProxyGuard.Sync()
 			}
 			return nil

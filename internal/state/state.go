@@ -33,7 +33,6 @@ type RuntimeState struct {
 	tunLostTime atomic.Int64
 
 	proxyRepairing atomic.Bool
-	probeGen       atomic.Uint64
 	tunDevName     atomic.Value
 	systemTheme    atomic.Value
 	profileLocks   sync.Map
@@ -42,7 +41,7 @@ type RuntimeState struct {
 func NewRuntimeState() *RuntimeState {
 	rs := &RuntimeState{}
 	rs.phase.Store(int32(domain.PhaseInitializing))
-	rs.systemTheme.Store(domain.ThemeLight) 
+	rs.systemTheme.Store(domain.ThemeLight)
 	return rs
 }
 
@@ -128,7 +127,7 @@ func (r *RuntimeState) loadTime(target *atomic.Int64) time.Time {
 // 启动收敛控制
 func (r *RuntimeState) SetTunRequestedTime(t time.Time) { r.storeTime(&r.tunReqTime, t) }
 func (r *RuntimeState) GetTunRequestedTime() time.Time  { return r.loadTime(&r.tunReqTime) }
-func (r *RuntimeState) ClearTunStarting()              { r.storeTime(&r.tunReqTime, time.Time{}) }
+func (r *RuntimeState) ClearTunStarting()               { r.storeTime(&r.tunReqTime, time.Time{}) }
 func (r *RuntimeState) IsTunStarting() bool {
 	reqTime := r.GetTunRequestedTime()
 	return !reqTime.IsZero() && time.Since(reqTime) < TunInitGracePeriod
@@ -155,8 +154,14 @@ func (r *RuntimeState) GetActualTunDevice() string {
 	}
 	return ""
 }
+func (r *RuntimeState) GetEffectiveTunDevice() string {
+	if dev := r.GetActualTunDevice(); dev != "" {
+		return dev
+	}
+	return domain.DefaultTunDevice
+}
 
-// ---------------- 系统代理自动修复锁与探测代际 ----------------
+// ---------------- 系统代理自动修复锁 ----------------
 
 func (r *RuntimeState) TryAcquireProxyRepair() bool {
 	return r.proxyRepairing.CompareAndSwap(false, true)
@@ -165,10 +170,6 @@ func (r *RuntimeState) TryAcquireProxyRepair() bool {
 func (r *RuntimeState) ReleaseProxyRepair() {
 	r.proxyRepairing.Store(false)
 }
-
-func (r *RuntimeState) AdvanceProbeGen() uint64 { return r.probeGen.Add(1) }
-func (r *RuntimeState) GetProbeGen() uint64     { return r.probeGen.Load() }
-
 
 // ---------------- 系统主题状态 ----------------
 

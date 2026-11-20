@@ -53,7 +53,7 @@ type Application struct {
 
 func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	api := core.NewAPIClient(domain.IPCNamedPipe)
-	kernel := core.NewKernelManager(core.MihomoDaemonSpec(cm.BaseDir(), st.IsExiting, api))
+	kernel := core.NewKernelManager(cm.BaseDir(), st.IsExiting, api)
 
 	app := &Application{
 		Cfg:             cm,
@@ -82,30 +82,24 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	})
 
 	app.KernelDeployer = NewKernelDeployer(cm, st, kernel, api)
-
+ 
 	app.Platform = NewPlatform(cm.ExePath(), cm.BaseDir())
 
-	app.ProfileHub = NewProfileHub(cm, st, func() string {
-		if app.KernelDeployer.IsKernelRunning() {
-			return app.Cfg.GetEffectiveLocalProxyPortStr()
-		}
-		return ""
-	}, func(content []byte, isActive bool) error {
-		if isActive {
-			_, err := core.ValidateRuntimeYAML(cm.GetConfig(), content, cm.BaseDir())
-			return err
-		}
-		_, err := core.ComposeRuntimeYAML(cm.GetConfig(), content)
-		return err
-	})
-
-	app.Presenter = NewPresenter(cm, st, app.UIStateNotifyCh)
-	app.ProfileUpdater = NewProfileUpdater(cm, st, app.ProfileHub, app.Presenter.PushUIState)
+ 	app.ProfileHub = NewProfileHub(cm, st, func() string {
+ 		if app.KernelDeployer.IsKernelRunning() {
+			port, _ := app.Cfg.GetConfig().EffectiveSystemProxyPortStr()
+			return port
+ 		}
+ 		return ""
+ 	})
+ 
+	app.Presenter = NewPresenter(cm, st, app.Platform, app.UIStateNotifyCh)
+ 	app.ProfileUpdater = NewProfileUpdater(cm, st, app.ProfileHub, app.Presenter.PushUIState)
 	app.Probe = NewKernelProbe(cm, st, api, app.Platform)
 	app.KernelTuner = NewKernelTuner(cm, st, api, app.Platform, app.ForceSyncAPI)
-	app.WebUIService = NewWebUIService(cm, st, app.WebUI, app.webuiEventCh)
-
-	return app
+ 	app.WebUIService = NewWebUIService(cm, st, app.WebUI, app.webuiEventCh)
+ 
+ 	return app
 }
 
 func (a *Application) SetUIPort(ui UIPort) {
@@ -228,7 +222,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 			})
 		}
 
-		if res.PortChanged && a.Cfg.IsSystemProxyEnabled() {
+		if res.PortChanged && a.Cfg.GetConfig().IsSystemProxyEnabled() {
 			a.ProxyGuard.Sync()
 		}
 
@@ -295,22 +289,15 @@ func (a *Application) eventLoop(ctx context.Context) {
 				}
 				a.ProxyGuard.Sync()
 
-				currentGen := a.State.AdvanceProbeGen()
-				go func(gen uint64) {
-					defer a.Presenter.ForcePushUIState()
-					if a.State.IsExiting() || ctx.Err() != nil || a.State.GetProbeGen() != gen {
-						return
-					}
-					a.ForceSyncAPI()
-				}(currentGen)
+				a.ForceSyncAPI()
+				a.Presenter.ForcePushUIState()
+				continue
 
 			case domain.EventKernelStopped:
-				a.State.AdvanceProbeGen()
 				slog.Info("内核已停止，等待重启")
 				a.State.SetPhase(domain.PhaseInitializing)
 
 			case domain.EventKernelCrashed:
-				a.State.AdvanceProbeGen()
 				slog.Warn("内核进程异常退出")
 				a.State.SetPhase(domain.PhaseInitializing)
 			}

@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -89,6 +90,13 @@ func clonePtr[T any](p *T) *T {
 	return &v
 }
 
+func effectiveInt(p *int, def int) int {
+	if p == nil {
+		return def
+	}
+	return *p
+}
+
 func (c TrayConfig) Clone() TrayConfig {
 	out := c
 
@@ -122,6 +130,104 @@ func (c TrayConfig) Clone() TrayConfig {
 	}
 
 	return out
+}
+
+func (c TrayConfig) EffectiveMixedPort() int {
+	return effectiveInt(c.Config.MixedPort, DefaultMixedPort)
+}
+
+func (c TrayConfig) EffectivePort() int {
+	return effectiveInt(c.Config.Port, DefaultPort)
+}
+
+func (c TrayConfig) EffectiveSocksPort() int {
+	return effectiveInt(c.Config.SocksPort, DefaultSocksPort)
+}
+
+func (c TrayConfig) EffectiveSystemProxyPort() (int, bool) {
+	if c.Config.MixedPort != nil && *c.Config.MixedPort > 0 {
+		return *c.Config.MixedPort, true
+	}
+	if c.Config.Port != nil && *c.Config.Port > 0 {
+		return *c.Config.Port, true
+	}
+	return 0, false
+}
+
+func (c TrayConfig) EffectiveSystemProxyPortStr() (string, bool) {
+	port, ok := c.EffectiveSystemProxyPort()
+	if !ok {
+		return "", false
+	}
+	return strconv.Itoa(port), true
+}
+
+func (c TrayConfig) EffectiveSecret() string {
+	if c.Config.Secret == nil {
+		return ""
+	}
+	return *c.Config.Secret
+}
+
+func (c TrayConfig) EffectiveAllowLan() bool {
+	if c.Config.AllowLan == nil {
+		return DefaultAllowLan
+	}
+	return *c.Config.AllowLan
+}
+
+func (c TrayConfig) EffectiveExternalController() string {
+	if c.Config.ExternalController == "" {
+		return DefaultExternalController
+	}
+	return c.Config.ExternalController
+}
+
+func (c TrayConfig) EffectiveRemoteWebUIURL() string {
+	if c.General.RemoteWebUIURL != nil && *c.General.RemoteWebUIURL != "" {
+		return *c.General.RemoteWebUIURL
+	}
+	return DefaultRemoteWebUIURL
+}
+
+func (c TrayConfig) EffectiveWebOpenMode() string {
+	if c.General.WebOpenMode != nil && IsValidWebOpenMode(*c.General.WebOpenMode) {
+		return *c.General.WebOpenMode
+	}
+	return DefaultWebOpenMode
+}
+
+func (c TrayConfig) IsSystemProxyEnabled() bool {
+	return c.General.SystemProxy != nil && *c.General.SystemProxy
+}
+
+func (c TrayConfig) IsAutostartEnabled() bool {
+	return c.General.Autostart != nil && *c.General.Autostart
+}
+
+func (c TrayConfig) IsRemoteWebUIEnabled() bool {
+	return c.General.RemoteWebUI != nil && *c.General.RemoteWebUI
+}
+
+func (c TrayConfig) ControllerSettings() ControllerSettings {
+	var customPath string
+	if c.General.CustomBrowserPath != nil {
+		customPath = strings.TrimSpace(*c.General.CustomBrowserPath)
+	}
+
+	customEnabled := c.General.CustomBrowserEnabled != nil &&
+		*c.General.CustomBrowserEnabled &&
+		customPath != ""
+
+	return ControllerSettings{
+		Addr:                 c.EffectiveExternalController(),
+		Secret:               c.EffectiveSecret(),
+		RemoteWebUI:          c.IsRemoteWebUIEnabled(),
+		RemoteWebUIURL:       c.EffectiveRemoteWebUIURL(),
+		WebOpenMode:          c.EffectiveWebOpenMode(),
+		CustomBrowserEnabled: customEnabled,
+		CustomBrowserPath:    customPath,
+	}
 }
 
 func TruncateMiddle(name string) string {

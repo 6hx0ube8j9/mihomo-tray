@@ -8,8 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -24,7 +22,8 @@ type Manager struct {
 	mu   sync.RWMutex
 	ioMu sync.Mutex
 
-	data domain.TrayConfig
+	data        domain.TrayConfig
+	lastFlushed []byte
 }
 
 func NewManager(baseDir, exePath string) *Manager {
@@ -35,33 +34,43 @@ func NewManager(baseDir, exePath string) *Manager {
 }
 
 func (m *Manager) LoadAndInitMemory() {
+	m.ioMu.Lock()
+	defer m.ioMu.Unlock()
+
 	cfgPath := filepath.Join(m.baseDir, domain.TrayConfigName)
+	var loaded domain.TrayConfig
 	isTainted := false
 
-	m.mu.Lock()
-	if f, err := os.Open(cfgPath); err == nil {
-		if err := json.NewDecoder(f).Decode(&m.data); err != nil {
-			_ = f.Close()
+	raw, err := os.ReadFile(cfgPath)
+	if err == nil {
+		if err := json.Unmarshal(raw, &loaded); err != nil {
 			slog.Warn("应用配置解析失败，已重置默认", "path", cfgPath, "err", err)
 
 			corruptPath := cfgPath + fmt.Sprintf(".%d.err", time.Now().Unix())
 			_ = os.Rename(cfgPath, corruptPath)
 
+			loaded = domain.TrayConfig{}
 			isTainted = true
-		} else {
-			_ = f.Close()
 		}
 	} else {
 		slog.Debug("应用配置不存在，初始化默认配置", "path", cfgPath)
 		isTainted = true
 	}
 
-	if applyDefaults(&m.data) || isTainted {
-		m.mu.Unlock()
-		m.FlushInitialState()
+	if applyDefaults(&loaded) {
+		isTainted = true
+	}
+
+	m.mu.Lock()
+	m.data = loaded
+	m.mu.Unlock()
+
+	if isTainted {
+		m.lastFlushed = nil
+		m.flushIOLocked()
 		return
 	}
-	m.mu.Unlock()
+	m.lastFlushed = raw
 }
 
 func (m *Manager) ReloadFromDisk() error {
@@ -73,6 +82,7 @@ func (m *Manager) ReloadFromDisk() error {
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			slog.Warn("应用配置丢失，已从内存恢复")
+			m.lastFlushed = nil
 			m.flushIOLocked()
 			return nil
 		}
@@ -82,6 +92,7 @@ func (m *Manager) ReloadFromDisk() error {
 	var newCfg domain.TrayConfig
 	if err := json.Unmarshal(content, &newCfg); err != nil {
 		slog.Warn("应用配置损坏，已从内存恢复", "err", err)
+		m.lastFlushed = nil
 		m.flushIOLocked()
 		return nil
 	}
@@ -93,7 +104,10 @@ func (m *Manager) ReloadFromDisk() error {
 	m.mu.Unlock()
 
 	if isTainted {
+		m.lastFlushed = nil
 		m.flushIOLocked()
+	} else {
+		m.lastFlushed = content
 	}
 
 	return nil
@@ -105,21 +119,32 @@ func (m *Manager) GetConfig() domain.TrayConfig {
 	return m.data.Clone()
 }
 
-func (m *Manager) Update(updater func(cfg *domain.TrayConfig)) {
+func (m *Manager) TryUpdate(updater func(cfg *domain.TrayConfig) bool) bool {
 	m.ioMu.Lock()
 	defer m.ioMu.Unlock()
 
 	m.mu.Lock()
-	updater(&m.data)
+	if !updater(&m.data) {
+		m.mu.Unlock()
+		return false
+	}
 	snapshotBytes, err := json.MarshalIndent(m.data, "", "  ")
 	m.mu.Unlock()
 
 	if err != nil {
 		slog.Error("应用配置序列化失败", "err", err)
-		return
+		return true
 	}
 
 	m.writeDiskIOLocked(snapshotBytes)
+	return true
+}
+
+func (m *Manager) Update(updater func(cfg *domain.TrayConfig)) {
+	m.TryUpdate(func(cfg *domain.TrayConfig) bool {
+		updater(cfg)
+		return true
+	})
 }
 
 func (m *Manager) flushIOLocked() {
@@ -134,165 +159,16 @@ func (m *Manager) flushIOLocked() {
 }
 
 func (m *Manager) writeDiskIOLocked(snapshotBytes []byte) {
-	cfgPath := filepath.Join(m.baseDir, domain.TrayConfigName)
-
-	if existingBytes, err := os.ReadFile(cfgPath); err == nil && bytes.Equal(existingBytes, snapshotBytes) {
+	if m.lastFlushed != nil && bytes.Equal(m.lastFlushed, snapshotBytes) {
 		return
 	}
 
+	cfgPath := filepath.Join(m.baseDir, domain.TrayConfigName)
 	if err := fs.WriteAtomic(cfgPath, snapshotBytes); err != nil {
 		slog.Error("应用配置落盘失败", "err", err)
+		return
 	}
-}
-
-func (m *Manager) FlushInitialState() {
-	m.Update(func(cfg *domain.TrayConfig) {})
-}
-
-func (m *Manager) GetEffectivePort(p *int, defaultPort int) int {
-	if p == nil {
-		return defaultPort
-	}
-	return *p
-}
-
-func (m *Manager) GetEffectiveMixedPort() int {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.GetEffectivePort(m.data.Config.MixedPort, domain.DefaultMixedPort)
-}
-
-func (m *Manager) GetEffectiveSystemProxyPort() (int, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if m.data.Config.MixedPort != nil && *m.data.Config.MixedPort > 0 {
-		return *m.data.Config.MixedPort, true
-	}
-	if m.data.Config.Port != nil && *m.data.Config.Port > 0 {
-		return *m.data.Config.Port, true
-	}
-	return 0, false
-}
-
-func (m *Manager) GetEffectiveSystemProxyPortStr() (string, bool) {
-	port, ok := m.GetEffectiveSystemProxyPort()
-	if !ok {
-		return "", false
-	}
-	return strconv.Itoa(port), true
-}
-
-func (m *Manager) GetEffectiveLocalProxyPortStr() string {
-	portStr, _ := m.GetEffectiveSystemProxyPortStr()
-	return portStr
-}
-
-func (m *Manager) GetEffectiveSecret(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}
-
-func (m *Manager) GetEffectiveAllowLan() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if m.data.Config.AllowLan == nil {
-		return domain.DefaultAllowLan
-	}
-	return *m.data.Config.AllowLan
-}
-
-func (m *Manager) GetEffectiveExternalController() string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if m.data.Config.ExternalController == "" {
-		return domain.DefaultExternalController
-	}
-	return m.data.Config.ExternalController
-}
-
-func (m *Manager) GetEffectiveRemoteWebUIURL() string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if m.data.General.RemoteWebUIURL != nil && *m.data.General.RemoteWebUIURL != "" {
-		return *m.data.General.RemoteWebUIURL
-	}
-	return domain.DefaultRemoteWebUIURL
-}
-
-func (m *Manager) IsSystemProxyEnabled() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.data.General.SystemProxy != nil && *m.data.General.SystemProxy
-}
-
-func (m *Manager) IsAutostartEnabled() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.data.General.Autostart != nil && *m.data.General.Autostart
-}
-
-func (m *Manager) GetWebOpenMode() string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if m.data.General.WebOpenMode != nil && domain.IsValidWebOpenMode(*m.data.General.WebOpenMode) {
-		return *m.data.General.WebOpenMode
-	}
-	return domain.DefaultWebOpenMode
-}
-
-func (m *Manager) IsRemoteWebUIEnabled() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.data.General.RemoteWebUI != nil && *m.data.General.RemoteWebUI
-}
-
-func (m *Manager) GetControllerSettings() domain.ControllerSettings {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	addr := m.data.Config.ExternalController
-	if addr == "" {
-		addr = domain.DefaultExternalController
-	}
-
-	var secret string
-	if m.data.Config.Secret != nil {
-		secret = *m.data.Config.Secret
-	}
-
-	remoteWebUI := m.data.General.RemoteWebUI != nil && *m.data.General.RemoteWebUI
-
-	remoteURL := domain.DefaultRemoteWebUIURL
-	if m.data.General.RemoteWebUIURL != nil && *m.data.General.RemoteWebUIURL != "" {
-		remoteURL = *m.data.General.RemoteWebUIURL
-	}
-
-	openMode := domain.DefaultWebOpenMode
-	if m.data.General.WebOpenMode != nil && domain.IsValidWebOpenMode(*m.data.General.WebOpenMode) {
-		openMode = *m.data.General.WebOpenMode
-	}
-
-	var customPath string
-	if m.data.General.CustomBrowserPath != nil {
-		customPath = strings.TrimSpace(*m.data.General.CustomBrowserPath)
-	}
-
-	customEnabled := m.data.General.CustomBrowserEnabled != nil &&
-		*m.data.General.CustomBrowserEnabled &&
-		customPath != ""
-
-	return domain.ControllerSettings{
-		Addr:                 addr,
-		Secret:               secret,
-		RemoteWebUI:          remoteWebUI,
-		RemoteWebUIURL:       remoteURL,
-		WebOpenMode:          openMode,
-		CustomBrowserEnabled: customEnabled,
-		CustomBrowserPath:    customPath,
-	}
+	m.lastFlushed = snapshotBytes
 }
 
 func (m *Manager) BaseDir() string        { return m.baseDir }

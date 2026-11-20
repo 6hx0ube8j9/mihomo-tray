@@ -41,7 +41,8 @@ func (s *WebUIService) Open(forceSync func(), onReady func()) error {
 	}
 
 	cfg := s.cfg.GetConfig()
-	ctrl := s.cfg.GetControllerSettings()
+	ctrl := cfg.ControllerSettings()
+	proxyPort, _ := cfg.EffectiveSystemProxyPortStr()
 
 	slog.Debug("启动 Web 面板",
 		"addr", ctrl.Addr,
@@ -55,7 +56,7 @@ func (s *WebUIService) Open(forceSync func(), onReady func()) error {
 	wcfg := webui.Config{
 		APIAddr:              ctrl.Addr,
 		Secret:               ctrl.Secret,
-		ProxyPort:            s.cfg.GetEffectiveLocalProxyPortStr(),
+		ProxyPort:            proxyPort,
 		BaseDir:              s.cfg.BaseDir(),
 		UIName:               cfg.Config.ExternalUIName,
 		WebOpenMode:          ctrl.WebOpenMode,

@@ -79,10 +79,7 @@ func (t *KernelTuner) ToggleTun(ctx context.Context, enable bool) error {
 	}
 
 	if enable {
-		targetDev := t.st.GetActualTunDevice()
-		if targetDev == "" {
-			targetDev = domain.DefaultTunDevice
-		}
+		targetDev := t.st.GetEffectiveTunDevice()
 
 		if t.platform.IsTunActive(targetDev) {
 			slog.Debug("虚拟网卡已被占用，无法开启 TUN", "device", targetDev)
@@ -97,7 +94,7 @@ func (t *KernelTuner) ToggleTun(ctx context.Context, enable bool) error {
 		if enable {
 			t.st.SetTunRequestedTime(time.Now())
 		} else {
-			t.st.SetTunRequestedTime(time.Time{})
+			t.st.ClearTunStarting()
 		}
 	})
 }
@@ -115,7 +112,7 @@ func (t *KernelTuner) SwitchMode(ctx context.Context, mode string) error {
 }
 
 func (t *KernelTuner) ToggleAllowLan(ctx context.Context, enable bool) error {
-	if enable == t.cfg.GetEffectiveAllowLan() {
+	if enable == t.cfg.GetConfig().EffectiveAllowLan() {
 		return nil
 	}
 
@@ -131,10 +128,7 @@ func (t *KernelTuner) ToggleAllowLan(ctx context.Context, enable bool) error {
 
 func (t *KernelTuner) GetPortSnapshot() (mixed, socks, httpPort int) {
 	cfg := t.cfg.GetConfig()
-	mixed = t.cfg.GetEffectiveMixedPort()
-	socks = t.cfg.GetEffectivePort(cfg.Config.SocksPort, domain.DefaultSocksPort)
-	httpPort = t.cfg.GetEffectivePort(cfg.Config.Port, domain.DefaultPort)
-	return
+	return cfg.EffectiveMixedPort(), cfg.EffectiveSocksPort(), cfg.EffectivePort()
 }
 
 func (t *KernelTuner) ApplyPortConfig(ctx context.Context, mixed, socks, httpPort int) (bool, error) {

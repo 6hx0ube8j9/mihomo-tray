@@ -6,25 +6,26 @@ import (
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
-	"mihomo-tray/internal/sys"
 )
 
 type Presenter struct {
 	cfg      *config.Manager
 	st       *state.RuntimeState
+	platform *Platform
 	notifyCh chan struct{}
 
 	lastUIState domain.UIState
 	mu          sync.RWMutex
 }
 
-func NewPresenter(cfg *config.Manager, st *state.RuntimeState, notifyCh chan struct{}) *Presenter {
-	return &Presenter{
-		cfg:         cfg,
-		st:          st,
-		notifyCh:    notifyCh,
-		lastUIState: domain.UIState{IconState: domain.IconStop},
-	}
+func NewPresenter(cfg *config.Manager, st *state.RuntimeState, platform *Platform, notifyCh chan struct{}) *Presenter {
+ 	return &Presenter{
+ 		cfg:         cfg,
+ 		st:          st,
+		platform:    platform,
+ 		notifyCh:    notifyCh,
+ 		lastUIState: domain.UIState{IconState: domain.IconStop},
+ 	}
 }
 
 func (p *Presenter) CalculateUIState() domain.UIState {
@@ -39,23 +40,23 @@ func (p *Presenter) calculateUIStateLocked() domain.UIState {
 	s := domain.UIState{
 		IsBusy:      p.st.IsActionBusy(),
 		IsTun:       cfg.Config.Tun.Enable,
-		IsProxy:     p.cfg.IsSystemProxyEnabled(),
+		IsProxy:     cfg.IsSystemProxyEnabled(),
 		Mode:        cfg.Config.Mode,
-		AutoStart:   p.cfg.IsAutostartEnabled(),
+		AutoStart:   cfg.IsAutostartEnabled(),
 		RunAsAdmin:  cfg.General.RunAsAdmin,
-		WebOpenMode: p.cfg.GetWebOpenMode(),
-		RemoteWebUI: p.cfg.IsRemoteWebUIEnabled(),
-		AllowLan:    p.cfg.GetEffectiveAllowLan(),
-		IsAdmin:     sys.IsAdmin(),
+		WebOpenMode: cfg.EffectiveWebOpenMode(),
+		RemoteWebUI: cfg.IsRemoteWebUIEnabled(),
+		AllowLan:    cfg.EffectiveAllowLan(),
+		IsAdmin:     p.platform.IsAdmin(),		
 		SystemTheme: p.st.GetSystemTheme(),
 
-		MixedPort: p.cfg.GetEffectiveMixedPort(),
-		SocksPort: p.cfg.GetEffectivePort(cfg.Config.SocksPort, domain.DefaultSocksPort),
-		HttpPort:  p.cfg.GetEffectivePort(cfg.Config.Port, domain.DefaultPort),
+		MixedPort: cfg.EffectiveMixedPort(),
+		SocksPort: cfg.EffectiveSocksPort(),
+		HttpPort:  cfg.EffectivePort(),		
 	}
 
-	activePath := p.cfg.GetActivePath()
-	profiles := p.cfg.GetProfiles()
+	activePath := cfg.Profiles.Active
+	profiles := cfg.Profiles.Items	
 	s.CanAddProfile = len(profiles) < domain.MaxProfileCount
 
 	s.ProfileItems = make([]domain.UIProfileItem, 0, len(profiles))

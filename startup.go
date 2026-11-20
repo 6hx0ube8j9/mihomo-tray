@@ -101,7 +101,7 @@ func parseRestartingPID(args []string) uint32 {
 
 func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, isAdmin, canWrite bool) (taskInSync, needElevate bool) {
 	osTaskExists := sys.CheckAutoStartStatus(domain.AppTaskName)
-	cfgAutostart := cfgMgr.IsAutostartEnabled()
+	cfgAutostart := cfgMgr.GetConfig().IsAutostartEnabled()
 
 	if !osTaskExists {
 		if cfgAutostart {
@@ -191,8 +191,9 @@ func handleElevation(
 		return
 	}
 
-	cfgAutostart := cfgMgr.IsAutostartEnabled()
-	runAsAdmin := cfgMgr.GetConfig().General.RunAsAdmin
+	cfg := cfgMgr.GetConfig()
+	cfgAutostart := cfg.IsAutostartEnabled()
+	runAsAdmin := cfg.General.RunAsAdmin	
 
 	if taskInSync && (cfgAutostart || runAsAdmin || isDirRestricted) {
 		slog.Info("通过就绪的计划任务执行静默提权")

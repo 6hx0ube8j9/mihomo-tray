@@ -27,14 +27,8 @@ const (
 
 var ErrKernelExitedEarly = errors.New("内核进程已提前退出")
 
-type DaemonSpec struct {
-	BaseDir      string
-	ExeName      string
-	BuildArgs    func(absBaseDir string) []string
-	IsExiting    func() bool
-	Ping         func(ctx context.Context) error
-	OnSessionEnd func()
-	IsFatalLog   func(crashLog string) bool
+func GetKernelPath(baseDir string) string {
+	return filepath.Join(baseDir, domain.KernelExeName)
 }
 
 type sessionResult struct {
@@ -85,9 +79,11 @@ func (b *crashBackoff) advanceDelay() {
 }
 
 type KernelManager struct {
-	spec   DaemonSpec
-	logger *logger.CoreLogger
-	runner *ProcessRunner
+	baseDir     string
+	isExitingFn func() bool
+	api         *APIClient
+	logger      *logger.CoreLogger
+	runner      *ProcessRunner
 
 	mu           sync.Mutex
 	isPaused     bool
@@ -95,12 +91,14 @@ type KernelManager struct {
 	preStartHook func()
 }
 
-func NewKernelManager(spec DaemonSpec) *KernelManager {
+func NewKernelManager(baseDir string, isExiting func() bool, api *APIClient) *KernelManager {
 	return &KernelManager{
-		spec:   spec,
-		logger: logger.NewCoreLogger(spec.BaseDir),
-		runner: NewProcessRunner(spec.ExeName),
-		wakeCh: make(chan struct{}, 1),
+		baseDir:     baseDir,
+		isExitingFn: isExiting,
+		api:         api,
+		logger:      logger.NewCoreLogger(baseDir),
+		runner:      NewProcessRunner(domain.KernelExeName),
+		wakeCh:      make(chan struct{}, 1),
 	}
 }
 
@@ -163,13 +161,10 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.KernelEvent) sessionResult {
 	km.runPreStartHook()
 
-	absBaseDir, _ := filepath.Abs(km.spec.BaseDir)
-	target := filepath.Join(absBaseDir, km.spec.ExeName)
-
-	var args []string
-	if km.spec.BuildArgs != nil {
-		args = km.spec.BuildArgs(absBaseDir)
-	}
+	absBaseDir, _ := filepath.Abs(km.baseDir)
+	target := GetKernelPath(absBaseDir)
+	runtimeAbs := filepath.Join(absBaseDir, domain.RuntimeConfigName)
+	args := []string{"-d", ".", "-f", runtimeAbs}
 
 	errBuf := logger.NewTailBuffer()
 	startTime := time.Now()
@@ -183,8 +178,8 @@ func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.K
 			isAppExiting: ctx.Err() != nil || km.isExiting(),
 		}
 	}
-	if km.spec.OnSessionEnd != nil {
-		defer km.spec.OnSessionEnd()
+	if km.api != nil {
+		defer km.api.CloseIdleConnections()
 	}
 
 	slog.Debug("内核进程已启动", "pid", km.runner.Pid())
@@ -223,7 +218,7 @@ func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.K
 }
 
 func (km *KernelManager) WaitForReady(ctx context.Context) error {
-	if km.spec.Ping == nil {
+	if km.api == nil {
 		return nil
 	}
 
@@ -247,7 +242,7 @@ func (km *KernelManager) WaitForReady(ctx context.Context) error {
 			}
 
 			reqCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			err := km.spec.Ping(reqCtx)
+			err := km.api.Ping(reqCtx)
 			cancel()
 
 			if err == nil {
@@ -266,7 +261,8 @@ func (km *KernelManager) WaitForReady(ctx context.Context) error {
 }
 
 func (km *KernelManager) handleSessionCrash(res sessionResult, backoff *crashBackoff) {
-	isFatal := km.spec.IsFatalLog != nil && km.spec.IsFatalLog(res.crashLog)
+	upper := strings.ToUpper(res.crashLog)
+	isFatal := strings.Contains(upper, "FATA") || strings.Contains(upper, "PANIC")
 
 	if (res.runDuration < quickCrashThreshold || isFatal) && res.crashLog != "" {
 		km.logger.WriteLog(res.crashLog)
@@ -295,7 +291,7 @@ func (km *KernelManager) handleSessionCrash(res sessionResult, backoff *crashBac
 }
 
 func (km *KernelManager) isExiting() bool {
-	return km.spec.IsExiting != nil && km.spec.IsExiting()
+	return km.isExitingFn != nil && km.isExitingFn()
 }
 
 func (km *KernelManager) waitIfPaused(ctx context.Context) bool {

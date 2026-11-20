@@ -85,10 +85,10 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 }
 
 func (m *Manager) RegisterNewProfile(relPath string) {
-	m.Update(func(cfg *domain.TrayConfig) {
+	m.TryUpdate(func(cfg *domain.TrayConfig) bool {
 		for _, item := range cfg.Profiles.Items {
 			if item.Path == relPath {
-				return
+				return false
 			}
 		}
 
@@ -99,6 +99,7 @@ func (m *Manager) RegisterNewProfile(relPath string) {
 			Name: displayName,
 			Path: relPath,
 		})
+		return true
 	})
 }
 
@@ -140,27 +141,36 @@ func (m *Manager) GetProfileByPath(relPath string) (domain.ProfileItem, bool) {
 }
 
 func (m *Manager) SetActiveProfile(relPath string) {
-	if m.GetActivePath() == relPath {
-		return
-	}
-	m.Update(func(cfg *domain.TrayConfig) {
+	m.TryUpdate(func(cfg *domain.TrayConfig) bool {
+		if cfg.Profiles.Active == relPath {
+			return false
+		}
 		cfg.Profiles.Active = relPath
+		return true
 	})
 }
 
 func (m *Manager) RemoveProfile(relPath string) {
-	m.Update(func(cfg *domain.TrayConfig) {
+	m.TryUpdate(func(cfg *domain.TrayConfig) bool {
+		changed := false
 		if relPath == cfg.Profiles.Active {
 			cfg.Profiles.Active = ""
+			changed = true
 		}
 
 		var newItems []domain.ProfileItem
 		for _, item := range cfg.Profiles.Items {
 			if item.Path != relPath {
 				newItems = append(newItems, item)
+			} else {
+				changed = true
 			}
 		}
+		if !changed {
+			return false
+		}
 		cfg.Profiles.Items = newItems
+		return true
 	})
 }
 
@@ -180,37 +190,19 @@ func (m *Manager) DeleteProfile(relPath string) error {
 }
 
 func (m *Manager) MoveProfile(relPath string, offset int) bool {
-	m.mu.RLock()
-	canMove := false
-	for i, p := range m.data.Profiles.Items {
-		if p.Path == relPath {
-			targetIdx := i + offset
-			if targetIdx >= 0 && targetIdx < len(m.data.Profiles.Items) {
-				canMove = true
-			}
-			break
-		}
-	}
-	m.mu.RUnlock()
-
-	if !canMove {
-		return false
-	}
-
-	moved := false
-	m.Update(func(cfg *domain.TrayConfig) {
+	return m.TryUpdate(func(cfg *domain.TrayConfig) bool {
 		for i, p := range cfg.Profiles.Items {
 			if p.Path == relPath {
 				targetIdx := i + offset
 				if targetIdx >= 0 && targetIdx < len(cfg.Profiles.Items) {
 					cfg.Profiles.Items[i], cfg.Profiles.Items[targetIdx] = cfg.Profiles.Items[targetIdx], cfg.Profiles.Items[i]
-					moved = true
+					return true
 				}
-				return
+				return false
 			}
 		}
+		return false
 	})
-	return moved
 }
 
 func (m *Manager) ValidatePhysicalFile(relPath string) error {

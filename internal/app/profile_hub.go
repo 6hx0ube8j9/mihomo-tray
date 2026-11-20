@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"mihomo-tray/internal/config"
+	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
 )
@@ -24,15 +25,13 @@ type ProfileHub struct {
 	cfg       *config.Manager
 	st        *state.RuntimeState
 	proxyPort func() string
-	validate  func(content []byte, isActive bool) error
 }
 
-func NewProfileHub(cfg *config.Manager, st *state.RuntimeState, proxyPort func() string, validate func(content []byte, isActive bool) error) *ProfileHub {
+func NewProfileHub(cfg *config.Manager, st *state.RuntimeState, proxyPort func() string) *ProfileHub {
 	return &ProfileHub{
 		cfg:       cfg,
 		st:        st,
 		proxyPort: proxyPort,
-		validate:  validate,
 	}
 }
 
@@ -236,8 +235,10 @@ func (h *ProfileHub) validateBytes(content []byte, isActive bool) error {
 		return fmt.Errorf("文件大小超出限制 (%d MB)", domain.MaxProfileBytes/(1024*1024))
 	}
 
-	if h.validate != nil {
-		return h.validate(content, isActive)
+	if isActive {
+		_, err := core.ValidateRuntimeYAML(h.cfg.GetConfig(), content, h.cfg.BaseDir())
+		return err
 	}
-	return nil
+	_, err := core.ComposeRuntimeYAML(h.cfg.GetConfig(), content)
+	return err
 }

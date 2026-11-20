@@ -110,10 +110,7 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 
 	targetDev := resp.Tun.Device
 	if targetDev == "" {
-		targetDev = p.st.GetActualTunDevice()
-		if targetDev == "" {
-			targetDev = domain.DefaultTunDevice
-		}
+		targetDev = p.st.GetEffectiveTunDevice()
 	} else if targetDev != p.st.GetActualTunDevice() {
 		p.st.SetActualTunDevice(targetDev)
 		res.Changed = true
@@ -169,7 +166,7 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 		res.Changed = true
 	}
 
-	if resp.AllowLan != p.cfg.GetEffectiveAllowLan() {
+	if resp.AllowLan != cfg.EffectiveAllowLan() {
 		slog.Info("内核局域网共享更新", "to", resp.AllowLan)
 		a := resp.AllowLan
 		res.Diff.AllowLan = &a

@@ -1,5 +1,4 @@
-p
-ackage sys
+package sys
 
 import (
 	"strings"

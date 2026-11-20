@@ -25,7 +25,7 @@ func (a *Application) handleRequestEditController(_ context.Context, _ domain.UI
 			return
 		}
 
-		cur := a.Cfg.GetControllerSettings()
+		cur := a.Cfg.GetConfig().ControllerSettings()
 		next, ok := a.ui.ShowControllerEditor(cur)
 		if !ok {
 			return
@@ -76,34 +76,41 @@ func (a *Application) handleRequestEditController(_ context.Context, _ domain.UI
 }
 
 func (a *Application) handleSetWebOpenMode(_ context.Context, cmd domain.UICommand) {
-	targetMode := domain.NormalizeWebOpenMode(cmd.Payload)
-	if a.Cfg.GetWebOpenMode() == targetMode {
-		return
-	}
-
-	a.Cfg.Update(func(c *domain.TrayConfig) {
+ 	targetMode := domain.NormalizeWebOpenMode(cmd.Payload)
+	changed := a.Cfg.TryUpdate(func(c *domain.TrayConfig) bool {
+		if c.EffectiveWebOpenMode() == targetMode {
+			return false
+		}
 		c.General.WebOpenMode = &targetMode
+		return true
 	})
-	a.Presenter.PushUIState()
-	a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
-}
+	if !changed {
+ 		return
+ 	}
+
+ 	a.Presenter.PushUIState()
+ 	a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
+ }
 
 func (a *Application) handleToggleRemoteWebUI(_ context.Context, cmd domain.UICommand) {
-	b := (cmd.Payload == "true")
-	if a.Cfg.IsRemoteWebUIEnabled() == b {
-		return
-	}
-
-	a.Cfg.Update(func(c *domain.TrayConfig) {
+ 	b := (cmd.Payload == "true")
+	changed := a.Cfg.TryUpdate(func(c *domain.TrayConfig) bool {
+		if c.IsRemoteWebUIEnabled() == b {
+			return false
+		}
 		c.General.RemoteWebUI = &b
+		return true
 	})
-	a.Presenter.PushUIState()
-	a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
-}
+	if !changed {
+ 		return
+ 	}
+
+ 	a.Presenter.PushUIState()
+ 	a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
+ }
 
 func (a *Application) handleCopyWebUIPassword(_ context.Context, _ domain.UICommand) {
-	cfg := a.Cfg.GetConfig()
-	secret := a.Cfg.GetEffectiveSecret(cfg.Config.Secret)
+	secret := a.Cfg.GetConfig().EffectiveSecret()
 	if secret == "" {
 		a.notifyWarn("复制密码", errors.New("当前未设置面板密码"))
 		return

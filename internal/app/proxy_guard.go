@@ -48,7 +48,7 @@ func (g *ProxyGuard) SetProxy(enable bool) error {
 		return domain.ErrKernelNotReady
 	}
 
-	portStr, hasPort := g.cfg.GetEffectiveSystemProxyPortStr()
+	portStr, hasPort := g.cfg.GetConfig().EffectiveSystemProxyPortStr()
 	if !hasPort {
 		return domain.ErrNoProxyPort
 	}
@@ -79,8 +79,10 @@ func (g *ProxyGuard) syncInternal() bool {
 	}
 
 	g.mu.Lock()
-	wantEnable := g.cfg.IsSystemProxyEnabled()
-	portStr, hasPort := g.cfg.GetEffectiveSystemProxyPortStr()
+
+	cfg := g.cfg.GetConfig()
+	wantEnable := cfg.IsSystemProxyEnabled()
+	portStr, hasPort := cfg.EffectiveSystemProxyPortStr()
 
 	if !wantEnable {
 		g.cleanupRegistryProxyLocked(portStr)
@@ -138,14 +140,16 @@ func (g *ProxyGuard) disableInternal() {
 }
 
 func (g *ProxyGuard) disableInternalLocked() {
-	if g.cfg.IsSystemProxyEnabled() {
+	cfg := g.cfg.GetConfig()
+	if cfg.IsSystemProxyEnabled() {
+
 		g.cfg.Update(func(c *domain.TrayConfig) {
 			b := false
 			c.General.SystemProxy = &b
 		})
 	}
 
-	portStr, _ := g.cfg.GetEffectiveSystemProxyPortStr()
+	portStr, _ := cfg.EffectiveSystemProxyPortStr()
 	g.cleanupRegistryProxyLocked(portStr)
 }
 
@@ -153,17 +157,21 @@ func (g *ProxyGuard) SafeShutdownCleanup() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	portStr, _ := g.cfg.GetEffectiveSystemProxyPortStr()
+	portStr, _ := g.cfg.GetConfig().EffectiveSystemProxyPortStr()
 	g.cleanupRegistryProxyLocked(portStr)
 	slog.Debug("系统代理退出清理完成")
 }
 
 func (g *ProxyGuard) HandleStatusChange(ctx context.Context, status sys.ProxyStatus) {
-	if g.st.IsExiting() || !g.cfg.IsSystemProxyEnabled() {
+	if g.st.IsExiting() {
 		return
 	}
-
-	expectedPort, ok := g.cfg.GetEffectiveSystemProxyPortStr()
+	cfg := g.cfg.GetConfig()
+	if !cfg.IsSystemProxyEnabled() {
+ 		return
+ 	}
+ 
+	expectedPort, ok := cfg.EffectiveSystemProxyPortStr()
 	if !ok {
 		g.disableInternal()
 		return
@@ -210,7 +218,7 @@ func (g *ProxyGuard) reconcileDisconnection(ctx context.Context, expectedServer 
 		case <-timer.C:
 		}
 
-		if g.st.IsExiting() || !g.cfg.IsSystemProxyEnabled() {
+		if g.st.IsExiting() || !g.cfg.GetConfig().IsSystemProxyEnabled() {
 			return
 		}
 

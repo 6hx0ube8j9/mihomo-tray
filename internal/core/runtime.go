@@ -6,36 +6,10 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/fs"
 )
-
-func GetKernelPath(baseDir string) string {
-	return filepath.Join(baseDir, domain.KernelExeName)
-}
-
-func MihomoDaemonSpec(baseDir string, isExiting func() bool, client *APIClient) DaemonSpec {
-	spec := DaemonSpec{
-		BaseDir: baseDir,
-		ExeName: domain.KernelExeName,
-		BuildArgs: func(absBaseDir string) []string {
-			runtimeAbs := filepath.Join(absBaseDir, domain.RuntimeConfigName)
-			return []string{"-d", ".", "-f", runtimeAbs}
-		},
-		IsExiting: isExiting,
-		IsFatalLog: func(crashLog string) bool {
-			upper := strings.ToUpper(crashLog)
-			return strings.Contains(upper, "FATA") || strings.Contains(upper, "PANIC")
-		},
-	}
-	if client != nil {
-		spec.Ping = client.Ping
-		spec.OnSessionEnd = client.CloseIdleConnections
-	}
-	return spec
-}
 
 type DeployResult struct {
 	RuntimeAbs  string
