@@ -4,25 +4,29 @@ package sys
 
 import (
 	"context"
-	"errors"
 	"log/slog"
+	"sync"
 	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
-const (
-	restartingProcessWaitTimeout = 3 * time.Second
-	waitObject0                  = 0x00000000
-	waitAbandoned                = 0x00000080
-)
+const restartingProcessWaitTimeout = 3 * time.Second
 
 type SingleInstanceGuard struct {
-	hMutex  windows.Handle
-	hEvent  windows.Handle
-	hCancel windows.Handle
-	hAck    windows.Handle
+	mu         sync.Mutex
+	hMutex     windows.Handle
+	hEvent     windows.Handle
+	hCancel    windows.Handle
+	hAck       windows.Handle
+	closed     bool
+	listenDone chan struct{}
+	afterDone  chan struct{}
+	stopAfter  func() bool
+
+	listenOnce sync.Once
+	closeOnce  sync.Once
 }
 
 func getPermissiveSecAttr() *windows.SecurityAttributes {
@@ -39,32 +43,30 @@ func getPermissiveSecAttr() *windows.SecurityAttributes {
 
 func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (*SingleInstanceGuard, bool) {
 	sa := getPermissiveSecAttr()
-	mName, _ := windows.UTF16PtrFromString(mutexName)
-	isRestarting := oldPID > 0
+	mName, err := windows.UTF16PtrFromString(mutexName)
+	if err != nil {
+		return nil, false
+	}
 
 	hMutex, err := windows.CreateMutex(sa, true, mName)
-	isAlreadyExist := errors.Is(err, windows.ERROR_ALREADY_EXISTS) || errors.Is(err, windows.ERROR_ACCESS_DENIED)
-
-	if !isAlreadyExist && err == nil && hMutex != 0 {
+	if err == nil && hMutex != 0 {
 		return buildGuard(sa, eventName, hMutex)
 	}
 
-	if !isRestarting {
+	if oldPID == 0 {
 		if hMutex != 0 {
 			_ = windows.CloseHandle(hMutex)
 		}
 		return nil, false
 	}
 
-	slog.Debug("等待旧进程退出", "pid", oldPID)
+	if oldPID > 1 {
+		waitForOldProcessHandle(oldPID, 2*time.Second)
+	}
 
 	if hMutex != 0 {
-		if oldPID > 1 {
-			waitForOldProcessHandle(oldPID, 2*time.Second)
-		}
-
 		waitStatus, waitErr := windows.WaitForSingleObject(hMutex, uint32(restartingProcessWaitTimeout.Milliseconds()))
-		if waitErr == nil && (waitStatus == waitObject0 || waitStatus == waitAbandoned) {
+		if waitErr == nil && (waitStatus == windows.WAIT_OBJECT_0 || waitStatus == windows.WAIT_ABANDONED) {
 			return buildGuard(sa, eventName, hMutex)
 		}
 		_ = windows.CloseHandle(hMutex)
@@ -75,7 +77,7 @@ func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (*Sing
 		time.Sleep(50 * time.Millisecond)
 
 		retryMutex, retryErr := windows.CreateMutex(sa, true, mName)
-		if !errors.Is(retryErr, windows.ERROR_ALREADY_EXISTS) && retryErr == nil && retryMutex != 0 {
+		if retryErr == nil && retryMutex != 0 {
 			return buildGuard(sa, eventName, retryMutex)
 		}
 		if retryMutex != 0 {
@@ -83,14 +85,13 @@ func TryAcquireSingleInstance(mutexName, eventName string, oldPID uint32) (*Sing
 		}
 	}
 
-	slog.Warn("等待旧进程退出超时", "pid", oldPID)
 	return nil, false
 }
 
 func buildGuard(sa *windows.SecurityAttributes, eventName string, hMutex windows.Handle) (*SingleInstanceGuard, bool) {
 	eName, _ := windows.UTF16PtrFromString(eventName)
 	hEvent, _ := windows.CreateEvent(sa, 0, 0, eName)
-	hCancel, _ := windows.CreateEvent(nil, 0, 0, nil)
+	hCancel, _ := windows.CreateEvent(nil, 1, 0, nil)
 
 	ackName, _ := windows.UTF16PtrFromString(eventName + "_ACK")
 	hAck, _ := windows.CreateEvent(sa, 0, 0, ackName)
@@ -114,70 +115,89 @@ func waitForOldProcessHandle(pid uint32, timeout time.Duration) {
 }
 
 func NotifyExistingInstance(eventName string) {
-	eName, _ := windows.UTF16PtrFromString(eventName)
-	ackName, _ := windows.UTF16PtrFromString(eventName + "_ACK")
+	eName, err := windows.UTF16PtrFromString(eventName)
+	if err != nil {
+		return
+	}
+	ackName, err := windows.UTF16PtrFromString(eventName + "_ACK")
+	if err != nil {
+		return
+	}
 
 	hAck, errAck := windows.OpenEvent(windows.EVENT_MODIFY_STATE|windows.SYNCHRONIZE, false, ackName)
 	if errAck == nil && hAck != 0 {
 		_ = windows.ResetEvent(hAck)
+		defer windows.CloseHandle(hAck)
 	}
 
 	hEvent, errEvt := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, eName)
 	if errEvt != nil || hEvent == 0 {
-		slog.Warn("发送唤醒信号失败", "err", errEvt)
-		if hAck != 0 {
-			_ = windows.CloseHandle(hAck)
-		}
 		return
 	}
 
 	AllowSetForegroundWindow(asfwAny)
-
 	_ = windows.SetEvent(hEvent)
 	_ = windows.CloseHandle(hEvent)
 
-	slog.Debug("已发送唤醒信号，等待面板打开...")
-
 	if hAck != 0 {
-		waitRes, errWait := windows.WaitForSingleObject(hAck, 2000)
-		if errWait == nil && waitRes == waitObject0 {
-			slog.Debug("面板已打开，退出当前进程")
-		} else {
-			slog.Debug("等待面板响应超时，退出当前进程")
-		}
-		_ = windows.CloseHandle(hAck)
+		_, _ = windows.WaitForSingleObject(hAck, 2000)
 	}
 }
 
 func (g *SingleInstanceGuard) ListenWakeEvent(ctx context.Context, onWake func()) {
-	if g == nil || g.hEvent == 0 || g.hCancel == 0 {
+	if g == nil || onWake == nil {
 		return
 	}
 
-	stopCancel := context.AfterFunc(ctx, func() {
-		_ = windows.SetEvent(g.hCancel)
-	})
-
-	go func() {
-		defer stopCancel()
-		handles := [2]windows.Handle{g.hEvent, g.hCancel}
-
-		for {
-			event, err := windows.WaitForMultipleObjects(handles[:], false, windows.INFINITE)
-			if err != nil || event != waitObject0 {
-				return
-			}
-
-			if ctx.Err() == nil {
-				slog.Info("收到唤醒面板请求")
-				onWake()
-			}
+	g.listenOnce.Do(func() {
+		g.mu.Lock()
+		if g.closed || g.hEvent == 0 || g.hCancel == 0 {
+			g.mu.Unlock()
+			return
 		}
-	}()
+
+		hEvent := g.hEvent
+		hCancel := g.hCancel
+		listenDone := make(chan struct{})
+		afterDone := make(chan struct{})
+		g.listenDone = listenDone
+		g.afterDone = afterDone
+		g.stopAfter = context.AfterFunc(ctx, func() {
+			defer close(afterDone)
+			g.mu.Lock()
+			if !g.closed && g.hCancel != 0 {
+				_ = windows.SetEvent(g.hCancel)
+			}
+			g.mu.Unlock()
+		})
+		g.mu.Unlock()
+
+		go func() {
+			defer close(listenDone)
+			handles := [2]windows.Handle{hEvent, hCancel}
+
+			for {
+				event, err := windows.WaitForMultipleObjects(handles[:], false, windows.INFINITE)
+				if err != nil || event != windows.WAIT_OBJECT_0 {
+					return
+				}
+
+				if ctx.Err() == nil {
+					slog.Debug("收到唤醒面板请求")
+					onWake()
+				}
+			}
+		}()
+	})
 }
 
 func (g *SingleInstanceGuard) AckWake() {
-	if g != nil && g.hAck != 0 {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.closed && g.hAck != 0 {
 		_ = windows.SetEvent(g.hAck)
 	}
 }
@@ -186,22 +206,44 @@ func (g *SingleInstanceGuard) Close() {
 	if g == nil {
 		return
 	}
-	if g.hCancel != 0 {
-		_ = windows.SetEvent(g.hCancel)
-		_ = windows.CloseHandle(g.hCancel)
-		g.hCancel = 0
-	}
-	if g.hEvent != 0 {
-		_ = windows.CloseHandle(g.hEvent)
-		g.hEvent = 0
-	}
-	if g.hAck != 0 {
-		_ = windows.CloseHandle(g.hAck)
-		g.hAck = 0
-	}
-	if g.hMutex != 0 {
-		_ = windows.ReleaseMutex(g.hMutex)
-		_ = windows.CloseHandle(g.hMutex)
-		g.hMutex = 0
-	}
+
+	g.closeOnce.Do(func() {
+		g.mu.Lock()
+		g.closed = true
+		if g.hCancel != 0 {
+			_ = windows.SetEvent(g.hCancel)
+		}
+		listenDone := g.listenDone
+		afterDone := g.afterDone
+		stopAfter := g.stopAfter
+		g.mu.Unlock()
+
+		if stopAfter != nil && !stopAfter() && afterDone != nil {
+			<-afterDone
+		}
+		if listenDone != nil {
+			<-listenDone
+		}
+
+		g.mu.Lock()
+		defer g.mu.Unlock()
+
+		if g.hCancel != 0 {
+			_ = windows.CloseHandle(g.hCancel)
+			g.hCancel = 0
+		}
+		if g.hEvent != 0 {
+			_ = windows.CloseHandle(g.hEvent)
+			g.hEvent = 0
+		}
+		if g.hAck != 0 {
+			_ = windows.CloseHandle(g.hAck)
+			g.hAck = 0
+		}
+		if g.hMutex != 0 {
+			_ = windows.ReleaseMutex(g.hMutex)
+			_ = windows.CloseHandle(g.hMutex)
+			g.hMutex = 0
+		}
+	})
 }

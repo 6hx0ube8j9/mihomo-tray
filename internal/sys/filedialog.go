@@ -4,6 +4,7 @@ package sys
 
 import (
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"unsafe"
@@ -32,7 +33,6 @@ const (
 	rpcEChangedMod = 0x80010106
 	hrCancelled    = 0x800704C7
 
-	fosOverwritePrompt = 0x00000002
 	fosNoChangeDir     = 0x00000008
 	fosForceFileSystem = 0x00000040
 	fosPathMustExist   = 0x00000800
@@ -40,6 +40,16 @@ const (
 	fosDontAddToRecent = 0x02000000
 
 	sigdnFileSysPath = 0x80058000
+
+	vtblUnknownRelease         = 2
+	vtblModalWindowShow        = 3
+	vtblFileDialogSetFileTypes = 4
+	vtblFileDialogSetOptions   = 9
+	vtblFileDialogGetOptions   = 10
+	vtblFileDialogSetFolder    = 12
+	vtblFileDialogSetTitle     = 17
+	vtblFileDialogGetResult    = 20
+	vtblShellItemGetDisplay    = 5
 )
 
 var (
@@ -90,7 +100,7 @@ func (o *comObject) method(index uintptr) uintptr {
 
 func (o *comObject) release() {
 	if o != nil {
-		_, _, _ = syscall.SyscallN(o.method(2), uintptr(unsafe.Pointer(o)))
+		_, _, _ = syscall.SyscallN(o.method(vtblUnknownRelease), uintptr(unsafe.Pointer(o)))
 	}
 }
 
@@ -121,14 +131,13 @@ func OpenFileDialog(opts FileDialogOptions) (string, bool, error) {
 	defer dlg.release()
 
 	var currentOpts uint32
-	_, _, _ = syscall.SyscallN(dlg.method(10), uintptr(unsafe.Pointer(dlg)), uintptr(unsafe.Pointer(&currentOpts)))
+	_, _, _ = syscall.SyscallN(dlg.method(vtblFileDialogGetOptions), uintptr(unsafe.Pointer(dlg)), uintptr(unsafe.Pointer(&currentOpts)))
 	newOpts := currentOpts | fosNoChangeDir | fosForceFileSystem | fosFileMustExist | fosPathMustExist | fosDontAddToRecent
-	newOpts &^= fosOverwritePrompt
-	_, _, _ = syscall.SyscallN(dlg.method(9), uintptr(unsafe.Pointer(dlg)), uintptr(newOpts))
+	_, _, _ = syscall.SyscallN(dlg.method(vtblFileDialogSetOptions), uintptr(unsafe.Pointer(dlg)), uintptr(newOpts))
 
 	if opts.Title != "" {
 		if titlePtr, err := windows.UTF16PtrFromString(opts.Title); err == nil {
-			_, _, _ = syscall.SyscallN(dlg.method(17), uintptr(unsafe.Pointer(dlg)), uintptr(unsafe.Pointer(titlePtr)))
+			_, _, _ = syscall.SyscallN(dlg.method(vtblFileDialogSetTitle), uintptr(unsafe.Pointer(dlg)), uintptr(unsafe.Pointer(titlePtr)))
 		}
 	}
 
@@ -148,7 +157,7 @@ func OpenFileDialog(opts FileDialogOptions) (string, bool, error) {
 		}
 		if len(specs) > 0 {
 			_, _, _ = syscall.SyscallN(
-				dlg.method(4),
+				dlg.method(vtblFileDialogSetFileTypes),
 				uintptr(unsafe.Pointer(dlg)),
 				uintptr(len(specs)),
 				uintptr(unsafe.Pointer(&specs[0])),
@@ -159,7 +168,7 @@ func OpenFileDialog(opts FileDialogOptions) (string, bool, error) {
 	}
 
 	if opts.InitialDir != "" {
-		if dirPtr, err := windows.UTF16PtrFromString(opts.InitialDir); err == nil {
+		if dirPtr, err := windows.UTF16PtrFromString(filepath.Clean(opts.InitialDir)); err == nil {
 			var folderItem *comObject
 			hrDir, _, _ := procSHCreateItemFromParsingNm.Call(
 				uintptr(unsafe.Pointer(dirPtr)),
@@ -168,13 +177,13 @@ func OpenFileDialog(opts FileDialogOptions) (string, bool, error) {
 				uintptr(unsafe.Pointer(&folderItem)),
 			)
 			if int32(hrDir) >= 0 && folderItem != nil {
-				_, _, _ = syscall.SyscallN(dlg.method(12), uintptr(unsafe.Pointer(dlg)), uintptr(unsafe.Pointer(folderItem)))
+				_, _, _ = syscall.SyscallN(dlg.method(vtblFileDialogSetFolder), uintptr(unsafe.Pointer(dlg)), uintptr(unsafe.Pointer(folderItem)))
 				folderItem.release()
 			}
 		}
 	}
 
-	hrShow, _, _ := syscall.SyscallN(dlg.method(3), uintptr(unsafe.Pointer(dlg)), opts.OwnerHWND)
+	hrShow, _, _ := syscall.SyscallN(dlg.method(vtblModalWindowShow), uintptr(unsafe.Pointer(dlg)), opts.OwnerHWND)
 	if uint32(hrShow) == hrCancelled {
 		return "", false, nil
 	}
@@ -183,7 +192,7 @@ func OpenFileDialog(opts FileDialogOptions) (string, bool, error) {
 	}
 
 	var resultItem *comObject
-	hrRes, _, _ := syscall.SyscallN(dlg.method(20), uintptr(unsafe.Pointer(dlg)), uintptr(unsafe.Pointer(&resultItem)))
+	hrRes, _, _ := syscall.SyscallN(dlg.method(vtblFileDialogGetResult), uintptr(unsafe.Pointer(dlg)), uintptr(unsafe.Pointer(&resultItem)))
 	if int32(hrRes) < 0 || resultItem == nil {
 		return "", false, fmt.Errorf("IFileOpenDialog.GetResult failed: 0x%08x", uint32(hrRes))
 	}
@@ -191,7 +200,7 @@ func OpenFileDialog(opts FileDialogOptions) (string, bool, error) {
 
 	var pszPath *uint16
 	hrName, _, _ := syscall.SyscallN(
-		resultItem.method(5),
+		resultItem.method(vtblShellItemGetDisplay),
 		uintptr(unsafe.Pointer(resultItem)),
 		sigdnFileSysPath,
 		uintptr(unsafe.Pointer(&pszPath)),

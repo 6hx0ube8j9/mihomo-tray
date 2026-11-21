@@ -4,6 +4,7 @@ package sys
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"runtime"
@@ -20,27 +21,27 @@ var (
 )
 
 const (
-	INTERNET_OPTION_REFRESH               = 37
-	INTERNET_OPTION_SETTINGS_CHANGED      = 39
-	INTERNET_OPTION_PER_CONNECTION_OPTION = 75
+	internetOptionRefresh             = 37
+	internetOptionSettingsChanged     = 39
+	internetOptionPerConnectionOption = 75
 
-	INTERNET_PER_CONN_FLAGS        = 1
-	INTERNET_PER_CONN_PROXY_SERVER = 2
-	INTERNET_PER_CONN_PROXY_BYPASS = 3
+	internetPerConnFlags       = 1
+	internetPerConnProxyServer = 2
+	internetPerConnProxyBypass = 3
 
-	PROXY_TYPE_DIRECT = 0x00000001
-	PROXY_TYPE_PROXY  = 0x00000002
+	proxyTypeDirect = 0x00000001
+	proxyTypeProxy  = 0x00000002
 
 	internetSettingsPath = `Software\Microsoft\Windows\CurrentVersion\Internet Settings`
 
-	ERROR_SUCCESS          = 0
-	ERROR_BUFFER_TOO_SMALL = 603
-	RAS_MaxEntryName       = 256
+	rasErrorSuccess        = 0
+	rasErrorBufferTooSmall = 603
+	rasMaxEntryName        = 256
 )
 
 type internetPerConnOption struct {
 	dwOption uint32
-	dwValue  uintptr
+	dwValue  uint64
 }
 
 type internetPerConnOptionList struct {
@@ -51,19 +52,19 @@ type internetPerConnOptionList struct {
 	pOptions      uintptr
 }
 
-type RasEntryName struct {
+type rasEntryName struct {
 	dwSize      uint32
-	szEntryName [RAS_MaxEntryName + 1]uint16
+	szEntryName [rasMaxEntryName + 1]uint16
 	dwFlags     uint32
 	szPhonebook [windows.MAX_PATH + 1]uint16
 }
 
-func RefreshWininet() {
-	_, _, _ = procInternetSetOption.Call(0, INTERNET_OPTION_SETTINGS_CHANGED, 0, 0)
-	_, _, _ = procInternetSetOption.Call(0, INTERNET_OPTION_REFRESH, 0, 0)
+func RefreshSystemProxy() {
+	_, _, _ = procInternetSetOption.Call(0, internetOptionSettingsChanged, 0, 0)
+	_, _, _ = procInternetSetOption.Call(0, internetOptionRefresh, 0, 0)
 }
 
-func GetProxyStatus() (ProxyStatus, error) {
+func GetSystemProxy() (ProxyStatus, error) {
 	k, err := registry.OpenKey(registry.CURRENT_USER, internetSettingsPath, registry.QUERY_VALUE)
 	if err != nil {
 		return ProxyStatus{}, err
@@ -79,10 +80,10 @@ func GetProxyStatus() (ProxyStatus, error) {
 	}, nil
 }
 
-func EnableProxy(serverStr string, bypassStr ...string) error {
+func EnableSystemProxy(serverStr string, bypassStr ...string) error {
 	server := NormalizeProxyServer(serverStr)
 	if server == "" {
-		return fmt.Errorf("代理地址为空")
+		return errors.New("代理地址为空")
 	}
 
 	bypass := DefaultProxyOverride
@@ -90,7 +91,7 @@ func EnableProxy(serverStr string, bypassStr ...string) error {
 		bypass = strings.TrimSpace(bypassStr[0])
 	}
 
-	if curr, err := GetProxyStatus(); err == nil && curr.Enabled && curr.Matches(server) {
+	if curr, err := GetSystemProxy(); err == nil && curr.Enabled && curr.Matches(server) {
 		return nil
 	}
 
@@ -102,64 +103,69 @@ func EnableProxy(serverStr string, bypassStr ...string) error {
 	if err != nil {
 		return err
 	}
-
 	defer func() {
 		runtime.KeepAlive(serverPtr)
 		runtime.KeepAlive(bypassPtr)
 	}()
 
 	options := []internetPerConnOption{
-		{dwOption: INTERNET_PER_CONN_FLAGS, dwValue: uintptr(PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY)},
-		{dwOption: INTERNET_PER_CONN_PROXY_SERVER, dwValue: uintptr(unsafe.Pointer(serverPtr))},
-		{dwOption: INTERNET_PER_CONN_PROXY_BYPASS, dwValue: uintptr(unsafe.Pointer(bypassPtr))},
+		{dwOption: internetPerConnFlags, dwValue: uint64(proxyTypeDirect | proxyTypeProxy)},
+		{dwOption: internetPerConnProxyServer, dwValue: uint64(uintptr(unsafe.Pointer(serverPtr)))},
+		{dwOption: internetPerConnProxyBypass, dwValue: uint64(uintptr(unsafe.Pointer(bypassPtr)))},
 	}
 
-	if err := applyProxyOptions(options); err != nil {
-		slog.Error("启用系统代理失败", "err", err)
-		return err
-	}
-
-	slog.Info("系统代理已启用", "server", server)
-	return nil
+	return applyProxyOptions(options)
 }
 
-func DisableProxy(expectedServer string) error {
+func DisableSystemProxy(expectedServer string) error {
 	expected := NormalizeProxyServer(expectedServer)
 
-	curr, err := GetProxyStatus()
-	if err == nil {
+	if curr, err := GetSystemProxy(); err == nil {
 		if !curr.Enabled {
 			return nil
 		}
 		if expected != "" && !curr.Matches(expected) {
-			slog.Warn("跳过注销系统代理", "reason", "代理地址不匹配", "current", curr.Server, "expected", expected)
+			slog.Warn("代理地址不匹配，跳过关闭", "current", curr.Server, "expected", expected)
 			return nil
 		}
 	}
 
 	options := []internetPerConnOption{
-		{dwOption: INTERNET_PER_CONN_FLAGS, dwValue: uintptr(PROXY_TYPE_DIRECT)},
+		{dwOption: internetPerConnFlags, dwValue: uint64(proxyTypeDirect)},
 	}
 
-	if err := applyProxyOptions(options); err != nil {
-		slog.Error("注销系统代理失败", "err", err)
-		return err
-	}
+	return applyProxyOptions(options)
+}
 
-	slog.Info("系统代理已注销")
-	return nil
+func WatchSystemProxy(ctx context.Context, statusCh chan<- ProxyStatus) {
+	lastStatus, _ := GetSystemProxy()
+
+	err := watchRegistryKey(ctx, internetSettingsPath, func() {
+		status, err := GetSystemProxy()
+		if err != nil || status == lastStatus {
+			return
+		}
+		lastStatus = status
+		select {
+		case statusCh <- status:
+		case <-ctx.Done():
+		}
+	})
+	if err != nil && ctx.Err() == nil {
+		slog.Warn("代理注册表监听失败", "err", err)
+	}
 }
 
 func setPerConnectionOption(list *internetPerConnOptionList, connName *uint16) error {
 	list.pszConnection = connName
 	r, _, err := procInternetSetOption.Call(
 		0,
-		INTERNET_OPTION_PER_CONNECTION_OPTION,
+		internetOptionPerConnectionOption,
 		uintptr(unsafe.Pointer(list)),
 		uintptr(list.dwSize),
 	)
 	if r == 0 {
-		return fmt.Errorf("调用 InternetSetOptionW 失败: %w", err)
+		return fmt.Errorf("设置系统代理选项失败: %w", err)
 	}
 	return nil
 }
@@ -169,10 +175,10 @@ func applyProxyToList(list *internetPerConnOptionList) error {
 		return err
 	}
 
-	var entrySize uint32 = uint32(unsafe.Sizeof(RasEntryName{}))
-	var cb uint32 = entrySize
+	entrySize := uint32(unsafe.Sizeof(rasEntryName{}))
+	cb := entrySize
 	var cEntries uint32
-	var entry RasEntryName
+	var entry rasEntryName
 	entry.dwSize = entrySize
 
 	ret, _, _ := procRasEnumEntries.Call(
@@ -182,20 +188,20 @@ func applyProxyToList(list *internetPerConnOptionList) error {
 		uintptr(unsafe.Pointer(&cEntries)),
 	)
 
-	if ret == uintptr(ERROR_SUCCESS) && cEntries == 0 {
+	if ret == rasErrorSuccess && cEntries == 0 {
 		return nil
 	}
 
-	if ret == uintptr(ERROR_SUCCESS) && cEntries == 1 {
+	if ret == rasErrorSuccess && cEntries == 1 {
 		_ = setPerConnectionOption(list, &entry.szEntryName[0])
 		runtime.KeepAlive(&entry)
 		return nil
 	}
 
-	if ret == uintptr(ERROR_BUFFER_TOO_SMALL) {
-		reqCount := cb / entrySize
+	if ret == rasErrorBufferTooSmall {
+		reqCount := (cb + entrySize - 1) / entrySize
 		if reqCount > 0 {
-			entries := make([]RasEntryName, reqCount)
+			entries := make([]rasEntryName, reqCount)
 			for i := range entries {
 				entries[i].dwSize = entrySize
 			}
@@ -207,7 +213,7 @@ func applyProxyToList(list *internetPerConnOptionList) error {
 				uintptr(unsafe.Pointer(&cEntries)),
 			)
 
-			if ret == uintptr(ERROR_SUCCESS) {
+			if ret == rasErrorSuccess {
 				limit := int(cEntries)
 				if limit > len(entries) {
 					limit = len(entries)
@@ -234,90 +240,11 @@ func applyProxyOptions(options []internetPerConnOption) error {
 	list.pOptions = uintptr(unsafe.Pointer(&options[0]))
 
 	err := applyProxyToList(&list)
-
 	runtime.KeepAlive(options)
-
 	if err != nil {
 		return err
 	}
 
-	RefreshWininet()
+	RefreshSystemProxy()
 	return nil
-}
-
-func WatchProxyRegistry(ctx context.Context, statusCh chan<- ProxyStatus) {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	k, err := registry.OpenKey(registry.CURRENT_USER, internetSettingsPath, registry.NOTIFY|registry.QUERY_VALUE)
-	if err != nil {
-		slog.Warn("打开代理注册表监听失败", "err", err)
-		return
-	}
-	defer k.Close()
-
-	notifyEvent, err := windows.CreateEvent(nil, 0, 0, nil)
-	if err != nil {
-		return
-	}
-	defer windows.CloseHandle(notifyEvent)
-
-	cancelEvent, err := windows.CreateEvent(nil, 0, 0, nil)
-	if err != nil {
-		return
-	}
-	defer windows.CloseHandle(cancelEvent)
-
-	stopCancel := context.AfterFunc(ctx, func() {
-		_ = windows.SetEvent(cancelEvent)
-	})
-	defer stopCancel()
-
-	arm := func() {
-		filter := uint32(windows.REG_NOTIFY_CHANGE_LAST_SET | windows.REG_NOTIFY_CHANGE_NAME | windows.REG_NOTIFY_THREAD_AGNOSTIC)
-		if err := windows.RegNotifyChangeKeyValue(windows.Handle(k), false, filter, notifyEvent, true); err != nil {
-			filter &^= windows.REG_NOTIFY_THREAD_AGNOSTIC
-			_ = windows.RegNotifyChangeKeyValue(windows.Handle(k), false, filter, notifyEvent, true)
-		}
-	}
-
-	arm()
-
-	handles := [2]windows.Handle{notifyEvent, cancelEvent}
-
-	const debounceMs = 150
-	waitTimeout := uint32(windows.INFINITE)
-	hasPendingUpdate := false
-
-	lastStatus, _ := GetProxyStatus()
-
-	for {
-		event, err := windows.WaitForMultipleObjects(handles[:], false, waitTimeout)
-		if err != nil || event == windows.WAIT_OBJECT_0+1 {
-			return
-		}
-
-		switch event {
-		case windows.WAIT_OBJECT_0:
-			arm()
-			waitTimeout = debounceMs
-			hasPendingUpdate = true
-
-		case uint32(windows.WAIT_TIMEOUT):
-			waitTimeout = windows.INFINITE
-			if hasPendingUpdate {
-				hasPendingUpdate = false
-				if status, err := GetProxyStatus(); err == nil {
-					if status != lastStatus {
-						lastStatus = status
-						select {
-						case statusCh <- status:
-						case <-ctx.Done():
-							return
-						}
-					}
-				}
-			}
-		}
-	}
 }

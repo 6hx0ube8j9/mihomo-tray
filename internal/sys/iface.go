@@ -31,7 +31,8 @@ func IsTunActive(targetDevice string) bool {
 	}
 
 	for _, i := range ifaces {
-		if strings.Contains(strings.ToLower(i.Name), target) {
+		name := strings.ToLower(i.Name)
+		if name == target || strings.HasPrefix(name, target+" ") {
 			if i.Flags&net.FlagUp != 0 {
 				return true
 			}
@@ -44,7 +45,7 @@ func IsTunActive(targetDevice string) bool {
 func WatchNetworkInterfaces(ctx context.Context, eventCh chan<- struct{}) {
 	fd, err := windows.Socket(windows.AF_INET, windows.SOCK_DGRAM, windows.IPPROTO_UDP)
 	if err != nil {
-		slog.Warn("创建网络监听 Socket 失败，自动降级为定时轮询", "err", err)
+		slog.Warn("创建网络监听失败，改用定时轮询", "err", err)
 		fallbackWatch(ctx, eventCh)
 		return
 	}
@@ -59,23 +60,22 @@ func WatchNetworkInterfaces(ctx context.Context, eventCh chan<- struct{}) {
 	var closeOnce sync.Once
 	safeCloseSocket := func() {
 		closeOnce.Do(func() {
-			_ = windows.Closesocket(windows.Handle(fd))
-			slog.Debug("已释放网络监听 Socket")
+			_ = windows.Closesocket(fd)
 		})
 	}
 
 	go func() {
-		const SIO_ADDRESS_LIST_CHANGE = 0x28000017
+		const sioAddressListChange = 0x28000017
 		var bytesReturned uint32
 
 		for {
-			err := windows.WSAIoctl(fd, SIO_ADDRESS_LIST_CHANGE, nil, 0, nil, 0, &bytesReturned, nil, 0)
-			if err != nil {
-				slog.Debug("网络底层监听退出", "err", err)
+			if err := windows.WSAIoctl(fd, sioAddressListChange, nil, 0, nil, 0, &bytesReturned, nil, 0); err != nil {
+				if ctx.Err() == nil {
+					slog.Debug("网络监听退出", "err", err)
+				}
 				break
 			}
 
-			slog.Debug("检测到网络接口变动")
 			select {
 			case notifyCh <- struct{}{}:
 			default:
@@ -98,9 +98,12 @@ func WatchNetworkInterfaces(ctx context.Context, eventCh chan<- struct{}) {
 
 		case _, ok := <-notifyCh:
 			if !ok {
+				if timer != nil {
+					timer.Stop()
+				}
 				safeCloseSocket()
 				if ctx.Err() == nil {
-					slog.Warn("网络底层事件通道中断，正在降级为定时轮询保底")
+					slog.Warn("网络监听中断，改用定时轮询")
 					fallbackWatch(ctx, eventCh)
 				}
 				return

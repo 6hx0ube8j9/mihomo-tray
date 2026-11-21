@@ -19,6 +19,8 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
+const cpOEMCP = 1
+
 var procMultiByteToWideChar = modKernel32.NewProc("MultiByteToWideChar")
 
 func getSchtasksPath() string {
@@ -29,32 +31,40 @@ func getSchtasksPath() string {
 	return filepath.Join(sysRoot, "System32", "schtasks.exe")
 }
 
+func newSchtasksCmd(args ...string) *exec.Cmd {
+	cmd := exec.Command(getSchtasksPath(), args...)
+	cmd.SysProcAttr = &windows.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: windows.CREATE_NO_WINDOW,
+	}
+	return cmd
+}
+
 func ToggleAutoStart(appName, exePath, baseDir string, enable bool) bool {
 	if key, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.SET_VALUE); err == nil {
 		_ = key.DeleteValue(appName)
-		key.Close()
+		_ = key.Close()
 	}
 
-	schtasksPath := getSchtasksPath()
-
 	if enable {
-		slog.Debug("注册自启计划任务", "task", appName)
-
-		absExe, _ := filepath.Abs(exePath)
-		absBase, _ := filepath.Abs(baseDir)
+		absExe, err := filepath.Abs(exePath)
+		if err != nil {
+			absExe = filepath.Clean(exePath)
+		}
+		absBase, err := filepath.Abs(baseDir)
+		if err != nil {
+			absBase = filepath.Clean(baseDir)
+		}
 
 		xmlContent := generateTaskXML(absExe, "--autostart", absBase)
-		tempXML := filepath.Join(os.TempDir(), fmt.Sprintf("%s.xml", appName))
-
-		if err := writeUTF16LE(tempXML, xmlContent); err != nil {
+		tempXML, err := writeTempTaskXML(appName, xmlContent)
+		if err != nil {
 			slog.Error("写入计划任务临时文件失败", "err", err)
 			return false
 		}
 		defer os.Remove(tempXML)
 
-		cmd := exec.Command(schtasksPath, "/Create", "/TN", appName, "/XML", tempXML, "/F")
-		cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
-
+		cmd := newSchtasksCmd("/Create", "/TN", appName, "/XML", tempXML, "/F")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			slog.Error("导入计划任务失败", "err", err, "output", strings.TrimSpace(decodeConsole(out)))
 			return false
@@ -62,10 +72,7 @@ func ToggleAutoStart(appName, exePath, baseDir string, enable bool) bool {
 		return true
 	}
 
-	slog.Debug("删除自启计划任务", "task", appName)
-	cmd := exec.Command(schtasksPath, "/Delete", "/TN", appName, "/F")
-	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
-
+	cmd := newSchtasksCmd("/Delete", "/TN", appName, "/F")
 	if err := cmd.Run(); err != nil {
 		slog.Debug("删除计划任务失败", "task", appName, "err", err)
 	}
@@ -73,70 +80,61 @@ func ToggleAutoStart(appName, exePath, baseDir string, enable bool) bool {
 }
 
 func CheckAutoStartStatus(appName string) bool {
-	cmd := exec.Command(getSchtasksPath(), "/Query", "/TN", appName)
-	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
-	return cmd.Run() == nil
+	return newSchtasksCmd("/Query", "/TN", appName).Run() == nil
 }
 
-func CheckPathExists(path string) bool {
-	clean := strings.Trim(strings.TrimSpace(path), `"`)
-	if clean == "" {
-		return false
-	}
-	info, err := os.Stat(clean)
-	return err == nil && !info.IsDir()
-}
-
-func GetTaskPath(appName string) string {
-	cmd := exec.Command(getSchtasksPath(), "/Query", "/TN", appName, "/XML")
-	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
-
-	out, err := cmd.Output()
+func QueryAutoStartTask(appName string) (exePath string, exists bool) {
+	out, err := newSchtasksCmd("/Query", "/TN", appName, "/XML").Output()
 	if err != nil {
-		return ""
+		return "", false
 	}
 
 	content := decodeConsole(out)
-
-	startTag := "<Command>"
-	endTag := "</Command>"
+	const (
+		startTag = "<Command>"
+		endTag   = "</Command>"
+	)
 
 	startIdx := strings.Index(content, startTag)
 	endIdx := strings.Index(content, endTag)
-
 	if startIdx == -1 || endIdx == -1 || startIdx >= endIdx {
-		return ""
+		return "", true
 	}
 
 	rawCommand := strings.TrimSpace(content[startIdx+len(startTag) : endIdx])
-	registeredPath := html.UnescapeString(rawCommand)
-	return filepath.Clean(strings.Trim(registeredPath, `"`))
+	registeredPath := strings.Trim(html.UnescapeString(rawCommand), `"`)
+	if registeredPath == "" {
+		return "", true
+	}
+	return filepath.Clean(registeredPath), true
 }
 
-func IsTaskPathValid(appName, currentExePath string) bool {
-	registered := GetTaskPath(appName)
-	if registered == "" {
-		return false
-	}
-	current := filepath.Clean(strings.Trim(currentExePath, `"`))
-	return strings.EqualFold(registered, current)
+func RunScheduledTask(taskName string) error {
+	return newSchtasksCmd("/Run", "/TN", taskName).Run()
 }
 
 func decodeConsole(b []byte) string {
 	if len(b) == 0 {
 		return ""
 	}
+	if len(b) >= 2 && b[0] == 0xFF && b[1] == 0xFE {
+		u16 := make([]uint16, (len(b)-2)/2)
+		for i := range u16 {
+			u16[i] = uint16(b[2+i*2]) | uint16(b[2+i*2+1])<<8
+		}
+		return string(utf16.Decode(u16))
+	}
 	if utf8.Valid(b) {
 		return string(b)
 	}
 
-	n, _, _ := procMultiByteToWideChar.Call(0, 0, uintptr(unsafe.Pointer(&b[0])), uintptr(len(b)), 0, 0)
+	n, _, _ := procMultiByteToWideChar.Call(cpOEMCP, 0, uintptr(unsafe.Pointer(&b[0])), uintptr(len(b)), 0, 0)
 	if n == 0 {
 		return string(b)
 	}
 
 	buf := make([]uint16, n)
-	procMultiByteToWideChar.Call(0, 0, uintptr(unsafe.Pointer(&b[0])), uintptr(len(b)), uintptr(unsafe.Pointer(&buf[0])), n)
+	_, _, _ = procMultiByteToWideChar.Call(cpOEMCP, 0, uintptr(unsafe.Pointer(&b[0])), uintptr(len(b)), uintptr(unsafe.Pointer(&buf[0])), n)
 	return windows.UTF16ToString(buf)
 }
 
@@ -181,8 +179,14 @@ func escapeXML(s string) string {
 	return buf.String()
 }
 
-func writeUTF16LE(filename string, s string) error {
-	runes := utf16.Encode([]rune(s))
+func writeTempTaskXML(appName, content string) (string, error) {
+	f, err := os.CreateTemp("", appName+"-*.xml")
+	if err != nil {
+		return "", err
+	}
+	path := f.Name()
+
+	runes := utf16.Encode([]rune(content))
 	b := make([]byte, 2+len(runes)*2)
 	b[0] = 0xFF
 	b[1] = 0xFE
@@ -190,11 +194,15 @@ func writeUTF16LE(filename string, s string) error {
 		b[2+i*2] = byte(r)
 		b[2+i*2+1] = byte(r >> 8)
 	}
-	return os.WriteFile(filename, b, 0600)
-}
 
-func RunScheduledTask(taskName string) error {
-	cmd := exec.Command(getSchtasksPath(), "/Run", "/TN", taskName)
-	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
-	return cmd.Run()
+	if _, err := f.Write(b); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+	return path, nil
 }

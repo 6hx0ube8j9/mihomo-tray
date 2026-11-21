@@ -131,7 +131,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	a.Kernel.SetPreStartHook(func() { _ = a.KernelDeployer.SyncRuntimeConfig() })
 	go a.Kernel.RunDaemon(ctx, a.kernelEventCh)
 	go sys.WatchNetworkInterfaces(ctx, a.tunEventCh)
-	go sys.WatchProxyRegistry(ctx, a.proxyStatusCh)
+	go sys.WatchSystemProxy(ctx, a.proxyStatusCh)
 	go sys.WatchSystemTheme(ctx, a.themeEventCh)
 	go a.eventLoop(ctx)
 }
