@@ -30,7 +30,8 @@ type Engine struct {
 	Dashboard *Dashboard
 	modalMgr  *ModalManager
 
-	onShutdown func()
+	onShutdown  func()
+	disposeOnce sync.Once
 }
 
 func NewEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- domain.UICommand, notifyCh <-chan struct{}, getState func() domain.UIState) *Engine {
@@ -61,7 +62,6 @@ func (e *Engine) Run() error {
 		Title:    domain.HostTitle,
 		Visible:  false,
 	}.Create()
-
 	if err != nil {
 		return fmt.Errorf("创建后台宿主窗口失败: %w", err)
 	}
@@ -73,13 +73,9 @@ func (e *Engine) Run() error {
 	e.Dashboard = NewDashboard(e)
 
 	go e.listenState()
-
-	slog.Debug("UI 引擎已就绪")
 	close(e.ReadyCh)
 
 	app.Run()
-
-	slog.Debug("退出 UI 消息循环，清理资源")
 	e.disposeAll()
 
 	return nil
@@ -102,7 +98,7 @@ func (e *Engine) hookShutdown() {
 		case wmEndSession:
 			if wParam != 0 {
 				shutdownOnce.Do(func() {
-					slog.Info("捕获系统关机广播，执行清理")
+					slog.Info("收到系统关机信号，执行清理")
 					if e.onShutdown != nil {
 						e.onShutdown()
 					}
@@ -131,16 +127,22 @@ func (e *Engine) RunOnUI(fn func()) {
 		return
 	}
 
+	if e.ctx.Err() != nil {
+		return
+	}
+
 	done := make(chan struct{})
 	e.app.Synchronize(func() {
 		defer close(done)
+		if e.ctx.Err() != nil {
+			return
+		}
 		fn()
 	})
 
 	select {
 	case <-done:
 	case <-e.ctx.Done():
-		slog.Warn("UI 调度被取消，引擎已退出")
 	}
 }
 
@@ -154,24 +156,36 @@ func (e *Engine) PostUI(fn func()) {
 		return
 	}
 
-	e.app.Synchronize(fn)
+	e.app.Synchronize(func() {
+		if e.ctx.Err() != nil {
+			return
+		}
+		fn()
+	})
 }
 
 func (e *Engine) listenState() {
+	shutdownUI := func() {
+		if e.app != nil {
+			e.app.Synchronize(func() {
+				e.disposeAll()
+				e.app.Exit(0)
+			})
+		}
+	}
+
 	for {
 		select {
 		case <-e.ctx.Done():
-			if e.app != nil {
-				e.app.Synchronize(func() {
-
-					// Dispose UI windows and WndProc hooks on the UI thread before exiting the message loop.
-					e.disposeAll()
-					e.app.Exit(0)
-				})
-			}
+			shutdownUI()
 			return
 
 		case <-e.stateNotifyCh:
+			if e.ctx.Err() != nil {
+				shutdownUI()
+				return
+			}
+
 			drained := false
 			for !drained {
 				select {
@@ -199,53 +213,54 @@ func (e *Engine) listenState() {
 }
 
 func (e *Engine) disposeAll() {
-	if e.Dashboard != nil {
-		e.Dashboard.Dispose()
-		e.Dashboard = nil
-	}
-	if e.Tray != nil {
-		e.Tray.Dispose()
-		e.Tray = nil
-	}
-	if e.mw != nil {
-		e.mw.Dispose()
-		e.mw = nil
-	}
+	e.disposeOnce.Do(func() {
+		if e.Dashboard != nil {
+			e.Dashboard.Dispose()
+			e.Dashboard = nil
+		}
+		if e.Tray != nil {
+			e.Tray.Dispose()
+		}
+		if e.mw != nil {
+			e.mw.Dispose()
+			e.mw = nil
+		}
+	})
 }
 
 func (e *Engine) SendCommand(action, payload string) {
-	slog.Debug("发出界面指令", "action", action, "payload", payload)
 	select {
 	case e.commandCh <- domain.UICommand{Action: action, Payload: payload}:
 	default:
-		slog.Warn("指令通道已满，丢弃操作", "action", action)
+		slog.Warn("指令队列已满，忽略操作", "action", action)
 	}
 }
 
 func (e *Engine) Exit() {
-	slog.Debug("请求退出应用")
 	if e.cancel != nil {
 		e.cancel()
 	}
 }
 
 func (e *Engine) ShowProfileManager(state domain.UIState) {
-	if e.Dashboard != nil {
-		e.RunOnUI(func() {
+	e.RunOnUI(func() {
+		if e.Dashboard != nil {
 			e.Dashboard.UpdateState(state)
 			e.Dashboard.Show()
-		})
-	}
+		}
+	})
 }
 
 func (e *Engine) RunModalEditor(key string, cfg EditorConfig) EditorResult {
+	if e.ctx.Err() != nil {
+		return EditorResult{Accepted: false}
+	}
 	if e.modalMgr == nil {
-		slog.Warn("ModalManager 未初始化，无法打开模态编辑器", "key", key)
+		slog.Warn("UI 未就绪，无法打开编辑器", "key", key)
 		return EditorResult{Accepted: false}
 	}
 
 	var res EditorResult
-
 	e.RunOnUI(func() {
 		if !e.modalMgr.TryAcquire(key) {
 			return
@@ -275,8 +290,11 @@ func (e *Engine) ShowInfo(title, message string) {
 }
 
 func (e *Engine) showModalAsync(prefix, title, message string, style walk.MsgBoxStyle) {
-	if e.app == nil || e.mw == nil || e.modalMgr == nil {
-		slog.Warn("UI 未就绪，无法显示提示框", "title", title, "message", message)
+	if e.ctx.Err() != nil {
+		return
+	}
+	if e.app == nil || e.modalMgr == nil {
+		slog.Warn("UI 未就绪，跳过提示框", "title", title)
 		return
 	}
 
@@ -294,7 +312,7 @@ func (e *Engine) showModalAsync(prefix, title, message string, style walk.MsgBox
 }
 
 func (e *Engine) ShowConfirm(title, message string) bool {
-	if e.modalMgr == nil {
+	if e.modalMgr == nil || e.ctx.Err() != nil {
 		return false
 	}
 
@@ -315,7 +333,7 @@ func (e *Engine) ShowConfirm(title, message string) bool {
 }
 
 func (e *Engine) OpenYAMLFileDialog() (string, bool) {
-	if e.modalMgr == nil {
+	if e.modalMgr == nil || e.ctx.Err() != nil {
 		return "", false
 	}
 
@@ -336,9 +354,10 @@ func (e *Engine) OpenYAMLFileDialog() (string, bool) {
 }
 
 func (e *Engine) ShowNotification(title, message string) {
-	if e.Tray != nil {
-		e.Tray.ShowNotification(title, message)
+	if e.ctx.Err() != nil || e.Tray == nil {
+		return
 	}
+	e.Tray.ShowNotification(title, message)
 }
 
 func (e *Engine) activeOwner() walk.Form {

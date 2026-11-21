@@ -137,16 +137,16 @@ func (a *Application) Bootstrap(ctx context.Context) {
 }
 
 func (a *Application) ExitForRestart() {
-	slog.Info("准备交接至管理员实例，执行前置快速清理")
-
-	a.SafeShutdown(nil)
-
-	if a.ui != nil {
-		a.ui.Exit()
-	}
-
-	time.Sleep(50 * time.Millisecond)
-	os.Exit(0)
+	slog.Info("准备交接至管理员实例，执行平滑退出") 
+	a.State.ForceExitPhase()
+ 
+	if a.ui == nil {
+		a.SafeShutdown(nil)
+		os.Exit(0)
+		return
+ 	}
+ 
+	a.ui.Exit()
 }
 
 func (a *Application) SafeShutdown(cancel context.CancelFunc) {

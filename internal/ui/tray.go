@@ -283,15 +283,15 @@ func (t *Tray) ShowNotification(title, message string) {
 }
 
 func (t *Tray) Dispose() {
-	if t.iconCtrl != nil {
-		t.iconCtrl.Dispose()
-		t.iconCtrl = nil
-	}
-
 	if t.ni != nil {
 		t.ni.Dispose()
 		t.ni = nil
 	}
+
+	if t.iconCtrl != nil {
+		t.iconCtrl.Dispose()
+		t.iconCtrl = nil
+	}	
 }
 
 func (t *Tray) toggle(action string, nextVal bool) {
