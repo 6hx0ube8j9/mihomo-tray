@@ -67,9 +67,6 @@ func isWebView2Available() bool {
 	wv2CheckOnce.Do(func() {
 		v, err := webviewloader.GetInstalledVersion()
 		wv2Available = (err == nil && v != "")
-		if !wv2Available {
-			slog.Debug("未检测到 WebView2 运行时")
-		}
 	})
 	return wv2Available
 }
@@ -101,13 +98,17 @@ func (a *webviewAdapter) SetDarkMode(isDark bool) {
 
 func (m *Manager) cleanupWebView2() {
 	m.wvMu.Lock()
-	if m.wv != nil {
-		m.wv.Destroy()
-		m.wv = nil
-	}
+	wv := m.wv
+	m.wv = nil
 	m.wvMu.Unlock()
 
-	m.hwnd.Store(0)
+	if wv == nil {
+		return
+	}
+	if adapter, ok := wv.(*webviewAdapter); ok && adapter.hwnd != 0 {
+		m.hwnd.CompareAndSwap(adapter.hwnd, 0)
+	}
+	wv.Destroy()
 }
 
 func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh chan<- Event) bool {
@@ -132,12 +133,6 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 		var hwnd uintptr
 
 		defer func() {
-			if adapter != nil {
-				adapter.Destroy()
-			}
-		}()
-
-		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("WebView2 运行崩溃", "err", r, "stack", string(debug.Stack()))
 				wv2Broken.Store(true)
@@ -148,6 +143,12 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 				case initCh <- false:
 				default:
 				}
+			}
+		}()
+
+		defer func() {
+			if adapter != nil {
+				adapter.Destroy()
 			}
 		}()
 
@@ -229,11 +230,14 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 		adapter.destroyed.Store(true)
 	}()
 
+	initTimer := time.NewTimer(webviewInitTimeout)
+	defer initTimer.Stop()
+
 	select {
 	case ok := <-initCh:
 		return ok
 
-	case <-time.After(webviewInitTimeout):
+	case <-initTimer.C:
 		slog.Warn("WebView2 启动超时", "timeout", webviewInitTimeout)
 
 		m.wvMu.Lock()
@@ -244,10 +248,11 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 		m.wvMu.Unlock()
 
 		if staleWV != nil {
+			if adapter, ok := staleWV.(*webviewAdapter); ok && adapter.hwnd != 0 {
+				m.hwnd.CompareAndSwap(adapter.hwnd, 0)
+				sys.HideWindow(adapter.hwnd)
+			}
 			staleWV.Destroy()
-		}
-		if hwnd := m.hwnd.Swap(0); hwnd != 0 {
-			sys.HideWindow(hwnd)
 		}
 
 		return false
