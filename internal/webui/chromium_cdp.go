@@ -3,6 +3,7 @@ package webui
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -17,6 +18,10 @@ const (
 
 var cdpClient = &http.Client{
 	Timeout: 300 * time.Millisecond,
+	Transport: &http.Transport{
+		Proxy:             nil,
+		DisableKeepAlives: true,
+	},
 }
 
 type cdpTarget struct {
@@ -27,14 +32,14 @@ type cdpTarget struct {
 }
 
 func buildCDPBaseURL(port string) string {
-	return fmt.Sprintf("http://%s:%s/json", cdpHost, port)
+	return fmt.Sprintf("http://%s/json", net.JoinHostPort(cdpHost, port))
 }
 
 func buildCDPActionURL(port, action, targetID string) string {
-	return fmt.Sprintf("http://%s:%s/json/%s/%s", cdpHost, port, action, targetID)
+	return fmt.Sprintf("http://%s/json/%s/%s", net.JoinHostPort(cdpHost, port), action, targetID)
 }
 
-func getCDPDebugPort() string {
+func allocateCDPPort() string {
 	port, err := netutil.GetFreePort(cdpHost)
 	if err != nil {
 		return fallbackDebugPort
@@ -49,6 +54,10 @@ func getCDPTargets(debugPort string) ([]cdpTarget, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("CDP 返回异常状态码: %d", resp.StatusCode)
+	}
+
 	var targets []cdpTarget
 	if err := json.NewDecoder(resp.Body).Decode(&targets); err != nil {
 		return nil, err
@@ -56,12 +65,12 @@ func getCDPTargets(debugPort string) ([]cdpTarget, error) {
 	return targets, nil
 }
 
-func IsDebugPortAlive(port string) bool {
+func isCDPAlive(port string) bool {
 	targets, err := getCDPTargets(port)
 	return err == nil && targets != nil
 }
 
-func GetWebUITarget(debugPort string) (id string, title string, found bool) {
+func findCDPPageTarget(debugPort string) (id string, title string, found bool) {
 	targets, err := getCDPTargets(debugPort)
 	if err != nil {
 		return "", "", false
@@ -78,7 +87,7 @@ func GetWebUITarget(debugPort string) (id string, title string, found bool) {
 	return "", "", false
 }
 
-func ActivateTarget(debugPort, targetID string) error {
+func activateCDPTarget(debugPort, targetID string) error {
 	resp, err := cdpClient.Get(buildCDPActionURL(debugPort, "activate", targetID))
 	if err != nil {
 		return err
@@ -87,7 +96,7 @@ func ActivateTarget(debugPort, targetID string) error {
 	return nil
 }
 
-func CloseAllWebUITargets(debugPort string) {
+func closeAllCDPTargets(debugPort string) {
 	targets, err := getCDPTargets(debugPort)
 	if err != nil {
 		return
