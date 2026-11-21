@@ -33,28 +33,38 @@ var standardBrowserSuffixes = []string{
 func (m *Manager) cleanupChromium() {
 	m.stateMu.Lock()
 	safeDebugPort := m.debugPort
+	exeName := m.isolatedExeName
 	m.debugPort = ""
+	m.isolatedExeName = ""
 	m.stateMu.Unlock()
 
+	pid := m.isolatedPID.Swap(0)
+	hadWindow := m.hwnd.Swap(0) != 0
+
+	var targetPID uint32
 	if safeDebugPort != "" {
-		CloseAllWebUITargets(safeDebugPort)
-	}
-
-	pid := m.isolatedPid.Swap(0)
-	if pid != 0 {
-		for i := 0; i < 15; i++ {
-			if !sys.IsPidRunning(pid, "") {
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-		if sys.IsPidRunning(pid, "") {
-			slog.Debug("结束残留浏览器进程", "pid", pid)
-			sys.HardKill(pid)
+		targetPID = sys.FindTCPListenerPID(safeDebugPort)
+		if targetPID != 0 {
+			closeAllCDPTargets(safeDebugPort)
 		}
 	}
+	if targetPID == 0 && !hadWindow && pid != 0 && exeName != "" {
+		targetPID = pid
+	}
+	if targetPID == 0 {
+		return
+	}
 
-	m.hwnd.Store(0)
+	for i := 0; i < 15; i++ {
+		if !sys.IsPidRunning(targetPID, exeName) {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if sys.IsPidRunning(targetPID, exeName) {
+		sys.HardKill(targetPID)
+	}
 }
 
 func (m *Manager) launchChromiumApp(cfg Config, cacheRoot, browserPath, dataDirName, finalURL, appHostPort string, eventCh chan<- Event) bool {
@@ -75,14 +85,14 @@ func (m *Manager) prepareDebugPort() string {
 	port := m.debugPort
 	m.stateMu.Unlock()
 
-	if port != "" && !IsDebugPortAlive(port) {
+	if port != "" && (sys.FindTCPListenerPID(port) == 0 || !isCDPAlive(port)) {
 		port = ""
 	}
 
 	m.stateMu.Lock()
 	defer m.stateMu.Unlock()
 	if port == "" {
-		m.debugPort = getCDPDebugPort()
+		m.debugPort = allocateCDPPort()
 	} else {
 		m.debugPort = port
 	}
@@ -90,13 +100,17 @@ func (m *Manager) prepareDebugPort() string {
 }
 
 func (m *Manager) tryAttachExistingWindow(debugPort, appHostPort string, eventCh chan<- Event) bool {
-	targetID, targetTitle, found := GetWebUITarget(debugPort)
+	if sys.FindTCPListenerPID(debugPort) == 0 {
+		return false
+	}
+
+	targetID, targetTitle, found := findCDPPageTarget(debugPort)
 	if !found {
 		return false
 	}
-	_ = ActivateTarget(debugPort, targetID)
+	_ = activateCDPTarget(debugPort, targetID)
 
-	return m.waitForWindow(debugPort, appHostPort, targetTitle, m.isolatedPid.Load(), nil, eventCh)
+	return m.waitForWindow(debugPort, appHostPort, targetTitle, m.isolatedPID.Load(), nil, eventCh)
 }
 
 func (m *Manager) startBrowserProcess(cfg Config, cacheRoot, browserPath, dataDirName, finalURL, debugPort, appHostPort string, eventCh chan<- Event) bool {
@@ -106,6 +120,7 @@ func (m *Manager) startBrowserProcess(cfg Config, cacheRoot, browserPath, dataDi
 		return false
 	}
 
+	exeName := filepath.Base(browserPath)
 	args := buildBrowserArgs(cfg, userDataDir, finalURL, debugPort)
 	cmd := exec.Command(browserPath, args...)
 	if err := cmd.Start(); err != nil {
@@ -113,8 +128,11 @@ func (m *Manager) startBrowserProcess(cfg Config, cacheRoot, browserPath, dataDi
 		return false
 	}
 
-	mainPid := uint32(cmd.Process.Pid)
-	m.isolatedPid.Store(mainPid)
+	mainPID := uint32(cmd.Process.Pid)
+	m.stateMu.Lock()
+	m.isolatedExeName = exeName
+	m.stateMu.Unlock()
+	m.isolatedPID.Store(mainPID)
 	sys.AllowSetForegroundWindow(0)
 
 	exitCh := make(chan error, 1)
@@ -122,24 +140,32 @@ func (m *Manager) startBrowserProcess(cfg Config, cacheRoot, browserPath, dataDi
 		exitCh <- cmd.Wait()
 	}()
 
-	if m.waitForWindow(debugPort, appHostPort, "", mainPid, exitCh, eventCh) {
+	if m.waitForWindow(debugPort, appHostPort, "", mainPID, exitCh, eventCh) {
 		return true
 	}
 
-	realPid := m.isolatedPid.Load()
-	if realPid != 0 && realPid != mainPid && sys.IsPidRunning(realPid, "") {
-		sys.HardKill(realPid)
+	realPID := m.isolatedPID.Swap(0)
+	m.hwnd.Store(0)
+	m.stateMu.Lock()
+	if m.debugPort == debugPort {
+		m.debugPort = ""
+		m.isolatedExeName = ""
 	}
-	if sys.IsPidRunning(mainPid, "") {
-		sys.HardKill(mainPid)
+	m.stateMu.Unlock()
+
+	if realPID != 0 && realPID != mainPID && sys.IsPidRunning(realPID, exeName) {
+		sys.HardKill(realPID)
+	}
+	if sys.IsPidRunning(mainPID, exeName) {
+		sys.HardKill(mainPID)
 	}
 
-	m.isolatedPid.Store(0)
 	return false
 }
 
-func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, mainPid uint32, exitCh <-chan error, eventCh chan<- Event) bool {
-	realBrowserPid := mainPid
+func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, mainPID uint32, exitCh <-chan error, eventCh chan<- Event) bool {
+	browserPID := mainPID
+	pidResolved := false
 	var activatedTargetID string
 
 	ticker := time.NewTicker(80 * time.Millisecond)
@@ -155,7 +181,6 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 				exitCh = nil
 				continue
 			}
-
 			if err != nil {
 				slog.Warn("浏览器进程异常退出", "err", err)
 				return false
@@ -167,26 +192,31 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 			return false
 
 		case <-ticker.C:
-			if realBrowserPid == mainPid {
-				if truePid := sys.GetProcessIdByPort(debugPort); truePid != 0 {
-					realBrowserPid = truePid
-					m.isolatedPid.Store(realBrowserPid)
+			if !pidResolved {
+				if livePID := sys.FindTCPListenerPID(debugPort); livePID != 0 {
+					browserPID = livePID
+					m.isolatedPID.Store(livePID)
+					pidResolved = true
 				}
 			}
 
-			liveTargetID, liveTitle, isLive := GetWebUITarget(debugPort)
+			var liveTargetID, liveTitle string
+			var isLive bool
+			if pidResolved {
+				liveTargetID, liveTitle, isLive = findCDPPageTarget(debugPort)
+				if isLive && liveTargetID != "" && liveTargetID != activatedTargetID {
+					_ = activateCDPTarget(debugPort, liveTargetID)
+					activatedTargetID = liveTargetID
+				}
+			}
+
 			titleToSearch := liveTitle
 			if titleToSearch == "" {
 				titleToSearch = targetTitle
 			}
 
-			if isLive && liveTargetID != "" && liveTargetID != activatedTargetID {
-				_ = ActivateTarget(debugPort, liveTargetID)
-				activatedTargetID = liveTargetID
-			}
-
-			if isLive || titleToSearch != "" || realBrowserPid != 0 {
-				if m.findAndFocusWindow(titleToSearch, appHostPort, realBrowserPid) {
+			if isLive || titleToSearch != "" || browserPID != 0 {
+				if m.findAndFocusWindow(titleToSearch, appHostPort, browserPID) {
 					emitEvent(eventCh, EventReady)
 					return true
 				}
@@ -195,11 +225,11 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 	}
 }
 
-func (m *Manager) findAndFocusWindow(targetTitle, appHostPort string, targetPid uint32) bool {
+func (m *Manager) findAndFocusWindow(targetTitle, appHostPort string, targetPID uint32) bool {
 	exactTitle := strings.TrimSpace(targetTitle)
 	fallbackAnchor := strings.ToLower(strings.TrimSpace(appHostPort))
 
-	var pendingPidHwnd uintptr
+	var pendingPIDHwnd uintptr
 
 	targetHwnd := sys.FindTopWindow(func(info sys.WindowInfo) bool {
 		if !sys.IsWindowVisible(info.Hwnd) || !strings.HasPrefix(info.ClassName, wndClassChromiumPrefix) || info.Title == "" {
@@ -210,13 +240,13 @@ func (m *Manager) findAndFocusWindow(targetTitle, appHostPort string, targetPid 
 		isTitleHit := exactTitle != "" && info.Title == exactTitle
 		isAnchorHit := fallbackAnchor != "" && strings.Contains(titleLower, fallbackAnchor)
 
-		if targetPid != 0 {
-			if info.Pid == targetPid {
+		if targetPID != 0 {
+			if info.Pid == targetPID {
 				if isTitleHit || isAnchorHit {
 					return true
 				}
-				if pendingPidHwnd == 0 {
-					pendingPidHwnd = info.Hwnd
+				if pendingPIDHwnd == 0 {
+					pendingPIDHwnd = info.Hwnd
 				}
 			}
 			return false
@@ -229,7 +259,7 @@ func (m *Manager) findAndFocusWindow(targetTitle, appHostPort string, targetPid 
 	})
 
 	if targetHwnd == 0 {
-		targetHwnd = pendingPidHwnd
+		targetHwnd = pendingPIDHwnd
 	}
 
 	if targetHwnd != 0 {
