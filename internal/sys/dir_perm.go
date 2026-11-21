@@ -47,12 +47,19 @@ func ValidateDirWritable(dir string) error {
 func ProbeDirWritableZeroIO(dir string) error {
 	targetDir := dir
 	for {
-		if _, err := os.Stat(targetDir); err == nil {
+		fi, err := os.Stat(targetDir)
+		if err == nil {
+			if !fi.IsDir() {
+				return fmt.Errorf("目标路径不是目录: %s", targetDir)
+			}
 			break
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
 		}
 		parent := filepath.Dir(targetDir)
 		if parent == targetDir {
-			break
+			return err
 		}
 		targetDir = parent
 	}
@@ -90,7 +97,7 @@ func IsSubOrSameDir(parent, target string) bool {
 	if err != nil {
 		return false
 	}
-	return rel == "." || (!strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel))
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel))
 }
 
 func IsSystemProtectedDir(dir string) bool {

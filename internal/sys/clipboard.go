@@ -3,7 +3,6 @@
 package sys
 
 import (
-	"errors"
 	"fmt"
 	"runtime"
 	"syscall"
@@ -48,10 +47,14 @@ func WriteToClipboard(text string) error {
 	}
 	defer procCloseClipboard.Call()
 
-	procEmptyClipboard.Call()
-	if r, _, _ := procSetClipboardData.Call(uintptr(cfUnicodeText), hMem); r == 0 {
+	if r, _, callErr := procEmptyClipboard.Call(); r == 0 {
 		procGlobalFree.Call(hMem)
-		return errors.New("交付剪贴板数据失败")
+		return fmt.Errorf("清空剪贴板失败: %w", callErr)
+	}
+
+	if r, _, callErr := procSetClipboardData.Call(uintptr(cfUnicodeText), hMem); r == 0 {
+		procGlobalFree.Call(hMem)
+		return fmt.Errorf("写入剪贴板数据失败: %w", callErr)
 	}
 
 	return nil
@@ -64,34 +67,33 @@ func makeClipboardBuffer(text string) (uintptr, error) {
 	}
 
 	size := uintptr(len(u16) * 2)
-	hMem, _, _ := procGlobalAlloc.Call(gmemMoveable, size)
+	hMem, _, callErr := procGlobalAlloc.Call(gmemMoveable, size)
 	if hMem == 0 {
-		return 0, errors.New("GlobalAlloc 失败")
+		return 0, fmt.Errorf("GlobalAlloc 失败: %w", callErr)
 	}
 
-	ptr, _, _ := procGlobalLock.Call(hMem)
+	ptr, _, callErr := procGlobalLock.Call(hMem)
 	if ptr == 0 {
 		procGlobalFree.Call(hMem)
-		return 0, errors.New("GlobalLock 失败")
+		return 0, fmt.Errorf("GlobalLock 失败: %w", callErr)
 	}
 	defer procGlobalUnlock.Call(hMem)
 
-	_, _, _ = syscall.SyscallN(
-		procRtlMoveMemory.Addr(),
-		ptr,
-		uintptr(unsafe.Pointer(&u16[0])),
-		size,
-	)
-
+	_, _, _ = procRtlMoveMemory.Call(ptr, uintptr(unsafe.Pointer(&u16[0])), size)
 	return hMem, nil
 }
 
 func openClipboardWithRetry(attempts int, interval time.Duration) error {
+	var lastErr error
 	for i := 0; i < attempts; i++ {
-		if r, _, _ := procOpenClipboard.Call(0); r != 0 {
+		r, _, err := procOpenClipboard.Call(0)
+		if r != 0 {
 			return nil
 		}
-		time.Sleep(interval)
+		lastErr = err
+		if i < attempts-1 {
+			time.Sleep(interval)
+		}
 	}
-	return errors.New("打开系统剪贴板超时 (句柄被占用)")
+	return fmt.Errorf("打开系统剪贴板超时: %w", lastErr)
 }

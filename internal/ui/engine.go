@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"syscall"
 	"sync"
+	"syscall"
 
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
@@ -163,7 +163,7 @@ func (e *Engine) listenState() {
 		case <-e.ctx.Done():
 			if e.app != nil {
 				e.app.Synchronize(func() {
-					
+
 					// Dispose UI windows and WndProc hooks on the UI thread before exiting the message loop.
 					e.disposeAll()
 					e.app.Exit(0)

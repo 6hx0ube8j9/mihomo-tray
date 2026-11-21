@@ -98,9 +98,9 @@ func (t *Tray) UpdateState(state domain.UIState) {
 	safelySetChecked(t.actAllowLan, state.AllowLan)
 
 	safelySetText(t.actModeMenu, fmt.Sprintf("路由模式: %s", getModeName(state.Mode)))
-	adminText := "运行权限：普通用户"
+	adminText := "运行权限: 普通用户"
 	if state.IsAdmin {
-		adminText = "运行权限：管理员"
+		adminText = "运行权限: 管理员"
 	}
 	safelySetText(t.actAdminMenu, adminText)
 
@@ -243,7 +243,7 @@ func (t *Tray) rebuildProfilesMenu(state domain.UIState) {
 }
 
 func (t *Tray) ShowNotification(title, message string) {
-	if t.ni == nil || t.engine == nil {
+	if t.engine == nil {
 		return
 	}
 

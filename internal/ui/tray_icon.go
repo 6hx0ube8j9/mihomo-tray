@@ -46,6 +46,7 @@ type TrayIconController struct {
 	cachedTrayHwnd win.HWND
 
 	engine     *Engine
+	stopCh     chan struct{}
 	isDisposed atomic.Bool
 }
 
@@ -54,6 +55,7 @@ func NewTrayIconController(e *Engine, ni *walk.NotifyIcon) *TrayIconController {
 		ni:          ni,
 		icons:       make(map[int]*walk.Icon),
 		engine:      e,
+		stopCh:      make(chan struct{}),
 		lastStateId: -1,
 		currentSize: 0,
 	}
@@ -82,12 +84,20 @@ func (c *TrayIconController) SetState(stateId int) {
 }
 
 func (c *TrayIconController) setStateInternal(stateId int) {
-	if c.isDisposed.Load() || c.ni == nil {
+	if c.isDisposed.Load() {
 		return
 	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	c.setStateLocked(stateId)
+}
+
+func (c *TrayIconController) setStateLocked(stateId int) {
+	if c.isDisposed.Load() || c.ni == nil {
+		return
+	}
 
 	targetSize := c.getSystemMetricSizeLocked()
 	if stateId == c.lastStateId && targetSize == c.currentSize {
@@ -133,6 +143,21 @@ func (c *TrayIconController) setStateInternal(stateId int) {
 			}
 		}
 	}
+}
+
+func (c *TrayIconController) RefreshDPI() {
+	if c.isDisposed.Load() {
+		return
+	}
+
+	c.engine.PostUI(func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		if c.lastStateId != -1 {
+			c.setStateLocked(c.lastStateId)
+		}
+	})
 }
 
 func (c *TrayIconController) getIconLocked(stateId, targetSize int) *walk.Icon {
@@ -207,6 +232,8 @@ func (c *TrayIconController) startDpiWatcher() {
 			select {
 			case <-c.engine.ctx.Done():
 				return
+			case <-c.stopCh:
+				return
 			case <-ticker.C:
 				if c.isDisposed.Load() {
 					return
@@ -219,7 +246,7 @@ func (c *TrayIconController) startDpiWatcher() {
 				c.mu.Unlock()
 
 				if lastId != -1 && targetSize != currSize {
-					c.SetState(lastId)
+					c.RefreshDPI()
 				}
 			}
 		}
@@ -230,6 +257,7 @@ func (c *TrayIconController) Dispose() {
 	if c.isDisposed.Swap(true) {
 		return
 	}
+	close(c.stopCh)
 
 	c.engine.RunOnUI(func() {
 		c.mu.Lock()
