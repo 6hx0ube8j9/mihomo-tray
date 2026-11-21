@@ -18,7 +18,7 @@ import (
 	"mihomo-tray/internal/sys"
 )
 
-var errPanelBusy = errors.New("面板正在运行或启动中，请先关闭")
+var errPanelBusy = errors.New("面板运行或启动中，请先关闭")
 
 type webviewSession interface {
 	Destroy()
@@ -48,8 +48,9 @@ type Config struct {
 
 type Manager struct {
 	debugPort       string
+	isolatedExeName string
 	activeSignature string
-	isolatedPid     atomic.Uint32
+	isolatedPID     atomic.Uint32
 	hwnd            atomic.Uintptr
 	launchMu        sync.Mutex
 	stateMu         sync.Mutex
@@ -113,7 +114,6 @@ func (m *Manager) resolveCacheRoot(baseDir string) (string, error) {
 	if userCache, err := os.UserCacheDir(); err == nil && userCache != "" {
 		fallbackRoot := filepath.Join(userCache, domain.FallbackCacheAppDir, domain.WebCacheDir)
 		if err := sys.ValidateDirWritable(fallbackRoot); err == nil {
-			slog.Debug("缓存切换至用户目录", "path", fallbackRoot)
 			m.resolvedCacheDir = fallbackRoot
 			return fallbackRoot, nil
 		} else if primaryErr == nil {
@@ -255,7 +255,7 @@ func (m *Manager) launchWebViewMode(cfg Config, finalURL string, eventCh chan<- 
 func (m *Manager) launchAppMode(cfg Config, customEnabled bool, customPath, finalURL, appHostPort string, eventCh chan<- Event) {
 	cacheRoot, err := m.resolveCacheRoot(cfg.BaseDir)
 	if err != nil {
-		slog.Error("App 应用模式缓存目录不可写", "err", err)
+		slog.Error("App 模式缓存目录不可写", "err", err)
 		emitEvent(eventCh, EventError)
 		return
 	}
@@ -275,7 +275,7 @@ func (m *Manager) launchAppMode(cfg Config, customEnabled bool, customPath, fina
 		return
 	}
 
-	slog.Error("App 应用模式启动失败", "path", browserPath)
+	slog.Error("App 模式启动失败", "path", browserPath)
 	emitEvent(eventCh, EventError)
 }
 
@@ -297,7 +297,6 @@ func (m *Manager) launchAutoMode(cfg Config, finalURL, appHostPort string, event
 	}
 
 	if browserPath, dirName := fs.DetectChromiumBrowser(); browserPath != "" {
-		slog.Debug("WebView2 不可用，改用 App 应用模式", "browser", dirName)
 		if m.startChromiumWindow(cfg, cacheRoot, browserPath, dirName, finalURL, appHostPort, sig, eventCh) {
 			return
 		}
@@ -316,12 +315,12 @@ func resolveAppBrowser(customEnabled bool, customPath string) (browserPath, dirN
 		if fs.IsChromiumBrowser(resolvedPath) {
 			return resolvedPath, fs.ResolveBrowserDataDir(resolvedPath), true
 		}
-		slog.Warn("自定义浏览器不支持 App 应用模式，改用自动检测", "path", customPath)
+		slog.Warn("自定义浏览器不支持 App 模式，改用自动检测", "path", customPath)
 	}
 
 	browserPath, dirName = fs.DetectChromiumBrowser()
 	if browserPath == "" {
-		slog.Error("未找到支持 App 应用模式的浏览器")
+		slog.Error("未找到支持 App 模式的浏览器")
 		return "", "", false
 	}
 	return browserPath, dirName, true
@@ -330,7 +329,6 @@ func resolveAppBrowser(customEnabled bool, customPath string) (browserPath, dirN
 func (m *Manager) startWebViewWindow(cfg Config, cacheRoot, finalURL, sig string, eventCh chan<- Event) bool {
 	if m.launchWebView2(cfg, cacheRoot, finalURL, eventCh) {
 		m.setActiveSignature(sig)
-		slog.Debug("WebView2 已启动", "mode", sig)
 		return true
 	}
 	m.cleanupWebView2()
@@ -340,7 +338,6 @@ func (m *Manager) startWebViewWindow(cfg Config, cacheRoot, finalURL, sig string
 func (m *Manager) startChromiumWindow(cfg Config, cacheRoot, browserPath, dirName, finalURL, appHostPort, sig string, eventCh chan<- Event) bool {
 	if m.launchChromiumApp(cfg, cacheRoot, browserPath, dirName, finalURL, appHostPort, eventCh) {
 		m.setActiveSignature(sig)
-		slog.Debug("App 应用模式已启动", "browser", dirName)
 		return true
 	}
 	m.cleanupChromium()
@@ -349,7 +346,6 @@ func (m *Manager) startChromiumWindow(cfg Config, cacheRoot, browserPath, dirNam
 
 func (m *Manager) tryReuseWindow(targetSig string, eventCh chan<- Event) bool {
 	if currSig := m.getActiveSignature(); currSig != "" && currSig != targetSig {
-		slog.Debug("面板配置变更，重启窗口", "from", currSig, "to", targetSig)
 		m.Cleanup()
 		return false
 	}
@@ -388,15 +384,22 @@ func (m *Manager) IsActive() bool {
 	isNativeActive := m.wv != nil
 	m.wvMu.RUnlock()
 
-	pid := m.isolatedPid.Load()
+	pid := m.isolatedPID.Load()
 	isChromiumActive := false
 	if pid != 0 {
-		isChromiumActive = sys.IsPidRunning(pid, "")
-		if !isChromiumActive {
-			m.isolatedPid.Store(0)
+		m.stateMu.Lock()
+		exeName := m.isolatedExeName
+		debugPort := m.debugPort
+		m.stateMu.Unlock()
+
+		isChromiumActive = m.isChromiumProcessAlive(pid, exeName, debugPort)
+		if !isChromiumActive && m.isolatedPID.CompareAndSwap(pid, 0) {
 			m.hwnd.Store(0)
 			m.stateMu.Lock()
-			m.debugPort = ""
+			if m.debugPort == debugPort {
+				m.debugPort = ""
+				m.isolatedExeName = ""
+			}
 			if !isNativeActive {
 				m.activeSignature = ""
 			}
@@ -407,8 +410,22 @@ func (m *Manager) IsActive() bool {
 	return isNativeActive || isChromiumActive
 }
 
+func (m *Manager) isChromiumProcessAlive(pid uint32, exeName, debugPort string) bool {
+	if debugPort != "" {
+		if livePID := sys.FindTCPListenerPID(debugPort); livePID != 0 {
+			if livePID != pid {
+				m.isolatedPID.Store(livePID)
+			}
+			return true
+		}
+		if m.hwnd.Load() != 0 {
+			return false
+		}
+	}
+	return exeName != "" && sys.IsPidRunning(pid, exeName)
+}
+
 func (m *Manager) openSystemBrowser(finalURL string, eventCh chan<- Event) {
-	slog.Debug("启动系统浏览器")
 	if err := sys.ExecuteSystemCommand(`"` + finalURL + `"`); err == nil {
 		emitEvent(eventCh, EventReady)
 	} else {
@@ -418,7 +435,6 @@ func (m *Manager) openSystemBrowser(finalURL string, eventCh chan<- Event) {
 }
 
 func (m *Manager) openCustomBrowserTab(browserPath, finalURL string, eventCh chan<- Event) {
-	slog.Debug("启动自定义浏览器", "path", browserPath)
 	cmd := exec.Command(browserPath, finalURL)
 	if err := cmd.Start(); err != nil {
 		slog.Error("启动自定义浏览器失败", "path", browserPath, "err", err)
@@ -440,7 +456,6 @@ func (m *Manager) tryWakeCachedWindow(eventCh chan<- Event) bool {
 	}
 
 	if !sys.IsWindowVisible(hwnd) || sys.IsWindowHung(hwnd) {
-		slog.Debug("面板窗口失效，重新打开")
 		m.Cleanup()
 		return false
 	}
