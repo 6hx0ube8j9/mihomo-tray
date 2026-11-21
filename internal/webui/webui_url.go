@@ -12,13 +12,13 @@ import (
 const defaultWebUIHost = domain.LocalhostIP
 
 func parseAPIAddress(apiAddr string) (host string, port string, appHostPort string) {
-	cleanAddr := strings.TrimRight(apiAddr, "/")
+	cleanAddr := strings.TrimRight(strings.TrimSpace(apiAddr), "/")
 	cleanAddr = strings.TrimPrefix(strings.TrimPrefix(cleanAddr, "http://"), "https://")
 
 	var err error
 	host, port, err = net.SplitHostPort(cleanAddr)
 	if err != nil {
-		host = cleanAddr
+		host = strings.Trim(cleanAddr, "[]")
 	}
 
 	if port == "" {
@@ -54,7 +54,7 @@ func buildLocalWebUIURL(host, port, secret, uiName string) string {
 		uiPath = fmt.Sprintf("/ui/%s/", strings.Trim(uiName, "/"))
 	}
 	query := buildQueryArgs(host, port, secret)
-	return fmt.Sprintf("http://%s:%s%s?%s#/setup?%s", host, port, uiPath, query, query)
+	return fmt.Sprintf("http://%s%s?%s#/setup?%s", net.JoinHostPort(host, port), uiPath, query, query)
 }
 
 func buildRemoteWebUIURL(customURL, host, port, secret string) string {
