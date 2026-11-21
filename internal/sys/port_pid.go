@@ -23,7 +23,7 @@ const (
 )
 
 // MIB_TCPROW_OWNER_PID (IPv4)
-type mibTcpRowOwnerPid struct {
+type mibTCPRowOwnerPID struct {
 	dwState      uint32
 	dwLocalAddr  uint32
 	dwLocalPort  uint32
@@ -33,7 +33,7 @@ type mibTcpRowOwnerPid struct {
 }
 
 // MIB_TCP6ROW_OWNER_PID (IPv6)
-type mibTcp6RowOwnerPid struct {
+type mibTCP6RowOwnerPID struct {
 	ucLocalAddr     [16]byte
 	dwLocalScopeId  uint32
 	dwLocalPort     uint32
@@ -44,75 +44,74 @@ type mibTcp6RowOwnerPid struct {
 	dwOwningPid     uint32
 }
 
-func GetProcessIdByPort(port string) uint32 {
+func FindTCPListenerPID(port string) uint32 {
 	portNum, err := strconv.ParseUint(strings.TrimSpace(port), 10, 16)
 	if err != nil || portNum == 0 {
 		return 0
 	}
 	targetPort := uint16(portNum)
 
-	if pid := findTcp4ListenerPid(targetPort); pid != 0 {
+	if pid := findTCP4ListenerPID(targetPort); pid != 0 {
 		return pid
 	}
-
-	return findTcp6ListenerPid(targetPort)
+	return findTCP6ListenerPID(targetPort)
 }
 
-func findTcp4ListenerPid(targetPort uint16) uint32 {
-	buf, ok := queryExtendedTcpTable(afInet)
-	if !ok || len(buf) < 4 {
+func findTCP4ListenerPID(targetPort uint16) uint32 {
+	buf, ok := queryExtendedTCPTable(afInet)
+	if !ok || len(buf) < 1 {
 		return 0
 	}
 
-	numEntries := *(*uint32)(unsafe.Pointer(&buf[0]))
+	numEntries := buf[0]
 	if numEntries == 0 {
 		return 0
 	}
 
-	rowSize := unsafe.Sizeof(mibTcpRowOwnerPid{})
-	if uintptr(numEntries) > (uintptr(len(buf))-4)/rowSize {
+	rowSize := unsafe.Sizeof(mibTCPRowOwnerPID{})
+	if uintptr(numEntries) > uintptr(len(buf)-1)*4/rowSize {
 		return 0
 	}
 
-	rows := unsafe.Slice((*mibTcpRowOwnerPid)(unsafe.Pointer(&buf[4])), numEntries)
+	rows := unsafe.Slice((*mibTCPRowOwnerPID)(unsafe.Pointer(&buf[1])), numEntries)
 	for i := range rows {
-		port := ((rows[i].dwLocalPort & 0xFF) << 8) | ((rows[i].dwLocalPort >> 8) & 0xFF)
-		if uint16(port) == targetPort {
+		port := uint16(((rows[i].dwLocalPort & 0xFF) << 8) | ((rows[i].dwLocalPort >> 8) & 0xFF))
+		if port == targetPort && rows[i].dwOwningPid != 0 {
 			return rows[i].dwOwningPid
 		}
 	}
 	return 0
 }
 
-func findTcp6ListenerPid(targetPort uint16) uint32 {
-	buf, ok := queryExtendedTcpTable(afInet6)
-	if !ok || len(buf) < 4 {
+func findTCP6ListenerPID(targetPort uint16) uint32 {
+	buf, ok := queryExtendedTCPTable(afInet6)
+	if !ok || len(buf) < 1 {
 		return 0
 	}
 
-	numEntries := *(*uint32)(unsafe.Pointer(&buf[0]))
+	numEntries := buf[0]
 	if numEntries == 0 {
 		return 0
 	}
 
-	rowSize := unsafe.Sizeof(mibTcp6RowOwnerPid{})
-	if uintptr(numEntries) > (uintptr(len(buf))-4)/rowSize {
+	rowSize := unsafe.Sizeof(mibTCP6RowOwnerPID{})
+	if uintptr(numEntries) > uintptr(len(buf)-1)*4/rowSize {
 		return 0
 	}
 
-	rows := unsafe.Slice((*mibTcp6RowOwnerPid)(unsafe.Pointer(&buf[4])), numEntries)
+	rows := unsafe.Slice((*mibTCP6RowOwnerPID)(unsafe.Pointer(&buf[1])), numEntries)
 	for i := range rows {
-		port := ((rows[i].dwLocalPort & 0xFF) << 8) | ((rows[i].dwLocalPort >> 8) & 0xFF)
-		if uint16(port) == targetPort {
+		port := uint16(((rows[i].dwLocalPort & 0xFF) << 8) | ((rows[i].dwLocalPort >> 8) & 0xFF))
+		if port == targetPort && rows[i].dwOwningPid != 0 {
 			return rows[i].dwOwningPid
 		}
 	}
 	return 0
 }
 
-func queryExtendedTcpTable(af uint32) ([]byte, bool) {
+func queryExtendedTCPTable(af uint32) ([]uint32, bool) {
 	var size uint32
-	procGetExtendedTcpTable.Call(
+	ret, _, _ := procGetExtendedTcpTable.Call(
 		0,
 		uintptr(unsafe.Pointer(&size)),
 		0,
@@ -120,18 +119,19 @@ func queryExtendedTcpTable(af uint32) ([]byte, bool) {
 		uintptr(tcpTableOwnerPidListener),
 		0,
 	)
-	if size == 0 {
+	if ret != errorInsufficientBuffer || size < 4 {
 		return nil, false
 	}
 
 	for i := 0; i < 3; i++ {
-		if size == 0 {
+		if size < 4 {
 			return nil, false
 		}
-		buf := make([]byte, size)
+		buf := make([]uint32, (size+3)/4)
+		bufSize := uint32(len(buf) * 4)
 		ret, _, _ := procGetExtendedTcpTable.Call(
 			uintptr(unsafe.Pointer(&buf[0])),
-			uintptr(unsafe.Pointer(&size)),
+			uintptr(unsafe.Pointer(&bufSize)),
 			0,
 			uintptr(af),
 			uintptr(tcpTableOwnerPidListener),
@@ -143,6 +143,7 @@ func queryExtendedTcpTable(af uint32) ([]byte, bool) {
 		if ret != errorInsufficientBuffer {
 			return nil, false
 		}
+		size = bufSize
 	}
 	return nil, false
 }
