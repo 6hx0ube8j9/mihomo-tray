@@ -4,6 +4,7 @@ package sys
 
 import (
 	"math"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -61,7 +62,6 @@ const (
 	monitorDefaultToNearest = 2
 	monitorInfoPrimary      = 1
 
-	hwndTop       = 0
 	hwndTopMost   = ^uintptr(0) // -1
 	hwndNoTopMost = ^uintptr(1) // -2
 
@@ -123,7 +123,12 @@ var (
 )
 
 func init() {
-	if ret, _, _ := procSetProcessDpiContext.Call(dpiAwarenessPerMonitorV2); ret == 0 {
+	if procSetProcessDpiContext.Find() == nil {
+		if ret, _, _ := procSetProcessDpiContext.Call(dpiAwarenessPerMonitorV2); ret != 0 {
+			return
+		}
+	}
+	if procSetProcessDPIAware.Find() == nil {
 		_, _, _ = procSetProcessDPIAware.Call()
 	}
 }
@@ -297,7 +302,7 @@ func CenterWindow(hwnd uintptr) {
 	x := clampCoord(workLeft+(workW-winW)/2, workLeft, workLeft+workW-winW)
 	y := clampCoord(workTop+(workH-winH)/2, workTop, workTop+workH-winH)
 
-	_, _, _ = procSetWindowPos.Call(hwnd, 0, uintptr(int32(x)), uintptr(int32(y)), 0, 0, swpNoSize|swpNoZOrder|swpNoActivate)
+	_, _, _ = procSetWindowPos.Call(hwnd, 0, uintptr(int32(x)), uintptr(int32(y)), uintptr(int32(winW)), uintptr(int32(winH)), flags)
 }
 
 // CenterWindowOnOwner centers hwnd over ownerHwnd within the owner's monitor work area,
@@ -318,6 +323,8 @@ func CenterWindowOnOwner(hwnd, ownerHwnd uintptr) {
 	winW := int(popRect.Right - popRect.Left)
 	winH := int(popRect.Bottom - popRect.Top)
 
+	const flags = swpNoSize | swpNoZOrder | swpNoActivate
+
 	if ownerHwnd != 0 && IsWindowVisible(ownerHwnd) && !IsWindowMinimized(ownerHwnd) {
 		if ownerRect, ok := queryWindowRect(ownerHwnd); ok {
 			workW, workH, workLeft, workTop := windowWorkArea(ownerHwnd)
@@ -325,7 +332,7 @@ func CenterWindowOnOwner(hwnd, ownerHwnd uintptr) {
 			centerY := int(ownerRect.Top + (ownerRect.Bottom-ownerRect.Top)/2)
 			x := clampCoord(centerX-winW/2, workLeft, workLeft+workW-winW)
 			y := clampCoord(centerY-winH/2, workTop, workTop+workH-winH)
-			_, _, _ = procSetWindowPos.Call(hwnd, hwndTop, uintptr(int32(x)), uintptr(int32(y)), 0, 0, swpNoSize)
+			_, _, _ = procSetWindowPos.Call(hwnd, 0, uintptr(int32(x)), uintptr(int32(y)), 0, 0, flags)
 			return
 		}
 	}
@@ -333,7 +340,7 @@ func CenterWindowOnOwner(hwnd, ownerHwnd uintptr) {
 	workW, workH, workLeft, workTop := cursorWorkArea()
 	x := clampCoord(workLeft+(workW-winW)/2, workLeft, workLeft+workW-winW)
 	y := clampCoord(workTop+(workH-winH)/2, workTop, workTop+workH-winH)
-	_, _, _ = procSetWindowPos.Call(hwnd, hwndTop, uintptr(int32(x)), uintptr(int32(y)), 0, 0, swpNoSize)
+	_, _, _ = procSetWindowPos.Call(hwnd, 0, uintptr(int32(x)), uintptr(int32(y)), 0, 0, flags)
 }
 
 // -------------------- Focus & Visibility --------------------
@@ -382,6 +389,13 @@ func BringWindowToFront(hwnd uintptr) {
 		return
 	}
 
+	attachAndFocus(hwnd, fgHwnd)
+}
+
+func attachAndFocus(hwnd, fgHwnd uintptr) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	fgThreadID, _, _ := procGetWindowThread.Call(fgHwnd, 0)
 	curThreadID := uintptr(windows.GetCurrentThreadId())
 	if fgThreadID == 0 || fgThreadID == curThreadID {
@@ -389,9 +403,9 @@ func BringWindowToFront(hwnd uintptr) {
 	}
 
 	if attached, _, _ := procAttachThreadInput.Call(curThreadID, fgThreadID, 1); attached != 0 {
+		defer procAttachThreadInput.Call(curThreadID, fgThreadID, 0)
 		_, _, _ = procBringWindowToTop.Call(hwnd)
 		_, _, _ = procSetForeground.Call(hwnd)
-		_, _, _ = procAttachThreadInput.Call(curThreadID, fgThreadID, 0)
 	}
 }
 
