@@ -3,7 +3,6 @@ package core
 import (
 	"bytes"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -60,7 +59,6 @@ func DeployRuntimeConfig(cfg domain.TrayConfig, relPath string, baseDir string) 
 	runtimeAbs := filepath.Join(baseDir, domain.RuntimeConfigName)
 	if existingContent, err := os.ReadFile(runtimeAbs); err == nil &&
 		bytes.Equal(bytes.TrimSpace(existingContent), bytes.TrimSpace(res.YAML)) {
-		slog.Debug("配置内容无变动，跳过校验与落盘")
 		return &DeployResult{
 			RuntimeAbs:  runtimeAbs,
 			TunDevice:   res.TunDevice,
@@ -76,7 +74,6 @@ func DeployRuntimeConfig(cfg domain.TrayConfig, relPath string, baseDir string) 
 		return nil, fmt.Errorf("write runtime config: %w", err)
 	}
 
-	slog.Debug("运行配置已更新落盘", "target", domain.RuntimeConfigName)
 	return &DeployResult{
 		RuntimeAbs:  runtimeAbs,
 		TunDevice:   res.TunDevice,
