@@ -56,7 +56,6 @@ func (g *ProxyGuard) SetProxy(enable bool) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	slog.Debug("设置系统代理", "enabled", true, "port", portStr)
 	if err := sys.EnableSystemProxy(portStr); err != nil {
 		return err
 	}
@@ -100,7 +99,6 @@ func (g *ProxyGuard) syncInternal() bool {
 		return false
 	}
 
-	slog.Debug("同步系统代理", "enabled", true, "port", portStr)
 	if err := sys.EnableSystemProxy(portStr); err != nil {
 		g.mu.Unlock()
 		slog.Error("同步系统代理失败", "err", err)
@@ -159,7 +157,6 @@ func (g *ProxyGuard) SafeShutdownCleanup() {
 
 	portStr, _ := g.cfg.GetConfig().EffectiveSystemProxyPortStr()
 	g.cleanupRegistryProxyLocked(portStr)
-	slog.Debug("系统代理退出清理完成")
 }
 
 func (g *ProxyGuard) HandleStatusChange(ctx context.Context, status sys.ProxyStatus) {
@@ -223,7 +220,6 @@ func (g *ProxyGuard) reconcileDisconnection(ctx context.Context, expectedServer 
 		}
 
 		if g.isStateExpected(expectedServer) {
-			slog.Debug("系统代理已恢复", "attempt", attempt)
 			return
 		}
 
