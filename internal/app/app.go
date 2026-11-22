@@ -45,7 +45,6 @@ type Application struct {
 	themeEventCh    chan bool
 	apiPollCh       chan struct{}
 	UICommandCh     chan domain.UICommand
-	webuiEventCh    chan webui.Event
 	UIStateNotifyCh chan struct{}
 
 	shutdownOnce sync.Once
@@ -67,7 +66,6 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 		themeEventCh:    make(chan bool, 1),
 		apiPollCh:       make(chan struct{}, 1),
 		UICommandCh:     make(chan domain.UICommand, 10),
-		webuiEventCh:    make(chan webui.Event, 1),
 		UIStateNotifyCh: make(chan struct{}, 1),
 	}
 
@@ -97,7 +95,7 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	app.ProfileUpdater = NewProfileUpdater(cm, st, app.ProfileHub, app.Presenter.PushUIState)
 	app.Probe = NewKernelProbe(cm, st, api, app.Platform)
 	app.KernelTuner = NewKernelTuner(cm, st, api, app.Platform, app.ForceSyncAPI)
-	app.WebUIService = NewWebUIService(cm, st, app.WebUI, app.webuiEventCh)
+	app.WebUIService = NewWebUIService(cm, st, app.WebUI)
 
 	return app
 }
@@ -107,8 +105,6 @@ func (a *Application) SetUIPort(ui UIPort) {
 }
 
 func (a *Application) Bootstrap(ctx context.Context) {
-	slog.Debug("初始化核心服务")
-
 	if !a.ProfileHub.EnsureActiveValid(ctx) {
 		a.FallbackToEmpty(ctx, "活跃配置物理文件无效且无法恢复")
 	}
@@ -116,8 +112,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	a.KernelTuner.ReconcilePrivilege()
 
 	if err := a.KernelDeployer.SyncRuntimeConfig(); err != nil {
-		slog.Debug("启动配置校验失败", "err", err)
-		a.FallbackToEmpty(ctx, "配置语法校验失败")
+		a.FallbackToEmpty(ctx, "配置语法校验失败: "+err.Error())
 	}
 
 	if a.Cfg.GetConfig().Config.Tun.Enable {
@@ -127,7 +122,6 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	a.ProxyGuard.Sync()
 	a.Presenter.PushUIState()
 
-	slog.Debug("启动事件监听")
 	a.Kernel.SetPreStartHook(func() { _ = a.KernelDeployer.SyncRuntimeConfig() })
 	go a.Kernel.RunDaemon(ctx, a.kernelEventCh)
 	go sys.WatchNetworkInterfaces(ctx, a.tunEventCh)
@@ -137,21 +131,20 @@ func (a *Application) Bootstrap(ctx context.Context) {
 }
 
 func (a *Application) ExitForRestart() {
-	slog.Info("准备交接至管理员实例，执行平滑退出") 
+	slog.Info("准备交接至管理员实例，执行平滑退出")
 	a.State.ForceExitPhase()
- 
+
 	if a.ui == nil {
 		a.SafeShutdown(nil)
 		os.Exit(0)
 		return
- 	}
- 
+	}
+
 	a.ui.Exit()
 }
 
 func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 	a.shutdownOnce.Do(func() {
-		slog.Info("执行退出流程")
 		a.State.ForceExitPhase()
 		a.WebUI.Cleanup()
 		a.ProxyGuard.SafeShutdownCleanup()
@@ -189,8 +182,6 @@ func (a *Application) FallbackToEmpty(ctx context.Context, reason string) {
 }
 
 func (a *Application) eventLoop(ctx context.Context) {
-	slog.Debug("启动主事件循环")
-
 	currentInterval := pollActiveInterval
 	ticker := time.NewTicker(currentInterval)
 	defer ticker.Stop()
@@ -257,24 +248,14 @@ func (a *Application) eventLoop(ctx context.Context) {
 		select {
 
 		case isDark := <-a.themeEventCh:
-			theme := domain.ThemeFromBool(isDark)
-			slog.Debug("检测到系统主题变更", "theme", theme)
-
-			a.State.SetSystemTheme(theme)
+			a.State.SetSystemTheme(domain.ThemeFromBool(isDark))
 			a.Presenter.PushUIState()
 			a.WebUI.UpdateTheme(isDark)
 
-		case event := <-a.webuiEventCh:
-			if event == webui.EventError {
-				slog.Warn("Web 面板服务异常")
-			}
-
 		case <-ctx.Done():
-			slog.Debug("退出主事件循环")
 			return
 
 		case cmd := <-a.UICommandCh:
-			slog.Debug("处理界面指令", "action", cmd.Action)
 			lastUserAction = time.Now()
 			adjustPollInterval()
 			a.handleUICommand(ctx, cmd)
