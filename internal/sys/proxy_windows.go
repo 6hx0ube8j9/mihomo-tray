@@ -125,7 +125,6 @@ func DisableSystemProxy(expectedServer string) error {
 			return nil
 		}
 		if expected != "" && !curr.Matches(expected) {
-			slog.Warn("代理地址不匹配，跳过关闭", "current", curr.Server, "expected", expected)
 			return nil
 		}
 	}
