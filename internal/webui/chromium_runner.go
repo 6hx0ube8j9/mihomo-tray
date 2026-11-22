@@ -3,7 +3,8 @@
 package webui
 
 import (
-	"log/slog"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,17 +68,17 @@ func (m *Manager) cleanupChromium() {
 	}
 }
 
-func (m *Manager) launchChromiumApp(cfg Config, cacheRoot, browserPath, dataDirName, finalURL, appHostPort string, eventCh chan<- Event) bool {
+func (m *Manager) launchChromiumApp(cfg Config, cacheRoot, browserPath, dataDirName, finalURL, appHostPort string) error {
 	if browserPath == "" || dataDirName == "" {
-		return false
+		return errors.New("未找到可用浏览器")
 	}
 
 	safeDebugPort := m.prepareDebugPort()
-	if m.tryAttachExistingWindow(safeDebugPort, appHostPort, eventCh) {
-		return true
+	if m.tryAttachExistingWindow(safeDebugPort, appHostPort) {
+		return nil
 	}
 
-	return m.startBrowserProcess(cfg, cacheRoot, browserPath, dataDirName, finalURL, safeDebugPort, appHostPort, eventCh)
+	return m.startBrowserProcess(cfg, cacheRoot, browserPath, dataDirName, finalURL, safeDebugPort, appHostPort)
 }
 
 func (m *Manager) prepareDebugPort() string {
@@ -99,7 +100,7 @@ func (m *Manager) prepareDebugPort() string {
 	return m.debugPort
 }
 
-func (m *Manager) tryAttachExistingWindow(debugPort, appHostPort string, eventCh chan<- Event) bool {
+func (m *Manager) tryAttachExistingWindow(debugPort, appHostPort string) bool {
 	if sys.FindTCPListenerPID(debugPort) == 0 {
 		return false
 	}
@@ -110,22 +111,20 @@ func (m *Manager) tryAttachExistingWindow(debugPort, appHostPort string, eventCh
 	}
 	_ = activateCDPTarget(debugPort, targetID)
 
-	return m.waitForWindow(debugPort, appHostPort, targetTitle, m.isolatedPID.Load(), nil, eventCh)
+	return m.waitForWindow(debugPort, appHostPort, targetTitle, m.isolatedPID.Load(), nil) == nil
 }
 
-func (m *Manager) startBrowserProcess(cfg Config, cacheRoot, browserPath, dataDirName, finalURL, debugPort, appHostPort string, eventCh chan<- Event) bool {
+func (m *Manager) startBrowserProcess(cfg Config, cacheRoot, browserPath, dataDirName, finalURL, debugPort, appHostPort string) error {
 	userDataDir := filepath.Join(cacheRoot, dataDirName)
 	if err := os.MkdirAll(userDataDir, 0755); err != nil {
-		slog.Warn("创建浏览器缓存目录失败", "path", userDataDir, "err", err)
-		return false
+		return fmt.Errorf("创建浏览器缓存目录失败: %w", err)
 	}
 
 	exeName := filepath.Base(browserPath)
 	args := buildBrowserArgs(cfg, userDataDir, finalURL, debugPort)
 	cmd := exec.Command(browserPath, args...)
 	if err := cmd.Start(); err != nil {
-		slog.Warn("启动浏览器进程失败", "path", browserPath, "err", err)
-		return false
+		return fmt.Errorf("启动浏览器进程失败: %w", err)
 	}
 
 	mainPID := uint32(cmd.Process.Pid)
@@ -140,8 +139,9 @@ func (m *Manager) startBrowserProcess(cfg Config, cacheRoot, browserPath, dataDi
 		exitCh <- cmd.Wait()
 	}()
 
-	if m.waitForWindow(debugPort, appHostPort, "", mainPID, exitCh, eventCh) {
-		return true
+	err := m.waitForWindow(debugPort, appHostPort, "", mainPID, exitCh)
+	if err == nil {
+		return nil
 	}
 
 	realPID := m.isolatedPID.Swap(0)
@@ -160,10 +160,10 @@ func (m *Manager) startBrowserProcess(cfg Config, cacheRoot, browserPath, dataDi
 		sys.HardKill(mainPID)
 	}
 
-	return false
+	return err
 }
 
-func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, mainPID uint32, exitCh <-chan error, eventCh chan<- Event) bool {
+func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, mainPID uint32, exitCh <-chan error) error {
 	browserPID := mainPID
 	pidResolved := false
 	var activatedTargetID string
@@ -182,14 +182,12 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 				continue
 			}
 			if err != nil {
-				slog.Warn("浏览器进程异常退出", "err", err)
-				return false
+				return fmt.Errorf("浏览器进程异常退出: %w", err)
 			}
 			exitCh = nil
 
 		case <-timer.C:
-			slog.Warn("等待浏览器窗口超时", "timeout", chromiumInitTimeout)
-			return false
+			return fmt.Errorf("等待浏览器窗口超时 (%s)", chromiumInitTimeout)
 
 		case <-ticker.C:
 			if !pidResolved {
@@ -217,8 +215,7 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 
 			if isLive || titleToSearch != "" || browserPID != 0 {
 				if m.findAndFocusWindow(titleToSearch, appHostPort, browserPID) {
-					emitEvent(eventCh, EventReady)
-					return true
+					return nil
 				}
 			}
 		}
