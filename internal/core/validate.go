@@ -21,6 +21,8 @@ var shortCircuitKeywords = []string{
 	"pulling",
 }
 
+var ErrValidationTimeout = errors.New("配置校验超时")
+
 func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -107,7 +109,7 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 
 		if err != nil {
 			if errMsg != "" {
-				resultCh <- errors.New(errMsg)
+				resultCh <- &ConfigError{Msg: errMsg}
 			} else {
 				resultCh <- fmt.Errorf("exit status: %w", err)
 			}
@@ -119,7 +121,7 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
 	var finalErr error
 	select {
 	case <-ctx.Done():
-		finalErr = errors.New("validation timeout (10s)")
+		finalErr = ErrValidationTimeout
 	case err := <-resultCh:
 		finalErr = err
 	}
