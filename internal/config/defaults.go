@@ -75,7 +75,9 @@ func applyKernelDefaults(kcfg *domain.KernelConfig, isTainted *bool) {
 	}
 
 	if !netutil.IsValidHostPort(kcfg.ExternalController) {
-		slog.Warn("检测到非法的 ExternalController 监听地址，已自动恢复默认值", "invalid", kcfg.ExternalController)
+		if kcfg.ExternalController != "" {
+			slog.Warn("控制面板监听地址非法，已恢复默认", "invalid", kcfg.ExternalController)
+		}
 		kcfg.ExternalController = domain.DefaultExternalController
 		*isTainted = true
 	}
@@ -103,7 +105,7 @@ func applyKernelDefaults(kcfg *domain.KernelConfig, isTainted *bool) {
 		s := random.String(domain.DefaultSecretLength)
 		kcfg.Secret = &s
 		*isTainted = true
-		slog.Warn("安全拦截：已阻止外网无密码监听，系统强制生成随机访问密码")
+		slog.Warn("外网监听未设置密码，已自动生成随机密码")
 	}
 }
 
@@ -137,7 +139,7 @@ func sanitizePort(portPtr **int, defPort int, tainted *bool) {
 	}
 	val := **portPtr
 	if !netutil.IsValidPort(val) {
-		slog.Warn("端口配置超出合法范围 (0-65535)，已恢复为默认端口", "invalid", val, "default", defPort)
+		slog.Warn("端口配置非法，已恢复默认", "invalid", val, "default", defPort)
 		p := defPort
 		*portPtr = &p
 		*tainted = true
