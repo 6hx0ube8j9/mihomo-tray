@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
 )
@@ -160,7 +161,7 @@ func (a *Application) handleSwitchProfile(ctx context.Context, cmd domain.UIComm
 	a.runExclusiveAction(state.ActionSwitchProfile, "切换配置", func() error {
 		target := cmd.Payload
 		if target == "" {
-			return errors.New("未指定目标配置")
+			return config.ErrProfilePathEmpty
 		}
 		if a.Cfg.GetActivePath() == target {
 			return nil
@@ -211,12 +212,6 @@ func (a *Application) handleMoveProfileDown(_ context.Context, cmd domain.UIComm
 }
 
 func (a *Application) openProfile(targetRelPath string) error {
-	if targetRelPath == "" {
-		targetRelPath = a.Cfg.GetActivePath()
-	}
-	if targetRelPath == "" {
-		return errors.New("未选择配置文件")
-	}
 	if err := a.Cfg.ValidatePhysicalFile(targetRelPath); err != nil {
 		return err
 	}
@@ -224,13 +219,22 @@ func (a *Application) openProfile(targetRelPath string) error {
 }
 
 func (a *Application) handleOpenConfigFile(_ context.Context, cmd domain.UICommand) {
+	if cmd.Payload == "" {
+		a.showNotice("打开配置", "当前未选择配置文件")
+		return
+	}
 	a.asyncRunError("打开配置", func() error {
 		return a.openProfile(cmd.Payload)
 	})
 }
 
 func (a *Application) handleEditCurrentConfig(_ context.Context, _ domain.UICommand) {
+	active := a.Cfg.GetActivePath()
+	if active == "" {
+		a.showNotice("编辑配置", "当前未选择配置文件")
+		return
+	}
 	a.asyncRunError("编辑配置", func() error {
-		return a.openProfile("")
+		return a.openProfile(active)
 	})
 }
