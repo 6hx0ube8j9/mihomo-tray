@@ -27,28 +27,18 @@ type sessionWriter struct {
 	isRestarting bool
 	once         sync.Once
 }
-
 func (w *sessionWriter) Write(p []byte) (n int, err error) {
 	w.once.Do(func() {
+		if w.isRestarting {
+			return
+		}
 		fi, statErr := os.Stat(w.logPath)
 		isEmpty := statErr != nil || fi.Size() == 0
 
-		var buf bytes.Buffer
-
-		if isEmpty {
-			buf.Write([]byte{0xEF, 0xBB, 0xBF})
-		}
-
-		if !w.isRestarting {
-			if !isEmpty && fi.Size() < MaxAppLogSize {
-				buf.WriteString("\r\n" + sessionHeader + "\r\n")
-			} else {
-				buf.WriteString(sessionHeader + "\r\n")
-			}
-		}
-
-		if buf.Len() > 0 {
-			_, _ = w.target.Write(buf.Bytes())
+		if !isEmpty && fi.Size() < MaxAppLogSize {
+			_, _ = w.target.Write([]byte("\r\n" + sessionHeader + "\r\n"))
+		} else {
+			_, _ = w.target.Write([]byte(sessionHeader + "\r\n"))
 		}
 	})
 	return w.target.Write(p)
@@ -87,6 +77,10 @@ func (h *customConsoleHandler) Handle(_ context.Context, r slog.Record) error {
 	}
 
 	appendAttr := func(a slog.Attr) {
+		a.Value = a.Value.Resolve()
+		if a.Equal(slog.Attr{}) {
+			return
+		}
 		buf.WriteString(fmt.Sprintf(" %s%s=%s", prefix, a.Key, cleanString(fmt.Sprint(a.Value.Any()))))
 	}
 
@@ -160,7 +154,7 @@ func Init(baseDir string, isRestarting bool) *RollingLogWriter {
 }
 
 func ParseLevel(s string) slog.Level {
-	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.ToLower(strings.Trim(strings.TrimSpace(s), `"'`))
 	switch {
 	case strings.HasPrefix(s, "debug"):
 		return slog.LevelDebug
@@ -178,5 +172,8 @@ func ParseLevel(s string) slog.Level {
 }
 
 func SyncLogLevel(levelStr string) {
+	if strings.TrimSpace(levelStr) == "" {
+		levelStr = domain.DefaultTrayLogLevel
+	}
 	GlobalLogLevel.Set(ParseLevel(levelStr))
 }
