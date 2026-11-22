@@ -16,19 +16,17 @@ type WebUIService struct {
 	cfg     *config.Manager
 	st      *state.RuntimeState
 	coreMgr *webui.Manager
-	eventCh chan webui.Event
 
 	reopenMu     sync.Mutex
 	reopenCancel context.CancelFunc
 	reopenGen    uint64
 }
 
-func NewWebUIService(cfg *config.Manager, st *state.RuntimeState, coreMgr *webui.Manager, eventCh chan webui.Event) *WebUIService {
+func NewWebUIService(cfg *config.Manager, st *state.RuntimeState, coreMgr *webui.Manager) *WebUIService {
 	return &WebUIService{
 		cfg:     cfg,
 		st:      st,
 		coreMgr: coreMgr,
-		eventCh: eventCh,
 	}
 }
 
@@ -44,15 +42,6 @@ func (s *WebUIService) Open(forceSync func(), onReady func()) error {
 	ctrl := cfg.ControllerSettings()
 	proxyPort, _ := cfg.EffectiveSystemProxyPortStr()
 
-	slog.Debug("启动 Web 面板",
-		"addr", ctrl.Addr,
-		"mode", ctrl.WebOpenMode,
-		"remote", ctrl.RemoteWebUI,
-		"customBrowser", ctrl.CustomBrowserEnabled,
-	)
-
-	currentTheme := s.st.GetSystemTheme()
-
 	wcfg := webui.Config{
 		APIAddr:              ctrl.Addr,
 		Secret:               ctrl.Secret,
@@ -64,22 +53,14 @@ func (s *WebUIService) Open(forceSync func(), onReady func()) error {
 		RemoteWebUIURL:       ctrl.RemoteWebUIURL,
 		CustomBrowserEnabled: ctrl.CustomBrowserEnabled,
 		CustomBrowserPath:    ctrl.CustomBrowserPath,
-		IsDark:               currentTheme.IsDark(),
+		IsDark:               s.st.GetSystemTheme().IsDark(),
 	}
 
 	if forceSync != nil {
 		forceSync()
 	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			slog.Error("Web 面板启动异常拦截", "panic", r)
-		}
-	}()
-
-	s.coreMgr.Launch(wcfg, s.eventCh, onReady)
-
-	return nil
+	return s.coreMgr.Launch(wcfg, onReady)
 }
 
 func (s *WebUIService) ReopenIfActive(forceSync func()) {
@@ -120,7 +101,9 @@ func (s *WebUIService) ReopenIfActive(forceSync func()) {
 					return
 				}
 				if s.st.GetPhase() == domain.PhaseRunning {
-					_ = s.Open(forceSync, nil)
+					if err := s.Open(forceSync, nil); err != nil {
+						slog.Warn("恢复 Web 面板失败", "err", err)
+					}
 					return
 				}
 			}
