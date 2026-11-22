@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"log/slog"
 	"time"
 
 	"mihomo-tray/internal/domain"
@@ -31,7 +30,6 @@ func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand)
 		if enable && !a.Platform.IsAdmin() {
 			targetDev := a.State.GetEffectiveTunDevice()
 			if a.Platform.IsTunActive(targetDev) {
-				slog.Debug("虚拟网卡已被占用", "device", targetDev)
 				return domain.ErrTunDeviceBusy
 			}
 
