@@ -61,7 +61,7 @@ func (a *Application) runAsync(title string, onErr func(string, error), task fun
 	}()
 }
 
-func (a *Application) elevateAndRestart(_ string, commit func(), rollback func()) error {
+func (a *Application) elevateAndRestart(commit func(), rollback func()) error {
 	commit()
 
 	restarted, err := a.Platform.Elevate()
