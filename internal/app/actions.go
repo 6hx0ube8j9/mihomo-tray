@@ -9,7 +9,6 @@ import (
 
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
-	"mihomo-tray/internal/sys"
 )
 
 // ============================================================================
@@ -121,16 +120,9 @@ func (a *Application) elevateAndRestart(_ string, commit func(), rollback func()
 	commit()
 
 	restarted, err := a.Platform.Elevate()
-	if err != nil {
+	if err != nil || !restarted {
 		rollback()
-		if sys.IsUserCancelled(err) {
-			return nil
-		}
 		return err
-	}
-	if !restarted {
-		rollback()
-		return nil
 	}
 
 	a.ExitForRestart()
