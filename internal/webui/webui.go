@@ -19,8 +19,9 @@ import (
 )
 
 var (
-	errPanelBusy           = errors.New("面板正在运行或启动中，请先关闭")
-	errWebView2Unavailable = errors.New("未检测到可用的 WebView2 运行时")
+	errCacheBusy           = errors.New("缓存文件被占用，请稍后重试")
+	errPanelBusy           = errors.New("面板运行中，请先关闭")
+	errWebView2Unavailable = errors.New("未检测到 WebView2 运行时")
 )
 
 type webviewSession interface {
@@ -166,7 +167,7 @@ func (m *Manager) ClearCache(baseDir string) error {
 	}
 
 	if lastErr != nil {
-		return fmt.Errorf("缓存文件被占用，请稍后重试: %w", lastErr)
+		return errCacheBusy
 	}
 	return nil
 }
