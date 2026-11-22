@@ -19,11 +19,17 @@ type ComposeResult struct {
 	TunDevice string
 }
 
+type ConfigError struct {
+	Msg string
+}
+
+func (e *ConfigError) Error() string { return e.Msg }
+
 func cleanYAMLErr(err error) error {
 	if err == nil {
 		return nil
 	}
-	return errors.New(strings.TrimPrefix(err.Error(), "yaml: "))
+	return &ConfigError{Msg: strings.TrimPrefix(err.Error(), "yaml: ")}
 }
 
 func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResult, error) {
@@ -39,7 +45,7 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 			var extra yaml.Node
 			err := dec.Decode(&extra)
 			if err == nil {
-				return nil, errors.New("配置文件包含了多份独立配置 ('---')")
+				return nil, &ConfigError{Msg: "配置文件包含了多份独立配置 ('---')"}
 			} else if !errors.Is(err, io.EOF) {
 				return nil, cleanYAMLErr(err)
 			}
@@ -51,11 +57,11 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 	}
 	rootMap := root.Content[0]
 	if rootMap.Kind != yaml.MappingNode {
-		return nil, errors.New("配置文件缺少核心字段")
+		return nil, &ConfigError{Msg: "配置文件缺少核心字段"}
 	}
 
 	if len(rootMap.Content) > 0 && rootMap.Content[0].Column != 1 {
-		return nil, fmt.Errorf("第 %d 列缩进格式错误", rootMap.Content[0].Column)
+		return nil, &ConfigError{Msg: fmt.Sprintf("第 %d 列缩进格式错误", rootMap.Content[0].Column)}
 	}
 
 	deleteKeys(rootMap, "redir-port", "tproxy-port")
