@@ -67,7 +67,6 @@ func (h *ProfileHub) EnsureActiveValid(ctx context.Context) bool {
 	defer cancel()
 
 	if err := h.fetchAndCommit(fCtx, activePath, p.URL, &p); err != nil {
-		slog.Debug("远程拉取恢复失败", "path", activePath, "err", err)
 		return false
 	}
 
