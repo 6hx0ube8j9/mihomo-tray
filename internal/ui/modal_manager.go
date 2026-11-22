@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"log/slog"
 	"sync"
 
 	"mihomo-tray/internal/sys"
@@ -24,7 +23,6 @@ func (m *ModalManager) TryAcquire(key string) bool {
 
 	if hwnd, exists := m.active[key]; exists {
 		if hwnd != 0 {
-			slog.Debug("弹窗已存在，激活已有窗口", "key", key, "hwnd", hwnd)
 			sys.ActivateWindow(hwnd)
 		}
 		return false
