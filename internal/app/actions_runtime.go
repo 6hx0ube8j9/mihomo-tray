@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"path/filepath"
 
@@ -67,8 +66,8 @@ func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UIComm
 	enable := cmd.Payload == "true"
 	a.asyncRun("开机自启", func() error {
 		if a.Platform.IsAdmin() {
-			if !a.Platform.SetAutoStartTask(enable) {
-				return errors.New("写入自启任务失败")
+			if err := a.Platform.SetAutoStartTask(enable); err != nil {
+				return err
 			}
 			a.Cfg.Update(func(c *domain.TrayConfig) {
 				b := enable
