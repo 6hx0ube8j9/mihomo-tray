@@ -66,7 +66,6 @@ func (d *KernelDeployer) DeployAndApply(ctx context.Context, targetRelPath, acti
 	}
 
 	if d.IsKernelRunning() {
-		slog.Debug("正在应用配置", "action", actionDesc, "path", targetRelPath)
 		if reloadErr := d.api.ForceReloadKernel(ctx, runtimeAbs); reloadErr == nil {
 			slog.Info("配置应用成功", "action", actionDesc, "path", targetRelPath)
 			return nil
@@ -103,7 +102,6 @@ func (d *KernelDeployer) prepareRuntimeConfig(targetRelPath string) (string, err
 
 func (d *KernelDeployer) restartProcess() {
 	cfg := d.cfg.GetConfig()
-	slog.Debug("重启内核进程", "tun", cfg.Config.Tun.Enable)
 	if cfg.Config.Tun.Enable {
 		d.st.SetTunRequestedTime(time.Now())
 	}
