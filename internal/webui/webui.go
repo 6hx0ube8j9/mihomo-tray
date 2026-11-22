@@ -19,9 +19,11 @@ import (
 )
 
 var (
-	errCacheBusy           = errors.New("缓存文件被占用，请稍后重试")
-	errPanelBusy           = errors.New("面板运行中，请先关闭")
-	errWebView2Unavailable = errors.New("未检测到 WebView2 运行时")
+	ErrCacheBusy           = errors.New("缓存文件被占用，请稍后重试")
+    ErrPanelBusy           = errors.New("面板运行中，请先关闭")
+	ErrWebView2Unavailable = errors.New("未安装 WebView2 运行时")
+	ErrInvalidBrowserPath  = errors.New("自定义浏览器路径无效")
+	ErrBrowserNotFound     = errors.New("未找到支持 App 模式的浏览器")
 )
 
 type webviewSession interface {
@@ -117,12 +119,12 @@ func (m *Manager) resolveCacheRoot(baseDir string) (string, error) {
 
 func (m *Manager) ClearCache(baseDir string) error {
 	if !m.launchMu.TryLock() {
-		return errPanelBusy
+		return ErrPanelBusy
 	}
 	defer m.launchMu.Unlock()
 
 	if m.IsActive() {
-		return errPanelBusy
+		return ErrPanelBusy
 	}
 
 	m.cacheDirMu.Lock()
@@ -167,7 +169,7 @@ func (m *Manager) ClearCache(baseDir string) error {
 	}
 
 	if lastErr != nil {
-		return errCacheBusy
+		return fmt.Errorf("%w: %w", ErrCacheBusy, lastErr)
 	}
 	return nil
 }
@@ -209,7 +211,7 @@ func (m *Manager) launchBrowserMode(customEnabled bool, customPath, finalURL str
 
 	resolvedPath := fs.ResolveBrowserPath(customPath)
 	if !fs.IsBrowserExecutable(resolvedPath) {
-		return fmt.Errorf("自定义浏览器路径无效: %s", customPath)
+		return fmt.Errorf("%w: %s", ErrInvalidBrowserPath, customPath)
 	}
 
 	return m.openCustomBrowserTab(resolvedPath, finalURL)
@@ -260,9 +262,9 @@ func (m *Manager) launchAutoMode(cfg Config, finalURL, appHostPort string) error
 		return nil
 	}
 
-	if err := m.startWebViewWindow(cfg, cacheRoot, finalURL, sig); err == nil {
+    if err := m.startWebViewWindow(cfg, cacheRoot, finalURL, sig); err == nil {
 		return nil
-	} else if !errors.Is(err, errWebView2Unavailable) {
+	} else if !errors.Is(err, ErrWebView2Unavailable) {
 		slog.Warn("WebView2 启动失败，尝试降级", "err", err)
 	}
 
@@ -281,7 +283,7 @@ func resolveAppBrowser(customEnabled bool, customPath string) (browserPath, dirN
 	if customEnabled {
 		resolvedPath := fs.ResolveBrowserPath(customPath)
 		if !fs.IsBrowserExecutable(resolvedPath) {
-			return "", "", fmt.Errorf("自定义浏览器路径无效: %s", customPath)
+			return "", "", fmt.Errorf("%w: %s", ErrInvalidBrowserPath, customPath)
 		}
 		if fs.IsChromiumBrowser(resolvedPath) {
 			return resolvedPath, fs.ResolveBrowserDataDir(resolvedPath), nil
@@ -291,7 +293,7 @@ func resolveAppBrowser(customEnabled bool, customPath string) (browserPath, dirN
 
 	browserPath, dirName = fs.DetectChromiumBrowser()
 	if browserPath == "" {
-		return "", "", errors.New("未找到支持 App 模式的浏览器")
+		return "", "", ErrBrowserNotFound
 	}
 	return browserPath, dirName, nil
 }
