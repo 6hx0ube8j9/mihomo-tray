@@ -56,6 +56,7 @@ func WatchNetworkInterfaces(ctx context.Context, eventCh chan<- struct{}) {
 	}
 
 	notifyCh := make(chan struct{}, 1)
+	var watchErr error
 
 	var closeOnce sync.Once
 	safeCloseSocket := func() {
@@ -70,9 +71,7 @@ func WatchNetworkInterfaces(ctx context.Context, eventCh chan<- struct{}) {
 
 		for {
 			if err := windows.WSAIoctl(fd, sioAddressListChange, nil, 0, nil, 0, &bytesReturned, nil, 0); err != nil {
-				if ctx.Err() == nil {
-					slog.Debug("网络监听退出", "err", err)
-				}
+				watchErr = err
 				break
 			}
 
@@ -103,7 +102,7 @@ func WatchNetworkInterfaces(ctx context.Context, eventCh chan<- struct{}) {
 				}
 				safeCloseSocket()
 				if ctx.Err() == nil {
-					slog.Warn("网络监听中断，改用定时轮询")
+					slog.Warn("网络监听中断，改用定时轮询", "err", watchErr)
 					fallbackWatch(ctx, eventCh)
 				}
 				return
