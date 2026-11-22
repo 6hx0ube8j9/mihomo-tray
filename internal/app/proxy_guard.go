@@ -90,11 +90,11 @@ func (g *ProxyGuard) syncInternal() bool {
 	}
 
 	if !hasPort {
-		slog.Warn("系统代理已停用", "err", domain.ErrNoProxyPort)
+		slog.Warn("系统代理已停用", "err", errNoProxyPort)
 		g.disableInternalLocked()
 		g.mu.Unlock()
 		if g.onAlert != nil {
-			g.onAlert("系统代理已停用", domain.ErrNoProxyPort.Error())
+			g.onAlert("系统代理已停用", errNoProxyPort.Error())
 		}
 		return false
 	}
