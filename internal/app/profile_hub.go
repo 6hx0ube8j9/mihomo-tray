@@ -18,7 +18,7 @@ import (
 
 var (
 	ErrProfileUpdating = errors.New("订阅正在更新中，请稍候")
-	ErrEmptyProfile    = errors.New("配置文件内容为空")
+	errProfileTooLarge = fmt.Errorf("文件大小超出限制 (%d MB)", domain.MaxProfileBytes/(1024*1024))
 )
 
 type ProfileHub struct {
@@ -129,7 +129,7 @@ func (h *ProfileHub) UpdateRemote(ctx context.Context, targetRelPath string) err
 
 	p, ok := h.cfg.GetProfileByPath(targetRelPath)
 	if !ok {
-		return errors.New("订阅配置不存在")
+		return config.ErrProfileNotFound
 	}
 	if p.URL == "" {
 		return errors.New("订阅链接为空")
@@ -146,7 +146,7 @@ func (h *ProfileHub) UpdateRemote(ctx context.Context, targetRelPath string) err
 func (h *ProfileHub) EditRemote(ctx context.Context, oldPath, newName, newURL string, newInterval int) (urlChanged bool, err error) {
 	p, ok := h.cfg.GetProfileByPath(oldPath)
 	if !ok {
-		return false, errors.New("配置不存在")
+		return false, config.ErrProfileNotFound
 	}
 
 	if newName == p.Name && newURL == p.URL && newInterval == p.Interval {
@@ -190,7 +190,7 @@ func (h *ProfileHub) ValidateSource(sourcePath string) error {
 		return err
 	}
 	if fi.Size() > domain.MaxProfileBytes {
-		return fmt.Errorf("文件大小超出限制 (%d MB)", domain.MaxProfileBytes/(1024*1024))
+		return errProfileTooLarge
 	}
 
 	content, err := os.ReadFile(absPath)
@@ -229,10 +229,10 @@ func (h *ProfileHub) fetchAndCommit(ctx context.Context, targetRelPath, url stri
 
 func (h *ProfileHub) validateBytes(content []byte, isActive bool) error {
 	if len(content) == 0 {
-		return ErrEmptyProfile
+		return config.ErrProfileEmpty
 	}
 	if len(content) > domain.MaxProfileBytes {
-		return fmt.Errorf("文件大小超出限制 (%d MB)", domain.MaxProfileBytes/(1024*1024))
+		return errProfileTooLarge
 	}
 
 	if isActive {
