@@ -14,8 +14,13 @@ import (
 
 const profileFileExt = ".yaml"
 
-var ErrProfileLimitExceeded = fmt.Errorf("配置文件已达 %d 个上限", domain.MaxProfileCount)
-var ErrProfileNameConflict = errors.New("配置名称已存在")
+var (
+	ErrProfileLimitExceeded = fmt.Errorf("配置文件已达 %d 个上限", domain.MaxProfileCount)
+	ErrProfileNameConflict  = errors.New("配置名称已存在")
+	ErrProfilePathEmpty     = errors.New("未指定配置文件路径")
+	ErrProfileNotFound      = errors.New("目标文件不存在")
+	ErrProfileEmpty         = errors.New("配置文件内容为空")
+)
 
 func (m *Manager) AllocateRemoteProfilePath(rawName string) (displayName string, relPath string, err error) {
 	if err := m.CheckProfileLimit(); err != nil {
@@ -208,7 +213,7 @@ func (m *Manager) MoveProfile(relPath string, offset int) bool {
 func (m *Manager) ValidatePhysicalFile(relPath string) error {
 	cleanPath := strings.TrimSpace(relPath)
 	if cleanPath == "" {
-		return errors.New("未指定配置文件路径")
+		return ErrProfilePathEmpty
 	}
 
 	fileName := filepath.Base(cleanPath)
@@ -217,12 +222,12 @@ func (m *Manager) ValidatePhysicalFile(relPath string) error {
 	fi, err := os.Stat(absPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("%s: 目标文件不存在", fileName)
+			return fmt.Errorf("%s: %w", fileName, ErrProfileNotFound)
 		}
 		return err
 	}
 	if fi.Size() == 0 {
-		return fmt.Errorf("%s: 配置文件内容为空", fileName)
+		return fmt.Errorf("%s: %w", fileName, ErrProfileEmpty)
 	}
 	return nil
 }
