@@ -36,7 +36,7 @@ func main() {
 
 	defer func() {
 		if r := recover(); r != nil {
-			slog.Error("程序异常退出", "error", r)
+			slog.Error("程序异常退出", "err", r)
 		}
 		application.SafeShutdown(cancel)
 	}()
@@ -57,6 +57,6 @@ func main() {
 	}()
 
 	if err := uiEngine.Run(); err != nil {
-		slog.Error("界面运行异常", "error", err)
+		slog.Error("界面运行异常", "err", err)
 	}
 }
