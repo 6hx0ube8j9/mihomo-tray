@@ -104,7 +104,7 @@ func (a *Application) handleEditProfileInfo(ctx context.Context, cmd domain.UICo
 			urlChanged, err := a.ProfileHub.EditRemote(ctx, profile.Path, name, url, interval)
 			if err != nil {
 				if errors.Is(err, ErrProfileUpdating) {
-					a.notifyWarn("更新订阅", ErrProfileUpdating)
+					a.showNotice("更新订阅", ErrProfileUpdating.Error())
 					return nil
 				}
 				return err
@@ -126,7 +126,7 @@ func (a *Application) handleUpdateRemoteProfile(ctx context.Context, cmd domain.
 	a.runExclusiveAction(state.ActionReload, "更新订阅", func() error {
 		if err := a.ProfileHub.UpdateRemote(ctx, p.Path); err != nil {
 			if errors.Is(err, ErrProfileUpdating) {
-				a.notifyWarn("更新订阅", ErrProfileUpdating)
+				a.showNotice("更新订阅", ErrProfileUpdating.Error())
 				return nil
 			}
 			return err
