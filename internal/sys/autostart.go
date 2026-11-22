@@ -6,7 +6,6 @@ import (
 	"encoding/xml"
 	"fmt"
 	"html"
-	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,7 +39,7 @@ func newSchtasksCmd(args ...string) *exec.Cmd {
 	return cmd
 }
 
-func ToggleAutoStart(appName, exePath, baseDir string, enable bool) bool {
+func ToggleAutoStart(appName, exePath, baseDir string, enable bool) error {
 	if key, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.SET_VALUE); err == nil {
 		_ = key.DeleteValue(appName)
 		_ = key.Close()
@@ -59,24 +58,28 @@ func ToggleAutoStart(appName, exePath, baseDir string, enable bool) bool {
 		xmlContent := generateTaskXML(absExe, "--autostart", absBase)
 		tempXML, err := writeTempTaskXML(appName, xmlContent)
 		if err != nil {
-			slog.Error("写入计划任务临时文件失败", "err", err)
-			return false
+			return fmt.Errorf("写入计划任务临时文件失败: %w", err)
 		}
 		defer os.Remove(tempXML)
 
 		cmd := newSchtasksCmd("/Create", "/TN", appName, "/XML", tempXML, "/F")
 		if out, err := cmd.CombinedOutput(); err != nil {
-			slog.Error("导入计划任务失败", "err", err, "output", strings.TrimSpace(decodeConsole(out)))
-			return false
+			if msg := strings.TrimSpace(decodeConsole(out)); msg != "" {
+				return fmt.Errorf("导入计划任务失败: %s", msg)
+			}
+			return fmt.Errorf("导入计划任务失败: %w", err)
 		}
-		return true
+		return nil
 	}
 
 	cmd := newSchtasksCmd("/Delete", "/TN", appName, "/F")
-	if err := cmd.Run(); err != nil {
-		slog.Debug("删除计划任务失败", "task", appName, "err", err)
+	if out, err := cmd.CombinedOutput(); err != nil && CheckAutoStartStatus(appName) {
+		if msg := strings.TrimSpace(decodeConsole(out)); msg != "" {
+			return fmt.Errorf("删除计划任务失败: %s", msg)
+		}
+		return fmt.Errorf("删除计划任务失败: %w", err)
 	}
-	return !CheckAutoStartStatus(appName)
+	return nil
 }
 
 func CheckAutoStartStatus(appName string) bool {
