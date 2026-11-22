@@ -41,17 +41,18 @@ func (a *Application) notifyError(action string, err error) {
 		return
 	}
 
-	title := action
 	if errors.Is(err, domain.ErrKernelNotReady) || errors.Is(err, domain.ErrSystemBusy) {
-		title = "操作失败"
-	} else if !strings.HasSuffix(title, "失败") {
+		a.showNotice("操作暂不可用", err.Error())
+		return
+	}
+
+	title := action
+	if !strings.HasSuffix(title, "失败") {
 		title += "失败"
 	}
 
-	if !errors.Is(err, domain.ErrSystemBusy) && !errors.Is(err, domain.ErrKernelNotReady) {
-		slog.Error(title, "err", err)
-	}
-	a.showError(title, err.Error())
+	slog.Error(title, "err", err)
+	a.showError(title, domain.UserMessage(err))
 }
 
 func (a *Application) notifyWarn(actionTitle string, err error) {
@@ -67,7 +68,7 @@ func (a *Application) notifyWarn(actionTitle string, err error) {
 	if !errors.Is(err, domain.ErrSystemBusy) && !errors.Is(err, domain.ErrInvalidPort) {
 		slog.Warn(title, "err", err)
 	}
-	a.showNotice(title, err.Error())
+	a.showNotice(title, domain.UserMessage(err))
 }
 
 func (a *Application) runExclusiveAction(action state.KernelAction, title string, task func() error) {
