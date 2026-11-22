@@ -120,7 +120,11 @@ func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, is
 		if cfgAutostart {
 			if isAdmin {
 				slog.Info("注册自启动计划任务")
-				taskInSync = sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
+				if err := sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true); err != nil {
+					slog.Error("注册自启动计划任务失败", "err", err)
+				} else {
+					taskInSync = true
+				}
 			} else {
 				needElevate = true
 			}
@@ -145,7 +149,9 @@ func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, is
 			}
 
 			slog.Info("删除已关闭的自启动计划任务")
-			if sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, false) {
+			if err := sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, false); err != nil {
+				slog.Error("删除自启动计划任务失败", "err", err)
+			} else {
 				taskInSync = false
 			}
 			return taskInSync, false
@@ -158,7 +164,11 @@ func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, is
 		if cfgAutostart {
 			if isAdmin {
 				slog.Info("更新失效的自启动任务", "path", exePath)
-				taskInSync = sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
+				if err := sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true); err != nil {
+					slog.Error("更新自启动计划任务失败", "err", err)
+				} else {
+					taskInSync = true
+				}
 			} else {
 				needElevate = true
 			}
@@ -169,7 +179,11 @@ func inspectAndSyncAutostart(cfgMgr *config.Manager, exePath, baseDir string, is
 	if cfgAutostart {
 		if isAdmin {
 			slog.Info("覆盖自启动任务路径", "path", exePath)
-			taskInSync = sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true)
+			if err := sys.ToggleAutoStart(domain.AppTaskName, exePath, baseDir, true); err != nil {
+				slog.Error("覆盖自启动计划任务失败", "err", err)
+			} else {
+				taskInSync = true
+			}
 			return taskInSync, false
 		}
 
