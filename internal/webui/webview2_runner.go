@@ -3,6 +3,7 @@
 package webui
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -111,21 +112,20 @@ func (m *Manager) cleanupWebView2() {
 	wv.Destroy()
 }
 
-func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh chan<- Event) bool {
+func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string) error {
 	if !isWebView2Available() {
-		return false
+		return errWebView2Unavailable
 	}
 	if cfg.WebOpenMode != domain.WebOpenModeWebView && wv2Broken.Load() {
-		return false
+		return errWebView2Unavailable
 	}
 
 	userDataDir := filepath.Join(cacheRoot, domain.WebViewCacheDirName)
 	if err := os.MkdirAll(userDataDir, 0755); err != nil {
-		slog.Warn("创建 WebView2 缓存目录失败", "path", userDataDir, "err", err)
-		return false
+		return fmt.Errorf("创建 WebView2 缓存目录失败: %w", err)
 	}
 
-	initCh := make(chan bool, 1)
+	initCh := make(chan error, 1)
 	var aborted atomic.Bool
 
 	go func() {
@@ -140,7 +140,7 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 					sys.HideWindow(hwnd)
 				}
 				select {
-				case initCh <- false:
+				case initCh <- fmt.Errorf("WebView2 运行崩溃: %v", r):
 				default:
 				}
 			}
@@ -169,11 +169,10 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 			},
 		})
 		if err != nil {
-			slog.Warn("WebView2 初始化失败", "err", err)
 			wv2Broken.Store(true)
 			cleanCorruptWebViewCache(userDataDir, err)
 			select {
-			case initCh <- false:
+			case initCh <- fmt.Errorf("WebView2 初始化失败: %w", err):
 			default:
 			}
 			return
@@ -219,10 +218,9 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 		})
 
 		w.Navigate(finalURL)
-		emitEvent(eventCh, EventReady)
 
 		select {
-		case initCh <- true:
+		case initCh <- nil:
 		default:
 		}
 
@@ -234,12 +232,10 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 	defer initTimer.Stop()
 
 	select {
-	case ok := <-initCh:
-		return ok
+	case err := <-initCh:
+		return err
 
 	case <-initTimer.C:
-		slog.Warn("WebView2 启动超时", "timeout", webviewInitTimeout)
-
 		m.wvMu.Lock()
 		aborted.Store(true)
 		wv2Broken.Store(true)
@@ -255,6 +251,6 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, eventCh
 			staleWV.Destroy()
 		}
 
-		return false
+		return fmt.Errorf("WebView2 启动超时 (%s)", webviewInitTimeout)
 	}
 }
