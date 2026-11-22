@@ -45,7 +45,10 @@ func (p *Platform) OpenFolder(dirPath string) error {
 
 // WriteClipboard 写入系统剪贴板
 func (p *Platform) WriteClipboard(text string) error {
-	return sys.WriteToClipboard(text)
+	if err := sys.WriteToClipboard(text); err != nil {
+		return domain.WrapUserError("写入剪贴板失败，可能被其他程序占用", err)
+	}
+	return nil
 }
 
 // SetAutoStartTask 注册或注销 Windows 计划任务开机自启
@@ -64,10 +67,11 @@ func (p *Platform) Elevate() (restarted bool, err error) {
 		if sys.IsUserCancelled(err) {
 			return false, nil
 		}
-		return false, err
+		return false, domain.WrapUserError("申请管理员权限失败", err)
 	}
 	return true, nil
 }
+
 // IsTunActive 检查指定的虚拟网卡设备是否处于激活状态
 func (p *Platform) IsTunActive(targetDevice string) bool {
 	return sys.IsTunActive(targetDevice)
