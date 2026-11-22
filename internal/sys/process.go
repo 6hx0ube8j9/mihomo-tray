@@ -77,8 +77,7 @@ func (j *Job) Close() error {
 func createKillOnCloseJob() (windows.Handle, error) {
 	h, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
-		slog.Error("创建 Job Object 失败", "err", err)
-		return 0, err
+		return 0, fmt.Errorf("create job object: %w", err)
 	}
 	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
 		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
@@ -92,9 +91,8 @@ func createKillOnCloseJob() (windows.Handle, error) {
 		uint32(unsafe.Sizeof(info)),
 	)
 	if err != nil {
-		slog.Error("配置 Job Object 退出策略失败", "err", err)
 		_ = windows.CloseHandle(h)
-		return 0, err
+		return 0, fmt.Errorf("set job object limit: %w", err)
 	}
 	return h, nil
 }
@@ -118,7 +116,7 @@ func assignProcessToJob(hJob windows.Handle, pid int) {
 func KillOtherProcessesByName(name string, excludePid uint32) {
 	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil || snapshot == windows.InvalidHandle {
-		slog.Error("枚举进程失败", "err", err)
+		slog.Warn("枚举进程失败", "err", err)
 		return
 	}
 	defer windows.CloseHandle(snapshot)
@@ -139,8 +137,7 @@ func KillOtherProcessesByName(name string, excludePid uint32) {
 			if err == nil {
 				_ = windows.TerminateProcess(h, 9)
 				_, _ = windows.WaitForSingleObject(h, waitMs)
-				windows.CloseHandle(h)
-				slog.Debug("已清理残留进程", "pid", pe.ProcessID)
+				_ = windows.CloseHandle(h)
 			} else {
 				slog.Warn("清理残留进程失败", "pid", pe.ProcessID, "err", err)
 			}
@@ -193,7 +190,6 @@ func SendCtrlBreak(pid uint32) error {
 
 	r1, _, err := procAttachConsole.Call(uintptr(pid))
 	if r1 == 0 {
-		slog.Error("发送中断信号失败", "pid", pid, "err", err)
 		return fmt.Errorf("attachConsole 失败: %w", err)
 	}
 
@@ -205,12 +201,11 @@ func HardKill(pid uint32) {
 	if pid == 0 {
 		return
 	}
-	slog.Debug("强制结束进程", "pid", pid)
 	if h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, pid); err == nil {
 		_ = windows.TerminateProcess(h, 0)
-		windows.CloseHandle(h)
-	} else {
-		slog.Error("强制结束进程失败", "pid", pid, "err", err)
+		_ = windows.CloseHandle(h)
+	} else if IsPidRunning(pid, "") {
+		slog.Warn("强制结束进程失败", "pid", pid, "err", err)
 	}
 }
 
