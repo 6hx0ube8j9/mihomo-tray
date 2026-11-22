@@ -45,12 +45,12 @@ func (g *ProxyGuard) SetProxy(enable bool) error {
 	}
 
 	if g.st.GetPhase() != domain.PhaseRunning {
-		return domain.ErrKernelNotReady
+		return errKernelNotReady
 	}
 
 	portStr, hasPort := g.cfg.GetConfig().EffectiveSystemProxyPortStr()
 	if !hasPort {
-		return domain.ErrNoProxyPort
+		return errNoProxyPort
 	}
 
 	g.mu.Lock()
