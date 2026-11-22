@@ -81,6 +81,9 @@ func (s *WebUIService) ReopenIfActive(forceSync func()) {
 
 	go func() {
 		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("恢复 Web 面板异常", "err", r)
+			}
 			cancel()
 			s.reopenMu.Lock()
 			if s.reopenGen == gen {
