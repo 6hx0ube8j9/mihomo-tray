@@ -15,10 +15,20 @@ import (
 	"mihomo-tray/internal/fs"
 )
 
-const RemoteFetchTimeout = 90 * time.Second
-
 // debugLogFullURL controls whether to log unredacted subscription URLs with sensitive tokens for debugging.
 const debugLogFullURL = false
+
+const RemoteFetchTimeout = 90 * time.Second
+
+var ErrRemoteHTML = errors.New("订阅返回内容为 HTML 网页")
+
+type RemoteStatusError struct {
+	StatusCode int
+}
+
+func (e *RemoteStatusError) Error() string {
+	return fmt.Sprintf("订阅服务器返回 HTTP %d", e.StatusCode)
+}
 
 func sanitizeURL(rawURL string) string {
 	if debugLogFullURL {
@@ -115,12 +125,12 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("订阅服务器返回 HTTP %d", resp.StatusCode)
+		return nil, &RemoteStatusError{StatusCode: resp.StatusCode}
 	}
 
 	contentType := strings.ToLower(resp.Header.Get("Content-Type"))
 	if strings.Contains(contentType, "text/html") {
-		return nil, errors.New("订阅返回内容为 HTML 网页")
+		return nil, ErrRemoteHTML
 	}
 
 	tmpName, err := fs.SaveTempWithLimit(m.ProfilesDirAbs(), "sub_*.tmp", resp.Body, domain.MaxProfileBytes)
