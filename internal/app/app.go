@@ -105,8 +105,8 @@ func (a *Application) SetUIPort(ui UIPort) {
 }
 
 func (a *Application) Bootstrap(ctx context.Context) {
-	if !a.ProfileHub.EnsureActiveValid(ctx) {
-		a.FallbackToEmpty(ctx, "活跃配置物理文件无效且无法恢复")
+	if err := a.ProfileHub.EnsureActiveValid(ctx); err != nil {
+		a.FallbackToEmpty(ctx, "活跃配置无效: "+err.Error())
 	}
 
 	a.KernelTuner.ReconcilePrivilege()
