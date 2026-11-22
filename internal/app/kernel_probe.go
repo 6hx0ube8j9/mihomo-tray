@@ -15,10 +15,11 @@ import (
 const kernelAPIPollTimeout = 1500 * time.Millisecond
 
 type KernelProbe struct {
-	cfg      *config.Manager
-	st       *state.RuntimeState
-	api      *core.APIClient
-	platform *Platform
+	cfg           *config.Manager
+	st            *state.RuntimeState
+	api           *core.APIClient
+	platform      *Platform
+	tunDropWarned bool
 }
 
 func NewKernelProbe(cfg *config.Manager, st *state.RuntimeState, api *core.APIClient, platform *Platform) *KernelProbe {
@@ -154,7 +155,6 @@ func (p *KernelProbe) PollStatus(ctx context.Context) ProbeResult {
 	}
 
 	if resp.LogLevel != "" && resp.LogLevel != cfg.Config.LogLevel {
-		slog.Debug("内核日志等级更新", "from", cfg.Config.LogLevel, "to", resp.LogLevel)
 		l := resp.LogLevel
 		res.Diff.LogLevel = &l
 		res.Changed = true
@@ -209,6 +209,7 @@ func (p *KernelProbe) reconcileTunStatus(
 
 	if wantTun {
 		if kernelEnable && realAlive {
+			p.tunDropWarned = false
 			if p.st.IsTunStarting() {
 				p.st.ClearTunStarting()
 				slog.Info("TUN 模式已就绪", "device", targetDev)
@@ -218,26 +219,28 @@ func (p *KernelProbe) reconcileTunStatus(
 		}
 
 		if p.st.IsTunStartingTimedOut() {
-			slog.Debug("TUN 模式启动超时", "device", targetDev)
+			p.tunDropWarned = false
 			return true, "TUN 模式启动超时 (20s)", nil, true
 		}
 
 		if p.st.IsTunStarting() {
+			p.tunDropWarned = false
 			if !kernelEnable && kernelDevice != "" && realAlive {
-				slog.Debug("检测到虚拟网卡被占用", "device", targetDev)
 				return true, fmt.Sprintf("虚拟网卡 [%s] 已被其他程序占用", targetDev), nil, true
 			}
 			return false, "", nil, false
 		}
 
 		if !kernelEnable && !realAlive {
+			p.tunDropWarned = false
 			slog.Info("外部已关闭 TUN 模式，同步状态", "device", targetDev)
 			p.st.ClearTunLost()
 			return false, "", &bFalse, true
 		}
 
 		if kernelEnable && !realAlive {
-			if !p.st.IsTunDropDebouncing() {
+			if !p.st.IsTunDropDebouncing() && !p.tunDropWarned {
+				p.tunDropWarned = true
 				slog.Warn("TUN 虚拟网卡掉线已超过 6 秒", "device", targetDev)
 			}
 		}
@@ -245,7 +248,8 @@ func (p *KernelProbe) reconcileTunStatus(
 		return false, "", nil, false
 	}
 
-	if !wantTun && kernelEnable && realAlive {
+	p.tunDropWarned = false
+	if kernelEnable && realAlive {
 		slog.Info("外部已开启 TUN 模式，同步状态", "device", targetDev)
 		p.st.ClearTunStarting()
 		p.st.ClearTunLost()
