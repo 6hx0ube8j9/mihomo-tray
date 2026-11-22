@@ -39,6 +39,15 @@ type APIClient struct {
 	httpClient *http.Client
 }
 
+type APIError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("[%d] %s", e.StatusCode, e.Message)
+}
+
 func NewAPIClient(pipePath string) *APIClient {
 	return &APIClient{
 		pipePath: pipePath,
@@ -187,7 +196,7 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errMsg := strings.TrimSpace(string(body))
 		if errMsg != "" {
-			return nil, fmt.Errorf("[%d] %s", resp.StatusCode, errMsg)
+			return nil, &APIError{StatusCode: resp.StatusCode, Message: errMsg}
 		}
 		return nil, fmt.Errorf("http status %d", resp.StatusCode)
 	}
