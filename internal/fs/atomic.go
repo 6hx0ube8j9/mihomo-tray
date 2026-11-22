@@ -36,7 +36,11 @@ func WriteAtomic(targetPath string, content []byte) error {
 	}
 
 	writeSucceeded = true
-	return ReplaceAtomic(tmpName, targetPath)
+	if err := ReplaceAtomic(tmpName, targetPath); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	return nil
 }
 
 func ReplaceAtomic(sourcePath, targetPath string) error {
