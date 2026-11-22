@@ -39,7 +39,7 @@ func (t *KernelTuner) triggerForceSync() {
 	}
 }
 
-func (t *KernelTuner) syncAPI(ctx context.Context, action string, call func(context.Context) error, commit func()) error {
+func (t *KernelTuner) syncAPI(ctx context.Context, _ string, call func(context.Context) error, commit func()) error {
 	if t.st.GetPhase() != domain.PhaseRunning {
 		return domain.ErrKernelNotReady
 	}
@@ -56,9 +56,7 @@ func (t *KernelTuner) syncAPI(ctx context.Context, action string, call func(cont
 	defer cancel()
 
 	if err := call(reqCtx); err != nil {
-		if ctx.Err() == nil && (errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)) {
-			slog.Debug("下发参数响应超时，由后台探针继续同步", "action", action)
-		} else {
+		if ctx.Err() != nil || (!errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled)) {
 			return err
 		}
 	}
@@ -80,9 +78,7 @@ func (t *KernelTuner) ToggleTun(ctx context.Context, enable bool) error {
 
 	if enable {
 		targetDev := t.st.GetEffectiveTunDevice()
-
 		if t.platform.IsTunActive(targetDev) {
-			slog.Debug("虚拟网卡已被占用，无法开启 TUN", "device", targetDev)
 			return domain.ErrTunDeviceBusy
 		}
 	}
