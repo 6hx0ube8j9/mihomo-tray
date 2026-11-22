@@ -37,8 +37,8 @@ func (a *Application) handleRestartKernel(ctx context.Context, _ domain.UIComman
 		hasActiveProfile := a.Cfg.GetActivePath() != ""
 		if err := a.KernelDeployer.RestartKernel(); err != nil {
 			if hasActiveProfile {
-				a.FallbackToEmpty(ctx, "配置校验失败")
-				a.notifyWarn("配置加载失败", err)
+				a.FallbackToEmpty(ctx, "配置校验失败: "+err.Error())
+				a.showNotice("配置加载失败", err.Error())
 			} else {
 				slog.Error("重启内核失败", "err", err)
 			}
