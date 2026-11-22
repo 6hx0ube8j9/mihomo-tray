@@ -170,19 +170,19 @@ func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.K
 	startTime := time.Now()
 
 	if err := km.runner.Start(absBaseDir, target, args, errBuf); err != nil {
-		km.logger.WriteLog(err.Error())
+		exiting := ctx.Err() != nil || km.isExiting()
+		if !exiting {
+			slog.Error("启动内核进程失败", "err", err)
+		}
 		return sessionResult{
 			runDuration:  0,
 			isCrash:      true,
-			crashLog:     err.Error(),
-			isAppExiting: ctx.Err() != nil || km.isExiting(),
+			isAppExiting: exiting,
 		}
 	}
 	if km.api != nil {
 		defer km.api.CloseIdleConnections()
 	}
-
-	slog.Debug("内核进程已启动", "pid", km.runner.Pid())
 
 	readyCtx, cancelReady := context.WithTimeout(ctx, readyTimeout)
 	readyErr := km.WaitForReady(readyCtx)
@@ -260,12 +260,24 @@ func (km *KernelManager) WaitForReady(ctx context.Context) error {
 	}
 }
 
+func (km *KernelManager) writeCrashLog(crashLog string) {
+	if km.logger == nil || crashLog == "" {
+		return
+	}
+	for _, line := range strings.Split(crashLog, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			km.logger.WriteLog(line)
+		}
+	}
+}
+
 func (km *KernelManager) handleSessionCrash(res sessionResult, backoff *crashBackoff) {
 	upper := strings.ToUpper(res.crashLog)
 	isFatal := strings.Contains(upper, "FATA") || strings.Contains(upper, "PANIC")
 
-	if (res.runDuration < quickCrashThreshold || isFatal) && res.crashLog != "" {
-		km.logger.WriteLog(res.crashLog)
+	if res.crashLog != "" {
+		km.writeCrashLog(res.crashLog)
 	}
 
 	if isFatal {
@@ -312,9 +324,12 @@ func (km *KernelManager) waitIfPaused(ctx context.Context) bool {
 }
 
 func (km *KernelManager) waitBackoff(ctx context.Context, d time.Duration) {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
 	select {
 	case <-ctx.Done():
-	case <-time.After(d):
+	case <-timer.C:
 	case <-km.wakeCh:
 	}
 }
