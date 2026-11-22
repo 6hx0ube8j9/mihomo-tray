@@ -17,6 +17,7 @@ type RollingLogWriter struct {
 	maxSize  int64
 	file     *os.File
 	currSize int64
+	closed   bool
 }
 
 func NewRollingWriter(logPath string, maxSize int64) *RollingLogWriter {
@@ -77,6 +78,10 @@ func (w *RollingLogWriter) Write(p []byte) (n int, err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	if w.closed {
+		return len(p), nil
+	}
+
 	if w.file == nil {
 		w.open()
 		if w.file == nil {
@@ -110,6 +115,7 @@ func (w *RollingLogWriter) Sync() error {
 func (w *RollingLogWriter) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.closed = true
 	if w.file != nil {
 		_ = w.file.Sync()
 		err := w.file.Close()
