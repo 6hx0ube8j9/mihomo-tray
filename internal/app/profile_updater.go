@@ -46,14 +46,16 @@ func (u *ProfileUpdater) Trigger(ctx context.Context) {
 			if p.IsUpdateDue() {
 				if err := u.hub.UpdateRemote(ctx, p.Path); err == nil {
 					hasUpdate = true
-				} else if !errors.Is(err, ErrProfileUpdating) {
+				} else if ctx.Err() == nil && !errors.Is(err, ErrProfileUpdating) {
 					slog.Warn("自动更新订阅失败", "path", p.Path, "err", err)
 				}
 
+				timer := time.NewTimer(3 * time.Second)
 				select {
 				case <-ctx.Done():
+					timer.Stop()
 					return
-				case <-time.After(3 * time.Second):
+				case <-timer.C:
 				}
 			}
 		}
