@@ -176,7 +176,6 @@ func (c *TrayIconController) getIconLocked(stateId, targetSize int) *walk.Icon {
 	})
 
 	if err != nil || ico == nil {
-		slog.Debug("加载指定尺寸图标失败，降级使用默认尺寸", "size", targetSize)
 		ico, err = walk.NewIconFromResourceId(resID)
 		if err != nil || ico == nil {
 			slog.Error("加载托盘图标资源失败", "id", resID, "err", err)
