@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	"mihomo-tray/internal/domain"
@@ -112,7 +111,7 @@ func (a *Application) handleToggleRemoteWebUI(_ context.Context, cmd domain.UICo
 func (a *Application) handleCopyWebUIPassword(_ context.Context, _ domain.UICommand) {
 	secret := a.Cfg.GetConfig().EffectiveSecret()
 	if secret == "" {
-		a.notifyWarn("复制密码", errors.New("当前未设置密码"))
+		a.showNotice("复制密码", "当前未设置密码")
 		return
 	}
 
@@ -121,7 +120,7 @@ func (a *Application) handleCopyWebUIPassword(_ context.Context, _ domain.UIComm
 		return
 	}
 
-	a.notifySuccess("复制成功", "密码已复制到剪贴板")
+	a.showNotice("复制成功", "密码已复制到剪贴板")
 }
 
 func (a *Application) handleClearWebUICache(_ context.Context, _ domain.UICommand) {
@@ -139,6 +138,6 @@ func (a *Application) handleClearWebUICache(_ context.Context, _ domain.UIComman
 			return
 		}
 
-		a.notifySuccess("清理完成", "Web 面板缓存已清空")
+		a.showNotice("清理完成", "Web 面板缓存已清空")
 	}()
 }
