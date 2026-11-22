@@ -33,8 +33,8 @@ func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand)
 				return errTunDeviceBusy
 			}
 
-			originalTun := a.Cfg.GetConfig().Config.Tun.Enable
-			return a.elevateAndRestart("TUN 模式", func() {
+            originalTun := a.Cfg.GetConfig().Config.Tun.Enable
+			return a.elevateAndRestart(func() {
 				a.Cfg.Update(func(c *domain.TrayConfig) {
 					c.Config.Tun.Enable = true
 				})
