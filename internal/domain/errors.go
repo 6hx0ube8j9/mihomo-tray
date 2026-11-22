@@ -13,5 +13,4 @@ var (
 
 	// 用户配置与输入
 	ErrInvalidPort    = errors.New("端口超出合法范围 (0-65535)")
-	ErrProfileInvalid = errors.New("配置文件语法错误或格式不正确")
 )
