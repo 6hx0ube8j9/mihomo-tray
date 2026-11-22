@@ -27,6 +27,7 @@ var userVisibleErrors = []error{
 	errTunDeviceBusy,
 	errNoProxyPort,
 	errInvalidPort,
+	errProfileTooLarge,
 	core.ErrValidationTimeout,
 	config.ErrProfileLimitExceeded,
 	config.ErrProfileNameConflict,
