@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"path/filepath"
@@ -164,11 +163,7 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 	if bodyReader != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-
-	if !(method == http.MethodGet && (path == "/configs" || path == "/version")) {
-		slog.Debug("发送内核控制指令", "method", method, "path", path)
-	}
-
+	
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("ipc request: %w", err)
