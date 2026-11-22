@@ -2,78 +2,20 @@ package app
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"log/slog"
-	"strings"
 
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
 )
 
+
 // ============================================================================
 // 1. 核心调度基础设施 (Infrastructure, Runners & Notifiers)
 // ============================================================================
 
-func (a *Application) showNotice(title, message string) {
-	if a.ui != nil && !a.State.IsExiting() {
-		a.ui.ShowNotification(title, message)
-	}
-}
-
-func (a *Application) showError(title, message string) {
-	if a.ui != nil && !a.State.IsExiting() {
-		a.ui.ShowError(title, message)
-	}
-}
-
-func (a *Application) reportPanic(action string, r any) {
-	title := action
-	if !strings.HasSuffix(title, "失败") {
-		title += "失败"
-	}
-	slog.Error(title, "err", fmt.Errorf("panic: %v", r))
-	a.showError(title, "程序发生内部异常，详情请查看日志")
-}
-
-func (a *Application) notifyError(action string, err error) {
-	if err == nil {
-		return
-	}
-
-	if errors.Is(err, domain.ErrKernelNotReady) || errors.Is(err, domain.ErrSystemBusy) {
-		a.showNotice("操作暂不可用", err.Error())
-		return
-	}
-
-	title := action
-	if !strings.HasSuffix(title, "失败") {
-		title += "失败"
-	}
-
-	slog.Error(title, "err", err)
-	a.showError(title, domain.UserMessage(err))
-}
-
-func (a *Application) notifyWarn(actionTitle string, err error) {
-	if err == nil {
-		return
-	}
-
-	title := actionTitle
-	if !strings.HasSuffix(title, "失败") {
-		title += "失败"
-	}
-
-	if !errors.Is(err, domain.ErrSystemBusy) && !errors.Is(err, domain.ErrInvalidPort) {
-		slog.Warn(title, "err", err)
-	}
-	a.showNotice(title, domain.UserMessage(err))
-}
-
 func (a *Application) runExclusiveAction(action state.KernelAction, title string, task func() error) {
 	if !a.State.TryBeginAction(action) {
-		a.showNotice(title, domain.ErrSystemBusy.Error())
+		a.showNotice(title, errSystemBusy.Error())
 		return
 	}
 
