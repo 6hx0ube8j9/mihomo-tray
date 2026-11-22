@@ -44,7 +44,7 @@ func (m *Manager) LoadAndInitMemory() {
 	raw, err := os.ReadFile(cfgPath)
 	if err == nil {
 		if err := json.Unmarshal(raw, &loaded); err != nil {
-			slog.Warn("应用配置解析失败，已重置默认", "path", cfgPath, "err", err)
+			slog.Error("应用配置解析失败，已重置默认", "path", cfgPath, "err", err)
 
 			corruptPath := cfgPath + fmt.Sprintf(".%d.err", time.Now().Unix())
 			_ = os.Rename(cfgPath, corruptPath)
@@ -53,7 +53,6 @@ func (m *Manager) LoadAndInitMemory() {
 			isTainted = true
 		}
 	} else {
-		slog.Debug("应用配置不存在，初始化默认配置", "path", cfgPath)
 		isTainted = true
 	}
 
