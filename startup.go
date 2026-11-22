@@ -212,7 +212,6 @@ func handleElevation(
 		(*guardPtr).Close()
 		err := sys.RunScheduledTask(domain.AppTaskName)
 		if err == nil {
-			slog.Info("静默提权已触发，当前实例退出")
 			exitProcess(0)
 			return
 		}
@@ -240,7 +239,6 @@ func handleElevation(
 	args := buildSelfElevationArgs()
 	err := sys.RunAsAdmin(exePath, baseDir, args...)
 	if err == nil {
-		slog.Info("UAC 授权已触发，当前实例退出")
 		exitProcess(0)
 		return
 	}
