@@ -33,11 +33,19 @@ func sanitizeURL(rawURL string) string {
 	return u.String()
 }
 
+func sanitizeNetError(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		if urlErr.Err != nil {
+			return fmt.Errorf("%s %s: %w", urlErr.Op, sanitizeURL(urlErr.URL), urlErr.Err)
+		}
+		return fmt.Errorf("%s %s", urlErr.Op, sanitizeURL(urlErr.URL))
+	}
+	return err
+}
+
 func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPort string) (*domain.FetchResult, error) {
 	subURL = strings.TrimSpace(subURL)
-	logURL := sanitizeURL(subURL)
-
-	slog.Info("拉取订阅", "url", logURL)
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	defer transport.CloseIdleConnections()
@@ -68,7 +76,7 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 
 		req, err := http.NewRequestWithContext(ctx, "GET", subURL, nil)
 		if err != nil {
-			return nil, fmt.Errorf("无效的订阅链接: %w", err)
+			return nil, fmt.Errorf("无效的订阅链接: %w", sanitizeNetError(err))
 		}
 
 		req.Header.Set("User-Agent", domain.DefaultUserAgent)
@@ -76,6 +84,12 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 		req.Header.Set("Connection", "keep-alive")
 
 		resp, reqErr = client.Do(req)
+		if ctx.Err() != nil {
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			return nil, ctx.Err()
+		}
 		if reqErr == nil && resp.StatusCode < 500 {
 			break
 		}
@@ -84,18 +98,19 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
 			}
-			slog.Warn("拉取订阅重试", "url", logURL, "retry", i+1, "err", reqErr)
 
+			timer := time.NewTimer(1500 * time.Millisecond)
 			select {
 			case <-ctx.Done():
+				timer.Stop()
 				return nil, ctx.Err()
-			case <-time.After(1500 * time.Millisecond):
+			case <-timer.C:
 			}
 		}
 	}
 
 	if reqErr != nil {
-		return nil, fmt.Errorf("请求订阅失败 (%d次重试): %w", maxRetries, reqErr)
+		return nil, fmt.Errorf("请求订阅失败 (%d次重试): %w", maxRetries, sanitizeNetError(reqErr))
 	}
 	defer resp.Body.Close()
 
