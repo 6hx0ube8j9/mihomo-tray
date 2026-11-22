@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"log/slog"
 	"path/filepath"
 
 	"mihomo-tray/internal/domain"
@@ -37,11 +36,10 @@ func (a *Application) handleRestartKernel(ctx context.Context, _ domain.UIComman
 		if err := a.KernelDeployer.RestartKernel(); err != nil {
 			if hasActiveProfile {
 				a.FallbackToEmpty(ctx, "配置校验失败: "+err.Error())
-				a.showNotice("配置加载失败", err.Error())
-			} else {
-				slog.Error("重启内核失败", "err", err)
+				a.showNotice("配置加载失败", userFacingMessage(err))
+				return nil
 			}
-			return nil
+			return err
 		}
 
 		a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
@@ -76,7 +74,7 @@ func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UIComm
 			return nil
 		}
 
-		return a.elevateAndRestart("开机自启", func() {
+		return a.elevateAndRestart(func() {
 			a.Cfg.Update(func(c *domain.TrayConfig) {
 				b := enable
 				c.General.Autostart = &b
@@ -100,7 +98,7 @@ func (a *Application) handleToggleRunAsAdmin(_ context.Context, cmd domain.UICom
 			return nil
 		}
 
-		return a.elevateAndRestart("管理员模式", func() {
+		return a.elevateAndRestart(func() {
 			a.Cfg.Update(func(c *domain.TrayConfig) {
 				c.General.RunAsAdmin = true
 			})
