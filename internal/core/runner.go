@@ -62,7 +62,10 @@ func (r *ProcessRunner) Start(workDir, targetExe string, args []string, out io.W
 	cmd.Stderr = out
 	cmd.WaitDelay = pipeWaitDelay
 
-	job, _ := sys.NewKillOnCloseJob()
+	job, err := sys.NewKillOnCloseJob()
+	if err != nil {
+		slog.Warn("创建进程保护作业失败", "err", err)
+	}
 
 	if err := cmd.Start(); err != nil {
 		if job != nil {
