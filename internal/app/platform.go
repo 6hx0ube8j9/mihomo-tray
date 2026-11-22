@@ -61,11 +61,13 @@ func (p *Platform) Elevate() (restarted bool, err error) {
 
 	restartingArg := fmt.Sprintf("--restarting=%d", os.Getpid())
 	if err := sys.RunAsAdmin(p.exePath, p.baseDir, restartingArg); err != nil {
+		if sys.IsUserCancelled(err) {
+			return false, nil
+		}
 		return false, err
 	}
 	return true, nil
 }
-
 // IsTunActive 检查指定的虚拟网卡设备是否处于激活状态
 func (p *Platform) IsTunActive(targetDevice string) bool {
 	return sys.IsTunActive(targetDevice)
