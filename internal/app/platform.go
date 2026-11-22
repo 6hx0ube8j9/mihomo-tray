@@ -49,7 +49,7 @@ func (p *Platform) WriteClipboard(text string) error {
 }
 
 // SetAutoStartTask 注册或注销 Windows 计划任务开机自启
-func (p *Platform) SetAutoStartTask(enable bool) bool {
+func (p *Platform) SetAutoStartTask(enable bool) error {
 	return sys.ToggleAutoStart(domain.AppTaskName, p.exePath, p.baseDir, enable)
 }
 
