@@ -9,11 +9,29 @@ import (
 
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
+	"mihomo-tray/internal/sys"
 )
 
 // ============================================================================
 // 1. 核心调度基础设施 (Infrastructure, Runners & Notifiers)
 // ============================================================================
+
+func (a *Application) showNotice(title, message string) {
+	if a.ui != nil && !a.State.IsExiting() {
+		a.ui.ShowNotification(title, message)
+	}
+}
+
+func (a *Application) reportPanic(action string, r any) {
+	title := action
+	if !strings.HasSuffix(title, "失败") {
+		title += "失败"
+	}
+	slog.Error(title, "err", fmt.Errorf("panic: %v", r))
+	if a.ui != nil && !a.State.IsExiting() {
+		a.ui.ShowError(title, fmt.Sprintf("运行时异常: %v", r))
+	}
+}
 
 func (a *Application) notifyError(action string, err error) {
 	if err == nil {
@@ -27,7 +45,9 @@ func (a *Application) notifyError(action string, err error) {
 		title += "失败"
 	}
 
-	slog.Error(title, "action", action, "err", err)
+	if !errors.Is(err, domain.ErrSystemBusy) {
+		slog.Error(title, "err", err)
+	}
 	if a.ui != nil && !a.State.IsExiting() {
 		a.ui.ShowError(title, err.Error())
 	}
@@ -43,22 +63,15 @@ func (a *Application) notifyWarn(actionTitle string, err error) {
 		title += "失败"
 	}
 
-	slog.Warn(title, "action", actionTitle, "err", err)
-	if a.ui != nil && !a.State.IsExiting() {
-		a.ui.ShowNotification(title, err.Error())
+	if !errors.Is(err, domain.ErrSystemBusy) {
+		slog.Warn(title, "err", err)
 	}
-}
-
-func (a *Application) notifySuccess(title, message string) {
-	slog.Info(title, "detail", message)
-	if a.ui != nil && !a.State.IsExiting() {
-		a.ui.ShowNotification(title, message)
-	}
+	a.showNotice(title, err.Error())
 }
 
 func (a *Application) runExclusiveAction(action state.KernelAction, title string, task func() error) {
 	if !a.State.TryBeginAction(action) {
-		a.notifyWarn(title, domain.ErrSystemBusy)
+		a.showNotice(title, domain.ErrSystemBusy.Error())
 		return
 	}
 
@@ -70,8 +83,7 @@ func (a *Application) runExclusiveAction(action state.KernelAction, title string
 			a.Presenter.ForcePushUIState()
 
 			if r := recover(); r != nil {
-				slog.Error("独占任务异常", "action", title, "panic", r)
-				a.notifyError(title, fmt.Errorf("运行时异常: %v", r))
+				a.reportPanic(title, r)
 			}
 		}()
 
@@ -95,8 +107,7 @@ func (a *Application) runAsync(title string, onErr func(string, error), task fun
 
 		defer func() {
 			if r := recover(); r != nil {
-				slog.Error("异步任务异常", "action", title, "panic", r)
-				onErr(title, fmt.Errorf("运行时异常: %v", r))
+				a.reportPanic(title, r)
 			}
 		}()
 
@@ -106,15 +117,19 @@ func (a *Application) runAsync(title string, onErr func(string, error), task fun
 	}()
 }
 
-func (a *Application) elevateAndRestart(title string, commit func(), rollback func()) error {
+func (a *Application) elevateAndRestart(_ string, commit func(), rollback func()) error {
 	commit()
 
 	restarted, err := a.Platform.Elevate()
-	if err != nil || !restarted {
+	if err != nil {
 		rollback()
-		if err != nil {
-			slog.Debug("提权调用失败或被取消", "action", title, "err", err)
+		if sys.IsUserCancelled(err) {
+			return nil
 		}
+		return err
+	}
+	if !restarted {
+		rollback()
 		return nil
 	}
 
