@@ -21,15 +21,19 @@ func (a *Application) showNotice(title, message string) {
 	}
 }
 
+func (a *Application) showError(title, message string) {
+	if a.ui != nil && !a.State.IsExiting() {
+		a.ui.ShowError(title, message)
+	}
+}
+
 func (a *Application) reportPanic(action string, r any) {
 	title := action
 	if !strings.HasSuffix(title, "失败") {
 		title += "失败"
 	}
 	slog.Error(title, "err", fmt.Errorf("panic: %v", r))
-	if a.ui != nil && !a.State.IsExiting() {
-		a.ui.ShowError(title, fmt.Sprintf("运行时异常: %v", r))
-	}
+	a.showError(title, "程序发生内部异常，详情请查看日志")
 }
 
 func (a *Application) notifyError(action string, err error) {
@@ -44,12 +48,10 @@ func (a *Application) notifyError(action string, err error) {
 		title += "失败"
 	}
 
-	if !errors.Is(err, domain.ErrSystemBusy) {
+	if !errors.Is(err, domain.ErrSystemBusy) && !errors.Is(err, domain.ErrKernelNotReady) {
 		slog.Error(title, "err", err)
 	}
-	if a.ui != nil && !a.State.IsExiting() {
-		a.ui.ShowError(title, err.Error())
-	}
+	a.showError(title, err.Error())
 }
 
 func (a *Application) notifyWarn(actionTitle string, err error) {
@@ -62,7 +64,7 @@ func (a *Application) notifyWarn(actionTitle string, err error) {
 		title += "失败"
 	}
 
-	if !errors.Is(err, domain.ErrSystemBusy) {
+	if !errors.Is(err, domain.ErrSystemBusy) && !errors.Is(err, domain.ErrInvalidPort) {
 		slog.Warn(title, "err", err)
 	}
 	a.showNotice(title, err.Error())
