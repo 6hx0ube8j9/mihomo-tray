@@ -114,10 +114,10 @@ func (m *Manager) cleanupWebView2() {
 
 func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string) error {
 	if !isWebView2Available() {
-		return errWebView2Unavailable
+		return ErrWebView2Unavailable
 	}
 	if cfg.WebOpenMode != domain.WebOpenModeWebView && wv2Broken.Load() {
-		return errWebView2Unavailable
+		return ErrWebView2Unavailable
 	}
 
 	userDataDir := filepath.Join(cacheRoot, domain.WebViewCacheDirName)
