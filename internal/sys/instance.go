@@ -4,7 +4,6 @@ package sys
 
 import (
 	"context"
-	"log/slog"
 	"sync"
 	"time"
 	"unsafe"
@@ -32,7 +31,6 @@ type SingleInstanceGuard struct {
 func getPermissiveSecAttr() *windows.SecurityAttributes {
 	sd, err := windows.SecurityDescriptorFromString("D:(A;;GA;;;WD)S:(ML;;NW;;;LW)")
 	if err != nil {
-		slog.Warn("初始化通信权限失败", "err", err)
 		return nil
 	}
 	var sa windows.SecurityAttributes
@@ -183,7 +181,6 @@ func (g *SingleInstanceGuard) ListenWakeEvent(ctx context.Context, onWake func()
 				}
 
 				if ctx.Err() == nil {
-					slog.Debug("收到唤醒面板请求")
 					onWake()
 				}
 			}
