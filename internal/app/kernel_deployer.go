@@ -33,7 +33,7 @@ func (d *KernelDeployer) IsKernelRunning() bool {
 
 func (d *KernelDeployer) ReloadConfig(ctx context.Context) error {
 	if !d.IsKernelRunning() {
-		return domain.ErrKernelNotReady
+		return errKernelNotReady
 	}
 
 	activePath := d.cfg.GetActivePath()
