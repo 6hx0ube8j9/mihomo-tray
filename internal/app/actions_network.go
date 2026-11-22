@@ -30,7 +30,7 @@ func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand)
 		if enable && !a.Platform.IsAdmin() {
 			targetDev := a.State.GetEffectiveTunDevice()
 			if a.Platform.IsTunActive(targetDev) {
-				return domain.ErrTunDeviceBusy
+				return errTunDeviceBusy
 			}
 
 			originalTun := a.Cfg.GetConfig().Config.Tun.Enable
