@@ -42,23 +42,24 @@ func (h *ProfileHub) getActiveProxyPort() string {
 	return ""
 }
 
-func (h *ProfileHub) EnsureActiveValid(ctx context.Context) bool {
+func (h *ProfileHub) EnsureActiveValid(ctx context.Context) error {
 	activePath := h.cfg.GetActivePath()
 	if activePath == "" {
-		return true
+		return nil
 	}
 
-	if err := h.cfg.ValidatePhysicalFile(activePath); err == nil {
-		return true
+	valErr := h.cfg.ValidatePhysicalFile(activePath)
+	if valErr == nil {
+		return nil
 	}
 
 	p, ok := h.cfg.GetProfileByPath(activePath)
 	if !ok || p.URL == "" {
-		return false
+		return valErr
 	}
 
 	if !h.st.TryAcquireProfileLock(activePath) {
-		return false
+		return ErrProfileUpdating
 	}
 	defer h.st.ReleaseProfileLock(activePath)
 
@@ -67,11 +68,11 @@ func (h *ProfileHub) EnsureActiveValid(ctx context.Context) bool {
 	defer cancel()
 
 	if err := h.fetchAndCommit(fCtx, activePath, p.URL, &p); err != nil {
-		return false
+		return fmt.Errorf("远程拉取恢复失败: %w", err)
 	}
 
 	slog.Info("活跃配置已拉取恢复", "path", activePath)
-	return true
+	return nil
 }
 
 func (h *ProfileHub) ImportLocal(sourcePath string) (targetRelPath string, isFirst bool, err error) {
