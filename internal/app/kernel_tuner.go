@@ -39,13 +39,13 @@ func (t *KernelTuner) triggerForceSync() {
 	}
 }
 
-func (t *KernelTuner) syncAPI(ctx context.Context, _ string, call func(context.Context) error, commit func()) error {
+func (t *KernelTuner) syncAPI(ctx context.Context, call func(context.Context) error, commit func()) error {
 	if t.st.GetPhase() != domain.PhaseRunning {
-		return domain.ErrKernelNotReady
+		return errKernelNotReady
 	}
 
 	if !t.st.TryBeginAction(state.ActionSyncAPI) {
-		return domain.ErrSystemBusy
+		return errSystemBusy
 	}
 	defer func() {
 		t.st.EndAction()
@@ -73,17 +73,17 @@ func (t *KernelTuner) ToggleTun(ctx context.Context, enable bool) error {
 	}
 
 	if t.st.GetPhase() != domain.PhaseRunning {
-		return domain.ErrKernelNotReady
+		return errKernelNotReady
 	}
 
 	if enable {
 		targetDev := t.st.GetEffectiveTunDevice()
 		if t.platform.IsTunActive(targetDev) {
-			return domain.ErrTunDeviceBusy
+			return errTunDeviceBusy
 		}
 	}
 
-	return t.syncAPI(ctx, "切换 TUN 模式", func(reqCtx context.Context) error {
+	return t.syncAPI(ctx, func(reqCtx context.Context) error {
 		return t.api.UpdateTun(reqCtx, enable, t.st.GetActualTunDevice())
 	}, func() {
 		t.cfg.Update(func(c *domain.TrayConfig) { c.Config.Tun.Enable = enable })
@@ -100,7 +100,7 @@ func (t *KernelTuner) SwitchMode(ctx context.Context, mode string) error {
 		return nil
 	}
 
-	return t.syncAPI(ctx, "切换运行模式", func(reqCtx context.Context) error {
+	return t.syncAPI(ctx, func(reqCtx context.Context) error {
 		return t.api.UpdateMode(reqCtx, mode)
 	}, func() {
 		t.cfg.Update(func(c *domain.TrayConfig) { c.Config.Mode = mode })
@@ -112,7 +112,7 @@ func (t *KernelTuner) ToggleAllowLan(ctx context.Context, enable bool) error {
 		return nil
 	}
 
-	return t.syncAPI(ctx, "切换局域网共享", func(reqCtx context.Context) error {
+	return t.syncAPI(ctx, func(reqCtx context.Context) error {
 		return t.api.UpdateAllowLan(reqCtx, enable)
 	}, func() {
 		t.cfg.Update(func(c *domain.TrayConfig) {
@@ -129,7 +129,7 @@ func (t *KernelTuner) GetPortSnapshot() (mixed, socks, httpPort int) {
 
 func (t *KernelTuner) ApplyPortConfig(ctx context.Context, mixed, socks, httpPort int) (bool, error) {
 	if !netutil.IsValidPort(mixed) || !netutil.IsValidPort(socks) || !netutil.IsValidPort(httpPort) {
-		return false, domain.ErrInvalidPort
+		return false, errInvalidPort
 	}
 
 	cMixed, cSocks, cHttp := t.GetPortSnapshot()
@@ -151,7 +151,7 @@ func (t *KernelTuner) ApplyPortConfig(ctx context.Context, mixed, socks, httpPor
 		return true, nil
 	}
 
-	err := t.syncAPI(ctx, "修改监听端口", func(reqCtx context.Context) error {
+	err := t.syncAPI(ctx, func(reqCtx context.Context) error {
 		return t.api.UpdatePorts(reqCtx, mixed, socks, httpPort)
 	}, commit)
 	if err != nil {
