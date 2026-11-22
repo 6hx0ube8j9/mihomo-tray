@@ -4,7 +4,6 @@ package app
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 
 	"mihomo-tray/internal/domain"
@@ -64,8 +63,6 @@ func (p *Platform) Elevate() (restarted bool, err error) {
 	if err := sys.RunAsAdmin(p.exePath, p.baseDir, restartingArg); err != nil {
 		return false, err
 	}
-
-	slog.Info("提权子进程已成功唤起")
 	return true, nil
 }
 
