@@ -36,7 +36,7 @@ func (a *Application) handleRestartKernel(ctx context.Context, _ domain.UIComman
 		if err := a.KernelDeployer.RestartKernel(); err != nil {
 			if hasActiveProfile {
 				a.FallbackToEmpty(ctx, "配置校验失败: "+err.Error())
-				a.showNotice("配置加载失败", userFacingMessage(err))
+				a.showError("重启内核", userFacingMessage(err))
 				return nil
 			}
 			return err
@@ -62,7 +62,7 @@ func (a *Application) handleOpenAppConfig(_ context.Context, _ domain.UICommand)
 
 func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UICommand) {
 	enable := cmd.Payload == "true"
-	a.asyncRun("开机自启", func() error {
+	a.asyncRunError("开机自启", func() error {
 		if a.Platform.IsAdmin() {
 			if err := a.Platform.SetAutoStartTask(enable); err != nil {
 				return err
@@ -90,7 +90,7 @@ func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UIComm
 
 func (a *Application) handleToggleRunAsAdmin(_ context.Context, cmd domain.UICommand) {
 	enable := cmd.Payload == "true"
-	a.asyncRun("管理员模式", func() error {
+	a.asyncRunError("管理员模式", func() error {
 		if !enable || a.Platform.IsAdmin() {
 			a.Cfg.Update(func(c *domain.TrayConfig) {
 				c.General.RunAsAdmin = enable
