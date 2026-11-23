@@ -3,8 +3,9 @@ package app
 import (
 	"context"
 	"time"
-
+	
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/state"
 )
 
 // ============================================================================
