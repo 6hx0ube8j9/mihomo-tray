@@ -25,21 +25,21 @@ var shortCircuitKeywords = []string{
 
 var ErrValidationTimeout = errors.New("配置校验超时")
 
-type bgValidationProc struct {
+type validationProc struct {
 	cmd  *exec.Cmd
 	done chan struct{}
 }
 
 var (
-	bgValMu     sync.Mutex
-	activeBgVal *bgValidationProc
+	valMu     sync.Mutex
+	activeVal *validationProc
 )
 
 func StopBackgroundValidation() {
-	bgValMu.Lock()
-	proc := activeBgVal
-	activeBgVal = nil
-	bgValMu.Unlock()
+	valMu.Lock()
+	proc := activeVal
+	activeVal = nil
+	valMu.Unlock()
 
 	if proc == nil {
 		return
@@ -51,35 +51,62 @@ func StopBackgroundValidation() {
 }
 
 func ValidateConfig(exePath, workDir, yamlAbsPath string, removeAfterExit bool) error {
-	StopBackgroundValidation()
+	var (
+		cmd        *exec.Cmd
+		stdoutPipe io.ReadCloser
+		stderrPipe io.ReadCloser
+		doneCh     chan struct{}
+	)
+	
+	for {
+		valMu.Lock()
+		prev := activeVal
+		if prev == nil {
+			cmd = exec.Command(exePath, "-d", ".", "-t", "-f", yamlAbsPath)
+			cmd.Dir = workDir
+			cmd.SysProcAttr = sys.BackgroundProcAttr()
 
-	cmd := exec.Command(exePath, "-d", ".", "-t", "-f", yamlAbsPath)
-	cmd.Dir = workDir
-	cmd.SysProcAttr = sys.BackgroundProcAttr()
+			var err error
+			stdoutPipe, err = cmd.StdoutPipe()
+			if err != nil {
+				valMu.Unlock()
+				if removeAfterExit {
+					_ = os.Remove(yamlAbsPath)
+				}
+				return fmt.Errorf("stdout pipe: %w", err)
+			}
+			stderrPipe, err = cmd.StderrPipe()
+			if err != nil {
+				valMu.Unlock()
+				if removeAfterExit {
+					_ = os.Remove(yamlAbsPath)
+				}
+				return fmt.Errorf("stderr pipe: %w", err)
+			}
 
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		if removeAfterExit {
-			_ = os.Remove(yamlAbsPath)
+			if err := cmd.Start(); err != nil {
+				valMu.Unlock()
+				if removeAfterExit {
+					_ = os.Remove(yamlAbsPath)
+				}
+				return fmt.Errorf("start validator: %w", err)
+			}
+
+			doneCh = make(chan struct{})
+			activeVal = &validationProc{cmd: cmd, done: doneCh}
+			valMu.Unlock()
+			break
 		}
-		return fmt.Errorf("stdout pipe: %w", err)
-	}
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		if removeAfterExit {
-			_ = os.Remove(yamlAbsPath)
+
+		activeVal = nil
+		valMu.Unlock()
+
+		if prev.cmd.Process != nil {
+			_ = prev.cmd.Process.Kill()
 		}
-		return fmt.Errorf("stderr pipe: %w", err)
+		<-prev.done
 	}
 
-	if err := cmd.Start(); err != nil {
-		if removeAfterExit {
-			_ = os.Remove(yamlAbsPath)
-		}
-		return fmt.Errorf("start validator: %w", err)
-	}
-
-	doneCh := make(chan struct{})
 	shortCircuitCh := make(chan struct{})
 	var shortCircuitOnce sync.Once
 
@@ -132,11 +159,11 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string, removeAfterExit bool) 
 			_ = os.Remove(yamlAbsPath)
 		}
 
-		bgValMu.Lock()
-		if activeBgVal != nil && activeBgVal.cmd == cmd {
-			activeBgVal = nil
+		valMu.Lock()
+		if activeVal != nil && activeVal.cmd == cmd {
+			activeVal = nil
 		}
-		bgValMu.Unlock()
+		valMu.Unlock()
 
 		msgMu.Lock()
 		errMsg := lastErrorMsg
@@ -158,13 +185,6 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string, removeAfterExit bool) 
 
 	select {
 	case <-shortCircuitCh:
-		bgValMu.Lock()
-		select {
-		case <-doneCh:
-		default:
-			activeBgVal = &bgValidationProc{cmd: cmd, done: doneCh}
-		}
-		bgValMu.Unlock()
 		return nil
 
 	case err := <-errCh:
