@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -37,12 +38,17 @@ func (d *KernelDeployer) ReloadConfig(ctx context.Context) error {
 	}
 
 	activePath := d.cfg.GetActivePath()
-	runtimeAbs, err := d.prepareRuntimeConfig(activePath)
+	prep, err := d.prepareYAML(activePath)
 	if err != nil {
 		return err
 	}
 
-	if err := d.api.ForceReloadKernel(ctx, runtimeAbs); err != nil {
+	core.StopBackgroundValidation()
+	if err := d.api.ForceReloadKernel(ctx, string(prep.YAML)); err != nil {
+		return err
+	}
+
+	if err := d.commitRuntimeYAML(prep); err != nil {
 		return err
 	}
 
@@ -52,7 +58,7 @@ func (d *KernelDeployer) ReloadConfig(ctx context.Context) error {
 
 func (d *KernelDeployer) RestartKernel() error {
 	slog.Info("正在重启内核")
-	if _, err := d.prepareRuntimeConfig(d.cfg.GetActivePath()); err != nil {
+	if err := d.SyncRuntimeConfig(); err != nil {
 		return err
 	}
 	d.restartProcess()
@@ -60,44 +66,69 @@ func (d *KernelDeployer) RestartKernel() error {
 }
 
 func (d *KernelDeployer) DeployAndApply(ctx context.Context, targetRelPath, actionDesc string) error {
-	runtimeAbs, err := d.prepareRuntimeConfig(targetRelPath)
+	prep, err := d.prepareYAML(targetRelPath)
 	if err != nil {
 		return err
 	}
 
 	if d.IsKernelRunning() {
-		if reloadErr := d.api.ForceReloadKernel(ctx, runtimeAbs); reloadErr == nil {
+		core.StopBackgroundValidation()
+		reloadErr := d.api.ForceReloadKernel(ctx, string(prep.YAML))
+		if reloadErr == nil {
+			if err := d.commitRuntimeYAML(prep); err != nil {
+				return err
+			}
 			slog.Info("配置应用成功", "action", actionDesc, "path", targetRelPath)
 			return nil
-		} else {
-			slog.Warn("重载配置失败，回退重启内核", "action", actionDesc, "path", targetRelPath, "err", reloadErr)
 		}
+
+		var apiErr *core.APIError
+		if errors.As(reloadErr, &apiErr) {
+			return reloadErr
+		}
+
+		slog.Warn("热重载通信异常，回退重启内核", "action", actionDesc, "path", targetRelPath, "err", reloadErr)
 	}
 
+	if err := d.commitRuntimeYAML(prep); err != nil {
+		return err
+	}
 	d.restartProcess()
 	return nil
 }
 
 func (d *KernelDeployer) SyncRuntimeConfig() error {
-	_, err := d.prepareRuntimeConfig(d.cfg.GetActivePath())
-	return err
-}
-
-func (d *KernelDeployer) prepareRuntimeConfig(targetRelPath string) (string, error) {
-	if targetRelPath != "" {
-		if err := d.cfg.ValidatePhysicalFile(targetRelPath); err != nil {
-			return "", err
+	activePath := d.cfg.GetActivePath()
+	if activePath != "" {
+		if err := d.cfg.ValidatePhysicalFile(activePath); err != nil {
+			return err
 		}
 	}
 
-	cfg := d.cfg.GetConfig()
-	deployRes, err := core.DeployRuntimeConfig(cfg, targetRelPath, d.cfg.BaseDir())
+	deployRes, err := core.DeployRuntimeConfig(d.cfg.GetConfig(), activePath, d.cfg.BaseDir())
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	d.st.SetActualTunDevice(deployRes.TunDevice)
-	return deployRes.RuntimeAbs, nil
+	return nil
+}
+
+func (d *KernelDeployer) prepareYAML(targetRelPath string) (*core.ComposeResult, error) {
+	if targetRelPath != "" {
+		if err := d.cfg.ValidatePhysicalFile(targetRelPath); err != nil {
+			return nil, err
+		}
+	}
+	return core.PrepareRuntimeYAML(d.cfg.GetConfig(), targetRelPath, d.cfg.BaseDir())
+}
+
+func (d *KernelDeployer) commitRuntimeYAML(prep *core.ComposeResult) error {
+	if _, _, err := core.WriteRuntimeYAML(prep.YAML, d.cfg.BaseDir()); err != nil {
+		return err
+	}
+	d.st.SetActualTunDevice(prep.TunDevice)
+	return nil
 }
 
 func (d *KernelDeployer) restartProcess() {
