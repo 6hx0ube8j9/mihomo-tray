@@ -67,20 +67,28 @@ func (t *KernelTuner) syncAPI(ctx context.Context, call func(context.Context) er
 	return nil
 }
 
+func (t *KernelTuner) ValidateEnableTun() error {
+	if t.st.GetPhase() != domain.PhaseRunning {
+		return errKernelNotReady
+	}
+	targetDev := t.st.GetEffectiveTunDevice()
+	if t.platform.IsTunActive(targetDev) {
+		return errTunDeviceBusy
+	}
+	return nil
+}
+
 func (t *KernelTuner) ToggleTun(ctx context.Context, enable bool) error {
 	if t.cfg.GetConfig().Config.Tun.Enable == enable {
 		return nil
 	}
 
-	if t.st.GetPhase() != domain.PhaseRunning {
-		return errKernelNotReady
-	}
-
 	if enable {
-		targetDev := t.st.GetEffectiveTunDevice()
-		if t.platform.IsTunActive(targetDev) {
-			return errTunDeviceBusy
+		if err := t.ValidateEnableTun(); err != nil {
+			return err
 		}
+	} else if t.st.GetPhase() != domain.PhaseRunning {
+		return errKernelNotReady
 	}
 
 	return t.syncAPI(ctx, func(reqCtx context.Context) error {
