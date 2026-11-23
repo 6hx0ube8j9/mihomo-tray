@@ -105,6 +105,8 @@ func (a *Application) SetUIPort(ui UIPort) {
 }
 
 func (a *Application) Bootstrap(ctx context.Context) {
+	core.CleanupTempCheckFiles(a.Cfg.BaseDir())
+
 	if err := a.ProfileHub.EnsureActiveValid(ctx); err != nil {
 		a.FallbackToEmpty(ctx, "活跃配置无效: "+err.Error())
 	}
