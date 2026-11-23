@@ -62,8 +62,8 @@ func (a *Application) handleOpenAppConfig(_ context.Context, _ domain.UICommand)
 
 func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UICommand) {
 	enable := cmd.Payload == "true"
-	a.asyncRunError("开机自启", func() error {
-		if a.Platform.IsAdmin() {
+	if a.Platform.IsAdmin() {
+		a.asyncRunError("开机自启", func() error {
 			if err := a.Platform.SetAutoStartTask(enable); err != nil {
 				return err
 			}
@@ -71,6 +71,14 @@ func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UIComm
 				b := enable
 				c.General.Autostart = &b
 			})
+			return nil
+		})
+		return
+	}
+
+	a.runExclusiveAction(state.ActionRestart, "开机自启", func() error {
+		original := a.Cfg.GetConfig().IsAutostartEnabled()
+		if original == enable {
 			return nil
 		}
 
@@ -81,7 +89,7 @@ func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UIComm
 			})
 		}, func() {
 			a.Cfg.Update(func(c *domain.TrayConfig) {
-				b := !enable
+				b := original
 				c.General.Autostart = &b
 			})
 		})
@@ -90,11 +98,18 @@ func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UIComm
 
 func (a *Application) handleToggleRunAsAdmin(_ context.Context, cmd domain.UICommand) {
 	enable := cmd.Payload == "true"
-	a.asyncRunError("管理员模式", func() error {
-		if !enable || a.Platform.IsAdmin() {
+	if !enable || a.Platform.IsAdmin() {
+		a.asyncRunError("管理员模式", func() error {
 			a.Cfg.Update(func(c *domain.TrayConfig) {
 				c.General.RunAsAdmin = enable
 			})
+			return nil
+		})
+		return
+	}
+
+	a.runExclusiveAction(state.ActionRestart, "管理员模式", func() error {
+		if a.Cfg.GetConfig().General.RunAsAdmin {
 			return nil
 		}
 
