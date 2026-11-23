@@ -198,7 +198,7 @@ func (h *ProfileHub) ValidateSource(sourcePath string) error {
 		return err
 	}
 
-	return h.validateBytes(content, false)
+	return h.validateBytes(content)
 }
 
 func (h *ProfileHub) fetchAndCommit(ctx context.Context, targetRelPath, url string, item *domain.ProfileItem) error {
