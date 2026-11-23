@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"strconv"
 	"strings"
 
@@ -104,10 +103,6 @@ func (a *Application) handleEditProfileInfo(ctx context.Context, cmd domain.UICo
 		a.runExclusiveAction(state.ActionReload, "更新订阅", func() error {
 			urlChanged, err := a.ProfileHub.EditRemote(ctx, profile.Path, name, url, interval)
 			if err != nil {
-				if errors.Is(err, ErrProfileUpdating) {
-					a.showNotice("更新订阅", ErrProfileUpdating.Error())
-					return nil
-				}
 				return err
 			}
 			if urlChanged && a.Cfg.GetActivePath() == profile.Path {
@@ -126,10 +121,6 @@ func (a *Application) handleUpdateRemoteProfile(ctx context.Context, cmd domain.
 
 	a.runExclusiveAction(state.ActionReload, "更新订阅", func() error {
 		if err := a.ProfileHub.UpdateRemote(ctx, p.Path); err != nil {
-			if errors.Is(err, ErrProfileUpdating) {
-				a.showNotice("更新订阅", ErrProfileUpdating.Error())
-				return nil
-			}
 			return err
 		}
 		if a.Cfg.GetActivePath() == p.Path {
@@ -220,7 +211,7 @@ func (a *Application) openProfile(targetRelPath string) error {
 
 func (a *Application) handleOpenConfigFile(_ context.Context, cmd domain.UICommand) {
 	if cmd.Payload == "" {
-		a.showNotice("打开配置", "当前未选择配置文件")
+		a.showError("打开配置", "当前未选择配置文件")
 		return
 	}
 	a.asyncRunError("打开配置", func() error {
@@ -231,7 +222,7 @@ func (a *Application) handleOpenConfigFile(_ context.Context, cmd domain.UIComma
 func (a *Application) handleEditCurrentConfig(_ context.Context, _ domain.UICommand) {
 	active := a.Cfg.GetActivePath()
 	if active == "" {
-		a.showNotice("编辑配置", "当前未选择配置文件")
+		a.showError("编辑配置", "当前未选择配置文件")
 		return
 	}
 	a.asyncRunError("编辑配置", func() error {
