@@ -20,7 +20,6 @@ const (
 	MaxAPIResponseSize = 5 * 1024 * 1024
 	pipeDialTimeout    = 2 * time.Second
 	defaultAPITimeout  = 10 * time.Second
-	reloadAPITimeout   = 30 * time.Minute
 )
 
 const (
@@ -129,11 +128,8 @@ func (c *APIClient) UpdateAllowLan(ctx context.Context, enable bool) error {
 }
 
 func (c *APIClient) ForceReloadKernel(ctx context.Context, yamlPayload string) error {
-	reqCtx, cancel := withDefaultTimeout(ctx, reloadAPITimeout)
-	defer cancel()
-
 	payload := map[string]any{apiKeyPayload: yamlPayload}
-	_, err := c.DoRequest(reqCtx, http.MethodPut, "/configs?force=true", payload)
+	_, err := c.DoRequest(ctx, http.MethodPut, "/configs?force=true", payload)
 	return err
 }
 
