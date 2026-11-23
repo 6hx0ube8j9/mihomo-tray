@@ -37,15 +37,7 @@ func (a *Application) runExclusiveAction(action state.KernelAction, title string
 	}()
 }
 
-func (a *Application) asyncRun(title string, task func() error) {
-	a.runAsync(title, a.notifyWarn, task)
-}
-
 func (a *Application) asyncRunError(title string, task func() error) {
-	a.runAsync(title, a.notifyError, task)
-}
-
-func (a *Application) runAsync(title string, onErr func(string, error), task func() error) {
 	go func() {
 		defer a.Presenter.ForcePushUIState()
 
@@ -56,7 +48,7 @@ func (a *Application) runAsync(title string, onErr func(string, error), task fun
 		}()
 
 		if err := task(); err != nil {
-			onErr(title, err)
+			a.notifyError(title, err)
 		}
 	}()
 }
