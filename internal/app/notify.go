@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/core"
@@ -28,6 +27,7 @@ var userVisibleErrors = []error{
 	errNoProxyPort,
 	errInvalidPort,
 	errProfileTooLarge,
+	ErrProfileUpdating,
 	core.ErrValidationTimeout,
 	config.ErrProfileLimitExceeded,
 	config.ErrProfileNameConflict,
@@ -82,12 +82,8 @@ func (a *Application) showError(title, message string) {
 }
 
 func (a *Application) reportPanic(action string, r any) {
-	title := action
-	if !strings.HasSuffix(title, "失败") {
-		title += "失败"
-	}
-	slog.Error(title, "err", fmt.Errorf("panic: %v", r))
-	a.showError(title, "程序发生内部异常，详情请查看日志")
+	slog.Error(action+"失败", "err", fmt.Errorf("panic: %v", r))
+	a.showError(action, "程序发生内部异常，详情请查看日志")
 }
 
 func (a *Application) notifyError(action string, err error) {
@@ -95,27 +91,12 @@ func (a *Application) notifyError(action string, err error) {
 		return
 	}
 
-	if errors.Is(err, errKernelNotReady) || errors.Is(err, errSystemBusy) {
-		a.showError(action, userFacingMessage(err))
-		return
+	if !errors.Is(err, errKernelNotReady) &&
+		!errors.Is(err, errSystemBusy) &&
+		!errors.Is(err, errInvalidPort) &&
+		!errors.Is(err, ErrProfileUpdating) {
+		slog.Error(action+"失败", "err", err)
 	}
 
-	slog.Error(action+"失败", "err", err)
 	a.showError(action, userFacingMessage(err))
-}
-
-func (a *Application) notifyWarn(actionTitle string, err error) {
-	if err == nil {
-		return
-	}
-
-	title := actionTitle
-	if !strings.HasSuffix(title, "失败") {
-		title += "失败"
-	}
-
-	if !errors.Is(err, errSystemBusy) && !errors.Is(err, errInvalidPort) {
-		slog.Warn(title, "err", err)
-	}
-	a.showNotice(title, userFacingMessage(err))
 }
