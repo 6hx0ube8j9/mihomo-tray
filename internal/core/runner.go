@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,6 +20,7 @@ const (
 )
 
 type ProcessRunner struct {
+	exePath string
 	exeName string
 
 	activeJob    *sys.Job
@@ -31,8 +33,18 @@ type ProcessRunner struct {
 	killMu sync.Mutex
 }
 
-func NewProcessRunner(exeName string) *ProcessRunner {
-	return &ProcessRunner{exeName: exeName}
+func NewProcessRunner(exePath string) *ProcessRunner {
+	if exePath == "" {
+		return &ProcessRunner{}
+	}
+	if absPath, err := filepath.Abs(exePath); err == nil {
+		exePath = absPath
+	}
+	exePath = filepath.Clean(exePath)
+	return &ProcessRunner{
+		exePath: exePath,
+		exeName: filepath.Base(exePath),
+	}
 }
 
 func (r *ProcessRunner) Close() {
@@ -48,10 +60,10 @@ func (r *ProcessRunner) Close() {
 }
 
 func (r *ProcessRunner) CleanupOrphans() {
-	if r.exeName == "" {
+	if r.exePath == "" {
 		return
 	}
-	sys.KillOtherProcessesByName(r.exeName, 0)
+	sys.KillOtherProcessesByPath(r.exePath, 0)
 }
 
 func (r *ProcessRunner) Start(workDir, targetExe string, args []string, out io.Writer) error {
