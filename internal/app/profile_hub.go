@@ -154,6 +154,11 @@ func (h *ProfileHub) EditRemote(ctx context.Context, oldPath, newName, newURL st
 	}
 
 	urlChanged = (newURL != p.URL)
+	p.Name = newName
+	p.URL = newURL
+	p.Interval = newInterval
+	p.AutoUpdate = newInterval > 0
+
 	if urlChanged {
 		if !h.st.TryAcquireProfileLock(oldPath) {
 			return false, ErrProfileUpdating
@@ -163,14 +168,11 @@ func (h *ProfileHub) EditRemote(ctx context.Context, oldPath, newName, newURL st
 		if err := h.fetchAndCommit(ctx, p.Path, newURL, &p); err != nil {
 			return false, err
 		}
+		return true, nil
 	}
 
-	p.Name = newName
-	p.URL = newURL
-	p.Interval = newInterval
-	p.AutoUpdate = newInterval > 0
 	h.cfg.UpsertProfile(p)
-	return urlChanged, nil
+	return false, nil
 }
 
 func (h *ProfileHub) Delete(targetPath string) (wasActive bool, err error) {
