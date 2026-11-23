@@ -49,15 +49,30 @@ func StopBackgroundValidation() {
 	}
 	<-proc.done
 }
+func ValidateConfig(exePath, workDir string, yamlBytes []byte) error {
+	tmpFile, err := os.CreateTemp(workDir, ".check-*.yaml")
+	if err != nil {
+		return fmt.Errorf("create test config: %w", err)
+	}
+	yamlAbsPath := tmpFile.Name()
 
-func ValidateConfig(exePath, workDir, yamlAbsPath string, removeAfterExit bool) error {
+	if _, err := tmpFile.Write(yamlBytes); err != nil {
+		_ = tmpFile.Close()
+		_ = os.Remove(yamlAbsPath)
+		return fmt.Errorf("write test config: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(yamlAbsPath)
+		return fmt.Errorf("close test config: %w", err)
+	}
+
 	var (
 		cmd        *exec.Cmd
 		stdoutPipe io.ReadCloser
 		stderrPipe io.ReadCloser
 		doneCh     chan struct{}
 	)
-	
+
 	for {
 		valMu.Lock()
 		prev := activeVal
@@ -66,29 +81,22 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string, removeAfterExit bool) 
 			cmd.Dir = workDir
 			cmd.SysProcAttr = sys.BackgroundProcAttr()
 
-			var err error
 			stdoutPipe, err = cmd.StdoutPipe()
 			if err != nil {
 				valMu.Unlock()
-				if removeAfterExit {
-					_ = os.Remove(yamlAbsPath)
-				}
+				_ = os.Remove(yamlAbsPath)
 				return fmt.Errorf("stdout pipe: %w", err)
 			}
 			stderrPipe, err = cmd.StderrPipe()
 			if err != nil {
 				valMu.Unlock()
-				if removeAfterExit {
-					_ = os.Remove(yamlAbsPath)
-				}
+				_ = os.Remove(yamlAbsPath)
 				return fmt.Errorf("stderr pipe: %w", err)
 			}
 
 			if err := cmd.Start(); err != nil {
 				valMu.Unlock()
-				if removeAfterExit {
-					_ = os.Remove(yamlAbsPath)
-				}
+				_ = os.Remove(yamlAbsPath)
 				return fmt.Errorf("start validator: %w", err)
 			}
 
