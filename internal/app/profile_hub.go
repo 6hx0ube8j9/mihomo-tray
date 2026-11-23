@@ -213,8 +213,7 @@ func (h *ProfileHub) fetchAndCommit(ctx context.Context, targetRelPath, url stri
 		return err
 	}
 
-	isActive := (targetRelPath == h.cfg.GetActivePath())
-	if err := h.validateBytes(tempBytes, isActive); err != nil {
+	if err := h.validateBytes(tempBytes); err != nil {
 		return err
 	}
 
@@ -227,7 +226,7 @@ func (h *ProfileHub) fetchAndCommit(ctx context.Context, targetRelPath, url stri
 	return h.cfg.CommitRemoteProfile(res.TempPath, targetRelPath, *item)
 }
 
-func (h *ProfileHub) validateBytes(content []byte, isActive bool) error {
+func (h *ProfileHub) validateBytes(content []byte) error {
 	if len(content) == 0 {
 		return config.ErrProfileEmpty
 	}
@@ -235,10 +234,6 @@ func (h *ProfileHub) validateBytes(content []byte, isActive bool) error {
 		return errProfileTooLarge
 	}
 
-	if isActive {
-		_, err := core.ValidateRuntimeYAML(h.cfg.GetConfig(), content, h.cfg.BaseDir())
-		return err
-	}
-	_, err := core.ComposeRuntimeYAML(h.cfg.GetConfig(), content)
+	_, err := core.ValidateRuntimeYAML(h.cfg.GetConfig(), content, h.cfg.BaseDir())
 	return err
 }
