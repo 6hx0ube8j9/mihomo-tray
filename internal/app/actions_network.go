@@ -28,12 +28,19 @@ func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand)
 
 	a.asyncRunError("TUN 模式", func() error {
 		if enable && !a.Platform.IsAdmin() {
+			if a.State.GetPhase() != domain.PhaseRunning {
+				return errKernelNotReady
+			}
+			if a.State.IsActionBusy() {
+				return errSystemBusy
+			}
+
 			targetDev := a.State.GetEffectiveTunDevice()
 			if a.Platform.IsTunActive(targetDev) {
 				return errTunDeviceBusy
 			}
 
-            originalTun := a.Cfg.GetConfig().Config.Tun.Enable
+			originalTun := a.Cfg.GetConfig().Config.Tun.Enable
 			return a.elevateAndRestart(func() {
 				a.Cfg.Update(func(c *domain.TrayConfig) {
 					c.Config.Tun.Enable = true
