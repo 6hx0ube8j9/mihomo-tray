@@ -2,16 +2,21 @@ package core
 
 import (
 	"bufio"
-	"context"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
 	"time"
 
 	"mihomo-tray/internal/sys"
+)
+
+const (
+	foregroundValidationTimeout = 10 * time.Second
+	bgValidationMaxLifetime     = 2 * time.Minute
 )
 
 var shortCircuitKeywords = []string{
@@ -23,114 +28,171 @@ var shortCircuitKeywords = []string{
 
 var ErrValidationTimeout = errors.New("配置校验超时")
 
-func ValidateConfig(exePath, workDir, yamlAbsPath string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+type bgValidationProc struct {
+	cmd  *exec.Cmd
+	done chan struct{}
+}
 
-	cmd := exec.CommandContext(ctx, exePath, "-d", ".", "-t", "-f", yamlAbsPath)
+var (
+	bgValMu     sync.Mutex
+	activeBgVal *bgValidationProc
+)
+
+func StopBackgroundValidation() {
+	bgValMu.Lock()
+	proc := activeBgVal
+	activeBgVal = nil
+	bgValMu.Unlock()
+
+	if proc == nil {
+		return
+	}
+	if proc.cmd.Process != nil {
+		_ = proc.cmd.Process.Kill()
+	}
+	<-proc.done
+}
+
+func ValidateConfig(exePath, workDir, yamlAbsPath string, removeAfterExit bool) error {
+	StopBackgroundValidation()
+
+	cmd := exec.Command(exePath, "-d", ".", "-t", "-f", yamlAbsPath)
 	cmd.Dir = workDir
 	cmd.SysProcAttr = sys.BackgroundProcAttr()
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
+		if removeAfterExit {
+			_ = os.Remove(yamlAbsPath)
+		}
 		return fmt.Errorf("stdout pipe: %w", err)
 	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
+		if removeAfterExit {
+			_ = os.Remove(yamlAbsPath)
+		}
 		return fmt.Errorf("stderr pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
+		if removeAfterExit {
+			_ = os.Remove(yamlAbsPath)
+		}
 		return fmt.Errorf("start validator: %w", err)
 	}
 
-	resultCh := make(chan error, 1)
+	doneCh := make(chan struct{})
+	shortCircuitCh := make(chan struct{})
+	var shortCircuitOnce sync.Once
+
+	errCh := make(chan error, 1)
 	var lastErrorMsg string
 	var msgMu sync.Mutex
 
-	scanCtx, scanCancel := context.WithCancel(context.Background())
-	defer scanCancel()
-
 	scanFunc := func(r io.Reader) {
 		scanner := bufio.NewScanner(r)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 		for scanner.Scan() {
-			select {
-			case <-scanCtx.Done():
-				return
-			default:
-			}
-
 			line := scanner.Text()
-			lowerLine := strings.ToLower(line)
-
-			isShortCircuit := false
-			for _, kw := range shortCircuitKeywords {
-				if strings.Contains(lowerLine, kw) {
-					isShortCircuit = true
-					break
-				}
-			}
-
-			if isShortCircuit {
-				select {
-				case resultCh <- nil:
-				default:
-				}
-				scanCancel()
-				return
-			}
 
 			if errMsg, isFatal := extractFatalError(line); isFatal {
 				msgMu.Lock()
 				lastErrorMsg = errMsg
 				msgMu.Unlock()
+				continue
+			}
+
+			select {
+			case <-shortCircuitCh:
+				continue
+			default:
+			}
+
+			lowerLine := strings.ToLower(line)
+			for _, kw := range shortCircuitKeywords {
+				if strings.Contains(lowerLine, kw) {
+					shortCircuitOnce.Do(func() {
+						close(shortCircuitCh)
+					})
+					break
+				}
 			}
 		}
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() { defer wg.Done(); scanFunc(stdoutPipe) }()
-	go func() { defer wg.Done(); scanFunc(stderrPipe) }()
+	var scanWg sync.WaitGroup
+	scanWg.Add(2)
+	go func() { defer scanWg.Done(); scanFunc(stdoutPipe) }()
+	go func() { defer scanWg.Done(); scanFunc(stderrPipe) }()
 
 	go func() {
-		wg.Wait()
-		err := cmd.Wait()
+		defer close(doneCh)
+		scanWg.Wait()
+		waitErr := cmd.Wait()
 
-		select {
-		case <-scanCtx.Done():
-			return
-		default:
+		if removeAfterExit {
+			_ = os.Remove(yamlAbsPath)
 		}
+
+		bgValMu.Lock()
+		if activeBgVal != nil && activeBgVal.cmd == cmd {
+			activeBgVal = nil
+		}
+		bgValMu.Unlock()
 
 		msgMu.Lock()
 		errMsg := lastErrorMsg
 		msgMu.Unlock()
 
-		if err != nil {
+		if waitErr != nil {
 			if errMsg != "" {
-				resultCh <- &ConfigError{Msg: errMsg}
+				errCh <- &ConfigError{Msg: errMsg}
 			} else {
-				resultCh <- fmt.Errorf("exit status: %w", err)
+				errCh <- fmt.Errorf("exit status: %w", waitErr)
 			}
 		} else {
-			resultCh <- nil
+			errCh <- nil
 		}
 	}()
 
-	var finalErr error
+	timer := time.NewTimer(foregroundValidationTimeout)
+	defer timer.Stop()
+
 	select {
-	case <-ctx.Done():
-		finalErr = ErrValidationTimeout
-	case err := <-resultCh:
-		finalErr = err
-	}
+	case <-shortCircuitCh:
+		bgValMu.Lock()
+		select {
+		case <-doneCh:
+		default:
+			activeBgVal = &bgValidationProc{cmd: cmd, done: doneCh}
+		}
+		bgValMu.Unlock()
 
-	if cmd.Process != nil {
-		_ = cmd.Process.Kill()
-	}
+		go func() {
+			watchdog := time.NewTimer(bgValidationMaxLifetime)
+			defer watchdog.Stop()
+			select {
+			case <-doneCh:
+			case <-watchdog.C:
+				if cmd.Process != nil {
+					_ = cmd.Process.Kill()
+				}
+				<-doneCh
+			}
+		}()
+		return nil
 
-	return finalErr
+	case err := <-errCh:
+		return err
+
+	case <-timer.C:
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		<-doneCh
+		return ErrValidationTimeout
+	}
 }
 
 func extractFatalError(line string) (string, bool) {
