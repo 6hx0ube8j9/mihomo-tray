@@ -96,17 +96,12 @@ func (a *Application) notifyError(action string, err error) {
 	}
 
 	if errors.Is(err, errKernelNotReady) || errors.Is(err, errSystemBusy) {
-		a.showNotice("操作暂不可用", userFacingMessage(err))
+		a.showError(action, userFacingMessage(err))
 		return
 	}
 
-	title := action
-	if !strings.HasSuffix(title, "失败") {
-		title += "失败"
-	}
-
-	slog.Error(title, "err", err)
-	a.showError(title, userFacingMessage(err))
+	slog.Error(action+"失败", "err", err)
+	a.showError(action, userFacingMessage(err))
 }
 
 func (a *Application) notifyWarn(actionTitle string, err error) {
