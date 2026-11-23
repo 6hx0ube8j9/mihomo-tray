@@ -116,7 +116,7 @@ func (a *Application) handleCopyWebUIPassword(_ context.Context, _ domain.UIComm
 	}
 
 	if err := a.Platform.WriteClipboard(secret); err != nil {
-		a.notifyWarn("写入剪贴板", err)
+		a.notifyError("写入剪贴板", err)
 		return
 	}
 
