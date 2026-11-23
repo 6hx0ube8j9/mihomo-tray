@@ -15,7 +15,7 @@ import (
 
 func (a *Application) runExclusiveAction(action state.KernelAction, title string, task func() error) {
 	if !a.State.TryBeginAction(action) {
-		a.showNotice(title, errSystemBusy.Error())
+		a.showError(title, errSystemBusy.Error())
 		return
 	}
 
