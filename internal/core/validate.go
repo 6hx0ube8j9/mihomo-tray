@@ -14,10 +14,7 @@ import (
 	"mihomo-tray/internal/sys"
 )
 
-const (
-	foregroundValidationTimeout = 10 * time.Second
-	bgValidationMaxLifetime     = 2 * time.Minute
-)
+const foregroundValidationTimeout = 10 * time.Second
 
 var shortCircuitKeywords = []string{
 	"download",
@@ -168,19 +165,6 @@ func ValidateConfig(exePath, workDir, yamlAbsPath string, removeAfterExit bool) 
 			activeBgVal = &bgValidationProc{cmd: cmd, done: doneCh}
 		}
 		bgValMu.Unlock()
-
-		go func() {
-			watchdog := time.NewTimer(bgValidationMaxLifetime)
-			defer watchdog.Stop()
-			select {
-			case <-doneCh:
-			case <-watchdog.C:
-				if cmd.Process != nil {
-					_ = cmd.Process.Kill()
-				}
-				<-doneCh
-			}
-		}()
 		return nil
 
 	case err := <-errCh:
