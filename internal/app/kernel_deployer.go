@@ -98,20 +98,20 @@ func (d *KernelDeployer) DeployAndApply(ctx context.Context, targetRelPath, acti
 }
 
 func (d *KernelDeployer) SyncRuntimeConfig() error {
-	activePath := d.cfg.GetActivePath()
-	if activePath != "" {
-		if err := d.cfg.ValidatePhysicalFile(activePath); err != nil {
-			return err
-		}
-	}
-
-	deployRes, err := core.DeployRuntimeConfig(d.cfg.GetConfig(), activePath, d.cfg.BaseDir())
+	prep, err := d.prepareYAML(d.cfg.GetActivePath())
 	if err != nil {
 		return err
 	}
+	return d.commitRuntimeYAML(prep)
+}
 
-	d.st.SetActualTunDevice(deployRes.TunDevice)
-	return nil
+func (d *KernelDeployer) restartProcess() {
+	cfg := d.cfg.GetConfig()
+	if cfg.Config.Tun.Enable {
+		d.st.SetTunRequestedTime(time.Now())
+	}
+	d.st.SetPhase(domain.PhaseInitializing)
+	d.kernel.Restart()
 }
 
 func (d *KernelDeployer) prepareYAML(targetRelPath string) (*core.ComposeResult, error) {
@@ -129,16 +129,6 @@ func (d *KernelDeployer) commitRuntimeYAML(prep *core.ComposeResult) error {
 	}
 	d.st.SetActualTunDevice(prep.TunDevice)
 	return nil
-}
-
-func (d *KernelDeployer) restartProcess() {
-	cfg := d.cfg.GetConfig()
-	if cfg.Config.Tun.Enable {
-		d.st.SetTunRequestedTime(time.Now())
-	}
-	d.st.SetPhase(domain.PhaseInitializing)
-	d.kernel.HaltDaemon()
-	d.kernel.WakeDaemon()
 }
 
 // KEEP: DO NOT REMOVE. Reserved for future in-process kernel restart via REST API (POST /restart).
