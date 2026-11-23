@@ -82,7 +82,7 @@ func (a *Application) handleRequestEditPort(ctx context.Context, _ domain.UIComm
 			return
 		}
 
-		a.asyncRun("端口设置", func() error {
+		a.asyncRunError("端口设置", func() error {
 			changed, err := a.KernelTuner.ApplyPortConfig(ctx, nMixed, nSocks, nHttp)
 			if err != nil {
 				return err
