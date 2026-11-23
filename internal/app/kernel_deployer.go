@@ -83,7 +83,7 @@ func (d *KernelDeployer) DeployAndApply(ctx context.Context, targetRelPath, acti
 		}
 
 		var apiErr *core.APIError
-		if errors.As(reloadErr, &apiErr) {
+		if errors.As(reloadErr, &apiErr) || errors.Is(reloadErr, context.Canceled) {
 			return reloadErr
 		}
 
