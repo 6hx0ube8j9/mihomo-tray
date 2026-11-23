@@ -97,7 +97,7 @@ func NewKernelManager(baseDir string, isExiting func() bool, api *APIClient) *Ke
 		isExitingFn: isExiting,
 		api:         api,
 		logger:      logger.NewCoreLogger(baseDir),
-		runner:      NewProcessRunner(domain.KernelExeName),
+		runner:      NewProcessRunner(GetKernelPath(baseDir)),
 		wakeCh:      make(chan struct{}, 1),
 	}
 }
