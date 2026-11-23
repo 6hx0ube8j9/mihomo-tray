@@ -153,6 +153,7 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 			cancel()
 		}
 
+		core.StopBackgroundValidation()
 		a.Kernel.Close()
 		slog.Info("应用已安全退出")
 	})
