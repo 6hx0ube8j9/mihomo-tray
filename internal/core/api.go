@@ -20,7 +20,7 @@ const (
 	MaxAPIResponseSize = 5 * 1024 * 1024
 	pipeDialTimeout    = 2 * time.Second
 	defaultAPITimeout  = 10 * time.Second
-	reloadAPITimeout   = 90 * time.Second
+	reloadAPITimeout   = 30 * time.Minute
 )
 
 const (
