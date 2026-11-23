@@ -113,7 +113,28 @@ func assignProcessToJob(hJob windows.Handle, pid int) {
 	}
 }
 
-func KillOtherProcessesByName(name string, excludePid uint32) {
+func matchProcessImagePath(h windows.Handle, buf []uint16, cleanAbsTarget string) bool {
+	size := uint32(len(buf))
+	if err := windows.QueryFullProcessImageName(h, 0, &buf[0], &size); err != nil {
+		return false
+	}
+	fullPath := filepath.Clean(windows.UTF16ToString(buf[:size]))
+	return strings.EqualFold(fullPath, cleanAbsTarget)
+}
+
+func KillOtherProcessesByPath(exePath string, excludePid uint32) {
+	exePath = strings.TrimSpace(exePath)
+	if exePath == "" {
+		return
+	}
+
+	absTarget, err := filepath.Abs(exePath)
+	if err != nil {
+		return
+	}
+	absTarget = filepath.Clean(absTarget)
+	targetName := filepath.Base(absTarget)
+
 	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil || snapshot == windows.InvalidHandle {
 		slog.Warn("枚举进程失败", "err", err)
@@ -129,17 +150,23 @@ func KillOtherProcessesByName(name string, excludePid uint32) {
 
 	currentPid := windows.GetCurrentProcessId()
 	waitMs := uint32(processTerminateWaitTimeout.Milliseconds())
+	pathBuf := make([]uint16, 1024)
 
 	for {
-		exeName := windows.UTF16ToString(pe.ExeFile[:])
-		if strings.EqualFold(exeName, name) && pe.ProcessID != excludePid && pe.ProcessID != currentPid {
-			h, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, pe.ProcessID)
-			if err == nil {
-				_ = windows.TerminateProcess(h, 9)
-				_, _ = windows.WaitForSingleObject(h, waitMs)
-				_ = windows.CloseHandle(h)
-			} else {
-				slog.Warn("清理残留进程失败", "pid", pe.ProcessID, "err", err)
+		procName := windows.UTF16ToString(pe.ExeFile[:])
+		pid := pe.ProcessID
+		if strings.EqualFold(procName, targetName) && pid != excludePid && pid != currentPid {
+			if hQuery, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid); err == nil {
+				if matchProcessImagePath(hQuery, pathBuf, absTarget) {
+					if hTerm, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, pid); err == nil {
+						_ = windows.TerminateProcess(hTerm, 9)
+						_, _ = windows.WaitForSingleObject(hTerm, waitMs)
+						_ = windows.CloseHandle(hTerm)
+					} else {
+						slog.Warn("清理残留进程失败", "pid", pid, "err", err)
+					}
+				}
+				_ = windows.CloseHandle(hQuery)
 			}
 		}
 		if err := windows.Process32Next(snapshot, &pe); err != nil {
