@@ -376,3 +376,15 @@ func (km *KernelManager) KillCurrent() {
 		km.runner.Kill()
 	}
 }
+
+func (km *KernelManager) Restart() {
+	km.mu.Lock()
+	km.isPaused = false
+	km.mu.Unlock()
+
+	km.KillCurrent()
+	select {
+	case km.wakeCh <- struct{}{}:
+	default:
+	}
+}
