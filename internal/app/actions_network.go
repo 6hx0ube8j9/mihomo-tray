@@ -26,21 +26,15 @@ func (a *Application) handleToggleProxy(_ context.Context, cmd domain.UICommand)
 func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand) {
 	enable := cmd.Payload == "true"
 
-	a.asyncRunError("TUN 模式", func() error {
-		if enable && !a.Platform.IsAdmin() {
-			if a.State.GetPhase() != domain.PhaseRunning {
-				return errKernelNotReady
+	if enable && !a.Platform.IsAdmin() {
+		a.runExclusiveAction(state.ActionRestart, "TUN 模式", func() error {
+			if a.Cfg.GetConfig().Config.Tun.Enable {
+				return nil
 			}
-			if a.State.IsActionBusy() {
-				return errSystemBusy
-			}
-
-			targetDev := a.State.GetEffectiveTunDevice()
-			if a.Platform.IsTunActive(targetDev) {
-				return errTunDeviceBusy
+			if err := a.KernelTuner.ValidateEnableTun(); err != nil {
+				return err
 			}
 
-			originalTun := a.Cfg.GetConfig().Config.Tun.Enable
 			return a.elevateAndRestart(func() {
 				a.Cfg.Update(func(c *domain.TrayConfig) {
 					c.Config.Tun.Enable = true
@@ -48,12 +42,15 @@ func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand)
 				a.State.SetTunRequestedTime(time.Now())
 			}, func() {
 				a.Cfg.Update(func(c *domain.TrayConfig) {
-					c.Config.Tun.Enable = originalTun
+					c.Config.Tun.Enable = false
 				})
 				a.State.ClearTunStarting()
 			})
-		}
+		})
+		return
+	}
 
+	a.asyncRunError("TUN 模式", func() error {
 		return a.KernelTuner.ToggleTun(ctx, enable)
 	})
 }
