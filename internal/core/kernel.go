@@ -159,6 +159,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 }
 
 func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.KernelEvent) sessionResult {
+	StopBackgroundValidation()
 	km.runPreStartHook()
 
 	absBaseDir, _ := filepath.Abs(km.baseDir)
@@ -281,7 +282,7 @@ func (km *KernelManager) handleSessionCrash(res sessionResult, backoff *crashBac
 	}
 
 	if isFatal {
-		slog.Error("内核遇到致命错误，已暂停启动")
+		slog.Error("内核遇到致命错误，已暂停启动，详细信息请查看 core.log")
 		backoff.reset()
 		km.HaltDaemon()
 		return
@@ -293,7 +294,11 @@ func (km *KernelManager) handleSessionCrash(res sessionResult, backoff *crashBac
 	}
 
 	if backoff.recordCrash(res.runDuration) {
-		slog.Error("内核异常退出超限，守护进程已挂起保护")
+		if res.crashLog != "" {
+			slog.Error("内核异常退出超限，守护进程已挂起保护，详细信息请查看 core.log")
+		} else {
+			slog.Error("内核异常退出超限，守护进程已挂起保护")
+		}
 		backoff.reset()
 		km.HaltDaemon()
 		return
