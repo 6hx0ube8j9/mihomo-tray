@@ -91,3 +91,13 @@ func DeployRuntimeConfig(cfg domain.TrayConfig, relPath string, baseDir string) 
 		IsUnchanged: unchanged,
 	}, nil
 }
+
+func CleanupTempCheckFiles(baseDir string) {
+	matches, err := filepath.Glob(filepath.Join(baseDir, ".check-*.yaml"))
+	if err != nil {
+		return
+	}
+	for _, path := range matches {
+		_ = os.Remove(path)
+	}
+}
