@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,6 +19,8 @@ import (
 const (
 	MaxAPIResponseSize = 5 * 1024 * 1024
 	pipeDialTimeout    = 2 * time.Second
+	defaultAPITimeout  = 10 * time.Second
+	reloadAPITimeout   = 90 * time.Second
 )
 
 const (
@@ -31,7 +32,7 @@ const (
 	apiKeyTun       = "tun"
 	apiKeyTunEnable = "enable"
 	apiKeyTunDevice = "device"
-	apiKeyPath      = "path"
+	apiKeyPayload   = "payload"
 )
 
 type APIClient struct {
@@ -59,13 +60,19 @@ func NewAPIClient(pipePath string) *APIClient {
 					defer cancel()
 					return winio.DialPipeContext(dialCtx, pipePath)
 				},
-				MaxIdleConns:          100,
-				MaxIdleConnsPerHost:   100,
-				IdleConnTimeout:       90 * time.Second,
-				ResponseHeaderTimeout: 12 * time.Second,
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 100,
+				IdleConnTimeout:     90 * time.Second,
 			},
 		},
 	}
+}
+
+func withDefaultTimeout(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	if _, hasDeadline := ctx.Deadline(); hasDeadline {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, d)
 }
 
 func (c *APIClient) CloseIdleConnections() {
@@ -76,7 +83,10 @@ func (c *APIClient) CloseIdleConnections() {
 }
 
 func (c *APIClient) Ping(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost/version", nil)
+	reqCtx, cancel := withDefaultTimeout(ctx, defaultAPITimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, "http://localhost/version", nil)
 	if err != nil {
 		return err
 	}
@@ -118,14 +128,20 @@ func (c *APIClient) UpdateAllowLan(ctx context.Context, enable bool) error {
 	return c.SyncConfigToKernel(ctx, map[string]any{apiKeyAllowLan: enable})
 }
 
-func (c *APIClient) ForceReloadKernel(ctx context.Context, runtimeAbs string) error {
-	payload := map[string]any{apiKeyPath: filepath.ToSlash(runtimeAbs)}
-	_, err := c.DoRequest(ctx, http.MethodPut, "/configs?force=true", payload)
+func (c *APIClient) ForceReloadKernel(ctx context.Context, yamlPayload string) error {
+	reqCtx, cancel := withDefaultTimeout(ctx, reloadAPITimeout)
+	defer cancel()
+
+	payload := map[string]any{apiKeyPayload: yamlPayload}
+	_, err := c.DoRequest(reqCtx, http.MethodPut, "/configs?force=true", payload)
 	return err
 }
 
 func (c *APIClient) RestartKernel(ctx context.Context) error {
-	_, err := c.DoRequest(ctx, http.MethodPost, "/restart", nil)
+	reqCtx, cancel := withDefaultTimeout(ctx, defaultAPITimeout)
+	defer cancel()
+
+	_, err := c.DoRequest(reqCtx, http.MethodPost, "/restart", nil)
 	if err == nil {
 		c.httpClient.CloseIdleConnections()
 	}
@@ -133,12 +149,18 @@ func (c *APIClient) RestartKernel(ctx context.Context) error {
 }
 
 func (c *APIClient) SyncConfigToKernel(ctx context.Context, payload map[string]any) error {
-	_, err := c.DoRequest(ctx, http.MethodPatch, "/configs", payload)
+	reqCtx, cancel := withDefaultTimeout(ctx, defaultAPITimeout)
+	defer cancel()
+
+	_, err := c.DoRequest(reqCtx, http.MethodPatch, "/configs", payload)
 	return err
 }
 
 func (c *APIClient) GetKernelStatus(ctx context.Context) (*domain.KernelStatus, error) {
-	body, err := c.DoRequest(ctx, http.MethodGet, "/configs", nil)
+	reqCtx, cancel := withDefaultTimeout(ctx, defaultAPITimeout)
+	defer cancel()
+
+	body, err := c.DoRequest(reqCtx, http.MethodGet, "/configs", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +194,7 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 	if bodyReader != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("ipc request: %w", err)
@@ -194,7 +216,7 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		errMsg := strings.TrimSpace(string(body))
+		errMsg := parseAPIErrorMessage(body)
 		if errMsg != "" {
 			return nil, &APIError{StatusCode: resp.StatusCode, Message: errMsg}
 		}
@@ -202,6 +224,20 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 	}
 
 	return body, nil
+}
+
+func parseAPIErrorMessage(body []byte) string {
+	trimmed := strings.TrimSpace(string(body))
+	if trimmed == "" {
+		return ""
+	}
+	var payload struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(body, &payload); err == nil && strings.TrimSpace(payload.Message) != "" {
+		return strings.TrimSpace(payload.Message)
+	}
+	return trimmed
 }
 
 func buildTunPayload(enable bool, device string) map[string]any {
