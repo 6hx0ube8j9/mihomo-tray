@@ -49,6 +49,7 @@ func StopBackgroundValidation() {
 	}
 	<-proc.done
 }
+
 func ValidateConfig(exePath, workDir string, yamlBytes []byte) error {
 	tmpFile, err := os.CreateTemp(workDir, ".check-*.yaml")
 	if err != nil {
@@ -163,9 +164,7 @@ func ValidateConfig(exePath, workDir string, yamlBytes []byte) error {
 		scanWg.Wait()
 		waitErr := cmd.Wait()
 
-		if removeAfterExit {
-			_ = os.Remove(yamlAbsPath)
-		}
+		_ = os.Remove(yamlAbsPath)
 
 		valMu.Lock()
 		if activeVal != nil && activeVal.cmd == cmd {
