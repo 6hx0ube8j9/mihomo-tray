@@ -13,7 +13,7 @@ import (
 // ============================================================================
 
 func (a *Application) handleReloadConfig(ctx context.Context, _ domain.UICommand) {
-	a.runManagedAction(ctx, state.ActionReload, "重载配置", true, true, func(actionCtx context.Context) error {
+	a.runAction(ctx, "重载配置", state.ActionPreemptible|state.ActionPreempt, func(actionCtx context.Context) error {
 		_ = a.Cfg.ReloadFromDisk()
 		a.KernelTuner.ReconcilePrivilege()
 
@@ -28,7 +28,7 @@ func (a *Application) handleReloadConfig(ctx context.Context, _ domain.UICommand
 }
 
 func (a *Application) handleRestartKernel(ctx context.Context, _ domain.UICommand) {
-	a.runManagedAction(ctx, state.ActionRestart, "重启内核", false, true, func(_ context.Context) error {
+	a.runAction(ctx, "重启内核", state.ActionPreempt, func(_ context.Context) error {
 		_ = a.Cfg.ReloadFromDisk()
 		a.KernelTuner.ReconcilePrivilege()
 
@@ -70,7 +70,7 @@ func (a *Application) handleToggleAutoStart(_ context.Context, cmd domain.UIComm
 		return
 	}
 
-	a.runExclusiveAction(state.ActionRestart, "开机自启", func() error {
+	a.runExclusiveAction("开机自启", func() error {
 		original := a.Cfg.GetConfig().IsAutostartEnabled()
 		if original == enable {
 			return nil
@@ -102,7 +102,7 @@ func (a *Application) handleToggleRunAsAdmin(_ context.Context, cmd domain.UICom
 		return
 	}
 
-	a.runExclusiveAction(state.ActionRestart, "管理员模式", func() error {
+	a.runExclusiveAction("管理员模式", func() error {
 		if a.Cfg.GetConfig().General.RunAsAdmin {
 			return nil
 		}
