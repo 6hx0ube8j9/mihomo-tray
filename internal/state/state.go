@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,9 +24,35 @@ const (
 	ActionSyncAPI
 )
 
+type PreemptStatus int
+
+const (
+	PreemptAcquired PreemptStatus = iota
+	PreemptSuperseded
+	PreemptBusy
+)
+
+type ActionClaim struct {
+	Ctx      context.Context
+	Finish   func()
+	PrevDone <-chan struct{}
+	WaitSeq  uint64
+	Acquired bool
+	Waiting  bool
+}
+
+type activeAction struct {
+	preemptible bool
+	cancel      context.CancelFunc
+	done        chan struct{}
+}
+
 type RuntimeState struct {
 	phase atomic.Int32
 
+	actionMu      sync.Mutex
+	activeAction  *activeAction
+	waiterSeq     uint64
 	currentAction atomic.Int32
 
 	tunAlive    atomic.Bool
@@ -51,15 +78,87 @@ func (r *RuntimeState) IsActionBusy() bool {
 
 // ---------------- 核心排他动作状态机 ----------------
 
-func (r *RuntimeState) TryBeginAction(action KernelAction) bool {
+func (r *RuntimeState) AcquireAction(parent context.Context, action KernelAction, preemptible, allowPreempt bool) ActionClaim {
+	r.actionMu.Lock()
 	if r.IsExiting() {
-		return false
+		r.actionMu.Unlock()
+		return ActionClaim{}
 	}
-	return r.currentAction.CompareAndSwap(int32(ActionNone), int32(action))
+
+	if r.activeAction == nil {
+		r.waiterSeq++
+		ctx, finish := r.startActionLocked(parent, action, preemptible)
+		r.actionMu.Unlock()
+		return ActionClaim{
+			Ctx:      ctx,
+			Finish:   finish,
+			Acquired: true,
+		}
+	}
+
+	if allowPreempt && r.activeAction.preemptible {
+		r.waiterSeq++
+		seq := r.waiterSeq
+		cancel := r.activeAction.cancel
+		done := r.activeAction.done
+		r.actionMu.Unlock()
+
+		cancel()
+		return ActionClaim{
+			PrevDone: done,
+			WaitSeq:  seq,
+			Waiting:  true,
+		}
+	}
+
+	r.actionMu.Unlock()
+	return ActionClaim{}
 }
 
-func (r *RuntimeState) EndAction() {
-	r.currentAction.Store(int32(ActionNone))
+func (r *RuntimeState) CompletePreempt(parent context.Context, action KernelAction, preemptible bool, waitSeq uint64) (context.Context, func(), PreemptStatus) {
+	r.actionMu.Lock()
+	defer r.actionMu.Unlock()
+
+	if r.IsExiting() || r.waiterSeq != waitSeq {
+		return nil, nil, PreemptSuperseded
+	}
+	if r.activeAction != nil {
+		return nil, nil, PreemptBusy
+	}
+
+	ctx, finish := r.startActionLocked(parent, action, preemptible)
+	return ctx, finish, PreemptAcquired
+}
+
+func (r *RuntimeState) startActionLocked(parent context.Context, action KernelAction, preemptible bool) (context.Context, func()) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
+	done := make(chan struct{})
+	act := &activeAction{
+		preemptible: preemptible,
+		cancel:      cancel,
+		done:        done,
+	}
+	r.activeAction = act
+	r.currentAction.Store(int32(action))
+
+	var once sync.Once
+	finish := func() {
+		once.Do(func() {
+			r.actionMu.Lock()
+			if r.activeAction == act {
+				r.activeAction = nil
+				r.currentAction.Store(int32(ActionNone))
+			}
+			r.actionMu.Unlock()
+
+			cancel()
+			close(done)
+		})
+	}
+	return ctx, finish
 }
 
 func (r *RuntimeState) CurrentAction() KernelAction {
