@@ -22,8 +22,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -34,10 +32,12 @@ jobs:
       - name: Generate Windows Resources
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           go install github.com/tc-hib/go-winres@v0.3.3
           go-winres make --arch ${{ matrix.goarch }}
 
-      - name: Build EXE
+      - name: Build and Package EXE
         shell: pwsh
         env:
           CGO_ENABLED: '0'
@@ -45,17 +45,22 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: |
           $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force -Path "release"
+          $PSNativeCommandUseErrorActionPreference = $true
+
+          New-Item -ItemType Directory -Force -Path "release/mihomo-tray" | Out-Null
 
           $commit = $env:GITHUB_SHA.Substring(0, 7)
           $flags = "-s -w -H=windowsgui -X 'main.version=$commit'"
 
-          go build -mod=readonly -ldflags="$flags" -o "release/mihomo-tray.exe" .
+          go build -mod=readonly -ldflags="$flags" -o "release/mihomo-tray/mihomo-tray.exe" .
+
+          $zipName = "mihomo-tray-windows-${{ matrix.goarch }}-$commit.zip"
+          Compress-Archive -Path "release/mihomo-tray" -DestinationPath "release/$zipName" -Force
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: mihomo-tray-windows-${{ matrix.goarch }}
-          path: release/mihomo-tray.exe
+          path: release/*.zip
           if-no-files-found: error
           retention-days: 3
