@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -14,7 +15,10 @@ import (
 	"mihomo-tray/internal/sys"
 )
 
-const foregroundValidationTimeout = 10 * time.Second
+const (
+	validationTimeout = 10 * time.Second
+	tempCheckPattern  = ".check-*.yaml"
+)
 
 var shortCircuitKeywords = []string{
 	"download",
@@ -23,103 +27,63 @@ var shortCircuitKeywords = []string{
 	"pulling",
 }
 
-var ErrValidationTimeout = errors.New("配置校验超时")
-
-type validationProc struct {
-	cmd  *exec.Cmd
-	done chan struct{}
-}
-
 var (
-	valMu     sync.Mutex
-	activeVal *validationProc
+	ErrValidationTimeout = errors.New("配置校验超时")
+	valMu                sync.Mutex
 )
 
-func StopBackgroundValidation() {
-	valMu.Lock()
-	proc := activeVal
-	activeVal = nil
-	valMu.Unlock()
-
-	if proc == nil {
+// CleanupTempCheckFiles 清理因异常断电或系统强杀残留的临时校验配置文件。
+func CleanupTempCheckFiles(baseDir string) {
+	matches, err := filepath.Glob(filepath.Join(baseDir, tempCheckPattern))
+	if err != nil {
 		return
 	}
-	if proc.cmd.Process != nil {
-		_ = proc.cmd.Process.Kill()
+	for _, path := range matches {
+		_ = os.Remove(path)
 	}
-	<-proc.done
 }
 
 func ValidateConfig(exePath, workDir string, yamlBytes []byte) error {
-	tmpFile, err := os.CreateTemp(workDir, ".check-*.yaml")
+	valMu.Lock()
+	defer valMu.Unlock()
+
+	tmpFile, err := os.CreateTemp(workDir, tempCheckPattern)
 	if err != nil {
 		return fmt.Errorf("create test config: %w", err)
 	}
 	yamlAbsPath := tmpFile.Name()
+	defer os.Remove(yamlAbsPath)
 
 	if _, err := tmpFile.Write(yamlBytes); err != nil {
 		_ = tmpFile.Close()
-		_ = os.Remove(yamlAbsPath)
 		return fmt.Errorf("write test config: %w", err)
 	}
 	if err := tmpFile.Close(); err != nil {
-		_ = os.Remove(yamlAbsPath)
 		return fmt.Errorf("close test config: %w", err)
 	}
 
-	var (
-		cmd        *exec.Cmd
-		stdoutPipe io.ReadCloser
-		stderrPipe io.ReadCloser
-		doneCh     chan struct{}
-	)
+	cmd := exec.Command(exePath, "-d", ".", "-t", "-f", yamlAbsPath)
+	cmd.Dir = workDir
+	cmd.SysProcAttr = sys.BackgroundProcAttr()
 
-	for {
-		valMu.Lock()
-		prev := activeVal
-		if prev == nil {
-			cmd = exec.Command(exePath, "-d", ".", "-t", "-f", yamlAbsPath)
-			cmd.Dir = workDir
-			cmd.SysProcAttr = sys.BackgroundProcAttr()
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("stdout pipe: %w", err)
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("stderr pipe: %w", err)
+	}
 
-			stdoutPipe, err = cmd.StdoutPipe()
-			if err != nil {
-				valMu.Unlock()
-				_ = os.Remove(yamlAbsPath)
-				return fmt.Errorf("stdout pipe: %w", err)
-			}
-			stderrPipe, err = cmd.StderrPipe()
-			if err != nil {
-				valMu.Unlock()
-				_ = os.Remove(yamlAbsPath)
-				return fmt.Errorf("stderr pipe: %w", err)
-			}
-
-			if err := cmd.Start(); err != nil {
-				valMu.Unlock()
-				_ = os.Remove(yamlAbsPath)
-				return fmt.Errorf("start validator: %w", err)
-			}
-
-			doneCh = make(chan struct{})
-			activeVal = &validationProc{cmd: cmd, done: doneCh}
-			valMu.Unlock()
-			break
-		}
-
-		activeVal = nil
-		valMu.Unlock()
-
-		if prev.cmd.Process != nil {
-			_ = prev.cmd.Process.Kill()
-		}
-		<-prev.done
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start validator: %w", err)
 	}
 
 	shortCircuitCh := make(chan struct{})
 	var shortCircuitOnce sync.Once
 
 	errCh := make(chan error, 1)
+	doneCh := make(chan struct{})
 	var lastErrorMsg string
 	var msgMu sync.Mutex
 
@@ -164,14 +128,6 @@ func ValidateConfig(exePath, workDir string, yamlBytes []byte) error {
 		scanWg.Wait()
 		waitErr := cmd.Wait()
 
-		_ = os.Remove(yamlAbsPath)
-
-		valMu.Lock()
-		if activeVal != nil && activeVal.cmd == cmd {
-			activeVal = nil
-		}
-		valMu.Unlock()
-
 		msgMu.Lock()
 		errMsg := lastErrorMsg
 		msgMu.Unlock()
@@ -187,14 +143,24 @@ func ValidateConfig(exePath, workDir string, yamlBytes []byte) error {
 		}
 	}()
 
-	timer := time.NewTimer(foregroundValidationTimeout)
+	timer := time.NewTimer(validationTimeout)
 	defer timer.Stop()
 
 	select {
 	case <-shortCircuitCh:
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		<-doneCh
 		return nil
 
 	case err := <-errCh:
+		<-doneCh
+		select {
+		case <-shortCircuitCh:
+			return nil
+		default:
+		}
 		return err
 
 	case <-timer.C:
