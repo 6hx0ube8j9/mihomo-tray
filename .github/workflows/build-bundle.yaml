@@ -1,5 +1,5 @@
 name: 02 - Build Bundle mihomo-tray
-run-name: Build Bundle (${{ inputs.upstream_ver || 'manual' }})
+run-name: Build Bundle (${{ inputs.upstream_ver || (github.ref_type == 'tag' && github.ref_name) || 'manual' }})
 
 on:
   workflow_dispatch:
@@ -33,8 +33,6 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -45,6 +43,8 @@ jobs:
       - name: Generate Windows Resources
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           go install github.com/tc-hib/go-winres@v0.3.3
           go-winres make --arch ${{ matrix.goarch }}
 
@@ -52,7 +52,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force -Path "release/mihomo-tray"
+          $PSNativeCommandUseErrorActionPreference = $true
+          New-Item -ItemType Directory -Force -Path "release/mihomo-tray" | Out-Null
 
           # Determine application version tag or short commit hash
           $appVer = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { $env:GITHUB_SHA.Substring(0, 7) }
@@ -72,14 +73,21 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_VER: ${{ inputs.upstream_ver }}
         run: |
           $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force -Path "temp_kernel"
+          $PSNativeCommandUseErrorActionPreference = $true
+          New-Item -ItemType Directory -Force -Path "temp_kernel" | Out-Null
 
-          $rawVer = '${{ inputs.upstream_ver }}'
+          $rawVer = $env:UPSTREAM_VER
           $kernelTag = ""
+          $uiTag = ""
           if ($rawVer -and $rawVer -ne 'manual') {
-              $kernelTag = $rawVer.Split('_')[0]
+              $parts = $rawVer.Split('_')
+              $kernelTag = $parts[0]
+              if ($parts.Length -ge 2) {
+                  $uiTag = $parts[1]
+              }
           }
 
           # Download official release kernel matching target architecture
@@ -102,23 +110,28 @@ jobs:
 
           Expand-Archive -Path $kernelZip.FullName -DestinationPath "temp_kernel/extracted" -Force
           $coreExe = Get-ChildItem -Path "temp_kernel/extracted" -Filter "*.exe" -Recurse | Select-Object -First 1
+          if (-not $coreExe) { throw "No .exe found inside kernel archive: $($kernelZip.Name)" }
           Move-Item -Path $coreExe.FullName -Destination "release/mihomo-tray/mihomo.exe" -Force
           Remove-Item -Path "temp_kernel" -Recurse -Force
 
           # Download Zashboard Web UI archive
-          $uiZipUrl = "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip"
+          $uiZipUrl = if ($uiTag) {
+              "https://github.com/Zephyruso/zashboard/releases/download/$uiTag/dist.zip"
+          } else {
+              "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip"
+          }
           Invoke-WebRequest -Uri $uiZipUrl -OutFile "zashboard.zip"
 
           # Compute and print upstream Web UI archive SHA256 checksum
           $upstreamUiHash = (Get-FileHash -Path "zashboard.zip" -Algorithm SHA256).Hash.ToLower()
           Write-Host "=========================================="
-          Write-Host "Upstream UI Archive: dist.zip"
+          Write-Host "Upstream UI Archive: dist.zip ($uiZipUrl)"
           Write-Host "Upstream UI SHA256 : $upstreamUiHash"
           Write-Host "=========================================="
 
           Expand-Archive -Path "zashboard.zip" -DestinationPath "temp_zashboard" -Force
 
-          New-Item -ItemType Directory -Force -Path "release/mihomo-tray/ui/default"
+          New-Item -ItemType Directory -Force -Path "release/mihomo-tray/ui/default" | Out-Null
           if (Test-Path "temp_zashboard/dist") {
               Copy-Item -Path "temp_zashboard/dist/*" -Destination "release/mihomo-tray/ui/default" -Recurse -Force
           } else {
@@ -126,41 +139,35 @@ jobs:
           }
           Remove-Item -Path "zashboard.zip", "temp_zashboard" -Recurse -Force
 
-          # Fetch Meta routing rule databases without checksum logging
+          # Fetch Meta routing rule databases
           $rules = @(
-              @{ Url = "https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geoip.dat"; Out = "release/mihomo-tray/geoip.dat" },
-              @{ Url = "https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geosite.dat"; Out = "release/mihomo-tray/geosite.dat" },
-              @{ Url = "https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geoip.metadb"; Out = "release/mihomo-tray/geoip.metadb" }
+              @{ Url = "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.dat";         Out = "release/mihomo-tray/geoip.dat" },
+              @{ Url = "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat";       Out = "release/mihomo-tray/geosite.dat" },
+              @{ Url = "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb";      Out = "release/mihomo-tray/geoip.metadb" },
+              @{ Url = "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb"; Out = "release/mihomo-tray/ASN.mmdb" }
           )
           foreach ($item in $rules) {
               Invoke-WebRequest -Uri $item.Url -OutFile $item.Out
+              if ((Get-Item $item.Out).Length -eq 0) {
+                  throw "Downloaded rule file is empty: $($item.Out) ($($item.Url))"
+              }
           }
 
       - name: Compress Release Archive and Generate Checksum
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $zipName = "mihomo-tray-windows-${{ matrix.asset_suffix }}-bundle-${{ env.APP_VER }}.zip"
           Compress-Archive -Path "release/mihomo-tray" -DestinationPath "release/$zipName" -Force
 
           # Compute SHA256 checksum for the generated bundle archive
           $bundleHash = (Get-FileHash -Path "release/$zipName" -Algorithm SHA256).Hash.ToLower()
           "$bundleHash *$zipName" | Out-File -FilePath "release/$zipName.sha256" -Encoding ascii
-          
+
           Write-Host "=========================================="
           Write-Host "Generated Bundle: $zipName"
           Write-Host "Bundle SHA256   : $bundleHash"
           Write-Host "=========================================="
-
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: |
-            release/*.zip
-            release/*.sha256
-          draft: false
-          prerelease: false
-          generate_release_notes: true
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -171,3 +178,25 @@ jobs:
             release/*.sha256
           if-no-files-found: error
           retention-days: 14
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download All Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mihomo-tray-windows-*-bundle-*
+          path: release
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.zip
+            release/*.sha256
+          draft: false
+          prerelease: false
+          generate_release_notes: true
