@@ -44,15 +44,16 @@ func (t *KernelTuner) syncAPI(ctx context.Context, call func(context.Context) er
 		return errKernelNotReady
 	}
 
-	if !t.st.TryBeginAction(state.ActionSyncAPI) {
+	claim := t.st.AcquireAction(ctx, state.ActionSyncAPI, false, false)
+	if !claim.Acquired {
 		return errSystemBusy
 	}
 	defer func() {
-		t.st.EndAction()
+		claim.Finish()
 		t.triggerForceSync()
 	}()
 
-	reqCtx, cancel := context.WithTimeout(ctx, apiSyncTimeout)
+	reqCtx, cancel := context.WithTimeout(claim.Ctx, apiSyncTimeout)
 	defer cancel()
 
 	if err := call(reqCtx); err != nil {
