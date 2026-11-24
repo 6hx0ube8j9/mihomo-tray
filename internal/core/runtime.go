@@ -10,19 +10,6 @@ import (
 	"mihomo-tray/internal/fs"
 )
 
-func ValidateRuntimeYAML(cfg domain.TrayConfig, sourceBytes []byte, baseDir string) (*ComposeResult, error) {
-	res, err := ComposeRuntimeYAML(cfg, sourceBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := ValidateConfig(GetKernelPath(baseDir), baseDir, res.YAML); err != nil {
-		return nil, err
-	}
-
-	return res, nil
-}
-
 func PrepareRuntimeYAML(cfg domain.TrayConfig, relPath string, baseDir string) (*ComposeResult, error) {
 	var sourceBytes []byte
 	if relPath != "" {
@@ -49,4 +36,14 @@ func WriteRuntimeYAML(yamlBytes []byte, baseDir string) (string, bool, error) {
 	}
 
 	return runtimeAbs, false, nil
+}
+
+func CleanupTempCheckFiles(baseDir string) {
+	matches, err := filepath.Glob(filepath.Join(baseDir, ".check-*.yaml"))
+	if err != nil {
+		return
+	}
+	for _, path := range matches {
+		_ = os.Remove(path)
+	}
 }
