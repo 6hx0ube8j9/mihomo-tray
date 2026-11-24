@@ -32,7 +32,6 @@ var (
 	valMu                sync.Mutex
 )
 
-// CleanupTempCheckFiles 清理因上次异常断电或系统强杀残留的临时校验配置文件。
 func CleanupTempCheckFiles(baseDir string) {
 	matches, err := filepath.Glob(filepath.Join(baseDir, tempCheckPattern))
 	if err != nil {
