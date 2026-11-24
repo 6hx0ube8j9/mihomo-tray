@@ -50,13 +50,3 @@ func WriteRuntimeYAML(yamlBytes []byte, baseDir string) (string, bool, error) {
 
 	return runtimeAbs, false, nil
 }
-
-func CleanupTempCheckFiles(baseDir string) {
-	matches, err := filepath.Glob(filepath.Join(baseDir, ".check-*.yaml"))
-	if err != nil {
-		return
-	}
-	for _, path := range matches {
-		_ = os.Remove(path)
-	}
-}
