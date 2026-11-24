@@ -2,12 +2,14 @@ package core
 
 import (
 	"bufio"
+	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -15,10 +17,7 @@ import (
 	"mihomo-tray/internal/sys"
 )
 
-const (
-	validationTimeout = 10 * time.Second
-	tempCheckPattern  = ".check-*.yaml"
-)
+const foregroundValidationTimeout = 10 * time.Second
 
 var shortCircuitKeywords = []string{
 	"download",
@@ -27,62 +26,168 @@ var shortCircuitKeywords = []string{
 	"pulling",
 }
 
-var (
-	ErrValidationTimeout = errors.New("配置校验超时")
-	valMu                sync.Mutex
-)
+var ErrValidationTimeout = errors.New("配置校验超时")
 
-func CleanupTempCheckFiles(baseDir string) {
-	matches, err := filepath.Glob(filepath.Join(baseDir, tempCheckPattern))
-	if err != nil {
+type validationProc struct {
+	cmd  *exec.Cmd
+	job  *sys.Job
+	done chan struct{}
+}
+
+func (p *validationProc) terminate() {
+	if p == nil {
 		return
 	}
-	for _, path := range matches {
-		_ = os.Remove(path)
+	if p.job != nil {
+		_ = p.job.Terminate(0)
+	}
+	if p.cmd != nil && p.cmd.Process != nil {
+		_ = p.cmd.Process.Kill()
 	}
 }
 
-func ValidateConfig(exePath, workDir string, yamlBytes []byte) error {
-	valMu.Lock()
-	defer valMu.Unlock()
+type Validator struct {
+	mu            sync.Mutex
+	active        *validationProc
+	hasValidHash  bool
+	lastValidHash [sha256.Size]byte
+}
 
-	tmpFile, err := os.CreateTemp(workDir, tempCheckPattern)
+func NewValidator() *Validator {
+	return &Validator{}
+}
+
+func (v *Validator) Stop() {
+	v.mu.Lock()
+	proc := v.active
+	v.active = nil
+	v.mu.Unlock()
+
+	if proc == nil {
+		return
+	}
+	proc.terminate()
+	<-proc.done
+}
+
+func (v *Validator) MarkValid(yamlBytes []byte) {
+	if len(yamlBytes) == 0 {
+		return
+	}
+	hash := sha256.Sum256(yamlBytes)
+	v.mu.Lock()
+	v.lastValidHash = hash
+	v.hasValidHash = true
+	v.mu.Unlock()
+}
+
+func (v *Validator) Invalidate() {
+	v.mu.Lock()
+	v.hasValidHash = false
+	v.lastValidHash = [sha256.Size]byte{}
+	v.mu.Unlock()
+}
+
+func (v *Validator) Validate(ctx context.Context, exePath, workDir string, yamlBytes []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	hash := sha256.Sum256(yamlBytes)
+	v.mu.Lock()
+	if v.hasValidHash && v.lastValidHash == hash {
+		v.mu.Unlock()
+		return nil
+	}
+	v.mu.Unlock()
+
+	tmpFile, err := os.CreateTemp(workDir, ".check-*.yaml")
 	if err != nil {
 		return fmt.Errorf("create test config: %w", err)
 	}
 	yamlAbsPath := tmpFile.Name()
-	defer os.Remove(yamlAbsPath)
 
 	if _, err := tmpFile.Write(yamlBytes); err != nil {
 		_ = tmpFile.Close()
+		_ = os.Remove(yamlAbsPath)
 		return fmt.Errorf("write test config: %w", err)
 	}
 	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(yamlAbsPath)
 		return fmt.Errorf("close test config: %w", err)
 	}
 
-	cmd := exec.Command(exePath, "-d", ".", "-t", "-f", yamlAbsPath)
-	cmd.Dir = workDir
-	cmd.SysProcAttr = sys.BackgroundProcAttr()
+	var (
+		proc       *validationProc
+		stdoutPipe io.ReadCloser
+		stderrPipe io.ReadCloser
+	)
 
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("stdout pipe: %w", err)
-	}
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("stderr pipe: %w", err)
-	}
+	for {
+		if err := ctx.Err(); err != nil {
+			_ = os.Remove(yamlAbsPath)
+			return err
+		}
 
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start validator: %w", err)
+		v.mu.Lock()
+		prev := v.active
+		if prev == nil {
+			cmd := exec.Command(exePath, "-d", ".", "-t", "-f", yamlAbsPath)
+			cmd.Dir = workDir
+			cmd.SysProcAttr = sys.BackgroundProcAttr()
+
+			stdoutPipe, err = cmd.StdoutPipe()
+			if err != nil {
+				v.mu.Unlock()
+				_ = os.Remove(yamlAbsPath)
+				return fmt.Errorf("stdout pipe: %w", err)
+			}
+			stderrPipe, err = cmd.StderrPipe()
+			if err != nil {
+				v.mu.Unlock()
+				_ = os.Remove(yamlAbsPath)
+				return fmt.Errorf("stderr pipe: %w", err)
+			}
+
+			job, jobErr := sys.NewKillOnCloseJob()
+			if jobErr != nil {
+				slog.Warn("创建校验进程作业失败", "err", jobErr)
+			}
+
+			if err := cmd.Start(); err != nil {
+				if job != nil {
+					_ = job.Close()
+				}
+				v.mu.Unlock()
+				_ = os.Remove(yamlAbsPath)
+				return fmt.Errorf("start validator: %w", err)
+			}
+
+			if job != nil {
+				job.Assign(cmd.Process.Pid)
+			}
+
+			proc = &validationProc{
+				cmd:  cmd,
+				job:  job,
+				done: make(chan struct{}),
+			}
+			v.active = proc
+			v.mu.Unlock()
+			break
+		}
+
+		v.active = nil
+		v.mu.Unlock()
+
+		prev.terminate()
+		<-prev.done
 	}
 
 	shortCircuitCh := make(chan struct{})
 	var shortCircuitOnce sync.Once
 
 	errCh := make(chan error, 1)
-	doneCh := make(chan struct{})
 	var lastErrorMsg string
 	var msgMu sync.Mutex
 
@@ -123,9 +228,26 @@ func ValidateConfig(exePath, workDir string, yamlBytes []byte) error {
 	go func() { defer scanWg.Done(); scanFunc(stderrPipe) }()
 
 	go func() {
-		defer close(doneCh)
+		defer close(proc.done)
 		scanWg.Wait()
-		waitErr := cmd.Wait()
+		waitErr := proc.cmd.Wait()
+
+		if proc.job != nil {
+			_ = proc.job.Terminate(0)
+			_ = proc.job.Close()
+		}
+		_ = os.Remove(yamlAbsPath)
+
+		v.mu.Lock()
+		stillActive := (v.active == proc)
+		if stillActive {
+			v.active = nil
+		}
+		if stillActive && waitErr == nil {
+			v.lastValidHash = hash
+			v.hasValidHash = true
+		}
+		v.mu.Unlock()
 
 		msgMu.Lock()
 		errMsg := lastErrorMsg
@@ -142,31 +264,24 @@ func ValidateConfig(exePath, workDir string, yamlBytes []byte) error {
 		}
 	}()
 
-	timer := time.NewTimer(validationTimeout)
+	timer := time.NewTimer(foregroundValidationTimeout)
 	defer timer.Stop()
 
 	select {
+	case <-ctx.Done():
+		proc.terminate()
+		<-proc.done
+		return ctx.Err()
+
 	case <-shortCircuitCh:
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-		<-doneCh
 		return nil
 
 	case err := <-errCh:
-		<-doneCh
-		select {
-		case <-shortCircuitCh:
-			return nil
-		default:
-		}
 		return err
 
 	case <-timer.C:
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-		<-doneCh
+		proc.terminate()
+		<-proc.done
 		return ErrValidationTimeout
 	}
 }
