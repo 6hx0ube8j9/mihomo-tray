@@ -55,10 +55,15 @@ func applyKernelDefaults(kcfg *domain.KernelConfig, isTainted *bool) {
 	sanitizePort(&kcfg.MixedPort, domain.DefaultMixedPort, isTainted)
 	sanitizePort(&kcfg.Port, domain.DefaultPort, isTainted)
 	sanitizePort(&kcfg.SocksPort, domain.DefaultSocksPort, isTainted)
-
 	setIfNil(&kcfg.AllowLan, domain.DefaultAllowLan, isTainted)
 	setIfNil(&kcfg.UnifiedDelay, domain.DefaultUnifiedDelay, isTainted)
-
+    setIfNil(&kcfg.GeoAutoUpdate, domain.DefaultGeoAutoUpdate, isTainted)
+	sanitizeGeoUpdateInterval(&kcfg.GeoUpdateInterval, domain.DefaultGeoUpdateInterval, isTainted)
+	sanitizeGeoURL(&kcfg.GeoXURL.MMDB, domain.DefaultGeoXURLMMDB, isTainted)
+	sanitizeGeoURL(&kcfg.GeoXURL.ASN, domain.DefaultGeoXURLASN, isTainted)
+	sanitizeGeoURL(&kcfg.GeoXURL.GeoIP, domain.DefaultGeoXURLGeoIP, isTainted)
+	sanitizeGeoURL(&kcfg.GeoXURL.GeoSite, domain.DefaultGeoXURLGeoSite, isTainted)
+	
 	if !isValidMode(kcfg.Mode) {
 		kcfg.Mode = domain.DefaultMode
 		*isTainted = true
@@ -200,6 +205,33 @@ func setIfNil[T any](ptr **T, def T, tainted *bool) {
 func setIfEmpty(val *string, def string, tainted *bool) {
 	if *val == "" {
 		*val = def
+		*tainted = true
+	}
+}
+
+func sanitizeGeoUpdateInterval(intervalPtr **int, def int, tainted *bool) {
+	if *intervalPtr == nil || **intervalPtr <= 0 {
+		if *intervalPtr != nil {
+			slog.Warn("Geo 更新间隔非法，已恢复默认", "invalid", **intervalPtr, "default", def)
+		}
+		v := def
+		*intervalPtr = &v
+		*tainted = true
+	}
+}
+
+func sanitizeGeoURL(val *string, def string, tainted *bool) {
+	trimmed := strings.TrimSpace(*val)
+	if trimmed == "" || !netutil.IsValidHTTPURL(trimmed) {
+		if trimmed != "" {
+			slog.Warn("GeoX 下载地址非法，已恢复默认", "invalid", trimmed)
+		}
+		*val = def
+		*tainted = true
+		return
+	}
+	if trimmed != *val {
+		*val = trimmed
 		*tainted = true
 	}
 }
