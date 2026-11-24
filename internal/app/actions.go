@@ -13,38 +13,27 @@ import (
 // 1. 核心调度基础设施 (Infrastructure, Runners & Notifiers)
 // ============================================================================
 
-func (a *Application) runExclusiveAction(action state.KernelAction, title string, task func() error) {
-	a.runManagedAction(context.Background(), action, title, false, false, func(context.Context) error {
+func (a *Application) runExclusiveAction(title string, task func() error) {
+	a.runAction(context.Background(), title, state.ActionExclusive, func(context.Context) error {
 		return task()
 	})
 }
 
-func (a *Application) runManagedAction(ctx context.Context, action state.KernelAction, title string, preemptible, allowPreempt bool, task func(context.Context) error) {
-	claim := a.State.AcquireAction(ctx, action, preemptible, allowPreempt)
-	if claim.Acquired {
-		a.executeAction(claim.Ctx, claim.Finish, title, task)
+func (a *Application) runAction(ctx context.Context, title string, policy state.ActionPolicy, task func(context.Context) error) {
+	lease := a.State.AcquireAction(ctx, policy)
+	if lease.Acquired() {
+		a.executeAction(lease.Ctx, lease.Finish, title, task)
 		return
 	}
 
-	if claim.Waiting {
+	if lease.Pending() {
 		a.Presenter.ForcePushUIState()
 		go func() {
-			select {
-			case <-claim.PrevDone:
-			case <-ctx.Done():
+			actionCtx, finish, ok := lease.Wait(ctx)
+			if !ok {
 				return
 			}
-
-			actionCtx, finish, status := a.State.CompletePreempt(ctx, action, preemptible, claim.WaitSeq)
-			switch status {
-			case state.PreemptAcquired:
-				a.executeAction(actionCtx, finish, title, task)
-			case state.PreemptSuperseded:
-				return
-			case state.PreemptBusy:
-				a.showError(title, errSystemBusy.Error())
-				a.Presenter.ForcePushUIState()
-			}
+			a.executeAction(actionCtx, finish, title, task)
 		}()
 		return
 	}
