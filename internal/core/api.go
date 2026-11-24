@@ -20,6 +20,7 @@ const (
 	MaxAPIResponseSize = 5 * 1024 * 1024
 	pipeDialTimeout    = 2 * time.Second
 	defaultAPITimeout  = 10 * time.Second
+	reloadAPITimeout   = 25 * time.Second
 )
 
 const (
@@ -128,8 +129,11 @@ func (c *APIClient) UpdateAllowLan(ctx context.Context, enable bool) error {
 }
 
 func (c *APIClient) ForceReloadKernel(ctx context.Context, yamlPayload string) error {
+	reqCtx, cancel := withDefaultTimeout(ctx, reloadAPITimeout)
+	defer cancel()
+
 	payload := map[string]any{apiKeyPayload: yamlPayload}
-	_, err := c.DoRequest(ctx, http.MethodPut, "/configs?force=true", payload)
+	_, err := c.DoRequest(reqCtx, http.MethodPut, "/configs?force=true", payload)
 	return err
 }
 
@@ -202,7 +206,7 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("http status %d", resp.StatusCode)
+		return nil, &APIError{StatusCode: resp.StatusCode, Message: http.StatusText(resp.StatusCode)}
 	}
 
 	limitReader := io.LimitReader(resp.Body, MaxAPIResponseSize)
@@ -213,10 +217,10 @@ func (c *APIClient) DoRequest(ctx context.Context, method, path string, payload 
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errMsg := parseAPIErrorMessage(body)
-		if errMsg != "" {
-			return nil, &APIError{StatusCode: resp.StatusCode, Message: errMsg}
+		if errMsg == "" {
+			errMsg = http.StatusText(resp.StatusCode)
 		}
-		return nil, fmt.Errorf("http status %d", resp.StatusCode)
+		return nil, &APIError{StatusCode: resp.StatusCode, Message: errMsg}
 	}
 
 	return body, nil
