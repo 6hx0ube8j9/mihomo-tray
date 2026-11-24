@@ -159,7 +159,6 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 }
 
 func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.KernelEvent) sessionResult {
-	StopBackgroundValidation()
 	km.runPreStartHook()
 
 	absBaseDir, _ := filepath.Abs(km.baseDir)
