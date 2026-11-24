@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"mihomo-tray/internal/domain"
@@ -13,17 +14,58 @@ import (
 // 1. 核心调度基础设施 (Infrastructure, Runners & Notifiers)
 // ============================================================================
 
+// ============================================================================
+// 1. 核心调度基础设施 (Infrastructure, Runners & Notifiers)
+// ============================================================================
+
 func (a *Application) runExclusiveAction(action state.KernelAction, title string, task func() error) {
-	if !a.State.TryBeginAction(action) {
-		a.showError(title, errSystemBusy.Error())
+	a.runManagedAction(context.Background(), action, title, false, false, func(context.Context) error {
+		return task()
+	})
+}
+
+func (a *Application) runManagedAction(ctx context.Context, action state.KernelAction, title string, preemptible, allowPreempt bool, task func(context.Context) error) {
+	claim := a.State.AcquireAction(ctx, action, preemptible, allowPreempt)
+	if claim.Acquired {
+		a.executeAction(claim.Ctx, claim.Finish, title, task)
 		return
 	}
 
+	if claim.Waiting {
+		a.Presenter.ForcePushUIState()
+		go func() {
+			select {
+			case <-claim.PrevDone:
+			case <-ctx.Done():
+				return
+			}
+
+			actionCtx, finish, status := a.State.CompletePreempt(ctx, action, preemptible, claim.WaitSeq)
+			switch status {
+			case state.PreemptAcquired:
+				a.executeAction(actionCtx, finish, title, task)
+			case state.PreemptSuperseded:
+				return
+			case state.PreemptBusy:
+				a.showError(title, errSystemBusy.Error())
+				a.Presenter.ForcePushUIState()
+			}
+		}()
+		return
+	}
+
+	if !a.State.IsExiting() {
+		a.showError(title, errSystemBusy.Error())
+		a.Presenter.ForcePushUIState()
+	}
+}
+
+func (a *Application) executeAction(actionCtx context.Context, finish func(), title string, task func(context.Context) error) {
 	a.Presenter.ForcePushUIState()
 
 	go func() {
 		defer func() {
-			a.State.EndAction()
+			finish()
 			a.Presenter.ForcePushUIState()
 
 			if r := recover(); r != nil {
@@ -31,39 +73,13 @@ func (a *Application) runExclusiveAction(action state.KernelAction, title string
 			}
 		}()
 
-		if err := task(); err != nil {
-			a.notifyError(title, err)
-		}
-	}()
-}
-
-func (a *Application) asyncRunError(title string, task func() error) {
-	go func() {
-		defer a.Presenter.ForcePushUIState()
-
-		defer func() {
-			if r := recover(); r != nil {
-				a.reportPanic(title, r)
+		if err := task(actionCtx); err != nil {
+			if actionCtx.Err() != nil && errors.Is(err, context.Canceled) {
+				return
 			}
-		}()
-
-		if err := task(); err != nil {
 			a.notifyError(title, err)
 		}
 	}()
-}
-
-func (a *Application) elevateAndRestart(commit func(), rollback func()) error {
-	commit()
-
-	restarted, err := a.Platform.Elevate()
-	if err != nil || !restarted {
-		rollback()
-		return err
-	}
-
-	a.ExitForRestart()
-	return nil
 }
 
 // ============================================================================
