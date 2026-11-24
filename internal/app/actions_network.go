@@ -5,7 +5,6 @@ import (
 	"time"
 	
 	"mihomo-tray/internal/domain"
-	"mihomo-tray/internal/state"
 )
 
 // ============================================================================
@@ -28,7 +27,7 @@ func (a *Application) handleToggleTun(ctx context.Context, cmd domain.UICommand)
 	enable := cmd.Payload == "true"
 
 	if enable && !a.Platform.IsAdmin() {
-		a.runExclusiveAction(state.ActionRestart, "TUN 模式", func() error {
+		a.runExclusiveAction("TUN 模式", func() error {
 			if a.Cfg.GetConfig().Config.Tun.Enable {
 				return nil
 			}
