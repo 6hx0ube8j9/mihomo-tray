@@ -7,7 +7,6 @@ const (
 	KernelExeName       = "mihomo.exe"
 	RuntimeConfigName   = "config.yaml"
 	TrayConfigName      = "mihomo-tray.json"
-	TestConfigFileName  = "config.test.tmp"
 	ProfilesDir         = "profiles"
 	WebCacheDir         = "webcache"
 	WebViewCacheDirName = "webview2"
