@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"mihomo-tray/internal/domain"
-	"mihomo-tray/internal/state"
 )
 
 // ============================================================================
@@ -30,7 +29,7 @@ func (a *Application) handleRequestEditController(_ context.Context, _ domain.UI
 			return
 		}
 
-		a.runExclusiveAction(state.ActionRestart, "面板设置", func() error {
+		a.runExclusiveAction("面板设置", func() error {
 			coreChanged := (cur.Addr != next.Addr) || (cur.Secret != next.Secret)
 			appChanged := (cur.RemoteWebUI != next.RemoteWebUI) ||
 				(cur.RemoteWebUIURL != next.RemoteWebUIURL) ||
