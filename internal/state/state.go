@@ -14,31 +14,28 @@ const (
 	TunLostAlarmDelay  = 6 * time.Second
 )
 
-type KernelAction int32
+type ActionPolicy uint8
 
 const (
-	ActionNone KernelAction = iota
-	ActionSwitchProfile
-	ActionReload
-	ActionRestart
-	ActionSyncAPI
+	ActionExclusive   ActionPolicy = 0
+	ActionPreemptible ActionPolicy = 1 << 0
+	ActionPreempt     ActionPolicy = 1 << 1
 )
 
-type PreemptStatus int
+type ActionLease struct {
+	Ctx    context.Context
+	Finish func()
+	wait   func(context.Context) (context.Context, func(), bool)
+}
 
-const (
-	PreemptAcquired PreemptStatus = iota
-	PreemptSuperseded
-	PreemptBusy
-)
+func (l ActionLease) Acquired() bool { return l.Finish != nil }
+func (l ActionLease) Pending() bool  { return l.wait != nil }
 
-type ActionClaim struct {
-	Ctx      context.Context
-	Finish   func()
-	PrevDone <-chan struct{}
-	WaitSeq  uint64
-	Acquired bool
-	Waiting  bool
+func (l ActionLease) Wait(ctx context.Context) (context.Context, func(), bool) {
+	if l.wait == nil {
+		return nil, nil, false
+	}
+	return l.wait(ctx)
 }
 
 type activeAction struct {
@@ -50,10 +47,11 @@ type activeAction struct {
 type RuntimeState struct {
 	phase atomic.Int32
 
-	actionMu      sync.Mutex
-	activeAction  *activeAction
-	waiterSeq     uint64
-	currentAction atomic.Int32
+	actionMu     sync.Mutex
+	activeAction *activeAction
+	waiterSeq    uint64
+	pendingSeq   uint64
+	actionBusy   atomic.Bool
 
 	tunAlive    atomic.Bool
 	tunReqTime  atomic.Int64
@@ -73,66 +71,86 @@ func NewRuntimeState() *RuntimeState {
 }
 
 func (r *RuntimeState) IsActionBusy() bool {
-	return r.CurrentAction() != ActionNone
+	return r.actionBusy.Load()
 }
 
 // ---------------- 核心排他动作状态机 ----------------
 
-func (r *RuntimeState) AcquireAction(parent context.Context, action KernelAction, preemptible, allowPreempt bool) ActionClaim {
+func (r *RuntimeState) AcquireAction(parent context.Context, policy ActionPolicy) ActionLease {
+	preemptible := policy&ActionPreemptible != 0
+	allowPreempt := policy&ActionPreempt != 0
+
 	r.actionMu.Lock()
 	if r.IsExiting() {
 		r.actionMu.Unlock()
-		return ActionClaim{}
+		return ActionLease{}
 	}
 
 	if r.activeAction == nil {
-		if allowPreempt {
-			r.waiterSeq++
+		if r.pendingSeq != 0 && !allowPreempt {
+			r.actionMu.Unlock()
+			return ActionLease{}
 		}
-		ctx, finish := r.startActionLocked(parent, action, preemptible)
+		r.pendingSeq = 0
+		ctx, finish := r.startActionLocked(parent, preemptible)
 		r.actionMu.Unlock()
-		return ActionClaim{
-			Ctx:      ctx,
-			Finish:   finish,
-			Acquired: true,
-		}
+		return ActionLease{Ctx: ctx, Finish: finish}
 	}
 
 	if allowPreempt && r.activeAction.preemptible {
 		r.waiterSeq++
 		seq := r.waiterSeq
-		cancel := r.activeAction.cancel
-		done := r.activeAction.done
+		r.pendingSeq = seq
+		prevCancel := r.activeAction.cancel
+		prevDone := r.activeAction.done
 		r.actionMu.Unlock()
 
-		cancel()
-		return ActionClaim{
-			PrevDone: done,
-			WaitSeq:  seq,
-			Waiting:  true,
+		prevCancel()
+		return ActionLease{
+			wait: func(waitCtx context.Context) (context.Context, func(), bool) {
+				if waitCtx == nil {
+					waitCtx = context.Background()
+				}
+				select {
+				case <-prevDone:
+				case <-waitCtx.Done():
+					r.actionMu.Lock()
+					if r.pendingSeq == seq {
+						r.pendingSeq = 0
+						if r.activeAction == nil {
+							r.actionBusy.Store(false)
+						}
+					}
+					r.actionMu.Unlock()
+					return nil, nil, false
+				}
+
+				r.actionMu.Lock()
+				defer r.actionMu.Unlock()
+
+				if r.pendingSeq != seq {
+					return nil, nil, false
+				}
+				r.pendingSeq = 0
+
+				if r.IsExiting() || waitCtx.Err() != nil || r.activeAction != nil {
+					if r.activeAction == nil {
+						r.actionBusy.Store(false)
+					}
+					return nil, nil, false
+				}
+
+				ctx, finish := r.startActionLocked(waitCtx, preemptible)
+				return ctx, finish, true
+			},
 		}
 	}
 
 	r.actionMu.Unlock()
-	return ActionClaim{}
+	return ActionLease{}
 }
 
-func (r *RuntimeState) CompletePreempt(parent context.Context, action KernelAction, preemptible bool, waitSeq uint64) (context.Context, func(), PreemptStatus) {
-	r.actionMu.Lock()
-	defer r.actionMu.Unlock()
-
-	if r.IsExiting() || r.waiterSeq != waitSeq {
-		return nil, nil, PreemptSuperseded
-	}
-	if r.activeAction != nil {
-		return nil, nil, PreemptBusy
-	}
-
-	ctx, finish := r.startActionLocked(parent, action, preemptible)
-	return ctx, finish, PreemptAcquired
-}
-
-func (r *RuntimeState) startActionLocked(parent context.Context, action KernelAction, preemptible bool) (context.Context, func()) {
+func (r *RuntimeState) startActionLocked(parent context.Context, preemptible bool) (context.Context, func()) {
 	if parent == nil {
 		parent = context.Background()
 	}
@@ -144,7 +162,7 @@ func (r *RuntimeState) startActionLocked(parent context.Context, action KernelAc
 		done:        done,
 	}
 	r.activeAction = act
-	r.currentAction.Store(int32(action))
+	r.actionBusy.Store(true)
 
 	var once sync.Once
 	finish := func() {
@@ -152,7 +170,9 @@ func (r *RuntimeState) startActionLocked(parent context.Context, action KernelAc
 			r.actionMu.Lock()
 			if r.activeAction == act {
 				r.activeAction = nil
-				r.currentAction.Store(int32(ActionNone))
+				if r.pendingSeq == 0 {
+					r.actionBusy.Store(false)
+				}
 			}
 			r.actionMu.Unlock()
 
@@ -161,10 +181,6 @@ func (r *RuntimeState) startActionLocked(parent context.Context, action KernelAc
 		})
 	}
 	return ctx, finish
-}
-
-func (r *RuntimeState) CurrentAction() KernelAction {
-	return KernelAction(r.currentAction.Load())
 }
 
 // ---------------- 订阅单项并发锁 ----------------
