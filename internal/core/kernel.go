@@ -283,7 +283,7 @@ func (km *KernelManager) handleSessionCrash(res sessionResult, backoff *crashBac
 	if isFatal {
 		slog.Error("内核遇到致命错误，已暂停启动，详细信息请查看 core.log")
 		backoff.reset()
-		km.HaltDaemon()
+		km.haltDaemon()
 		return
 	}
 
@@ -299,7 +299,7 @@ func (km *KernelManager) handleSessionCrash(res sessionResult, backoff *crashBac
 			slog.Error("内核异常退出超限，守护进程已挂起保护")
 		}
 		backoff.reset()
-		km.HaltDaemon()
+		km.haltDaemon()
 		return
 	}
 
@@ -347,21 +347,11 @@ func (km *KernelManager) runPreStartHook() {
 	}
 }
 
-func (km *KernelManager) HaltDaemon() {
+func (km *KernelManager) haltDaemon() {
 	km.mu.Lock()
 	km.isPaused = true
 	km.mu.Unlock()
 	km.KillCurrent()
-}
-
-func (km *KernelManager) WakeDaemon() {
-	km.mu.Lock()
-	km.isPaused = false
-	km.mu.Unlock()
-	select {
-	case km.wakeCh <- struct{}{}:
-	default:
-	}
 }
 
 func (km *KernelManager) IsPaused() bool {
