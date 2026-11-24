@@ -77,6 +77,35 @@ func (a *Application) executeAction(actionCtx context.Context, finish func(), ti
 	}()
 }
 
+func (a *Application) asyncRunError(title string, task func() error) {
+	go func() {
+		defer a.Presenter.ForcePushUIState()
+
+		defer func() {
+			if r := recover(); r != nil {
+				a.reportPanic(title, r)
+			}
+		}()
+
+		if err := task(); err != nil {
+			a.notifyError(title, err)
+		}
+	}()
+}
+
+func (a *Application) elevateAndRestart(commit func(), rollback func()) error {
+	commit()
+
+	restarted, err := a.Platform.Elevate()
+	if err != nil || !restarted {
+		rollback()
+		return err
+	}
+
+	a.ExitForRestart()
+	return nil
+}
+
 // ============================================================================
 // 2. 指令路由中心 (Command Dispatcher Router)
 // ============================================================================
