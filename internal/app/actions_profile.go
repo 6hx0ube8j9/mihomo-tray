@@ -15,7 +15,6 @@ func (a *Application) applyAndSyncRuntime(ctx context.Context, targetRelPath, ac
 		return err
 	}
 
-	a.Cfg.SetActiveProfile(targetRelPath)
 	a.ProxyGuard.Sync()
 	a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
 	return nil
