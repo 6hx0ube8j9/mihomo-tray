@@ -35,6 +35,10 @@ func (d *KernelDeployer) IsKernelRunning() bool {
 	return d.st.GetPhase() == domain.PhaseRunning && !d.kernel.IsPaused()
 }
 
+func (d *KernelDeployer) HasAbortedReload() bool {
+	return d.reloadAborted.Load()
+}
+
 func (d *KernelDeployer) ReloadConfig(ctx context.Context) error {
 	if !d.IsKernelRunning() {
 		return errKernelNotReady
@@ -47,6 +51,15 @@ func (d *KernelDeployer) ReloadConfig(ctx context.Context) error {
 	}
 	if ctx.Err() != nil {
 		return ctx.Err()
+	}
+
+	if d.reloadAborted.Swap(false) {
+		if err := d.commitRuntimeYAML(prep); err != nil {
+			return err
+		}
+		d.restartProcess()
+		slog.Info("上次热重载已中断，已改为重启内核重载配置", "path", activePath)
+		return nil
 	}
 
 	if err := d.api.ForceReloadKernel(ctx, string(prep.YAML)); err != nil {
@@ -128,6 +141,15 @@ func (d *KernelDeployer) SyncRuntimeConfig() error {
 	return d.commitRuntimeYAML(prep)
 }
 
+func (d *KernelDeployer) restartProcess() {
+	cfg := d.cfg.GetConfig()
+	if cfg.Config.Tun.Enable {
+		d.st.SetTunRequestedTime(time.Now())
+	}
+	d.st.SetPhase(domain.PhaseInitializing)
+	d.kernel.Restart()
+}
+
 func (d *KernelDeployer) prepareYAML(targetRelPath string) (*core.ComposeResult, error) {
 	if targetRelPath != "" {
 		if err := d.cfg.ValidatePhysicalFile(targetRelPath); err != nil {
@@ -143,15 +165,6 @@ func (d *KernelDeployer) commitRuntimeYAML(prep *core.ComposeResult) error {
 	}
 	d.st.SetActualTunDevice(prep.TunDevice)
 	return nil
-}
-
-func (d *KernelDeployer) restartProcess() {
-	cfg := d.cfg.GetConfig()
-	if cfg.Config.Tun.Enable {
-		d.st.SetTunRequestedTime(time.Now())
-	}
-	d.st.SetPhase(domain.PhaseInitializing)
-	d.kernel.Restart()
 }
 
 // KEEP: DO NOT REMOVE. Reserved for future in-process kernel restart via REST API (POST /restart).
