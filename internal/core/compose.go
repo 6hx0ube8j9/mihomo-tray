@@ -14,6 +14,8 @@ import (
 
 const yamlHeader = "# Auto-generated config. DO NOT EDIT.\n\n"
 
+var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
+
 type ComposeResult struct {
 	YAML      []byte
 	TunDevice string
@@ -32,36 +34,71 @@ func cleanYAMLErr(err error) error {
 	return &ConfigError{Msg: strings.TrimPrefix(err.Error(), "yaml: ")}
 }
 
-func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResult, error) {
-	var root yaml.Node
+func parseSingleYAMLMapping(sourceYAML []byte) (*yaml.Node, *yaml.Node, error) {
+	trimmed := bytes.TrimPrefix(sourceYAML, utf8BOM)
+	if len(bytes.TrimSpace(trimmed)) == 0 {
+		return nil, nil, nil
+	}
 
-	if len(sourceYAML) > 0 {
-		dec := yaml.NewDecoder(bytes.NewReader(sourceYAML))
-		if err := dec.Decode(&root); err != nil {
-			if !errors.Is(err, io.EOF) {
-				return nil, cleanYAMLErr(err)
-			}
-		} else {
-			var extra yaml.Node
-			err := dec.Decode(&extra)
-			if err == nil {
-				return nil, &ConfigError{Msg: "配置文件包含了多份独立配置 ('---')"}
-			} else if !errors.Is(err, io.EOF) {
-				return nil, cleanYAMLErr(err)
-			}
+	var root yaml.Node
+	dec := yaml.NewDecoder(bytes.NewReader(trimmed))
+	if err := dec.Decode(&root); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, nil, nil
 		}
+		return nil, nil, cleanYAMLErr(err)
+	}
+
+	var extra yaml.Node
+	if err := dec.Decode(&extra); err == nil {
+		return nil, nil, &ConfigError{Msg: "配置文件包含了多份独立配置 ('---')"}
+	} else if !errors.Is(err, io.EOF) {
+		return nil, nil, cleanYAMLErr(err)
 	}
 
 	if len(root.Content) == 0 {
-		root = yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode}}}
+		return nil, nil, nil
 	}
+
 	rootMap := root.Content[0]
 	if rootMap.Kind != yaml.MappingNode {
-		return nil, &ConfigError{Msg: "配置文件缺少核心字段"}
+		return nil, nil, &ConfigError{Msg: "配置文件缺少核心字段"}
 	}
 
 	if len(rootMap.Content) > 0 && rootMap.Content[0].Column != 1 {
-		return nil, &ConfigError{Msg: fmt.Sprintf("第 %d 列缩进格式错误", rootMap.Content[0].Column)}
+		return nil, nil, &ConfigError{Msg: fmt.Sprintf("第 %d 列缩进格式错误", rootMap.Content[0].Column)}
+	}
+
+	return &root, rootMap, nil
+}
+
+func ValidateProfileStatic(sourceYAML []byte) error {
+	_, rootMap, err := parseSingleYAMLMapping(sourceYAML)
+	if err != nil {
+		return err
+	}
+	if rootMap == nil || len(rootMap.Content) == 0 {
+		return &ConfigError{Msg: "配置文件内容为空"}
+	}
+
+	pIdx, _ := findKey(rootMap, "proxies")
+	ppIdx, _ := findKey(rootMap, "proxy-providers")
+	if pIdx < 0 && ppIdx < 0 {
+		return &ConfigError{Msg: "配置文件缺少 proxies 或 proxy-providers 字段"}
+	}
+
+	return nil
+}
+
+func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResult, error) {
+	root, rootMap, err := parseSingleYAMLMapping(sourceYAML)
+	if err != nil {
+		return nil, err
+	}
+
+	if root == nil || rootMap == nil {
+		rootMap = &yaml.Node{Kind: yaml.MappingNode}
+		root = &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{rootMap}}
 	}
 
 	deleteKeys(rootMap, "redir-port", "tproxy-port")
@@ -91,6 +128,16 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 	}
 	if cfg.Config.UnifiedDelay != nil {
 		putTop("unified-delay", *cfg.Config.UnifiedDelay)
+	}
+
+	if cfg.Config.GeoAutoUpdate != nil {
+		putTop("geo-auto-update", *cfg.Config.GeoAutoUpdate)
+	}
+	if cfg.Config.GeoUpdateInterval != nil && *cfg.Config.GeoUpdateInterval > 0 {
+		putTop("geo-update-interval", *cfg.Config.GeoUpdateInterval)
+	}
+	if geoxNode := buildGeoXURLNode(cfg.Config.GeoXURL); geoxNode != nil {
+		putTop("geox-url", geoxNode)
 	}
 
 	if cfg.Config.MixedPort != nil && *cfg.Config.MixedPort > 0 {
@@ -141,9 +188,9 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 	}
 
 	rootMap.Content = append(topNodes, rootMap.Content...)
-	clearComments(&root)
+	clearComments(root)
 
-	outBytes, err := yaml.Marshal(&root)
+	outBytes, err := yaml.Marshal(root)
 	if err != nil {
 		return nil, err
 	}
@@ -154,6 +201,29 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 		YAML:      finalYAML,
 		TunDevice: tunDevice,
 	}, nil
+}
+
+func buildGeoXURLNode(geox domain.GeoXURLConfig) *yaml.Node {
+	node := &yaml.Node{Kind: yaml.MappingNode}
+	appendPair := func(key, val string) {
+		if val == "" {
+			return
+		}
+		k := &yaml.Node{Kind: yaml.ScalarNode, Value: key}
+		var v yaml.Node
+		_ = v.Encode(val)
+		node.Content = append(node.Content, k, &v)
+	}
+
+	appendPair("mmdb", geox.MMDB)
+	appendPair("asn", geox.ASN)
+	appendPair("geoip", geox.GeoIP)
+	appendPair("geosite", geox.GeoSite)
+
+	if len(node.Content) == 0 {
+		return nil
+	}
+	return node
 }
 
 func buildCORSNode(allowPrivateNetwork *bool, allowOrigins []string) *yaml.Node {
