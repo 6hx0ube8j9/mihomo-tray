@@ -13,11 +13,11 @@ import (
 // ============================================================================
 
 func (a *Application) handleReloadConfig(ctx context.Context, _ domain.UICommand) {
-	a.runExclusiveAction(state.ActionReload, "重载配置", func() error {
+	a.runManagedAction(ctx, state.ActionReload, "重载配置", true, true, func(actionCtx context.Context) error {
 		_ = a.Cfg.ReloadFromDisk()
 		a.KernelTuner.ReconcilePrivilege()
 
-		if err := a.KernelDeployer.ReloadConfig(ctx); err != nil {
+		if err := a.KernelDeployer.ReloadConfig(actionCtx); err != nil {
 			return err
 		}
 
@@ -28,17 +28,11 @@ func (a *Application) handleReloadConfig(ctx context.Context, _ domain.UICommand
 }
 
 func (a *Application) handleRestartKernel(ctx context.Context, _ domain.UICommand) {
-	a.runExclusiveAction(state.ActionRestart, "重启内核", func() error {
+	a.runManagedAction(ctx, state.ActionRestart, "重启内核", false, true, func(_ context.Context) error {
 		_ = a.Cfg.ReloadFromDisk()
 		a.KernelTuner.ReconcilePrivilege()
 
-		hasActiveProfile := a.Cfg.GetActivePath() != ""
 		if err := a.KernelDeployer.RestartKernel(); err != nil {
-			if hasActiveProfile {
-				a.FallbackToEmpty(ctx, "配置校验失败: "+err.Error())
-				a.showError("重启内核", userFacingMessage(err))
-				return nil
-			}
 			return err
 		}
 
