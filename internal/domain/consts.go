@@ -117,6 +117,14 @@ const (
 	DefaultExternalUIURL      = "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip"
 	DefaultExternalUIName     = "default"
 
+    // Geo 数据库更新策略默认值
+	DefaultGeoAutoUpdate     = false
+	DefaultGeoUpdateInterval = 168
+	DefaultGeoXURLMMDB       = "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.metadb"
+	DefaultGeoXURLASN        = "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb"
+	DefaultGeoXURLGeoIP      = "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat"
+	DefaultGeoXURLGeoSite    = "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"
+	
 	// 托盘偏好默认值
 	DefaultAutostart            = false
 	DefaultSystemProxy          = false
