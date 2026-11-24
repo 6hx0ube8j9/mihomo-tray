@@ -86,7 +86,9 @@ func (r *RuntimeState) AcquireAction(parent context.Context, action KernelAction
 	}
 
 	if r.activeAction == nil {
-		r.waiterSeq++
+		if allowPreempt {
+			r.waiterSeq++
+		}
 		ctx, finish := r.startActionLocked(parent, action, preemptible)
 		r.actionMu.Unlock()
 		return ActionClaim{
