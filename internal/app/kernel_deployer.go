@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"mihomo-tray/internal/config"
@@ -17,6 +18,8 @@ type KernelDeployer struct {
 	st     *state.RuntimeState
 	kernel *core.KernelManager
 	api    *core.APIClient
+
+	reloadAborted atomic.Bool
 }
 
 func NewKernelDeployer(cfg *config.Manager, st *state.RuntimeState, kernel *core.KernelManager, api *core.APIClient) *KernelDeployer {
@@ -42,9 +45,14 @@ func (d *KernelDeployer) ReloadConfig(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 
-	core.StopBackgroundValidation()
 	if err := d.api.ForceReloadKernel(ctx, string(prep.YAML)); err != nil {
+		if errors.Is(err, context.Canceled) && !d.st.IsExiting() {
+			d.reloadAborted.Store(true)
+		}
 		return err
 	}
 
@@ -58,6 +66,7 @@ func (d *KernelDeployer) ReloadConfig(ctx context.Context) error {
 
 func (d *KernelDeployer) RestartKernel() error {
 	slog.Info("正在重启内核")
+	d.reloadAborted.Store(false)
 	if err := d.SyncRuntimeConfig(); err != nil {
 		return err
 	}
@@ -71,8 +80,11 @@ func (d *KernelDeployer) DeployAndApply(ctx context.Context, targetRelPath, acti
 		return err
 	}
 
-	if d.IsKernelRunning() {
-		core.StopBackgroundValidation()
+	if d.IsKernelRunning() && !d.reloadAborted.Swap(false) {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		reloadErr := d.api.ForceReloadKernel(ctx, string(prep.YAML))
 		if reloadErr == nil {
 			if err := d.commitRuntimeYAML(prep); err != nil {
@@ -82,12 +94,23 @@ func (d *KernelDeployer) DeployAndApply(ctx context.Context, targetRelPath, acti
 			return nil
 		}
 
+		if errors.Is(reloadErr, context.Canceled) {
+			if !d.st.IsExiting() {
+				d.reloadAborted.Store(true)
+			}
+			return reloadErr
+		}
+
 		var apiErr *core.APIError
-		if errors.As(reloadErr, &apiErr) || errors.Is(reloadErr, context.Canceled) {
+		if errors.As(reloadErr, &apiErr) {
 			return reloadErr
 		}
 
 		slog.Warn("热重载通信异常，回退重启内核", "action", actionDesc, "path", targetRelPath, "err", reloadErr)
+	}
+
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 
 	if err := d.commitRuntimeYAML(prep); err != nil {
@@ -105,15 +128,6 @@ func (d *KernelDeployer) SyncRuntimeConfig() error {
 	return d.commitRuntimeYAML(prep)
 }
 
-func (d *KernelDeployer) restartProcess() {
-	cfg := d.cfg.GetConfig()
-	if cfg.Config.Tun.Enable {
-		d.st.SetTunRequestedTime(time.Now())
-	}
-	d.st.SetPhase(domain.PhaseInitializing)
-	d.kernel.Restart()
-}
-
 func (d *KernelDeployer) prepareYAML(targetRelPath string) (*core.ComposeResult, error) {
 	if targetRelPath != "" {
 		if err := d.cfg.ValidatePhysicalFile(targetRelPath); err != nil {
@@ -129,6 +143,15 @@ func (d *KernelDeployer) commitRuntimeYAML(prep *core.ComposeResult) error {
 	}
 	d.st.SetActualTunDevice(prep.TunDevice)
 	return nil
+}
+
+func (d *KernelDeployer) restartProcess() {
+	cfg := d.cfg.GetConfig()
+	if cfg.Config.Tun.Enable {
+		d.st.SetTunRequestedTime(time.Now())
+	}
+	d.st.SetPhase(domain.PhaseInitializing)
+	d.kernel.Restart()
 }
 
 // KEEP: DO NOT REMOVE. Reserved for future in-process kernel restart via REST API (POST /restart).
