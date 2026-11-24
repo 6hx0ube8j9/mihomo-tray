@@ -35,6 +35,10 @@ type KernelConfig struct {
 	AllowLan     *bool  `json:"allow-lan"`
 	UnifiedDelay *bool  `json:"unified-delay"`
 
+	GeoAutoUpdate     *bool         `json:"geo-auto-update"`
+	GeoUpdateInterval *int          `json:"geo-update-interval"`
+	GeoXURL           GeoXURLConfig `json:"geox-url"`
+
 	ExternalController string  `json:"external-controller"`
 	Secret             *string `json:"secret"`
 	ExternalUI         string  `json:"external-ui"`
@@ -45,6 +49,13 @@ type KernelConfig struct {
 
 	ExternalControllerCors CorsConfig `json:"external-controller-cors"`
 	Tun                    TunConfig  `json:"tun"`
+}
+
+type GeoXURLConfig struct {
+	MMDB    string `json:"mmdb"`
+	ASN     string `json:"asn"`
+	GeoIP   string `json:"geoip"`
+	GeoSite string `json:"geosite"`
 }
 
 type CorsConfig struct {
