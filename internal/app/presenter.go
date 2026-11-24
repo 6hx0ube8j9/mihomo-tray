@@ -108,7 +108,7 @@ func (p *Presenter) calculateUIStateLocked() domain.UIState {
 }
 
 func (p *Presenter) PushUIState() {
-	if p.st.IsExiting() || p.st.IsActionBusy() {
+	if p.st.IsExiting() {
 		return
 	}
 
