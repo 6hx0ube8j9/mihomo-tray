@@ -109,12 +109,10 @@ func (t *Tray) UpdateState(state domain.UIState) {
 		t.rebuildProfilesMenu(state)
 		t.lastProfileFingerprint = fp
 	} else if t.menuSwitchProfile != nil && len(state.ProfileItems) > 0 {
-		if !state.IsBusy {
-			actions := t.menuSwitchProfile.Actions()
-			for i, item := range state.ProfileItems {
-				if i < actions.Len() {
-					safelySetChecked(actions.At(i), item.IsActive)
-				}
+		actions := t.menuSwitchProfile.Actions()
+		for i, item := range state.ProfileItems {
+			if i < actions.Len() {
+				safelySetChecked(actions.At(i), item.IsActive)
 			}
 		}
 	}
