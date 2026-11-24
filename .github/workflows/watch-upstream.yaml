@@ -18,18 +18,30 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
+          set -euo pipefail
+
           MIHOMO_TAG=$(gh release view --repo MetaCubeX/mihomo --json tagName -q .tagName)
           ZASHBOARD_TAG=$(gh release view --repo Zephyruso/zashboard --json tagName -q .tagName)
+
+          if [[ -z "$MIHOMO_TAG" || -z "$ZASHBOARD_TAG" ]]; then
+            echo "Failed to fetch upstream tags (mihomo='$MIHOMO_TAG', zashboard='$ZASHBOARD_TAG')."
+            exit 1
+          fi
+
           UPSTREAM_VER="${MIHOMO_TAG}_${ZASHBOARD_TAG}"
+          TARGET_TITLE="Build Bundle (${UPSTREAM_VER})"
 
-          LAST_SUCCESS_RUN=$(gh run list --workflow build-bundle.yaml --status success --limit 1 --json displayTitle -q '.[0].displayTitle' 2>/dev/null || echo "")
+          MATCHED_RUN=$(gh run list --workflow build-bundle.yaml --event workflow_dispatch --limit 20 \
+            --json displayTitle,status,conclusion | \
+            jq -r --arg title "$TARGET_TITLE" \
+            '[.[] | select((.status == "in_progress" or .status == "queued" or .conclusion == "success") and .displayTitle == $title)] | .[0].displayTitle // ""')
 
-          echo "Latest Upstream : $UPSTREAM_VER"
-          echo "Last Success Run: $LAST_SUCCESS_RUN"
+          echo "Latest Upstream: $UPSTREAM_VER"
+          echo "Matched Run    : ${MATCHED_RUN:-<none>}"
 
-          if [[ "$LAST_SUCCESS_RUN" != *"$UPSTREAM_VER"* ]]; then
+          if [[ -z "$MATCHED_RUN" ]]; then
             echo "New upstream version found ($UPSTREAM_VER). Triggering build-bundle..."
             gh workflow run build-bundle.yaml -f upstream_ver="$UPSTREAM_VER"
           else
-            echo "Already built for $UPSTREAM_VER. Skipping."
+            echo "Already built or running for $UPSTREAM_VER. Skipping."
           fi
