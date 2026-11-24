@@ -13,8 +13,6 @@ import (
 	"mihomo-tray/internal/state"
 )
 
-const hotReloadTimeout = 3 * time.Second
-
 type KernelDeployer struct {
 	cfg    *config.Manager
 	st     *state.RuntimeState
@@ -69,10 +67,7 @@ func (d *KernelDeployer) DeployAndApply(ctx context.Context, targetRelPath, acti
 			return ctx.Err()
 		}
 
-		reloadCtx, cancel := context.WithTimeout(ctx, hotReloadTimeout)
-		reloadErr := d.api.ForceReloadKernel(reloadCtx, string(prep.YAML))
-		cancel()
-
+		reloadErr := d.api.ForceReloadKernel(ctx, string(prep.YAML))
 		if reloadErr == nil {
 			if err := d.commitRuntimeYAML(prep); err != nil {
 				return err
@@ -85,6 +80,7 @@ func (d *KernelDeployer) DeployAndApply(ctx context.Context, targetRelPath, acti
 		if ctx.Err() != nil {
 			if !d.st.IsExiting() {
 				d.reloadAborted.Store(true)
+				slog.Info("配置重载已中断", "action", actionDesc, "path", targetRelPath)
 			}
 			return ctx.Err()
 		}
@@ -94,11 +90,7 @@ func (d *KernelDeployer) DeployAndApply(ctx context.Context, targetRelPath, acti
 			return reloadErr
 		}
 
-		if errors.Is(reloadErr, context.DeadlineExceeded) {
-			slog.Info("热重载等待超时，转为重启内核加载", "action", actionDesc, "path", targetRelPath)
-		} else {
-			slog.Warn("热重载通信异常，回退重启内核", "action", actionDesc, "path", targetRelPath, "err", reloadErr)
-		}
+		slog.Warn("热重载通信异常，回退重启内核", "action", actionDesc, "path", targetRelPath, "err", reloadErr)
 	}
 
 	if ctx.Err() != nil {
@@ -110,6 +102,7 @@ func (d *KernelDeployer) DeployAndApply(ctx context.Context, targetRelPath, acti
 	}
 	
 	d.cfg.SetActiveProfile(targetRelPath)
+	slog.Info("配置已写入，重启内核生效", "action", actionDesc, "path", targetRelPath)
 	d.restartProcess()
 	return nil
 }
