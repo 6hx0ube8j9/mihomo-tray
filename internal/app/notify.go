@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -87,11 +86,6 @@ func (a *Application) reportPanic(action string, r any) {
 	a.showError(action, "程序发生内部异常，详情请查看日志")
 }
 
-func hasCoreLogContext(err error) bool {
-	var apiErr *core.APIError
-	return errors.As(err, &apiErr) || errors.Is(err, context.DeadlineExceeded)
-}
-
 func (a *Application) notifyError(action string, err error) {
 	if err == nil || a.State.IsExiting() || errors.Is(err, context.Canceled) {
 		return
@@ -103,11 +97,7 @@ func (a *Application) notifyError(action string, err error) {
 	}
 
 	if !errors.Is(err, errSystemBusy) {
-		msg := action + "失败"
-		if hasCoreLogContext(err) {
-			msg += "，详细信息请查看 core.log"
-		}
-		slog.Error(msg, "err", err)
+		slog.Error(action+"失败", "err", err)
 	}
 
 	a.showError(action, userFacingMessage(err))
