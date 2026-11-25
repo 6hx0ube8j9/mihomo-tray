@@ -92,7 +92,7 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	})
 
 	app.Presenter = NewPresenter(cm, st, app.Platform, app.UIStateNotifyCh)
-	app.ProfileUpdater = NewProfileUpdater(cm, st, app.ProfileHub, app.Presenter.PushUIState)
+	app.ProfileUpdater = NewProfileUpdater(cm, st, app.ProfileHub, app.Presenter.PushUIState, app.silentReloadActiveProfile)
 	app.Probe = NewKernelProbe(cm, st, api, app.Platform)
 	app.KernelTuner = NewKernelTuner(cm, st, api, app.Platform, app.ForceSyncAPI)
 	app.WebUIService = NewWebUIService(cm, st, app.WebUI)
@@ -106,15 +106,12 @@ func (a *Application) SetUIPort(ui UIPort) {
 
 func (a *Application) Bootstrap(ctx context.Context) {
 	core.CleanupTempCheckFiles(a.Cfg.BaseDir())
+	a.KernelTuner.ReconcilePrivilege()
 
 	if err := a.ProfileHub.EnsureActiveValid(ctx); err != nil {
 		a.FallbackToEmpty(ctx, "活跃配置无效: "+err.Error())
-	}
-
-	a.KernelTuner.ReconcilePrivilege()
-
-	if err := a.KernelDeployer.SyncRuntimeConfig(); err != nil {
-		a.FallbackToEmpty(ctx, "配置语法校验失败: "+err.Error())
+	} else if err := a.KernelDeployer.PrepareBootConfig(ctx); err != nil {
+		a.FallbackToEmpty(ctx, "配置校验失败: "+err.Error())
 	}
 
 	if a.Cfg.GetConfig().Config.Tun.Enable {
@@ -124,7 +121,6 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	a.ProxyGuard.Sync()
 	a.Presenter.PushUIState()
 
-	a.Kernel.SetPreStartHook(func() { _ = a.KernelDeployer.SyncRuntimeConfig() })
 	go a.Kernel.RunDaemon(ctx, a.kernelEventCh)
 	go sys.WatchNetworkInterfaces(ctx, a.tunEventCh)
 	go sys.WatchSystemProxy(ctx, a.proxyStatusCh)
@@ -155,6 +151,7 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 			cancel()
 		}
 
+		a.KernelDeployer.StopValidation()
 		a.Kernel.Close()
 		slog.Info("应用已安全退出")
 	})
@@ -174,13 +171,41 @@ func (a *Application) FallbackToEmpty(ctx context.Context, reason string) {
 	a.State.SetTunAlive(false)
 
 	if a.KernelDeployer.IsKernelRunning() {
-		_ = a.KernelDeployer.DeployAndApply(ctx, "", "回退空配置")
+		_ = a.KernelDeployer.DeployAndApply(ctx, "", "回退空配置", nil)
 	} else {
-		_ = a.KernelDeployer.SyncRuntimeConfig()
+		_ = a.KernelDeployer.WriteMinimalConfig()
 	}
 
 	a.ProxyGuard.Sync()
 	a.Presenter.PushUIState()
+}
+
+func (a *Application) silentReloadActiveProfile(ctx context.Context, targetRelPath string) {
+	if a.State.IsExiting() || ctx.Err() != nil {
+		return
+	}
+
+	if !a.State.TryBeginAction(state.ActionReload) {
+		slog.Info("跳过后台订阅热重载，当前系统繁忙", "path", targetRelPath)
+		return
+	}
+
+	a.Presenter.ForcePushUIState()
+	defer func() {
+		a.State.EndAction()
+		a.Presenter.ForcePushUIState()
+		if r := recover(); r != nil {
+			slog.Error("自动应用订阅更新异常", "path", targetRelPath, "err", r)
+		}
+	}()
+
+	if a.Cfg.GetActivePath() != targetRelPath {
+		return
+	}
+
+	if err := a.applyAndSyncRuntime(ctx, targetRelPath, "自动应用订阅更新"); err != nil {
+		slog.Warn("自动应用订阅更新失败，维持当前运行配置", "path", targetRelPath, "err", err)
+	}
 }
 
 func (a *Application) eventLoop(ctx context.Context) {
@@ -192,6 +217,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 	defer subTicker.Stop()
 
 	lastUserAction := time.Now()
+	bootReady := false
 
 	tryPollAPI := func() {
 		res := a.Probe.PollStatus(ctx)
@@ -265,6 +291,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 		case event := <-a.kernelEventCh:
 			switch event {
 			case domain.EventKernelReady:
+				bootReady = true
 				slog.Info("内核及 API 已就绪")
 				a.State.SetPhase(domain.PhaseRunning)
 				if a.Cfg.GetConfig().Config.Tun.Enable {
@@ -283,6 +310,15 @@ func (a *Application) eventLoop(ctx context.Context) {
 			case domain.EventKernelCrashed:
 				slog.Warn("内核进程异常退出")
 				a.State.SetPhase(domain.PhaseInitializing)
+
+			case domain.EventKernelHalted:
+				a.State.SetPhase(domain.PhaseInitializing)
+				if !bootReady && a.Cfg.GetActivePath() != "" {
+					a.FallbackToEmpty(ctx, "内核首次启动致命失败")
+					a.Kernel.WakeDaemon()
+					continue
+				}
+				slog.Warn("内核守护进程已挂起保护")
 			}
 			a.Presenter.PushUIState()
 
