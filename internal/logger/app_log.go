@@ -22,11 +22,12 @@ const (
 var GlobalLogLevel = new(slog.LevelVar)
 
 type sessionWriter struct {
-	target       io.Writer
+	target       *RollingLogWriter
 	logPath      string
 	isRestarting bool
 	once         sync.Once
 }
+
 func (w *sessionWriter) Write(p []byte) (n int, err error) {
 	w.once.Do(func() {
 		if w.isRestarting {
@@ -41,7 +42,12 @@ func (w *sessionWriter) Write(p []byte) (n int, err error) {
 			_, _ = w.target.Write([]byte(sessionHeader + "\r\n"))
 		}
 	})
-	return w.target.Write(p)
+
+	n, err = w.target.Write(p)
+	if err == nil {
+		_ = w.target.Sync()
+	}
+	return n, err
 }
 
 type customConsoleHandler struct {
