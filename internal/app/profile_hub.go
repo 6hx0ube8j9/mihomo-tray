@@ -53,21 +53,21 @@ func (h *ProfileHub) EnsureActiveValid(ctx context.Context) error {
 		return nil
 	}
 
-	p, ok := h.cfg.GetProfileByPath(activePath)
-	if !ok || p.URL == "" {
-		return valErr
-	}
-
 	if !h.st.TryAcquireProfileLock(activePath) {
 		return ErrProfileUpdating
 	}
 	defer h.st.ReleaseProfileLock(activePath)
 
+	p, ok := h.cfg.GetProfileByPath(activePath)
+	if !ok || p.URL == "" {
+		return valErr
+	}
+
 	slog.Info("活跃配置文件丢失，尝试远程拉取恢复", "path", activePath)
 	fCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	if err := h.fetchAndCommit(fCtx, activePath, p.URL, &p); err != nil {
+	if err := h.fetchAndCommit(fCtx, activePath, p.URL, &p, true); err != nil {
 		return fmt.Errorf("远程拉取恢复失败: %w", err)
 	}
 
@@ -75,35 +75,40 @@ func (h *ProfileHub) EnsureActiveValid(ctx context.Context) error {
 	return nil
 }
 
-func (h *ProfileHub) ImportLocal(sourcePath string) (targetRelPath string, isFirst bool, err error) {
+func (h *ProfileHub) ImportLocal(sourcePath string) (targetRelPath string, err error) {
 	if sourcePath == "" {
-		return "", false, nil
+		return "", nil
 	}
 
 	if err := h.ValidateSource(sourcePath); err != nil {
-		return "", false, err
+		return "", err
 	}
 
 	targetRelPath, _, err = h.cfg.SafeCopyUntrustedConfig(sourcePath)
 	if err != nil {
-		return "", false, err
+		return "", err
 	}
 
 	h.cfg.RegisterNewProfile(targetRelPath)
 	slog.Info("导入本地配置成功", "path", targetRelPath)
-	return targetRelPath, len(h.cfg.GetProfiles()) == 1, nil
+	return targetRelPath, nil
 }
 
-func (h *ProfileHub) AddRemote(ctx context.Context, rawName, url string, interval int) (targetRelPath string, isFirst bool, err error) {
+func (h *ProfileHub) AddRemote(ctx context.Context, rawName, url string, interval int) (targetRelPath string, err error) {
 	cleanURL := strings.TrimSpace(url)
 	if cleanURL == "" {
-		return "", false, errors.New("订阅链接为空")
+		return "", errors.New("订阅链接为空")
 	}
 
 	safeName, targetRelPath, err := h.cfg.AllocateRemoteProfilePath(rawName)
 	if err != nil {
-		return "", false, err
+		return "", err
 	}
+
+	if !h.st.TryAcquireProfileLock(targetRelPath) {
+		return "", ErrProfileUpdating
+	}
+	defer h.st.ReleaseProfileLock(targetRelPath)
 
 	newItem := domain.ProfileItem{
 		Name:       safeName,
@@ -113,12 +118,12 @@ func (h *ProfileHub) AddRemote(ctx context.Context, rawName, url string, interva
 		Interval:   interval,
 	}
 
-	if err := h.fetchAndCommit(ctx, targetRelPath, newItem.URL, &newItem); err != nil {
-		return "", false, err
+	if err := h.fetchAndCommit(ctx, targetRelPath, newItem.URL, &newItem, false); err != nil {
+		return "", err
 	}
 
 	slog.Info("添加远程订阅成功", "path", targetRelPath)
-	return targetRelPath, len(h.cfg.GetProfiles()) == 1, nil
+	return targetRelPath, nil
 }
 
 func (h *ProfileHub) UpdateRemote(ctx context.Context, targetRelPath string) error {
@@ -135,7 +140,7 @@ func (h *ProfileHub) UpdateRemote(ctx context.Context, targetRelPath string) err
 		return errors.New("订阅链接为空")
 	}
 
-	if err := h.fetchAndCommit(ctx, targetRelPath, p.URL, &p); err != nil {
+	if err := h.fetchAndCommit(ctx, targetRelPath, p.URL, &p, true); err != nil {
 		return err
 	}
 
@@ -144,28 +149,33 @@ func (h *ProfileHub) UpdateRemote(ctx context.Context, targetRelPath string) err
 }
 
 func (h *ProfileHub) EditRemote(ctx context.Context, oldPath, newName, newURL string, newInterval int) (urlChanged bool, err error) {
+	cleanURL := strings.TrimSpace(newURL)
+	if cleanURL == "" {
+		return false, errors.New("订阅链接为空")
+	}
+
+	if !h.st.TryAcquireProfileLock(oldPath) {
+		return false, ErrProfileUpdating
+	}
+	defer h.st.ReleaseProfileLock(oldPath)
+
 	p, ok := h.cfg.GetProfileByPath(oldPath)
 	if !ok {
 		return false, config.ErrProfileNotFound
 	}
 
-	if newName == p.Name && newURL == p.URL && newInterval == p.Interval {
+	if newName == p.Name && cleanURL == p.URL && newInterval == p.Interval {
 		return false, nil
 	}
 
-	urlChanged = (newURL != p.URL)
+	urlChanged = (cleanURL != p.URL)
 	p.Name = newName
-	p.URL = newURL
+	p.URL = cleanURL
 	p.Interval = newInterval
 	p.AutoUpdate = newInterval > 0
 
 	if urlChanged {
-		if !h.st.TryAcquireProfileLock(oldPath) {
-			return false, ErrProfileUpdating
-		}
-		defer h.st.ReleaseProfileLock(oldPath)
-
-		if err := h.fetchAndCommit(ctx, p.Path, newURL, &p); err != nil {
+		if err := h.fetchAndCommit(ctx, p.Path, cleanURL, &p, true); err != nil {
 			return false, err
 		}
 		return true, nil
@@ -176,6 +186,14 @@ func (h *ProfileHub) EditRemote(ctx context.Context, oldPath, newName, newURL st
 }
 
 func (h *ProfileHub) Delete(targetPath string) (wasActive bool, err error) {
+	if targetPath == "" {
+		return false, nil
+	}
+	if !h.st.TryAcquireProfileLock(targetPath) {
+		return false, ErrProfileUpdating
+	}
+	defer h.st.ReleaseProfileLock(targetPath)
+
 	wasActive = (targetPath == h.cfg.GetActivePath())
 	err = h.cfg.DeleteProfile(targetPath)
 	return wasActive, err
@@ -203,7 +221,7 @@ func (h *ProfileHub) ValidateSource(sourcePath string) error {
 	return h.validateBytes(content)
 }
 
-func (h *ProfileHub) fetchAndCommit(ctx context.Context, targetRelPath, url string, item *domain.ProfileItem) error {
+func (h *ProfileHub) fetchAndCommit(ctx context.Context, targetRelPath, url string, item *domain.ProfileItem, requireExists bool) error {
 	res, err := h.cfg.FetchRemoteProfile(ctx, url, h.getActiveProxyPort())
 	if err != nil {
 		return err
@@ -225,7 +243,7 @@ func (h *ProfileHub) fetchAndCommit(ctx context.Context, targetRelPath, url stri
 	item.Expire = res.Expire
 	item.LastUpdate = time.Now().Unix()
 
-	return h.cfg.CommitRemoteProfile(res.TempPath, targetRelPath, *item)
+	return h.cfg.CommitRemoteProfile(res.TempPath, targetRelPath, *item, requireExists)
 }
 
 func (h *ProfileHub) validateBytes(content []byte) error {
@@ -236,6 +254,5 @@ func (h *ProfileHub) validateBytes(content []byte) error {
 		return errProfileTooLarge
 	}
 
-	_, err := core.ValidateRuntimeYAML(h.cfg.GetConfig(), content, h.cfg.BaseDir())
-	return err
+	return core.ValidateProfileStatic(content)
 }
