@@ -52,7 +52,6 @@ func (p *Presenter) calculateUIStateLocked() domain.UIState {
 
 	activePath := cfg.Profiles.Active
 	profiles := cfg.Profiles.Items
-	s.CanAddProfile = len(profiles) < domain.MaxProfileCount
 
 	s.ProfileItems = make([]domain.UIProfileItem, 0, len(profiles))
 	for _, prof := range profiles {
@@ -157,7 +156,7 @@ func (p *Presenter) hasStateChanged(curr, last *domain.UIState) bool {
 		curr.AutoStart != last.AutoStart || curr.RunAsAdmin != last.RunAsAdmin ||
 		curr.WebOpenMode != last.WebOpenMode ||
 		curr.RemoteWebUI != last.RemoteWebUI ||
-		curr.IsAdmin != last.IsAdmin || curr.CanAddProfile != last.CanAddProfile ||
+		curr.IsAdmin != last.IsAdmin ||
 		curr.SystemTheme != last.SystemTheme ||
 		curr.MixedPort != last.MixedPort || curr.SocksPort != last.SocksPort ||
 		curr.HttpPort != last.HttpPort {
