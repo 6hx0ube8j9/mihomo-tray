@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/state"
 )
 
 // ============================================================================
@@ -17,7 +18,7 @@ func (a *Application) handleOpenWebUI(_ context.Context, cmd domain.UICommand) {
 	})
 }
 
-func (a *Application) handleRequestEditController(_ context.Context, _ domain.UICommand) {
+func (a *Application) handleRequestEditController(ctx context.Context, _ domain.UICommand) {
 	go func() {
 		if a.ui == nil {
 			return
@@ -29,7 +30,7 @@ func (a *Application) handleRequestEditController(_ context.Context, _ domain.UI
 			return
 		}
 
-		a.runExclusiveAction("面板设置", func() error {
+		a.runExclusiveAction(state.ActionRestart, "面板设置", func() error {
 			coreChanged := (cur.Addr != next.Addr) || (cur.Secret != next.Secret)
 			appChanged := (cur.RemoteWebUI != next.RemoteWebUI) ||
 				(cur.RemoteWebUIURL != next.RemoteWebUIURL) ||
@@ -62,7 +63,7 @@ func (a *Application) handleRequestEditController(_ context.Context, _ domain.UI
 			})
 
 			if coreChanged {
-				if err := a.KernelDeployer.RestartKernel(); err != nil {
+				if err := a.KernelDeployer.RestartKernel(ctx); err != nil {
 					return err
 				}
 			}
