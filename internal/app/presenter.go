@@ -1,6 +1,7 @@
 package app
 
 import (
+	"slices"
 	"sync"
 
 	"mihomo-tray/internal/config"
@@ -26,12 +27,6 @@ func NewPresenter(cfg *config.Manager, st *state.RuntimeState, platform *Platfor
 		notifyCh:    notifyCh,
 		lastUIState: domain.UIState{IconState: domain.IconStop},
 	}
-}
-
-func (p *Presenter) CalculateUIState() domain.UIState {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.calculateUIStateLocked()
 }
 
 func (p *Presenter) calculateUIStateLocked() domain.UIState {
@@ -108,7 +103,7 @@ func (p *Presenter) calculateUIStateLocked() domain.UIState {
 }
 
 func (p *Presenter) PushUIState() {
-	if p.st.IsExiting() {
+	if p.st.IsExiting() || p.st.IsActionBusy() {
 		return
 	}
 
@@ -165,19 +160,9 @@ func (p *Presenter) hasStateChanged(curr, last *domain.UIState) bool {
 		curr.IsAdmin != last.IsAdmin || curr.CanAddProfile != last.CanAddProfile ||
 		curr.SystemTheme != last.SystemTheme ||
 		curr.MixedPort != last.MixedPort || curr.SocksPort != last.SocksPort ||
-		curr.HttpPort != last.HttpPort || len(curr.ProfileItems) != len(last.ProfileItems) {
+		curr.HttpPort != last.HttpPort {
 		return true
 	}
 
-	for i := range curr.ProfileItems {
-		if curr.ProfileItems[i].Name != last.ProfileItems[i].Name ||
-			curr.ProfileItems[i].Path != last.ProfileItems[i].Path ||
-			curr.ProfileItems[i].IsActive != last.ProfileItems[i].IsActive ||
-			curr.ProfileItems[i].IsRemote != last.ProfileItems[i].IsRemote ||
-			curr.ProfileItems[i].Interval != last.ProfileItems[i].Interval ||
-			curr.ProfileItems[i].LastUpdate != last.ProfileItems[i].LastUpdate {
-			return true
-		}
-	}
-	return false
+	return !slices.Equal(curr.ProfileItems, last.ProfileItems)
 }
