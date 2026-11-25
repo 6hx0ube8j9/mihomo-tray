@@ -7,6 +7,7 @@ const (
 	KernelExeName       = "mihomo.exe"
 	RuntimeConfigName   = "config.yaml"
 	TrayConfigName      = "mihomo-tray.json"
+	TestConfigFileName  = "config.test.tmp"
 	ProfilesDir         = "profiles"
 	WebCacheDir         = "webcache"
 	WebViewCacheDirName = "webview2"
@@ -89,6 +90,7 @@ const (
 	EventKernelReady KernelEvent = iota
 	EventKernelStopped
 	EventKernelCrashed
+	EventKernelHalted
 )
 
 // ================= 默认配置策略 =================
@@ -110,6 +112,14 @@ const (
 	DefaultTunEnable           = false
 	DefaultTunDevice           = "Meta"
 
+	// Geo 数据库更新策略默认值
+	DefaultGeoAutoUpdate     = false
+	DefaultGeoUpdateInterval = 168
+	DefaultGeoXURLMMDB       = "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.metadb"
+	DefaultGeoXURLASN        = "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb"
+	DefaultGeoXURLGeoIP      = "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat"
+	DefaultGeoXURLGeoSite    = "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"
+
 	// 控制平面默认值
 	DefaultExternalController = "127.0.0.1:9090"
 	DefaultSecretLength       = 20
@@ -117,14 +127,6 @@ const (
 	DefaultExternalUIURL      = "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip"
 	DefaultExternalUIName     = "default"
 
-    // Geo 数据库更新策略默认值
-	DefaultGeoAutoUpdate     = false
-	DefaultGeoUpdateInterval = 168
-	DefaultGeoXURLMMDB       = "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.metadb"
-	DefaultGeoXURLASN        = "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb"
-	DefaultGeoXURLGeoIP      = "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat"
-	DefaultGeoXURLGeoSite    = "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"
-	
 	// 托盘偏好默认值
 	DefaultAutostart            = false
 	DefaultSystemProxy          = false
