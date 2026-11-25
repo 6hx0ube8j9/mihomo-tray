@@ -85,7 +85,7 @@ func (g *ProxyGuard) syncInternal() bool {
 	wantEnable := cfg.IsSystemProxyEnabled()
 	portStr, hasPort := cfg.EffectiveSystemProxyPortStr()
 
-	if !wantEnable {
+	if !wantEnable || g.st.GetPhase() != domain.PhaseRunning {
 		g.cleanupRegistryProxyLocked(portStr)
 		g.mu.Unlock()
 		return false
@@ -161,7 +161,7 @@ func (g *ProxyGuard) SafeShutdownCleanup() {
 }
 
 func (g *ProxyGuard) HandleStatusChange(ctx context.Context, status sys.ProxyStatus) {
-	if g.st.IsExiting() {
+	if g.st.IsExiting() || g.st.GetPhase() != domain.PhaseRunning {
 		return
 	}
 	cfg := g.cfg.GetConfig()
@@ -216,7 +216,7 @@ func (g *ProxyGuard) reconcileDisconnection(ctx context.Context, expectedServer 
 		case <-timer.C:
 		}
 
-		if g.st.IsExiting() || !g.cfg.GetConfig().IsSystemProxyEnabled() {
+		if g.st.IsExiting() || g.st.GetPhase() != domain.PhaseRunning || !g.cfg.GetConfig().IsSystemProxyEnabled() {
 			return
 		}
 
