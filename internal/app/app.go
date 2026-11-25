@@ -109,8 +109,10 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	a.KernelTuner.ReconcilePrivilege()
 
 	if err := a.ProfileHub.EnsureActiveValid(ctx); err != nil {
+		slog.Error("启动活跃配置失效，已回退至空配置", "err", err)
 		a.FallbackToEmpty(ctx, "活跃配置无效: "+err.Error())
 	} else if err := a.KernelDeployer.PrepareBootConfig(ctx); err != nil {
+		slog.Error("启动配置校验失败，已回退至空配置", "err", err)
 		a.FallbackToEmpty(ctx, "配置校验失败: "+err.Error())
 	}
 
@@ -217,7 +219,6 @@ func (a *Application) eventLoop(ctx context.Context) {
 	defer subTicker.Stop()
 
 	lastUserAction := time.Now()
-	bootReady := false
 
 	tryPollAPI := func() {
 		res := a.Probe.PollStatus(ctx)
@@ -291,7 +292,6 @@ func (a *Application) eventLoop(ctx context.Context) {
 		case event := <-a.kernelEventCh:
 			switch event {
 			case domain.EventKernelReady:
-				bootReady = true
 				slog.Info("内核及 API 已就绪")
 				a.State.SetPhase(domain.PhaseRunning)
 				if a.Cfg.GetConfig().Config.Tun.Enable {
@@ -306,19 +306,17 @@ func (a *Application) eventLoop(ctx context.Context) {
 			case domain.EventKernelStopped:
 				slog.Info("内核已停止，等待重启")
 				a.State.SetPhase(domain.PhaseInitializing)
+				a.ProxyGuard.Sync()
 
 			case domain.EventKernelCrashed:
 				slog.Warn("内核进程异常退出")
 				a.State.SetPhase(domain.PhaseInitializing)
+				a.ProxyGuard.Sync()
 
 			case domain.EventKernelHalted:
-				a.State.SetPhase(domain.PhaseInitializing)
-				if !bootReady && a.Cfg.GetActivePath() != "" {
-					a.FallbackToEmpty(ctx, "内核首次启动致命失败")
-					a.Kernel.WakeDaemon()
-					continue
-				}
 				slog.Warn("内核守护进程已挂起保护")
+				a.State.SetPhase(domain.PhaseInitializing)
+				a.ProxyGuard.Sync()
 			}
 			a.Presenter.PushUIState()
 
