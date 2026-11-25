@@ -41,6 +41,8 @@ type Tray struct {
 	actWebModeWebView *walk.Action
 	actRemoteWebUI    *walk.Action
 	actAllowLan       *walk.Action
+	actReload         *walk.Action
+	actRestart        *walk.Action
 }
 
 func NewTray(e *Engine) *Tray {
@@ -97,6 +99,9 @@ func (t *Tray) UpdateState(state domain.UIState) {
 	safelySetChecked(t.actRemoteWebUI, state.RemoteWebUI)
 	safelySetChecked(t.actAllowLan, state.AllowLan)
 
+	safelySetEnabled(t.actReload, !state.IsBusy)
+	safelySetEnabled(t.actRestart, !state.IsBusy)
+
 	safelySetText(t.actModeMenu, fmt.Sprintf("路由模式: %s", getModeName(state.Mode)))
 	adminText := "运行权限: 普通用户"
 	if state.IsAdmin {
@@ -112,7 +117,11 @@ func (t *Tray) UpdateState(state domain.UIState) {
 		actions := t.menuSwitchProfile.Actions()
 		for i, item := range state.ProfileItems {
 			if i < actions.Len() {
-				safelySetChecked(actions.At(i), item.IsActive)
+				act := actions.At(i)
+				safelySetEnabled(act, !state.IsBusy)
+				if !state.IsBusy {
+					safelySetChecked(act, item.IsActive)
+				}
 			}
 		}
 	}
@@ -197,10 +206,10 @@ func (t *Tray) buildMenuSkeleton() {
 		t.toggle(domain.ActionToggleAllowLan, !t.latestState.AllowLan)
 	})
 	t.addSeparatorTo(moreMenu)
-	t.addActionTo(moreMenu, "重载当前配置", func() {
+	t.actReload = t.addActionTo(moreMenu, "重载当前配置", func() {
 		t.engine.SendCommand(domain.ActionReloadConfig, "")
 	})
-	t.addActionTo(moreMenu, "重启内核", func() {
+	t.actRestart = t.addActionTo(moreMenu, "重启内核", func() {
 		t.engine.SendCommand(domain.ActionRestartKernel, "")
 	})
 
@@ -234,9 +243,10 @@ func (t *Tray) rebuildProfilesMenu(state domain.UIState) {
 		if item.IsRemote {
 			suffix = " (订阅)"
 		}
-		t.addRadioSubAction(t.menuSwitchProfile, item.Name+suffix, item.IsActive, func() {
+		act := t.addRadioSubAction(t.menuSwitchProfile, item.Name+suffix, item.IsActive, func() {
 			t.engine.SendCommand(domain.ActionSwitchProfile, targetPath)
 		})
+		safelySetEnabled(act, !state.IsBusy)
 	}
 }
 
@@ -289,7 +299,7 @@ func (t *Tray) Dispose() {
 	if t.iconCtrl != nil {
 		t.iconCtrl.Dispose()
 		t.iconCtrl = nil
-	}	
+	}
 }
 
 func (t *Tray) toggle(action string, nextVal bool) {
