@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"sync/atomic"
 	"time"
 
 	"mihomo-tray/internal/config"
@@ -14,20 +13,20 @@ import (
 )
 
 type KernelDeployer struct {
-	cfg    *config.Manager
-	st     *state.RuntimeState
-	kernel *core.KernelManager
-	api    *core.APIClient
-
-	reloadAborted atomic.Bool
+	cfg       *config.Manager
+	st        *state.RuntimeState
+	kernel    *core.KernelManager
+	api       *core.APIClient
+	validator *core.Validator
 }
 
 func NewKernelDeployer(cfg *config.Manager, st *state.RuntimeState, kernel *core.KernelManager, api *core.APIClient) *KernelDeployer {
 	return &KernelDeployer{
-		cfg:    cfg,
-		st:     st,
-		kernel: kernel,
-		api:    api,
+		cfg:       cfg,
+		st:        st,
+		kernel:    kernel,
+		api:       api,
+		validator: core.NewValidator(),
 	}
 }
 
@@ -35,87 +34,131 @@ func (d *KernelDeployer) IsKernelRunning() bool {
 	return d.st.GetPhase() == domain.PhaseRunning && !d.kernel.IsPaused()
 }
 
-func (d *KernelDeployer) HasAbortedReload() bool {
-	return d.reloadAborted.Load()
+func (d *KernelDeployer) StopValidation() {
+	d.validator.Stop()
 }
 
-func (d *KernelDeployer) ReloadConfig(ctx context.Context) error {
-	if !d.IsKernelRunning() {
-		return errKernelNotReady
-	}
-	return d.DeployAndApply(ctx, d.cfg.GetActivePath(), "重载配置")
-}
-
-func (d *KernelDeployer) RestartKernel() error {
-	slog.Info("正在重启内核")
-	d.reloadAborted.Store(false)
-	if err := d.SyncRuntimeConfig(); err != nil {
-		return err
-	}
-	d.restartProcess()
-	return nil
-}
-
-func (d *KernelDeployer) DeployAndApply(ctx context.Context, targetRelPath, actionDesc string) error {
-	prep, err := d.prepareYAML(targetRelPath)
+func (d *KernelDeployer) PrepareBootConfig(ctx context.Context) error {
+	activePath := d.cfg.GetActivePath()
+	prep, err := d.prepareYAML(activePath)
 	if err != nil {
 		return err
 	}
 
-	if d.IsKernelRunning() && !d.reloadAborted.Swap(false) {
-		if ctx.Err() != nil {
-			return ctx.Err()
+	if activePath != "" {
+		if err := d.validatePrepared(ctx, prep); err != nil {
+			return err
 		}
-
-		reloadErr := d.api.ForceReloadKernel(ctx, string(prep.YAML))
-		if reloadErr == nil {
-			if err := d.commitRuntimeYAML(prep); err != nil {
-				return err
-			}
-			d.cfg.SetActiveProfile(targetRelPath)
-			slog.Info("配置应用成功", "action", actionDesc, "path", targetRelPath)
-			return nil
-		}
-
-		if ctx.Err() != nil {
-			if !d.st.IsExiting() {
-				d.reloadAborted.Store(true)
-				slog.Info("配置重载已中断", "action", actionDesc, "path", targetRelPath)
-			}
-			return ctx.Err()
-		}
-
-		var apiErr *core.APIError
-		if errors.As(reloadErr, &apiErr) {
-			return reloadErr
-		}
-
-		slog.Warn("热重载通信异常，回退重启内核", "action", actionDesc, "path", targetRelPath, "err", reloadErr)
+		d.validator.Stop()
 	}
 
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-
-	if err := d.commitRuntimeYAML(prep); err != nil {
-		return err
-	}
-	
-	d.cfg.SetActiveProfile(targetRelPath)
-	slog.Info("配置已写入，重启内核生效", "action", actionDesc, "path", targetRelPath)
-	d.restartProcess()
-	return nil
+	return d.commitRuntimeYAML(prep)
 }
 
-func (d *KernelDeployer) SyncRuntimeConfig() error {
-	prep, err := d.prepareYAML(d.cfg.GetActivePath())
+func (d *KernelDeployer) WriteMinimalConfig() error {
+	d.validator.Stop()
+	prep, err := d.prepareYAML("")
 	if err != nil {
 		return err
 	}
 	return d.commitRuntimeYAML(prep)
 }
 
+func (d *KernelDeployer) ReloadConfig(ctx context.Context) error {
+	if !d.IsKernelRunning() {
+		return errKernelNotReady
+	}
+
+	activePath := d.cfg.GetActivePath()
+	prep, err := d.prepareYAML(activePath)
+	if err != nil {
+		return err
+	}
+
+	d.validator.Stop()
+	if err := d.api.ForceReloadKernel(ctx, string(prep.YAML)); err != nil {
+		return err
+	}
+
+	d.validator.MarkValid(prep.YAML)
+	if err := d.commitRuntimeYAML(prep); err != nil {
+		return err
+	}
+
+	slog.Info("重载配置成功", "path", activePath)
+	return nil
+}
+
+func (d *KernelDeployer) RestartKernel(ctx context.Context) error {
+	slog.Info("正在重启内核")
+	activePath := d.cfg.GetActivePath()
+	prep, err := d.prepareYAML(activePath)
+	if err != nil {
+		return err
+	}
+
+	if activePath != "" {
+		if err := d.validatePrepared(ctx, prep); err != nil {
+			return err
+		}
+	}
+
+	if err := d.commitRuntimeYAML(prep); err != nil {
+		return err
+	}
+	d.restartProcess()
+	return nil
+}
+
+func (d *KernelDeployer) DeployAndApply(ctx context.Context, targetRelPath, actionDesc string, onCommitted func()) error {
+	prep, err := d.prepareYAML(targetRelPath)
+	if err != nil {
+		return err
+	}
+
+	if d.IsKernelRunning() {
+		d.validator.Stop()
+		reloadErr := d.api.ForceReloadKernel(ctx, string(prep.YAML))
+		if reloadErr == nil {
+			d.validator.MarkValid(prep.YAML)
+			if err := d.commitRuntimeYAML(prep); err != nil {
+				return err
+			}
+			if onCommitted != nil {
+				onCommitted()
+			}
+			slog.Info("配置应用成功", "action", actionDesc, "path", targetRelPath)
+			return nil
+		}
+
+		var apiErr *core.APIError
+		if errors.As(reloadErr, &apiErr) || errors.Is(reloadErr, context.Canceled) || ctx.Err() != nil {
+			return reloadErr
+		}
+
+		slog.Warn("热重载通信异常，校验后回退重启内核", "action", actionDesc, "path", targetRelPath, "err", reloadErr)
+	}
+
+	if targetRelPath != "" {
+		if err := d.validatePrepared(ctx, prep); err != nil {
+			return err
+		}
+	}
+
+	if err := d.commitRuntimeYAML(prep); err != nil {
+		return err
+	}
+	if onCommitted != nil {
+		onCommitted()
+	}
+	d.restartProcess()
+	slog.Info("配置应用成功", "action", actionDesc, "path", targetRelPath)
+	return nil
+}
+
 func (d *KernelDeployer) restartProcess() {
+	d.validator.Stop()
+
 	cfg := d.cfg.GetConfig()
 	if cfg.Config.Tun.Enable {
 		d.st.SetTunRequestedTime(time.Now())
@@ -131,6 +174,10 @@ func (d *KernelDeployer) prepareYAML(targetRelPath string) (*core.ComposeResult,
 		}
 	}
 	return core.PrepareRuntimeYAML(d.cfg.GetConfig(), targetRelPath, d.cfg.BaseDir())
+}
+
+func (d *KernelDeployer) validatePrepared(ctx context.Context, prep *core.ComposeResult) error {
+	return d.validator.Validate(ctx, core.GetKernelPath(d.cfg.BaseDir()), d.cfg.BaseDir(), prep.YAML)
 }
 
 func (d *KernelDeployer) commitRuntimeYAML(prep *core.ComposeResult) error {
