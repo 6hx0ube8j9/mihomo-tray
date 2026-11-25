@@ -82,6 +82,9 @@ func (v *ProfileView) Declarative() []Widget {
 					Model:                 v.model,
 					OnCurrentIndexChanged: v.updateActionState,
 					OnItemActivated: func() {
+						if v.isBusy {
+							return
+						}
 						sendWithSelected(domain.ActionSwitchProfile)
 					},
 					ContextMenuItems: []MenuItem{
@@ -207,14 +210,12 @@ func (v *ProfileView) updateActionState() {
 
 	var canSwitch, canUpdate, canMoveUp, canMoveDown bool
 
-	if hasSelection {
+	if hasSelection && !v.isBusy {
 		item := v.model.Items[idx]
-		canSwitch = !item.IsActive || v.isBusy
-		if !v.isBusy {
-			canUpdate = item.IsRemote
-			canMoveUp = idx > 0
-			canMoveDown = idx < len(v.model.Items)-1
-		}
+		canSwitch = !item.IsActive
+		canUpdate = item.IsRemote
+		canMoveUp = idx > 0
+		canMoveDown = idx < len(v.model.Items)-1
 	}
 
 	safelySetEnabled(v.actionSwitch, canSwitch)
