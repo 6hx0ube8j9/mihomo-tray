@@ -81,7 +81,6 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	})
 
 	app.KernelDeployer = NewKernelDeployer(cm, st, kernel, api)
-
 	app.Platform = NewPlatform(cm.ExePath(), cm.BaseDir())
 
 	app.ProfileHub = NewProfileHub(cm, func() string {
@@ -110,11 +109,11 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	a.KernelTuner.ReconcilePrivilege()
 
 	if err := a.ProfileHub.EnsureActiveValid(ctx); err != nil {
-		slog.Error("启动活跃配置失效，已回退至空配置", "err", err)
-		a.FallbackToEmpty(ctx, "活跃配置无效: "+err.Error())
+		slog.Error("启动配置失效，已回退空配置", "err", err)
+		a.FallbackToEmpty(ctx, "活跃配置失效")
 	} else if err := a.KernelDeployer.PrepareBootConfig(); err != nil {
-		slog.Error("启动配置解析失败，已回退至空配置", "err", err)
-		a.FallbackToEmpty(ctx, "配置解析失败: "+err.Error())
+		slog.Error("启动配置解析失败，已回退空配置", "err", err)
+		a.FallbackToEmpty(ctx, "配置解析失败")
 	}
 
 	if a.Cfg.GetConfig().Config.Tun.Enable {
@@ -132,7 +131,7 @@ func (a *Application) Bootstrap(ctx context.Context) {
 }
 
 func (a *Application) ExitForRestart() {
-	slog.Info("准备交接至管理员实例，执行平滑退出")
+	slog.Info("提权交接，退出当前实例")
 	a.State.ForceExitPhase()
 
 	if a.ui == nil {
@@ -156,12 +155,12 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 
 		a.KernelDeployer.StopValidation()
 		a.Kernel.Close()
-		slog.Info("应用已安全退出")
+		slog.Info("应用已退出")
 	})
 }
 
 func (a *Application) FallbackToEmpty(ctx context.Context, reason string) {
-	slog.Warn("配置失效，系统安全回退至空配置", "reason", reason)
+	slog.Info("已回退空配置", "reason", reason)
 
 	a.Cfg.Update(func(c *domain.TrayConfig) {
 		c.Profiles.Active = ""
@@ -189,7 +188,7 @@ func (a *Application) silentReloadActiveProfile(ctx context.Context, targetRelPa
 	}
 
 	if !a.State.TryBeginAction(state.ActionReload) {
-		slog.Info("跳过后台订阅热重载，当前系统繁忙", "path", targetRelPath)
+		slog.Info("跳过后台重载，系统繁忙", "path", targetRelPath)
 		return
 	}
 
@@ -198,7 +197,7 @@ func (a *Application) silentReloadActiveProfile(ctx context.Context, targetRelPa
 		a.State.EndAction()
 		a.Presenter.ForcePushUIState()
 		if r := recover(); r != nil {
-			slog.Error("自动应用订阅更新异常", "path", targetRelPath, "err", r)
+			slog.Error("后台重载异常", "path", targetRelPath, "err", r)
 		}
 	}()
 
@@ -208,13 +207,13 @@ func (a *Application) silentReloadActiveProfile(ctx context.Context, targetRelPa
 
 	if err := a.KernelDeployer.ReloadConfig(ctx); err != nil {
 		if errors.Is(err, errKernelNotReady) {
-			slog.Info("内核未就绪，跳过后台订阅热重载", "path", targetRelPath)
+			slog.Info("内核未就绪，跳过后台重载", "path", targetRelPath)
 			return
 		}
 		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
 			return
 		}
-		slog.Error("自动应用订阅更新失败，维持当前运行配置", "path", targetRelPath, "err", err)
+		slog.Error("后台重载失败", "path", targetRelPath, "err", err)
 		return
 	}
 
@@ -236,7 +235,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 		res := a.Probe.PollStatus(ctx)
 
 		if res.TunRollback {
-			slog.Warn("执行 TUN 模式安全回滚", "reason", res.RollbackReason)
+			slog.Error("TUN 已回滚关闭", "reason", res.RollbackReason)
 			a.Cfg.Update(func(c *domain.TrayConfig) {
 				c.Config.Tun.Enable = false
 			})
@@ -287,7 +286,6 @@ func (a *Application) eventLoop(ctx context.Context) {
 
 	for {
 		select {
-
 		case isDark := <-a.themeEventCh:
 			a.State.SetSystemTheme(domain.ThemeFromBool(isDark))
 			a.Presenter.PushUIState()
@@ -304,7 +302,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 		case event := <-a.kernelEventCh:
 			switch event {
 			case domain.EventKernelReady:
-				slog.Info("内核及 API 已就绪")
+				slog.Info("内核已就绪")
 				a.State.SetPhase(domain.PhaseRunning)
 				if a.Cfg.GetConfig().Config.Tun.Enable {
 					a.State.SetTunRequestedTime(time.Now())
@@ -316,17 +314,17 @@ func (a *Application) eventLoop(ctx context.Context) {
 				continue
 
 			case domain.EventKernelStopped:
-				slog.Info("内核已停止，等待重启")
+				slog.Info("内核已停止")
 				a.State.SetPhase(domain.PhaseInitializing)
 				a.ProxyGuard.Sync()
 
 			case domain.EventKernelCrashed:
-				slog.Warn("内核进程异常退出")
+				slog.Warn("内核异常退出")
 				a.State.SetPhase(domain.PhaseInitializing)
 				a.ProxyGuard.Sync()
 
 			case domain.EventKernelHalted:
-				slog.Warn("内核守护进程已挂起保护")
+				slog.Warn("内核已暂停")
 				a.State.SetPhase(domain.PhaseInitializing)
 				a.ProxyGuard.Sync()
 			}
