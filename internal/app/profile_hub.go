@@ -8,12 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/domain"
-	"mihomo-tray/internal/state"
 )
 
 var (
@@ -23,16 +23,24 @@ var (
 
 type ProfileHub struct {
 	cfg       *config.Manager
-	st        *state.RuntimeState
 	proxyPort func() string
+	locks     sync.Map
 }
 
-func NewProfileHub(cfg *config.Manager, st *state.RuntimeState, proxyPort func() string) *ProfileHub {
+func NewProfileHub(cfg *config.Manager, proxyPort func() string) *ProfileHub {
 	return &ProfileHub{
 		cfg:       cfg,
-		st:        st,
 		proxyPort: proxyPort,
 	}
+}
+
+func (h *ProfileHub) tryAcquireLock(path string) bool {
+	_, loaded := h.locks.LoadOrStore(path, struct{}{})
+	return !loaded
+}
+
+func (h *ProfileHub) releaseLock(path string) {
+	h.locks.Delete(path)
 }
 
 func (h *ProfileHub) getActiveProxyPort() string {
@@ -53,10 +61,10 @@ func (h *ProfileHub) EnsureActiveValid(ctx context.Context) error {
 		return nil
 	}
 
-	if !h.st.TryAcquireProfileLock(activePath) {
+	if !h.tryAcquireLock(activePath) {
 		return ErrProfileUpdating
 	}
-	defer h.st.ReleaseProfileLock(activePath)
+	defer h.releaseLock(activePath)
 
 	p, ok := h.cfg.GetProfileByPath(activePath)
 	if !ok || p.URL == "" {
@@ -105,10 +113,10 @@ func (h *ProfileHub) AddRemote(ctx context.Context, rawName, url string, interva
 		return "", err
 	}
 
-	if !h.st.TryAcquireProfileLock(targetRelPath) {
+	if !h.tryAcquireLock(targetRelPath) {
 		return "", ErrProfileUpdating
 	}
-	defer h.st.ReleaseProfileLock(targetRelPath)
+	defer h.releaseLock(targetRelPath)
 
 	newItem := domain.ProfileItem{
 		Name:       safeName,
@@ -127,10 +135,10 @@ func (h *ProfileHub) AddRemote(ctx context.Context, rawName, url string, interva
 }
 
 func (h *ProfileHub) UpdateRemote(ctx context.Context, targetRelPath string) error {
-	if !h.st.TryAcquireProfileLock(targetRelPath) {
+	if !h.tryAcquireLock(targetRelPath) {
 		return ErrProfileUpdating
 	}
-	defer h.st.ReleaseProfileLock(targetRelPath)
+	defer h.releaseLock(targetRelPath)
 
 	p, ok := h.cfg.GetProfileByPath(targetRelPath)
 	if !ok {
@@ -154,10 +162,10 @@ func (h *ProfileHub) EditRemote(ctx context.Context, oldPath, newName, newURL st
 		return false, errors.New("订阅链接为空")
 	}
 
-	if !h.st.TryAcquireProfileLock(oldPath) {
+	if !h.tryAcquireLock(oldPath) {
 		return false, ErrProfileUpdating
 	}
-	defer h.st.ReleaseProfileLock(oldPath)
+	defer h.releaseLock(oldPath)
 
 	p, ok := h.cfg.GetProfileByPath(oldPath)
 	if !ok {
@@ -189,10 +197,10 @@ func (h *ProfileHub) Delete(targetPath string) (wasActive bool, err error) {
 	if targetPath == "" {
 		return false, nil
 	}
-	if !h.st.TryAcquireProfileLock(targetPath) {
+	if !h.tryAcquireLock(targetPath) {
 		return false, ErrProfileUpdating
 	}
-	defer h.st.ReleaseProfileLock(targetPath)
+	defer h.releaseLock(targetPath)
 
 	wasActive = (targetPath == h.cfg.GetActivePath())
 	err = h.cfg.DeleteProfile(targetPath)
