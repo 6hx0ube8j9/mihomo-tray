@@ -111,9 +111,9 @@ func (a *Application) Bootstrap(ctx context.Context) {
 	if err := a.ProfileHub.EnsureActiveValid(ctx); err != nil {
 		slog.Error("启动活跃配置失效，已回退至空配置", "err", err)
 		a.FallbackToEmpty(ctx, "活跃配置无效: "+err.Error())
-	} else if err := a.KernelDeployer.PrepareBootConfig(ctx); err != nil {
-		slog.Error("启动配置校验失败，已回退至空配置", "err", err)
-		a.FallbackToEmpty(ctx, "配置校验失败: "+err.Error())
+	} else if err := a.KernelDeployer.PrepareBootConfig(); err != nil {
+		slog.Error("启动配置解析失败，已回退至空配置", "err", err)
+		a.FallbackToEmpty(ctx, "配置解析失败: "+err.Error())
 	}
 
 	if a.Cfg.GetConfig().Config.Tun.Enable {
