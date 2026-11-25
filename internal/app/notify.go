@@ -87,15 +87,13 @@ func (a *Application) reportPanic(action string, r any) {
 }
 
 func (a *Application) notifyError(action string, err error) {
-	if err == nil {
+	if err == nil || a.State.IsExiting() || errors.Is(err, context.Canceled) {
 		return
 	}
 
-	if !errors.Is(err, errKernelNotReady) &&
-		!errors.Is(err, errSystemBusy) &&
-		!errors.Is(err, errInvalidPort) &&
-		!errors.Is(err, ErrProfileUpdating) {
-		slog.Error(action+"失败", "err", err)
+	if errors.Is(err, errKernelNotReady) {
+		a.showError("操作失败", errKernelNotReady.Error())
+		return
 	}
 
 	a.showError(action, userFacingMessage(err))
