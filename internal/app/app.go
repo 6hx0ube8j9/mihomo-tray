@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"sync"
@@ -205,9 +206,20 @@ func (a *Application) silentReloadActiveProfile(ctx context.Context, targetRelPa
 		return
 	}
 
-	if err := a.applyAndSyncRuntime(ctx, targetRelPath, "自动应用订阅更新"); err != nil {
-		slog.Warn("自动应用订阅更新失败，维持当前运行配置", "path", targetRelPath, "err", err)
+	if err := a.KernelDeployer.ReloadConfig(ctx); err != nil {
+		if errors.Is(err, errKernelNotReady) {
+			slog.Info("内核未就绪，跳过后台订阅热重载", "path", targetRelPath)
+			return
+		}
+		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+			return
+		}
+		slog.Error("自动应用订阅更新失败，维持当前运行配置", "path", targetRelPath, "err", err)
+		return
 	}
+
+	a.ProxyGuard.Sync()
+	a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
 }
 
 func (a *Application) eventLoop(ctx context.Context) {
