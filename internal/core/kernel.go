@@ -35,6 +35,7 @@ type sessionResult struct {
 	runDuration  time.Duration
 	wasReady     bool
 	isCrash      bool
+	startErr     error
 	crashLog     string
 	isAppExiting bool
 }
@@ -169,14 +170,11 @@ func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.K
 	startTime := time.Now()
 
 	if err := km.runner.Start(absBaseDir, target, args, errBuf); err != nil {
-		exiting := ctx.Err() != nil || km.isExiting()
-		if !exiting {
-			slog.Error("启动内核进程失败", "err", err)
-		}
 		return sessionResult{
 			runDuration:  0,
 			isCrash:      true,
-			isAppExiting: exiting,
+			startErr:     err,
+			isAppExiting: ctx.Err() != nil || km.isExiting(),
 		}
 	}
 	if km.api != nil {
@@ -196,7 +194,13 @@ func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.K
 		case eventCh <- domain.EventKernelReady:
 		}
 	case context.DeadlineExceeded:
-		slog.Error("内核 API 就绪超时")
+		timeoutLog := strings.TrimSpace(errBuf.String())
+		if timeoutLog != "" {
+			km.writeCrashLog(timeoutLog)
+			slog.Error("内核就绪超时，详细信息请查看 core.log")
+		} else {
+			slog.Error("内核就绪超时")
+		}
 		km.runner.Kill()
 	}
 
@@ -272,31 +276,51 @@ func (km *KernelManager) writeCrashLog(crashLog string) {
 }
 
 func (km *KernelManager) handleSessionCrash(res sessionResult, backoff *crashBackoff) (halted bool) {
+	if res.startErr != nil {
+		isFirst := backoff.count == 0
+		if backoff.recordCrash(res.runDuration) {
+			slog.Error("内核连续启动失败，已暂停", "err", res.startErr)
+			backoff.reset()
+			km.HaltDaemon()
+			return true
+		}
+		if isFirst {
+			slog.Error("启动内核进程失败", "err", res.startErr)
+		}
+		backoff.advanceDelay()
+		return false
+	}
+
 	upper := strings.ToUpper(res.crashLog)
 	isFatal := strings.Contains(upper, "FATA") || strings.Contains(upper, "PANIC")
+	hasCrashLog := res.crashLog != ""
 
-	if res.crashLog != "" {
+	if hasCrashLog {
 		km.writeCrashLog(res.crashLog)
 	}
 
+	logCrash := func(msg string) {
+		if hasCrashLog {
+			msg += "，详细信息请查看 core.log"
+		}
+		slog.Error(msg)
+	}
+
 	if isFatal {
-		slog.Error("内核遇到致命错误，已暂停启动，详细信息请查看 core.log")
+		logCrash("内核致命错误，已暂停")
 		backoff.reset()
 		km.HaltDaemon()
 		return true
 	}
 
 	if res.wasReady && res.runDuration >= quickCrashThreshold {
+		logCrash("内核异常退出，正在重启")
 		backoff.reset()
 		return false
 	}
 
 	if backoff.recordCrash(res.runDuration) {
-		if res.crashLog != "" {
-			slog.Error("内核异常退出超限，守护进程已挂起保护，详细信息请查看 core.log")
-		} else {
-			slog.Error("内核异常退出超限，守护进程已挂起保护")
-		}
+		logCrash("内核连续异常退出，已暂停")
 		backoff.reset()
 		km.HaltDaemon()
 		return true
