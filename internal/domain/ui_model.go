@@ -80,21 +80,20 @@ type UIProfileItem struct {
 }
 
 type UIState struct {
-	IconState     IconState
-	IsBusy        bool
-	IsTun         bool
-	IsProxy       bool
-	Mode          string
-	SystemTheme   Theme
-	AutoStart     bool
-	IsAdmin       bool
-	RunAsAdmin    bool
-	WebOpenMode   string
-	RemoteWebUI   bool
-	AllowLan      bool
-	ProfileItems  []UIProfileItem
-	CanAddProfile bool
-	MixedPort     int
-	SocksPort     int
-	HttpPort      int
+	IconState    IconState
+	IsBusy       bool
+	IsTun        bool
+	IsProxy      bool
+	Mode         string
+	SystemTheme  Theme
+	AutoStart    bool
+	IsAdmin      bool
+	RunAsAdmin   bool
+	WebOpenMode  string
+	RemoteWebUI  bool
+	AllowLan     bool
+	ProfileItems []UIProfileItem
+	MixedPort    int
+	SocksPort    int
+	HttpPort     int
 }
