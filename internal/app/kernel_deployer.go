@@ -38,20 +38,11 @@ func (d *KernelDeployer) StopValidation() {
 	d.validator.Stop()
 }
 
-func (d *KernelDeployer) PrepareBootConfig(ctx context.Context) error {
-	activePath := d.cfg.GetActivePath()
-	prep, err := d.prepareYAML(activePath)
+func (d *KernelDeployer) PrepareBootConfig() error {
+	prep, err := d.prepareYAML(d.cfg.GetActivePath())
 	if err != nil {
 		return err
 	}
-
-	if activePath != "" {
-		if err := d.validatePrepared(ctx, prep); err != nil {
-			return err
-		}
-		d.validator.Stop()
-	}
-
 	return d.commitRuntimeYAML(prep)
 }
 
