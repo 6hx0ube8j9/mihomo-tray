@@ -31,10 +31,14 @@ func NewCoreLogger(baseDir string) *CoreLogger {
 	}
 }
 
-func (l *CoreLogger) WriteLog(rawMsg string) {
+func (l *CoreLogger) WriteLog(rawMsg string) bool {
+	if l == nil || l.writer == nil {
+		return false
+	}
+
 	level, cleanMsg := extractLevelAndMsg(rawMsg)
 	if level < slog.LevelError || cleanMsg == "" {
-		return
+		return false
 	}
 
 	l.mu.Lock()
@@ -42,16 +46,20 @@ func (l *CoreLogger) WriteLog(rawMsg string) {
 
 	now := time.Now()
 	if l.lastError == cleanMsg && now.Sub(l.lastErrorTime) < DedupeInterval {
-		return
+		return true
 	}
-	l.lastError = cleanMsg
-	l.lastErrorTime = now
 
 	timestamp := now.Format(domain.TimeFormatLog)
 	entry := fmt.Sprintf("[%s] [ERROR] %s\r\n", timestamp, cleanMsg)
 
-	_, _ = l.writer.Write([]byte(entry))
+	if _, err := l.writer.Write([]byte(entry)); err != nil {
+		return false
+	}
 	_ = l.writer.Sync()
+
+	l.lastError = cleanMsg
+	l.lastErrorTime = now
+	return true
 }
 
 func (l *CoreLogger) Close() error {
