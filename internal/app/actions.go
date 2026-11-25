@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 
 	"mihomo-tray/internal/domain"
@@ -13,43 +12,17 @@ import (
 // 1. 核心调度基础设施 (Infrastructure, Runners & Notifiers)
 // ============================================================================
 
-func (a *Application) runExclusiveAction(title string, task func() error) {
-	a.runAction(context.Background(), title, state.ActionExclusive, func(context.Context) error {
-		return task()
-	})
-}
-
-func (a *Application) runAction(ctx context.Context, title string, policy state.ActionPolicy, task func(context.Context) error) {
-	lease := a.State.AcquireAction(ctx, policy)
-	if lease.Acquired() {
-		a.executeAction(lease.Ctx, lease.Finish, title, task)
+func (a *Application) runExclusiveAction(action state.KernelAction, title string, task func() error) {
+	if !a.State.TryBeginAction(action) {
+		slog.Info("操作已忽略，当前系统繁忙", "action", title)
 		return
 	}
 
-	if lease.Pending() {
-		a.Presenter.ForcePushUIState()
-		go func() {
-			actionCtx, finish, ok := lease.Wait(ctx)
-			if !ok {
-				return
-			}
-			a.executeAction(actionCtx, finish, title, task)
-		}()
-		return
-	}
-
-	if !a.State.IsExiting() {
-		a.showError(title, errSystemBusy.Error())
-		a.Presenter.ForcePushUIState()
-	}
-}
-
-func (a *Application) executeAction(actionCtx context.Context, finish func(), title string, task func(context.Context) error) {
 	a.Presenter.ForcePushUIState()
 
 	go func() {
 		defer func() {
-			finish()
+			a.State.EndAction()
 			a.Presenter.ForcePushUIState()
 
 			if r := recover(); r != nil {
@@ -57,10 +30,7 @@ func (a *Application) executeAction(actionCtx context.Context, finish func(), ti
 			}
 		}()
 
-		if err := task(actionCtx); err != nil {
-			if actionCtx.Err() != nil && errors.Is(err, context.Canceled) {
-				return
-			}
+		if err := task(); err != nil {
 			a.notifyError(title, err)
 		}
 	}()
