@@ -11,7 +11,10 @@ import (
 )
 
 func (a *Application) applyAndSyncRuntime(ctx context.Context, targetRelPath, actionDesc string) error {
-	if err := a.KernelDeployer.DeployAndApply(ctx, targetRelPath, actionDesc); err != nil {
+	err := a.KernelDeployer.DeployAndApply(ctx, targetRelPath, actionDesc, func() {
+		a.Cfg.SetActiveProfile(targetRelPath)
+	})
+	if err != nil {
 		return err
 	}
 
@@ -20,10 +23,26 @@ func (a *Application) applyAndSyncRuntime(ctx context.Context, targetRelPath, ac
 	return nil
 }
 
-func (a *Application) handleProfileAdded(ctx context.Context, targetRelPath string, isFirst bool) {
-	if isFirst {
-		a.runAction(ctx, "激活配置", state.ActionPreemptible, func(actionCtx context.Context) error {
-			return a.applyAndSyncRuntime(actionCtx, targetRelPath, "激活首个导入配置")
+func (a *Application) applyActiveProfileUpdate(ctx context.Context, targetRelPath, actionDesc string) {
+	a.runExclusiveAction(state.ActionReload, "应用订阅更新", func() error {
+		if a.Cfg.GetActivePath() != targetRelPath {
+			return nil
+		}
+		return a.applyAndSyncRuntime(ctx, targetRelPath, actionDesc)
+	})
+}
+
+func (a *Application) handleProfileAdded(ctx context.Context, targetRelPath string) {
+	if targetRelPath == "" {
+		return
+	}
+
+	if a.Cfg.GetActivePath() == "" {
+		a.runExclusiveAction(state.ActionSwitchProfile, "激活配置", func() error {
+			if a.Cfg.GetActivePath() != "" {
+				return nil
+			}
+			return a.applyAndSyncRuntime(ctx, targetRelPath, "激活首个导入配置")
 		})
 		return
 	}
@@ -46,12 +65,12 @@ func (a *Application) handleRequestAddLocal(ctx context.Context, _ domain.UIComm
 			return
 		}
 
-		targetRelPath, isFirst, err := a.ProfileHub.ImportLocal(path)
+		targetRelPath, err := a.ProfileHub.ImportLocal(path)
 		if err != nil {
 			a.notifyError("导入配置", err)
 			return
 		}
-		a.handleProfileAdded(ctx, targetRelPath, isFirst)
+		a.handleProfileAdded(ctx, targetRelPath)
 	}()
 }
 
@@ -65,12 +84,12 @@ func (a *Application) handleRequestAddRemote(ctx context.Context, _ domain.UICom
 			return
 		}
 
-		targetRelPath, isFirst, err := a.ProfileHub.AddRemote(ctx, name, url, interval)
+		targetRelPath, err := a.ProfileHub.AddRemote(ctx, name, url, interval)
 		if err != nil {
 			a.notifyError("添加订阅", err)
 			return
 		}
-		a.handleProfileAdded(ctx, targetRelPath, isFirst)
+		a.handleProfileAdded(ctx, targetRelPath)
 	}()
 }
 
@@ -104,13 +123,9 @@ func (a *Application) handleEditProfileInfo(ctx context.Context, cmd domain.UICo
 			if err != nil {
 				return err
 			}
+			a.Presenter.PushUIState()
 			if urlChanged && a.Cfg.GetActivePath() == profile.Path {
-				a.runAction(ctx, "更新订阅", state.ActionPreemptible, func(actionCtx context.Context) error {
-					if a.Cfg.GetActivePath() != profile.Path {
-						return nil
-					}
-					return a.applyAndSyncRuntime(actionCtx, profile.Path, "应用订阅地址变更")
-				})
+				a.applyActiveProfileUpdate(ctx, profile.Path, "应用订阅地址变更")
 			}
 			return nil
 		})
@@ -127,13 +142,9 @@ func (a *Application) handleUpdateRemoteProfile(ctx context.Context, cmd domain.
 		if err := a.ProfileHub.UpdateRemote(ctx, p.Path); err != nil {
 			return err
 		}
+		a.Presenter.PushUIState()
 		if a.Cfg.GetActivePath() == p.Path {
-			a.runAction(ctx, "更新订阅", state.ActionPreemptible, func(actionCtx context.Context) error {
-				if a.Cfg.GetActivePath() != p.Path {
-					return nil
-				}
-				return a.applyAndSyncRuntime(actionCtx, p.Path, "应用订阅更新")
-			})
+			a.applyActiveProfileUpdate(ctx, p.Path, "应用订阅更新")
 		}
 		return nil
 	})
@@ -158,19 +169,19 @@ func (a *Application) handleSetProfileInterval(_ context.Context, cmd domain.UIC
 }
 
 func (a *Application) handleSwitchProfile(ctx context.Context, cmd domain.UICommand) {
-	a.runAction(ctx, "切换配置", state.ActionPreemptible|state.ActionPreempt, func(actionCtx context.Context) error {
+	a.runExclusiveAction(state.ActionSwitchProfile, "切换配置", func() error {
 		target := cmd.Payload
 		if target == "" {
 			return config.ErrProfilePathEmpty
 		}
-		if a.Cfg.GetActivePath() == target && !a.KernelDeployer.HasAbortedReload() {
+		if a.Cfg.GetActivePath() == target {
 			return nil
 		}
 		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
 			return err
 		}
 
-		return a.applyAndSyncRuntime(actionCtx, target, "切换配置")
+		return a.applyAndSyncRuntime(ctx, target, "切换配置")
 	})
 }
 
@@ -185,7 +196,7 @@ func (a *Application) handleRemoveProfile(ctx context.Context, cmd domain.UIComm
 			return
 		}
 
-		a.runExclusiveAction("删除配置", func() error {
+		a.runExclusiveAction(state.ActionSwitchProfile, "删除配置", func() error {
 			wasActive, err := a.ProfileHub.Delete(path)
 			if err != nil {
 				return err
