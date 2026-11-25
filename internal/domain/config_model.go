@@ -124,12 +124,12 @@ func (c TrayConfig) Clone() TrayConfig {
 	out.Config.SocksPort = clonePtr(c.Config.SocksPort)
 	out.Config.AllowLan = clonePtr(c.Config.AllowLan)
 	out.Config.UnifiedDelay = clonePtr(c.Config.UnifiedDelay)
+	out.Config.GeoAutoUpdate = clonePtr(c.Config.GeoAutoUpdate)
+	out.Config.GeoUpdateInterval = clonePtr(c.Config.GeoUpdateInterval)
 	out.Config.Secret = clonePtr(c.Config.Secret)
 	out.Config.ExternalUIURL = clonePtr(c.Config.ExternalUIURL)
 	out.Config.ExternalControllerCors.AllowPrivateNetwork = clonePtr(c.Config.ExternalControllerCors.AllowPrivateNetwork)
-	out.Config.GeoAutoUpdate = clonePtr(c.Config.GeoAutoUpdate)
-	out.Config.GeoUpdateInterval = clonePtr(c.Config.GeoUpdateInterval)
-	
+
 	if c.Config.ExternalControllerCors.AllowOrigins != nil {
 		origins := make([]string, len(c.Config.ExternalControllerCors.AllowOrigins))
 		copy(origins, c.Config.ExternalControllerCors.AllowOrigins)
