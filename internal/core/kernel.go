@@ -194,9 +194,7 @@ func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.K
 		case eventCh <- domain.EventKernelReady:
 		}
 	case context.DeadlineExceeded:
-		timeoutLog := strings.TrimSpace(errBuf.String())
-		if timeoutLog != "" {
-			km.writeCrashLog(timeoutLog)
+		if km.writeCrashLog(strings.TrimSpace(errBuf.String())) {
 			slog.Error("内核就绪超时，详细信息请查看 core.log")
 		} else {
 			slog.Error("内核就绪超时")
@@ -263,16 +261,18 @@ func (km *KernelManager) WaitForReady(ctx context.Context) error {
 	}
 }
 
-func (km *KernelManager) writeCrashLog(crashLog string) {
+func (km *KernelManager) writeCrashLog(crashLog string) bool {
 	if km.logger == nil || crashLog == "" {
-		return
+		return false
 	}
+	written := false
 	for _, line := range strings.Split(crashLog, "\n") {
 		line = strings.TrimSpace(line)
-		if line != "" {
-			km.logger.WriteLog(line)
+		if line != "" && km.logger.WriteLog(line) {
+			written = true
 		}
 	}
+	return written
 }
 
 func (km *KernelManager) handleSessionCrash(res sessionResult, backoff *crashBackoff) (halted bool) {
@@ -293,14 +293,10 @@ func (km *KernelManager) handleSessionCrash(res sessionResult, backoff *crashBac
 
 	upper := strings.ToUpper(res.crashLog)
 	isFatal := strings.Contains(upper, "FATA") || strings.Contains(upper, "PANIC")
-	hasCrashLog := res.crashLog != ""
-
-	if hasCrashLog {
-		km.writeCrashLog(res.crashLog)
-	}
+	hasCoreLog := km.writeCrashLog(res.crashLog)
 
 	logCrash := func(msg string) {
-		if hasCrashLog {
+		if hasCoreLog {
 			msg += "，详细信息请查看 core.log"
 		}
 		slog.Error(msg)
