@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"mihomo-tray/internal/config"
@@ -24,6 +25,7 @@ type ProxyGuard struct {
 
 	mu              sync.Mutex
 	lastAppliedPort string
+	repairing       atomic.Bool
 }
 
 func NewProxyGuard(cfg *config.Manager, st *state.RuntimeState, onAlert func(title, msg string)) *ProxyGuard {
@@ -140,7 +142,6 @@ func (g *ProxyGuard) disableInternal() {
 func (g *ProxyGuard) disableInternalLocked() {
 	cfg := g.cfg.GetConfig()
 	if cfg.IsSystemProxyEnabled() {
-
 		g.cfg.Update(func(c *domain.TrayConfig) {
 			b := false
 			c.General.SystemProxy = &b
@@ -187,7 +188,7 @@ func (g *ProxyGuard) HandleStatusChange(ctx context.Context, status sys.ProxySta
 		return
 	}
 
-	if !g.st.TryAcquireProxyRepair() {
+	if !g.repairing.CompareAndSwap(false, true) {
 		return
 	}
 	go g.reconcileDisconnection(ctx, expectedServer)
@@ -199,7 +200,7 @@ func (g *ProxyGuard) isStateExpected(expectedServer string) bool {
 }
 
 func (g *ProxyGuard) reconcileDisconnection(ctx context.Context, expectedServer string) {
-	defer g.st.ReleaseProxyRepair()
+	defer g.repairing.Store(false)
 
 	timer := time.NewTimer(proxyQuickReconcileInterval)
 	defer timer.Stop()
