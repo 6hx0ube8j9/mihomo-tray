@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -162,8 +163,16 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 	return res, nil
 }
 
-func (m *Manager) CommitRemoteProfile(tempPath string, targetRelPath string, item domain.ProfileItem) error {
-	if _, exists := m.GetProfileByPath(item.Path); !exists {
+func (m *Manager) CommitRemoteProfile(tempPath string, targetRelPath string, item domain.ProfileItem, requireExists bool) error {
+	_, exists := m.GetProfileByPath(item.Path)
+	if requireExists {
+		if !exists {
+			return ErrProfileNotFound
+		}
+	} else {
+		if exists {
+			return ErrProfileNameConflict
+		}
 		if err := m.CheckProfileLimit(); err != nil {
 			return err
 		}
@@ -174,6 +183,37 @@ func (m *Manager) CommitRemoteProfile(tempPath string, targetRelPath string, ite
 		return fmt.Errorf("更新配置失败: %w", err)
 	}
 
-	m.UpsertProfile(item)
+	var commitErr error
+	m.TryUpdate(func(cfg *domain.TrayConfig) bool {
+		if requireExists {
+			for i, p := range cfg.Profiles.Items {
+				if p.Path == item.Path {
+					cfg.Profiles.Items[i] = item
+					return true
+				}
+			}
+			commitErr = ErrProfileNotFound
+			return false
+		}
+
+		for _, p := range cfg.Profiles.Items {
+			if p.Path == item.Path {
+				commitErr = ErrProfileNameConflict
+				return false
+			}
+		}
+		if len(cfg.Profiles.Items) >= domain.MaxProfileCount {
+			commitErr = ErrProfileLimitExceeded
+			return false
+		}
+		cfg.Profiles.Items = append(cfg.Profiles.Items, item)
+		return true
+	})
+
+	if commitErr != nil {
+		_ = os.Remove(targetAbs)
+		return commitErr
+	}
+
 	return nil
 }
