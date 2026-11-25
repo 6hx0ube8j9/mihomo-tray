@@ -60,6 +60,7 @@ func (e *Engine) Run() error {
 	err = MainWindow{
 		AssignTo: &e.mw,
 		Title:    domain.HostTitle,
+		Icon:     1,
 		Visible:  false,
 	}.Create()
 	if err != nil {
