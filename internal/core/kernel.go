@@ -85,10 +85,9 @@ type KernelManager struct {
 	logger      *logger.CoreLogger
 	runner      *ProcessRunner
 
-	mu           sync.Mutex
-	isPaused     bool
-	wakeCh       chan struct{}
-	preStartHook func()
+	mu       sync.Mutex
+	isPaused bool
+	wakeCh   chan struct{}
 }
 
 func NewKernelManager(baseDir string, isExiting func() bool, api *APIClient) *KernelManager {
@@ -100,12 +99,6 @@ func NewKernelManager(baseDir string, isExiting func() bool, api *APIClient) *Ke
 		runner:      NewProcessRunner(GetKernelPath(baseDir)),
 		wakeCh:      make(chan struct{}, 1),
 	}
-}
-
-func (km *KernelManager) SetPreStartHook(hook func()) {
-	km.mu.Lock()
-	defer km.mu.Unlock()
-	km.preStartHook = hook
 }
 
 func (km *KernelManager) Close() {
@@ -138,20 +131,28 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 			return
 		}
 
-		exitEvent := domain.EventKernelStopped
+		var exitEvent domain.KernelEvent
+		halted := false
 		if res.isCrash {
-			exitEvent = domain.EventKernelCrashed
+			halted = km.handleSessionCrash(res, &backoff)
+			if halted {
+				exitEvent = domain.EventKernelHalted
+			} else {
+				exitEvent = domain.EventKernelCrashed
+			}
+		} else {
+			backoff.reset()
+			exitEvent = domain.EventKernelStopped
 		}
+
 		select {
 		case <-ctx.Done():
 			return
 		case eventCh <- exitEvent:
 		}
 
-		if res.isCrash {
-			km.handleSessionCrash(res, &backoff)
-		} else {
-			backoff.reset()
+		if halted {
+			continue
 		}
 
 		km.waitBackoff(ctx, backoff.delay)
@@ -159,8 +160,6 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 }
 
 func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.KernelEvent) sessionResult {
-	km.runPreStartHook()
-
 	absBaseDir, _ := filepath.Abs(km.baseDir)
 	target := GetKernelPath(absBaseDir)
 	runtimeAbs := filepath.Join(absBaseDir, domain.RuntimeConfigName)
@@ -272,7 +271,7 @@ func (km *KernelManager) writeCrashLog(crashLog string) {
 	}
 }
 
-func (km *KernelManager) handleSessionCrash(res sessionResult, backoff *crashBackoff) {
+func (km *KernelManager) handleSessionCrash(res sessionResult, backoff *crashBackoff) (halted bool) {
 	upper := strings.ToUpper(res.crashLog)
 	isFatal := strings.Contains(upper, "FATA") || strings.Contains(upper, "PANIC")
 
@@ -283,13 +282,13 @@ func (km *KernelManager) handleSessionCrash(res sessionResult, backoff *crashBac
 	if isFatal {
 		slog.Error("内核遇到致命错误，已暂停启动，详细信息请查看 core.log")
 		backoff.reset()
-		km.haltDaemon()
-		return
+		km.HaltDaemon()
+		return true
 	}
 
 	if res.wasReady && res.runDuration >= quickCrashThreshold {
 		backoff.reset()
-		return
+		return false
 	}
 
 	if backoff.recordCrash(res.runDuration) {
@@ -299,11 +298,12 @@ func (km *KernelManager) handleSessionCrash(res sessionResult, backoff *crashBac
 			slog.Error("内核异常退出超限，守护进程已挂起保护")
 		}
 		backoff.reset()
-		km.haltDaemon()
-		return
+		km.HaltDaemon()
+		return true
 	}
 
 	backoff.advanceDelay()
+	return false
 }
 
 func (km *KernelManager) isExiting() bool {
@@ -338,20 +338,25 @@ func (km *KernelManager) waitBackoff(ctx context.Context, d time.Duration) {
 	}
 }
 
-func (km *KernelManager) runPreStartHook() {
-	km.mu.Lock()
-	hook := km.preStartHook
-	km.mu.Unlock()
-	if hook != nil {
-		hook()
-	}
-}
-
-func (km *KernelManager) haltDaemon() {
+func (km *KernelManager) HaltDaemon() {
 	km.mu.Lock()
 	km.isPaused = true
+	select {
+	case <-km.wakeCh:
+	default:
+	}
 	km.mu.Unlock()
 	km.KillCurrent()
+}
+
+func (km *KernelManager) WakeDaemon() {
+	km.mu.Lock()
+	km.isPaused = false
+	km.mu.Unlock()
+	select {
+	case km.wakeCh <- struct{}{}:
+	default:
+	}
 }
 
 func (km *KernelManager) IsPaused() bool {
