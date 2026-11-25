@@ -83,7 +83,7 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 
 	app.Platform = NewPlatform(cm.ExePath(), cm.BaseDir())
 
-	app.ProfileHub = NewProfileHub(cm, st, func() string {
+	app.ProfileHub = NewProfileHub(cm, func() string {
 		if app.KernelDeployer.IsKernelRunning() {
 			port, _ := app.Cfg.GetConfig().EffectiveSystemProxyPortStr()
 			return port
