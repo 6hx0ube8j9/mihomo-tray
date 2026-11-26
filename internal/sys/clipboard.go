@@ -78,10 +78,10 @@ func makeClipboardBuffer(text string) (uintptr, error) {
 		return 0, fmt.Errorf("GlobalLock 失败: %w", callErr)
 	}
 	defer procGlobalUnlock.Call(hMem)
-
-	_, _, _ = procRtlMoveMemory.Call(ptr, uintptr(unsafe.Pointer(&u16[0])), size)
+	
+    _, _, _ = procRtlMoveMemory.Call(ptr, uintptr(unsafe.Pointer(&u16[0])), size)
 	runtime.KeepAlive(u16)
-	return hMem, nil	
+	return hMem, nil
 }
 
 func openClipboardWithRetry(attempts int, interval time.Duration) error {
