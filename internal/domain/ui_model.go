@@ -34,7 +34,6 @@ const (
 	ActionRequestAddLocal     = "RequestAddLocalProfile"
 	ActionRequestAddRemote    = "RequestAddRemoteProfile"
 	ActionEditProfileInfo     = "EditProfileInfo"
-	ActionSetProfileInterval  = "SetProfileInterval"
 	ActionUpdateRemoteProfile = "UpdateRemoteProfile"
 	ActionSwitchProfile       = "SwitchProfile"
 	ActionRemoveProfile       = "RemoveProfile"
@@ -74,6 +73,7 @@ type UIProfileItem struct {
 	Name       string
 	Path       string
 	IsActive   bool
+	IsPending  bool
 	IsRemote   bool
 	Interval   int
 	LastUpdate string
