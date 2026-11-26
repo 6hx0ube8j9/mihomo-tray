@@ -85,11 +85,15 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 	app.Platform = NewPlatform(cm.ExePath(), cm.BaseDir())
 
 	app.ProfileHub = NewProfileHub(cm, func() string {
-		if app.KernelDeployer.IsKernelRunning() {
-			port, _ := app.Cfg.GetConfig().EffectiveSystemProxyPortStr()
-			return port
+		if !app.KernelDeployer.IsKernelRunning() || app.Cfg.GetActivePath() == "" {
+			return ""
 		}
-		return ""
+		cfg := app.Cfg.GetConfig()
+		if cfg.Config.Mode == domain.ModeDirect {
+			return ""
+		}
+		port, _ := cfg.EffectiveSystemProxyPortStr()
+		return port
 	})
 
 	app.Presenter = NewPresenter(cm, st, app.Platform, app.UIStateNotifyCh)
