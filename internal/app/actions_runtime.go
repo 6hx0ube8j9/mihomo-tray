@@ -13,11 +13,15 @@ import (
 // 系统与生命周期指令分发 (Domain: Sys & Lifecycle Actions)
 // ============================================================================
 
+func (a *Application) syncDiskConfigAndPrivilege() {
+	_ = a.Cfg.ReloadFromDisk()
+	logger.SyncLogLevel(a.Cfg.GetConfig().General.TrayLogLevel)
+	a.KernelTuner.ReconcilePrivilege()
+}
+
 func (a *Application) handleReloadConfig(ctx context.Context, _ domain.UICommand) {
 	a.runExclusiveAction(state.ActionReload, "重载配置", func() error {
-		_ = a.Cfg.ReloadFromDisk()
-		logger.SyncLogLevel(a.Cfg.GetConfig().General.TrayLogLevel)
-		a.KernelTuner.ReconcilePrivilege()
+		a.syncDiskConfigAndPrivilege()
 
 		if err := a.KernelDeployer.ReloadConfig(ctx); err != nil {
 			return err
@@ -31,9 +35,7 @@ func (a *Application) handleReloadConfig(ctx context.Context, _ domain.UICommand
 
 func (a *Application) handleRestartKernel(ctx context.Context, _ domain.UICommand) {
 	a.runExclusiveAction(state.ActionRestart, "重启内核", func() error {
-		_ = a.Cfg.ReloadFromDisk()
-		logger.SyncLogLevel(a.Cfg.GetConfig().General.TrayLogLevel)
-		a.KernelTuner.ReconcilePrivilege()
+		a.syncDiskConfigAndPrivilege()
 
 		if err := a.KernelDeployer.RestartKernel(ctx); err != nil {
 			return err
