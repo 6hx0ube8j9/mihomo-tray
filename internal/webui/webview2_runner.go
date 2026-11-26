@@ -112,7 +112,10 @@ func (m *Manager) cleanupWebView2() {
 	wv.Destroy()
 }
 
-func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string) error {
+func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string, launchGen uint64) error {
+	if m.isLaunchStale(launchGen) {
+		return errLaunchAborted
+	}
 	if !isWebView2Available() {
 		return ErrWebView2Unavailable
 	}
@@ -182,8 +185,15 @@ func (m *Manager) launchWebView2(cfg Config, cacheRoot, finalURL string) error {
 		adapter = &webviewAdapter{w: w, hwnd: hwnd}
 
 		m.wvMu.Lock()
-		if aborted.Load() {
+		stale := m.isLaunchStale(launchGen)
+		if aborted.Load() || stale {
 			m.wvMu.Unlock()
+			if stale {
+				select {
+				case initCh <- errLaunchAborted:
+				default:
+				}
+			}
 			sys.HideWindow(hwnd)
 			adapter.Destroy()
 			w.Run()
