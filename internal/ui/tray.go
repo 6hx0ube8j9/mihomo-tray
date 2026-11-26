@@ -82,14 +82,20 @@ func (t *Tray) UpdateState(state domain.UIState) {
 
 	safelySetChecked(t.actProxy, state.IsProxy)
 	safelySetChecked(t.actTun, state.IsTun)
+	safelySetEnabled(t.actTun, !state.IsBusy)
 
 	safelySetChecked(t.actModeRule, state.Mode == domain.ModeRule)
 	safelySetChecked(t.actModeDirect, state.Mode == domain.ModeDirect)
 	safelySetChecked(t.actModeGlobal, state.Mode == domain.ModeGlobal)
+	safelySetEnabled(t.actModeRule, !state.IsBusy)
+	safelySetEnabled(t.actModeDirect, !state.IsBusy)
+	safelySetEnabled(t.actModeGlobal, !state.IsBusy)
 
+	canToggleAdmin := !state.IsBusy || state.IsAdmin
 	safelySetChecked(t.actAutoStart, state.AutoStart)
+	safelySetEnabled(t.actAutoStart, canToggleAdmin)
 	safelySetChecked(t.actRunAdmin, state.RunAsAdmin || state.AutoStart)
-	safelySetEnabled(t.actRunAdmin, !state.AutoStart)
+	safelySetEnabled(t.actRunAdmin, !state.AutoStart && canToggleAdmin)
 
 	safelySetChecked(t.actWebModeAuto, state.WebOpenMode == domain.WebOpenModeAuto)
 	safelySetChecked(t.actWebModeApp, state.WebOpenMode == domain.WebOpenModeApp)
@@ -98,6 +104,7 @@ func (t *Tray) UpdateState(state domain.UIState) {
 
 	safelySetChecked(t.actRemoteWebUI, state.RemoteWebUI)
 	safelySetChecked(t.actAllowLan, state.AllowLan)
+	safelySetEnabled(t.actAllowLan, !state.IsBusy)
 
 	safelySetEnabled(t.actReload, !state.IsBusy)
 	safelySetEnabled(t.actRestart, !state.IsBusy)
