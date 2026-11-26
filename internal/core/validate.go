@@ -92,17 +92,17 @@ func (v *Validator) Invalidate() {
 }
 
 func (v *Validator) Validate(ctx context.Context, exePath, workDir string, yamlBytes []byte) error {
-	return v.validate(ctx, exePath, workDir, yamlBytes, foregroundValidationTimeout, true)
+	return v.validate(ctx, exePath, workDir, yamlBytes, foregroundValidationTimeout, true, true)
 }
 
 func (v *Validator) ValidateFull(ctx context.Context, exePath, workDir string, yamlBytes []byte, timeout time.Duration) error {
 	if timeout <= 0 {
 		timeout = foregroundValidationTimeout
 	}
-	return v.validate(ctx, exePath, workDir, yamlBytes, timeout, false)
+	return v.validate(ctx, exePath, workDir, yamlBytes, timeout, false, false)
 }
 
-func (v *Validator) validate(ctx context.Context, exePath, workDir string, yamlBytes []byte, timeout time.Duration, allowShortCircuit bool) error {
+func (v *Validator) validate(ctx context.Context, exePath, workDir string, yamlBytes []byte, timeout time.Duration, allowShortCircuit, allowPreempt bool) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -189,6 +189,12 @@ func (v *Validator) validate(ctx context.Context, exePath, workDir string, yamlB
 			v.active = proc
 			v.mu.Unlock()
 			break
+		}
+
+		if !allowPreempt {
+			v.mu.Unlock()
+			_ = os.Remove(yamlAbsPath)
+			return ErrValidationPreempted
 		}
 
 		v.active = nil
