@@ -91,11 +91,11 @@ func (t *Tray) UpdateState(state domain.UIState) {
 	safelySetEnabled(t.actModeDirect, !state.IsBusy)
 	safelySetEnabled(t.actModeGlobal, !state.IsBusy)
 
-	canToggleAdmin := !state.IsBusy || state.IsAdmin
+	canTogglePrivilege := !state.IsBusy || state.IsAdmin
 	safelySetChecked(t.actAutoStart, state.AutoStart)
-	safelySetEnabled(t.actAutoStart, canToggleAdmin)
+	safelySetEnabled(t.actAutoStart, canTogglePrivilege)
 	safelySetChecked(t.actRunAdmin, state.RunAsAdmin || state.AutoStart)
-	safelySetEnabled(t.actRunAdmin, !state.AutoStart && canToggleAdmin)
+	safelySetEnabled(t.actRunAdmin, !state.AutoStart && canTogglePrivilege)
 
 	safelySetChecked(t.actWebModeAuto, state.WebOpenMode == domain.WebOpenModeAuto)
 	safelySetChecked(t.actWebModeApp, state.WebOpenMode == domain.WebOpenModeApp)
@@ -126,9 +126,7 @@ func (t *Tray) UpdateState(state domain.UIState) {
 			if i < actions.Len() {
 				act := actions.At(i)
 				safelySetEnabled(act, !state.IsBusy)
-				if !state.IsBusy {
-					safelySetChecked(act, item.IsActive)
-				}
+				safelySetChecked(act, item.IsActive)
 			}
 		}
 	}
