@@ -26,7 +26,6 @@ const (
 	gwlpWndProc       = -4
 
 	// System parameters and message box flags
-	spiGetWorkArea  = 0x0030
 	mbSetForeground = 0x00010000
 	mbTopMost       = 0x00040000
 )
