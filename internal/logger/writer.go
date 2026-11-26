@@ -67,7 +67,7 @@ func (w *RollingLogWriter) rotate() {
 		w.currSize += int64(n)
 
 		if err != nil {
-			msg := []byte("[Warning] Log rotation failed (file locked). Old logs were truncated to prevent I/O deadlock.\r\n")
+			msg := []byte("[WARN] 日志轮转失败（文件被占用），已截断旧日志\r\n")
 			wn, _ := w.file.Write(msg)
 			w.currSize += int64(wn)
 		}
