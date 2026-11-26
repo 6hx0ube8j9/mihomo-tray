@@ -13,17 +13,19 @@ import (
 	"sync/atomic"
 	"time"
 
+	"mihomo-tray/internal/browser"
 	"mihomo-tray/internal/domain"
-	"mihomo-tray/internal/fs"
 	"mihomo-tray/internal/sys"
 )
 
 var (
 	ErrCacheBusy           = errors.New("缓存文件被占用，请稍后重试")
-    ErrPanelBusy           = errors.New("面板运行中，请先关闭")
+	ErrPanelBusy           = errors.New("面板运行中，请先关闭")
 	ErrWebView2Unavailable = errors.New("未安装 WebView2 运行时")
 	ErrInvalidBrowserPath  = errors.New("自定义浏览器路径无效")
 	ErrBrowserNotFound     = errors.New("未找到支持 App 模式的浏览器")
+
+	errLaunchAborted = errors.New("面板启动已中止")
 )
 
 type webviewSession interface {
@@ -51,6 +53,7 @@ type Manager struct {
 	activeSignature string
 	isolatedPID     atomic.Uint32
 	hwnd            atomic.Uintptr
+	cleanupGen      atomic.Uint64
 	launchMu        sync.Mutex
 	stateMu         sync.Mutex
 
@@ -63,6 +66,10 @@ type Manager struct {
 
 func NewManager() *Manager {
 	return &Manager{}
+}
+
+func (m *Manager) isLaunchStale(launchGen uint64) bool {
+	return m.cleanupGen.Load() != launchGen
 }
 
 func buildProxyArgs(proxyPort string) []string {
@@ -184,40 +191,44 @@ func (m *Manager) Launch(cfg Config, onReady func()) error {
 	}
 	defer m.launchMu.Unlock()
 
+	launchGen := m.cleanupGen.Load()
 	finalURL, appHostPort := buildFinalURL(cfg)
 	mode := domain.NormalizeWebOpenMode(cfg.WebOpenMode)
 	customPath := strings.TrimSpace(cfg.CustomBrowserPath)
 
 	switch mode {
 	case domain.WebOpenModeBrowser:
-		return m.launchBrowserMode(cfg.CustomBrowserEnabled, customPath, finalURL)
+		return m.launchBrowserMode(cfg.CustomBrowserEnabled, customPath, finalURL, launchGen)
 	case domain.WebOpenModeWebView:
-		return m.launchWebViewMode(cfg, finalURL)
+		return m.launchWebViewMode(cfg, finalURL, launchGen)
 	case domain.WebOpenModeApp:
-		return m.launchAppMode(cfg, cfg.CustomBrowserEnabled, customPath, finalURL, appHostPort)
+		return m.launchAppMode(cfg, cfg.CustomBrowserEnabled, customPath, finalURL, appHostPort, launchGen)
 	default:
-		return m.launchAutoMode(cfg, finalURL, appHostPort)
+		return m.launchAutoMode(cfg, finalURL, appHostPort, launchGen)
 	}
 }
 
-func (m *Manager) launchBrowserMode(customEnabled bool, customPath, finalURL string) error {
+func (m *Manager) launchBrowserMode(customEnabled bool, customPath, finalURL string, launchGen uint64) error {
 	if m.IsActive() {
-		m.Cleanup()
+		m.cleanupSessions()
+	}
+	if m.isLaunchStale(launchGen) {
+		return nil
 	}
 
 	if !customEnabled {
 		return m.openSystemBrowser(finalURL)
 	}
 
-	resolvedPath := fs.ResolveBrowserPath(customPath)
-	if !fs.IsBrowserExecutable(resolvedPath) {
+	resolvedPath := browser.ResolvePath(customPath)
+	if !browser.IsExecutable(resolvedPath) {
 		return fmt.Errorf("%w: %s", ErrInvalidBrowserPath, customPath)
 	}
 
 	return m.openCustomBrowserTab(resolvedPath, finalURL)
 }
 
-func (m *Manager) launchWebViewMode(cfg Config, finalURL string) error {
+func (m *Manager) launchWebViewMode(cfg Config, finalURL string, launchGen uint64) error {
 	cacheRoot, err := m.resolveCacheRoot(cfg.BaseDir)
 	if err != nil {
 		return fmt.Errorf("WebView2 缓存目录不可写: %w", err)
@@ -228,10 +239,10 @@ func (m *Manager) launchWebViewMode(cfg Config, finalURL string) error {
 		return nil
 	}
 
-	return m.startWebViewWindow(cfg, cacheRoot, finalURL, sig)
+	return m.startWebViewWindow(cfg, cacheRoot, finalURL, sig, launchGen)
 }
 
-func (m *Manager) launchAppMode(cfg Config, customEnabled bool, customPath, finalURL, appHostPort string) error {
+func (m *Manager) launchAppMode(cfg Config, customEnabled bool, customPath, finalURL, appHostPort string, launchGen uint64) error {
 	cacheRoot, err := m.resolveCacheRoot(cfg.BaseDir)
 	if err != nil {
 		return fmt.Errorf("App 模式缓存目录不可写: %w", err)
@@ -247,12 +258,15 @@ func (m *Manager) launchAppMode(cfg Config, customEnabled bool, customPath, fina
 		return nil
 	}
 
-	return m.startChromiumWindow(cfg, cacheRoot, browserPath, dirName, finalURL, appHostPort, sig)
+	return m.startChromiumWindow(cfg, cacheRoot, browserPath, dirName, finalURL, appHostPort, sig, launchGen)
 }
 
-func (m *Manager) launchAutoMode(cfg Config, finalURL, appHostPort string) error {
+func (m *Manager) launchAutoMode(cfg Config, finalURL, appHostPort string, launchGen uint64) error {
 	cacheRoot, err := m.resolveCacheRoot(cfg.BaseDir)
 	if err != nil {
+		if m.isLaunchStale(launchGen) {
+			return nil
+		}
 		slog.Warn("缓存目录不可写，改用系统浏览器", "err", err)
 		return m.openSystemBrowser(finalURL)
 	}
@@ -262,18 +276,26 @@ func (m *Manager) launchAutoMode(cfg Config, finalURL, appHostPort string) error
 		return nil
 	}
 
-    if err := m.startWebViewWindow(cfg, cacheRoot, finalURL, sig); err == nil {
+	if err := m.startWebViewWindow(cfg, cacheRoot, finalURL, sig, launchGen); err == nil {
 		return nil
 	} else if !errors.Is(err, ErrWebView2Unavailable) {
 		slog.Warn("WebView2 启动失败，尝试降级", "err", err)
 	}
 
-	if browserPath, dirName := fs.DetectChromiumBrowser(); browserPath != "" {
-		if err := m.startChromiumWindow(cfg, cacheRoot, browserPath, dirName, finalURL, appHostPort, sig); err == nil {
+	if m.isLaunchStale(launchGen) {
+		return nil
+	}
+
+	if browserPath, dirName := browser.DetectChromium(); browserPath != "" {
+		if err := m.startChromiumWindow(cfg, cacheRoot, browserPath, dirName, finalURL, appHostPort, sig, launchGen); err == nil {
 			return nil
 		} else {
 			slog.Warn("App 模式启动失败，改用系统浏览器", "path", browserPath, "err", err)
 		}
+	}
+
+	if m.isLaunchStale(launchGen) {
+		return nil
 	}
 
 	return m.openSystemBrowser(finalURL)
@@ -281,44 +303,72 @@ func (m *Manager) launchAutoMode(cfg Config, finalURL, appHostPort string) error
 
 func resolveAppBrowser(customEnabled bool, customPath string) (browserPath, dirName string, err error) {
 	if customEnabled {
-		resolvedPath := fs.ResolveBrowserPath(customPath)
-		if !fs.IsBrowserExecutable(resolvedPath) {
+		resolvedPath := browser.ResolvePath(customPath)
+		if !browser.IsExecutable(resolvedPath) {
 			return "", "", fmt.Errorf("%w: %s", ErrInvalidBrowserPath, customPath)
 		}
-		if fs.IsChromiumBrowser(resolvedPath) {
-			return resolvedPath, fs.ResolveBrowserDataDir(resolvedPath), nil
+		if browser.IsChromium(resolvedPath) {
+			return resolvedPath, browser.ResolveDataDir(resolvedPath), nil
 		}
 		slog.Warn("自定义浏览器不支持 App 模式，改用自动检测", "path", customPath)
 	}
 
-	browserPath, dirName = fs.DetectChromiumBrowser()
+	browserPath, dirName = browser.DetectChromium()
 	if browserPath == "" {
 		return "", "", ErrBrowserNotFound
 	}
 	return browserPath, dirName, nil
 }
 
-func (m *Manager) startWebViewWindow(cfg Config, cacheRoot, finalURL, sig string) error {
-	if err := m.launchWebView2(cfg, cacheRoot, finalURL); err != nil {
+func (m *Manager) startWebViewWindow(cfg Config, cacheRoot, finalURL, sig string, launchGen uint64) error {
+	if m.isLaunchStale(launchGen) {
+		return nil
+	}
+	if err := m.launchWebView2(cfg, cacheRoot, finalURL, launchGen); err != nil {
 		m.cleanupWebView2()
+		if errors.Is(err, errLaunchAborted) {
+			return nil
+		}
 		return err
 	}
-	m.setActiveSignature(sig)
+
+	m.stateMu.Lock()
+	if m.isLaunchStale(launchGen) {
+		m.stateMu.Unlock()
+		m.cleanupWebView2()
+		return nil
+	}
+	m.activeSignature = sig
+	m.stateMu.Unlock()
 	return nil
 }
 
-func (m *Manager) startChromiumWindow(cfg Config, cacheRoot, browserPath, dirName, finalURL, appHostPort, sig string) error {
-	if err := m.launchChromiumApp(cfg, cacheRoot, browserPath, dirName, finalURL, appHostPort); err != nil {
+func (m *Manager) startChromiumWindow(cfg Config, cacheRoot, browserPath, dirName, finalURL, appHostPort, sig string, launchGen uint64) error {
+	if m.isLaunchStale(launchGen) {
+		return nil
+	}
+	if err := m.launchChromiumApp(cfg, cacheRoot, browserPath, dirName, finalURL, appHostPort, launchGen); err != nil {
 		m.cleanupChromium()
+		if errors.Is(err, errLaunchAborted) {
+			return nil
+		}
 		return err
 	}
-	m.setActiveSignature(sig)
+
+	m.stateMu.Lock()
+	if m.isLaunchStale(launchGen) {
+		m.stateMu.Unlock()
+		m.cleanupChromium()
+		return nil
+	}
+	m.activeSignature = sig
+	m.stateMu.Unlock()
 	return nil
 }
 
 func (m *Manager) tryReuseWindow(targetSig string) bool {
 	if currSig := m.getActiveSignature(); currSig != "" && currSig != targetSig {
-		m.Cleanup()
+		m.cleanupSessions()
 		return false
 	}
 	return m.tryWakeCachedWindow()
@@ -336,10 +386,15 @@ func (m *Manager) setActiveSignature(sig string) {
 	m.stateMu.Unlock()
 }
 
-func (m *Manager) Cleanup() {
+func (m *Manager) cleanupSessions() {
 	m.cleanupWebView2()
 	m.cleanupChromium()
 	m.setActiveSignature("")
+}
+
+func (m *Manager) Cleanup() {
+	m.cleanupGen.Add(1)
+	m.cleanupSessions()
 }
 
 func (m *Manager) UpdateTheme(isDark bool) {
@@ -424,7 +479,7 @@ func (m *Manager) tryWakeCachedWindow() bool {
 	}
 
 	if !sys.IsWindowVisible(hwnd) || sys.IsWindowHung(hwnd) {
-		m.Cleanup()
+		m.cleanupSessions()
 		return false
 	}
 
