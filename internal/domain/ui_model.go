@@ -30,17 +30,18 @@ type ControllerSettings struct {
 // ================= UI Action Protocol =================
 const (
 	// 配置管理操作
-	ActionOpenProfileManager  = "OpenProfileManager"
-	ActionRequestAddLocal     = "RequestAddLocalProfile"
-	ActionRequestAddRemote    = "RequestAddRemoteProfile"
-	ActionEditProfileInfo     = "EditProfileInfo"
-	ActionUpdateRemoteProfile = "UpdateRemoteProfile"
-	ActionSwitchProfile       = "SwitchProfile"
-	ActionRemoveProfile       = "RemoveProfile"
-	ActionMoveProfileUp       = "MoveProfileUp"
-	ActionMoveProfileDown     = "MoveProfileDown"
-	ActionOpenConfigFile      = "OpenConfigFile"
-	ActionEditCurrentConfig   = "EditCurrentConfig"
+	ActionOpenProfileManager      = "OpenProfileManager"
+	ActionRequestAddLocal         = "RequestAddLocalProfile"
+	ActionRequestAddRemote        = "RequestAddRemoteProfile"
+	ActionEditProfileInfo         = "EditProfileInfo"
+	ActionUpdateRemoteProfile     = "UpdateRemoteProfile"
+	ActionUpdateAllRemoteProfiles = "UpdateAllRemoteProfiles"
+	ActionSwitchProfile           = "SwitchProfile"
+	ActionRemoveProfile           = "RemoveProfile"
+	ActionMoveProfileUp           = "MoveProfileUp"
+	ActionMoveProfileDown         = "MoveProfileDown"
+	ActionOpenConfigFile          = "OpenConfigFile"
+	ActionEditCurrentConfig       = "EditCurrentConfig"
 
 	// 弹窗编辑器请求
 	ActionRequestEditPort       = "RequestEditPort"
@@ -80,20 +81,21 @@ type UIProfileItem struct {
 }
 
 type UIState struct {
-	IconState    IconState
-	IsBusy       bool
-	IsTun        bool
-	IsProxy      bool
-	Mode         string
-	SystemTheme  Theme
-	AutoStart    bool
-	IsAdmin      bool
-	RunAsAdmin   bool
-	WebOpenMode  string
-	RemoteWebUI  bool
-	AllowLan     bool
-	ProfileItems []UIProfileItem
-	MixedPort    int
-	SocksPort    int
-	HttpPort     int
+	IconState          IconState
+	IsBusy             bool
+	IsUpdatingProfiles bool
+	IsTun              bool
+	IsProxy            bool
+	Mode               string
+	SystemTheme        Theme
+	AutoStart          bool
+	IsAdmin            bool
+	RunAsAdmin         bool
+	WebOpenMode        string
+	RemoteWebUI        bool
+	AllowLan           bool
+	ProfileItems       []UIProfileItem
+	MixedPort          int
+	SocksPort          int
+	HttpPort           int
 }
