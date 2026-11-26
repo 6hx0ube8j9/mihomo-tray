@@ -369,16 +369,6 @@ func (km *KernelManager) HaltDaemon() {
 	km.KillCurrent()
 }
 
-func (km *KernelManager) WakeDaemon() {
-	km.mu.Lock()
-	km.isPaused = false
-	km.mu.Unlock()
-	select {
-	case km.wakeCh <- struct{}{}:
-	default:
-	}
-}
-
 func (km *KernelManager) IsPaused() bool {
 	km.mu.Lock()
 	defer km.mu.Unlock()
