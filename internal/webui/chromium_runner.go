@@ -68,17 +68,20 @@ func (m *Manager) cleanupChromium() {
 	}
 }
 
-func (m *Manager) launchChromiumApp(cfg Config, cacheRoot, browserPath, dataDirName, finalURL, appHostPort string) error {
+func (m *Manager) launchChromiumApp(cfg Config, cacheRoot, browserPath, dataDirName, finalURL, appHostPort string, launchGen uint64) error {
 	if browserPath == "" || dataDirName == "" {
 		return errors.New("未找到可用浏览器")
 	}
+	if m.isLaunchStale(launchGen) {
+		return errLaunchAborted
+	}
 
 	safeDebugPort := m.prepareDebugPort()
-	if m.tryAttachExistingWindow(safeDebugPort, appHostPort) {
+	if m.tryAttachExistingWindow(safeDebugPort, appHostPort, launchGen) {
 		return nil
 	}
 
-	return m.startBrowserProcess(cfg, cacheRoot, browserPath, dataDirName, finalURL, safeDebugPort, appHostPort)
+	return m.startBrowserProcess(cfg, cacheRoot, browserPath, dataDirName, finalURL, safeDebugPort, appHostPort, launchGen)
 }
 
 func (m *Manager) prepareDebugPort() string {
@@ -100,8 +103,8 @@ func (m *Manager) prepareDebugPort() string {
 	return m.debugPort
 }
 
-func (m *Manager) tryAttachExistingWindow(debugPort, appHostPort string) bool {
-	if sys.FindTCPListenerPID(debugPort) == 0 {
+func (m *Manager) tryAttachExistingWindow(debugPort, appHostPort string, launchGen uint64) bool {
+	if m.isLaunchStale(launchGen) || sys.FindTCPListenerPID(debugPort) == 0 {
 		return false
 	}
 
@@ -111,10 +114,14 @@ func (m *Manager) tryAttachExistingWindow(debugPort, appHostPort string) bool {
 	}
 	_ = activateCDPTarget(debugPort, targetID)
 
-	return m.waitForWindow(debugPort, appHostPort, targetTitle, m.isolatedPID.Load(), nil) == nil
+	return m.waitForWindow(debugPort, appHostPort, targetTitle, m.isolatedPID.Load(), nil, launchGen) == nil
 }
 
-func (m *Manager) startBrowserProcess(cfg Config, cacheRoot, browserPath, dataDirName, finalURL, debugPort, appHostPort string) error {
+func (m *Manager) startBrowserProcess(cfg Config, cacheRoot, browserPath, dataDirName, finalURL, debugPort, appHostPort string, launchGen uint64) error {
+	if m.isLaunchStale(launchGen) {
+		return errLaunchAborted
+	}
+
 	userDataDir := filepath.Join(cacheRoot, dataDirName)
 	if err := os.MkdirAll(userDataDir, 0755); err != nil {
 		return fmt.Errorf("创建浏览器缓存目录失败: %w", err)
@@ -139,7 +146,7 @@ func (m *Manager) startBrowserProcess(cfg Config, cacheRoot, browserPath, dataDi
 		exitCh <- cmd.Wait()
 	}()
 
-	err := m.waitForWindow(debugPort, appHostPort, "", mainPID, exitCh)
+	err := m.waitForWindow(debugPort, appHostPort, "", mainPID, exitCh, launchGen)
 	if err == nil {
 		return nil
 	}
@@ -163,7 +170,7 @@ func (m *Manager) startBrowserProcess(cfg Config, cacheRoot, browserPath, dataDi
 	return err
 }
 
-func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, mainPID uint32, exitCh <-chan error) error {
+func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, mainPID uint32, exitCh <-chan error, launchGen uint64) error {
 	browserPID := mainPID
 	pidResolved := false
 	var activatedTargetID string
@@ -190,6 +197,10 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 			return fmt.Errorf("等待浏览器窗口超时 (%s)", chromiumInitTimeout)
 
 		case <-ticker.C:
+			if m.isLaunchStale(launchGen) {
+				return errLaunchAborted
+			}
+
 			if !pidResolved {
 				if livePID := sys.FindTCPListenerPID(debugPort); livePID != 0 {
 					browserPID = livePID
