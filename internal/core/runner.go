@@ -141,7 +141,7 @@ func (r *ProcessRunner) Wait(ctx context.Context) error {
 	close(waitDone)
 
 	if errors.Is(err, exec.ErrWaitDelay) && cmd.ProcessState != nil && cmd.ProcessState.ExitCode() == 0 {
-		slog.Info("检测到内核自行退出或完成升级，准备重新接管")
+		slog.Info("内核已退出，准备重新接管")
 		return nil
 	}
 
@@ -205,10 +205,6 @@ func (r *ProcessRunner) Kill() {
 	} else {
 		time.Sleep(100 * time.Millisecond)
 	}
-}
-
-func (r *ProcessRunner) Pid() uint32 {
-	return r.currentPid.Load()
 }
 
 func (r *ProcessRunner) IsRunning() bool {
