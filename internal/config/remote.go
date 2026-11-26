@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -19,7 +20,14 @@ import (
 // debugLogFullURL controls whether to log unredacted subscription URLs with sensitive tokens for debugging.
 const debugLogFullURL = false
 
-const RemoteFetchTimeout = 90 * time.Second
+const (
+	RemoteFetchTimeout     = 20 * time.Second
+	proxyFetchTimeout      = 15 * time.Second
+	remoteRetryInterval    = 1 * time.Second
+	proxyMaxAttempts       = 2
+	directMaxAttempts      = 3
+	directFallbackAttempts = 2
+)
 
 var ErrRemoteHTML = errors.New("订阅返回内容为 HTML 网页")
 
@@ -30,6 +38,13 @@ type RemoteStatusError struct {
 func (e *RemoteStatusError) Error() string {
 	return fmt.Sprintf("订阅服务器返回 HTTP %d", e.StatusCode)
 }
+
+type nonFallbackError struct {
+	err error
+}
+
+func (e *nonFallbackError) Error() string { return e.err.Error() }
+func (e *nonFallbackError) Unwrap() error { return e.err }
 
 func sanitizeURL(rawURL string) string {
 	if debugLogFullURL {
@@ -55,39 +70,101 @@ func sanitizeNetError(err error) error {
 	return err
 }
 
+func isTimeoutError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+func shouldFallbackToDirect(ctx context.Context, err error) bool {
+	if err == nil || ctx.Err() != nil {
+		return false
+	}
+
+	var nfErr *nonFallbackError
+	if errors.As(err, &nfErr) {
+		return false
+	}
+
+	var statusErr *RemoteStatusError
+	if errors.As(err, &statusErr) {
+		return statusErr.StatusCode >= 500 ||
+			statusErr.StatusCode == http.StatusForbidden ||
+			statusErr.StatusCode == http.StatusProxyAuthRequired
+	}
+
+	return true
+}
+
 func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPort string) (*domain.FetchResult, error) {
 	subURL = strings.TrimSpace(subURL)
+	proxyPort = strings.TrimSpace(proxyPort)
+
+	if proxyPort != "" {
+		if proxyURL, err := url.Parse("http://127.0.0.1:" + proxyPort); err == nil {
+			res, proxyErr := m.fetchWithProxy(ctx, subURL, http.ProxyURL(proxyURL), proxyFetchTimeout, proxyMaxAttempts, true)
+			if proxyErr == nil {
+				return res, nil
+			}
+			if !shouldFallbackToDirect(ctx, proxyErr) {
+				return nil, proxyErr
+			}
+
+			slog.Warn("代理拉取订阅失败，尝试直连", "url", sanitizeURL(subURL), "err", proxyErr)
+
+			directRes, directErr := m.fetchWithProxy(ctx, subURL, nil, RemoteFetchTimeout, directFallbackAttempts, false)
+			if directErr == nil {
+				slog.Info("订阅已通过直连拉取成功", "url", sanitizeURL(subURL))
+				return directRes, nil
+			}
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+
+			return nil, fmt.Errorf("代理与直连拉取均失败 (代理: %v): %w", proxyErr, directErr)
+		}
+		slog.Warn("代理端口无效，改用直连", "port", proxyPort)
+	}
+
+	return m.fetchWithProxy(ctx, subURL, http.ProxyFromEnvironment, RemoteFetchTimeout, directMaxAttempts, false)
+}
+
+func (m *Manager) fetchWithProxy(
+	ctx context.Context,
+	subURL string,
+	proxyFunc func(*http.Request) (*url.URL, error),
+	timeout time.Duration,
+	maxAttempts int,
+	stopOnTimeout bool,
+) (*domain.FetchResult, error) {
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	defer transport.CloseIdleConnections()
-
-	if proxyPort != "" {
-		if u, err := url.Parse("http://127.0.0.1:" + proxyPort); err == nil {
-			transport.Proxy = http.ProxyURL(u)
-		} else {
-			slog.Warn("代理端口无效，使用系统代理", "port", proxyPort)
-		}
-	} else {
-		transport.Proxy = http.ProxyFromEnvironment
-	}
+	transport.Proxy = proxyFunc
 
 	client := &http.Client{
-		Timeout:   RemoteFetchTimeout,
+		Timeout:   timeout,
 		Transport: transport,
 	}
 
 	var resp *http.Response
 	var reqErr error
-	const maxRetries = 3
+	attempts := 0
 
-	for i := 0; i < maxRetries; i++ {
+	for i := 0; i < maxAttempts; i++ {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		attempts = i + 1
 
-		req, err := http.NewRequestWithContext(ctx, "GET", subURL, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, subURL, nil)
 		if err != nil {
-			return nil, fmt.Errorf("无效的订阅链接: %w", sanitizeNetError(err))
+			return nil, &nonFallbackError{err: fmt.Errorf("无效的订阅链接: %w", sanitizeNetError(err))}
 		}
 
 		req.Header.Set("User-Agent", domain.DefaultUserAgent)
@@ -105,12 +182,19 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 			break
 		}
 
-		if i < maxRetries-1 {
+		if stopOnTimeout && reqErr != nil && isTimeoutError(reqErr) {
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			break
+		}
+
+		if i < maxAttempts-1 {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
 			}
 
-			timer := time.NewTimer(1500 * time.Millisecond)
+			timer := time.NewTimer(remoteRetryInterval)
 			select {
 			case <-ctx.Done():
 				timer.Stop()
@@ -121,7 +205,7 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 	}
 
 	if reqErr != nil {
-		return nil, fmt.Errorf("请求订阅失败 (%d次重试): %w", maxRetries, sanitizeNetError(reqErr))
+		return nil, fmt.Errorf("请求订阅失败 (尝试%d次): %w", attempts, sanitizeNetError(reqErr))
 	}
 	defer resp.Body.Close()
 
@@ -136,7 +220,7 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 
 	tmpName, err := fs.SaveTempWithLimit(m.ProfilesDirAbs(), "sub_*.tmp", resp.Body, domain.MaxProfileBytes)
 	if err != nil {
-		return nil, fmt.Errorf("保存临时文件失败: %w", err)
+		return nil, &nonFallbackError{err: fmt.Errorf("保存临时文件失败: %w", err)}
 	}
 
 	res := &domain.FetchResult{TempPath: tmpName}
