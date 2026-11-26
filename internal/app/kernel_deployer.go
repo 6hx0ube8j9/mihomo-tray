@@ -122,8 +122,11 @@ func (d *KernelDeployer) DeployAndApply(ctx context.Context, targetRelPath, acti
 			return nil
 		}
 
-		var apiErr *core.APIError
-		if errors.As(reloadErr, &apiErr) || errors.Is(reloadErr, context.Canceled) || ctx.Err() != nil {
+        var apiErr *core.APIError
+		if errors.As(reloadErr, &apiErr) ||
+			errors.Is(reloadErr, context.Canceled) ||
+			errors.Is(reloadErr, context.DeadlineExceeded) ||
+			ctx.Err() != nil {
 			return reloadErr
 		}
 
