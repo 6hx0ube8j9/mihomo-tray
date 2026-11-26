@@ -26,7 +26,10 @@ var shortCircuitKeywords = []string{
 	"pulling",
 }
 
-var ErrValidationTimeout = errors.New("配置校验超时")
+var (
+	ErrValidationTimeout   = errors.New("配置校验超时")
+	ErrValidationPreempted = errors.New("配置校验已中止")
+)
 
 type validationProc struct {
 	cmd  *exec.Cmd
@@ -89,6 +92,17 @@ func (v *Validator) Invalidate() {
 }
 
 func (v *Validator) Validate(ctx context.Context, exePath, workDir string, yamlBytes []byte) error {
+	return v.validate(ctx, exePath, workDir, yamlBytes, foregroundValidationTimeout, true)
+}
+
+func (v *Validator) ValidateFull(ctx context.Context, exePath, workDir string, yamlBytes []byte, timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = foregroundValidationTimeout
+	}
+	return v.validate(ctx, exePath, workDir, yamlBytes, timeout, false)
+}
+
+func (v *Validator) validate(ctx context.Context, exePath, workDir string, yamlBytes []byte, timeout time.Duration, allowShortCircuit bool) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -184,8 +198,11 @@ func (v *Validator) Validate(ctx context.Context, exePath, workDir string, yamlB
 		<-prev.done
 	}
 
-	shortCircuitCh := make(chan struct{})
+	var shortCircuitCh chan struct{}
 	var shortCircuitOnce sync.Once
+	if allowShortCircuit {
+		shortCircuitCh = make(chan struct{})
+	}
 
 	errCh := make(chan error, 1)
 	var lastErrorMsg string
@@ -201,6 +218,10 @@ func (v *Validator) Validate(ctx context.Context, exePath, workDir string, yamlB
 				msgMu.Lock()
 				lastErrorMsg = errMsg
 				msgMu.Unlock()
+				continue
+			}
+
+			if shortCircuitCh == nil {
 				continue
 			}
 
@@ -249,6 +270,11 @@ func (v *Validator) Validate(ctx context.Context, exePath, workDir string, yamlB
 		}
 		v.mu.Unlock()
 
+		if !stillActive {
+			errCh <- ErrValidationPreempted
+			return
+		}
+
 		msgMu.Lock()
 		errMsg := lastErrorMsg
 		msgMu.Unlock()
@@ -264,7 +290,7 @@ func (v *Validator) Validate(ctx context.Context, exePath, workDir string, yamlB
 		}
 	}()
 
-	timer := time.NewTimer(foregroundValidationTimeout)
+	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 
 	select {
