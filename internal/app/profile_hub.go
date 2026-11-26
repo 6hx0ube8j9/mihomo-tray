@@ -16,10 +16,25 @@ import (
 	"mihomo-tray/internal/domain"
 )
 
+const maxConcurrentProfileUpdates = 3
+
 var (
 	ErrProfileUpdating = errors.New("订阅正在更新中，请稍候")
 	errProfileTooLarge = fmt.Errorf("文件大小超出限制 (%d MB)", domain.MaxProfileBytes/(1024*1024))
 )
+
+type ProfileUpdateFailure struct {
+	Path string
+	Err  error
+}
+
+type BatchUpdateResult struct {
+	Total         int
+	Succeeded     int
+	Skipped       int
+	ActiveUpdated string
+	Failures      []ProfileUpdateFailure
+}
 
 type ProfileHub struct {
 	cfg       *config.Manager
@@ -154,6 +169,77 @@ func (h *ProfileHub) UpdateRemote(ctx context.Context, targetRelPath string) err
 
 	slog.Info("更新远程订阅成功", "path", targetRelPath)
 	return nil
+}
+
+func (h *ProfileHub) UpdateAllRemote(ctx context.Context, onEachSuccess func()) BatchUpdateResult {
+	var targets []string
+	for _, p := range h.cfg.GetProfiles() {
+		if strings.TrimSpace(p.URL) != "" {
+			targets = append(targets, p.Path)
+		}
+	}
+
+	res := BatchUpdateResult{Total: len(targets)}
+	if len(targets) == 0 {
+		return res
+	}
+
+	sem := make(chan struct{}, maxConcurrentProfileUpdates)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+dispatchLoop:
+	for _, targetPath := range targets {
+		select {
+		case <-ctx.Done():
+			break dispatchLoop
+		case sem <- struct{}{}:
+		}
+
+		wg.Add(1)
+		go func(relPath string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			defer func() {
+				if r := recover(); r != nil {
+					panicErr := fmt.Errorf("panic: %v", r)
+					mu.Lock()
+					res.Failures = append(res.Failures, ProfileUpdateFailure{Path: relPath, Err: panicErr})
+					mu.Unlock()
+				}
+			}()
+
+			err := h.UpdateRemote(ctx, relPath)
+			if err == nil {
+				mu.Lock()
+				res.Succeeded++
+				if h.cfg.GetActivePath() == relPath {
+					res.ActiveUpdated = relPath
+				}
+				mu.Unlock()
+
+				if onEachSuccess != nil {
+					onEachSuccess()
+				}
+				return
+			}
+
+			if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+				return
+			}
+
+			mu.Lock()
+			if errors.Is(err, ErrProfileUpdating) || errors.Is(err, config.ErrProfileNotFound) {
+				res.Skipped++
+			} else {
+				res.Failures = append(res.Failures, ProfileUpdateFailure{Path: relPath, Err: err})
+			}
+			mu.Unlock()
+		}(targetPath)
+	}
+
+	wg.Wait()
+	return res
 }
 
 func (h *ProfileHub) EditRemote(ctx context.Context, oldPath, newName, newURL string, newInterval int) (urlChanged bool, err error) {
