@@ -31,9 +31,10 @@ func NewPresenter(cfg *config.Manager, st *state.RuntimeState, platform *Platfor
 
 func (p *Presenter) calculateUIStateLocked() domain.UIState {
 	cfg := p.cfg.GetConfig()
+	isBusy, pendingPath := p.st.ActionVisualState()
 
 	s := domain.UIState{
-		IsBusy:      p.st.IsActionBusy(),
+		IsBusy:      isBusy,
 		IsTun:       cfg.Config.Tun.Enable,
 		IsProxy:     cfg.IsSystemProxyEnabled(),
 		Mode:        cfg.Config.Mode,
@@ -50,17 +51,21 @@ func (p *Presenter) calculateUIStateLocked() domain.UIState {
 		HttpPort:  cfg.EffectivePort(),
 	}
 
-	activePath := cfg.Profiles.Active
-	profiles := cfg.Profiles.Items
+	displayActive := cfg.Profiles.Active
+	if pendingPath != "" {
+		displayActive = pendingPath
+	}
 
+	profiles := cfg.Profiles.Items
 	s.ProfileItems = make([]domain.UIProfileItem, 0, len(profiles))
 	for _, prof := range profiles {
 		item := domain.UIProfileItem{
-			Name:     domain.TruncateMiddle(prof.Name),
-			Path:     prof.Path,
-			IsActive: prof.Path == activePath && activePath != "",
-			IsRemote: prof.URL != "",
-			Interval: prof.Interval,
+			Name:      domain.TruncateMiddle(prof.Name),
+			Path:      prof.Path,
+			IsActive:  prof.Path == displayActive && displayActive != "",
+			IsPending: pendingPath != "" && prof.Path == pendingPath,
+			IsRemote:  prof.URL != "",
+			Interval:  prof.Interval,
 		}
 
 		if item.IsRemote {
@@ -74,7 +79,7 @@ func (p *Presenter) calculateUIStateLocked() domain.UIState {
 		return s
 	}
 
-	if p.st.IsActionBusy() {
+	if isBusy {
 		s.IconState = p.lastUIState.IconState
 		return s
 	}
