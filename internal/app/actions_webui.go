@@ -24,56 +24,67 @@ func (a *Application) handleRequestEditController(ctx context.Context, _ domain.
 			return
 		}
 
-		cur := a.Cfg.GetConfig().ControllerSettings()
-		next, ok := a.ui.ShowControllerEditor(cur)
+		initial := a.Cfg.GetConfig().ControllerSettings()
+		next, ok := a.ui.ShowControllerEditor(initial)
 		if !ok {
 			return
 		}
 
+		next.WebOpenMode = domain.NormalizeWebOpenMode(next.WebOpenMode)
+		next.CustomBrowserPath = strings.TrimSpace(next.CustomBrowserPath)
+
+		applyAppPrefs := func(c *domain.TrayConfig) {
+			online := next.RemoteWebUI
+			remoteURL := next.RemoteWebUIURL
+			openMode := next.WebOpenMode
+			customEnabled := next.CustomBrowserEnabled
+			customPath := next.CustomBrowserPath
+
+			c.General.RemoteWebUI = &online
+			c.General.RemoteWebUIURL = &remoteURL
+			c.General.WebOpenMode = &openMode
+			c.General.CustomBrowserEnabled = &customEnabled
+			c.General.CustomBrowserPath = &customPath
+		}
+
+		cur := a.Cfg.GetConfig().ControllerSettings()
+		coreChanged := (cur.Addr != next.Addr) || (cur.Secret != next.Secret)
+		appChanged := (cur.RemoteWebUI != next.RemoteWebUI) ||
+			(cur.RemoteWebUIURL != next.RemoteWebUIURL) ||
+			(cur.WebOpenMode != next.WebOpenMode) ||
+			(cur.CustomBrowserEnabled != next.CustomBrowserEnabled) ||
+			(cur.CustomBrowserPath != next.CustomBrowserPath)
+
+		if !coreChanged && !appChanged {
+			return
+		}
+
+		if !coreChanged {
+			a.Cfg.Update(applyAppPrefs)
+			a.Presenter.PushUIState()
+			a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
+			return
+		}
+
 		a.runExclusiveAction(state.ActionRestart, "面板设置", func() error {
-			coreChanged := (cur.Addr != next.Addr) || (cur.Secret != next.Secret)
-			appChanged := (cur.RemoteWebUI != next.RemoteWebUI) ||
-				(cur.RemoteWebUIURL != next.RemoteWebUIURL) ||
-				(cur.WebOpenMode != next.WebOpenMode) ||
-				(cur.CustomBrowserEnabled != next.CustomBrowserEnabled) ||
-				(cur.CustomBrowserPath != next.CustomBrowserPath)
+			prev := a.Cfg.GetConfig().ControllerSettings()
+			needRestart := (prev.Addr != next.Addr) || (prev.Secret != next.Secret)
 
-			if !coreChanged && !appChanged {
-				return nil
-			}
-
-			var prevAddr string
-			var prevSecret *string
 			a.Cfg.Update(func(c *domain.TrayConfig) {
-				if coreChanged {
-					prevAddr = c.Config.ExternalController
-					if c.Config.Secret != nil {
-						s := *c.Config.Secret
-						prevSecret = &s
-					}
+				if needRestart {
 					c.Config.ExternalController = next.Addr
 					sec := next.Secret
 					c.Config.Secret = &sec
 				}
-
-				online := next.RemoteWebUI
-				remoteURL := next.RemoteWebUIURL
-				openMode := domain.NormalizeWebOpenMode(next.WebOpenMode)
-				customEnabled := next.CustomBrowserEnabled
-				customPath := strings.TrimSpace(next.CustomBrowserPath)
-
-				c.General.RemoteWebUI = &online
-				c.General.RemoteWebUIURL = &remoteURL
-				c.General.WebOpenMode = &openMode
-				c.General.CustomBrowserEnabled = &customEnabled
-				c.General.CustomBrowserPath = &customPath
+				applyAppPrefs(c)
 			})
 
-			if coreChanged {
+			if needRestart {
 				if err := a.KernelDeployer.RestartKernel(ctx); err != nil {
 					a.Cfg.Update(func(c *domain.TrayConfig) {
-						c.Config.ExternalController = prevAddr
-						c.Config.Secret = prevSecret
+						c.Config.ExternalController = prev.Addr
+						sec := prev.Secret
+						c.Config.Secret = &sec
 					})
 					return err
 				}
