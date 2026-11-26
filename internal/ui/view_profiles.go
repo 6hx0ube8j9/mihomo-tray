@@ -19,16 +19,18 @@ type ProfileView struct {
 	btnEditPort       *walk.PushButton
 	btnEditController *walk.PushButton
 
-	actionSwitch   *walk.Action
-	actionEditText *walk.Action
-	actionEditInfo *walk.Action
-	actionUpdate   *walk.Action
-	actionDelete   *walk.Action
-	actionMoveUp   *walk.Action
-	actionMoveDown *walk.Action
-	btnMoveUp      *walk.PushButton
-	btnMoveDown    *walk.PushButton
-	isBusy         bool
+	actionSwitch       *walk.Action
+	actionEditText     *walk.Action
+	actionEditInfo     *walk.Action
+	actionUpdate       *walk.Action
+	actionDelete       *walk.Action
+	actionMoveUp       *walk.Action
+	actionMoveDown     *walk.Action
+	btnMoveUp          *walk.PushButton
+	btnMoveDown        *walk.PushButton
+	btnUpdateAll       *walk.PushButton
+	isBusy             bool
+	isUpdatingProfiles bool
 }
 
 type ProfileModel struct {
@@ -127,6 +129,13 @@ func (v *ProfileView) Declarative() []Widget {
 							MinSize:   Size{Width: 90},
 							OnClicked: func() { sendWithSelected(domain.ActionMoveProfileDown) },
 						},
+						PushButton{
+							AssignTo:  &v.btnUpdateAll,
+							Text:      "更新全部",
+							Enabled:   false,
+							MinSize:   Size{Width: 90},
+							OnClicked: func() { v.engine.SendCommand(domain.ActionUpdateAllRemoteProfiles, "") },
+						},
 						VSpacer{},
 					},
 				},
@@ -137,6 +146,7 @@ func (v *ProfileView) Declarative() []Widget {
 
 func (v *ProfileView) RefreshData(state domain.UIState) {
 	v.isBusy = state.IsBusy
+	v.isUpdatingProfiles = state.IsUpdatingProfiles
 
 	v.updatePortsLabel(state)
 	v.renderTableItems(state.ProfileItems)
@@ -218,6 +228,25 @@ func (v *ProfileView) updateActionState() {
 		v.btnEditController.SetEnabled(!v.isBusy)
 	}
 
+	hasRemote := false
+	for _, item := range v.model.Items {
+		if item.IsRemote {
+			hasRemote = true
+			break
+		}
+	}
+
+	if v.btnUpdateAll != nil {
+		btnText := "更新全部"
+		if v.isUpdatingProfiles {
+			btnText = "更新中..."
+		}
+		if v.btnUpdateAll.Text() != btnText {
+			_ = v.btnUpdateAll.SetText(btnText)
+		}
+		v.btnUpdateAll.SetEnabled(hasRemote && !v.isBusy && !v.isUpdatingProfiles)
+	}
+
 	if v.tableView == nil || v.actionSwitch == nil {
 		return
 	}
@@ -229,7 +258,7 @@ func (v *ProfileView) updateActionState() {
 	if hasSelection && !v.isBusy {
 		item := v.model.Items[idx]
 		canSwitch = !item.IsActive
-		canUpdate = item.IsRemote
+		canUpdate = item.IsRemote && !v.isUpdatingProfiles
 		canMoveUp = idx > 0
 		canMoveDown = idx < len(v.model.Items)-1
 	}
