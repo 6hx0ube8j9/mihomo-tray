@@ -11,7 +11,10 @@ import (
 	"mihomo-tray/internal/webui"
 )
 
-const defaultErrorMessage = "操作未能完成，详情请查看日志"
+const (
+	defaultErrorMessage = "操作未能完成，详情请查看日志"
+	timeoutErrorMessage = "操作超时，缺少依赖文件或其他问题。"
+)
 
 var (
 	errKernelNotReady = errors.New("内核尚未就绪")
@@ -59,6 +62,9 @@ func userFacingMessage(err error) string {
 	var httpErr *config.RemoteStatusError
 	if errors.As(err, &httpErr) {
 		return httpErr.Error()
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return timeoutErrorMessage
 	}
 
 	for _, target := range userVisibleErrors {
