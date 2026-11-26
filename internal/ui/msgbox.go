@@ -22,7 +22,7 @@ type cbtHookContext struct {
 
 var (
 	cbtHookMu      sync.Mutex
-	cbtHookMap     = make(map[uint32]*cbtHookContext)
+	cbtHookMap     = make(map[uint32][]*cbtHookContext)
 	cbtOnce        sync.Once
 	globalCallback uintptr
 )
@@ -37,7 +37,10 @@ func cbtHookProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 	tid := win.GetCurrentThreadId()
 
 	cbtHookMu.Lock()
-	ctx := cbtHookMap[tid]
+	var ctx *cbtHookContext
+	if stack := cbtHookMap[tid]; len(stack) > 0 {
+		ctx = stack[len(stack)-1]
+	}
 	cbtHookMu.Unlock()
 
 	if ctx != nil && nCode == hcbtActivate && !ctx.centered {
@@ -86,12 +89,23 @@ func ShowNativeMsgBox(owner walk.Form, title, message string, style walk.MsgBoxS
 	}
 
 	cbtHookMu.Lock()
-	cbtHookMap[tid] = ctx
+	cbtHookMap[tid] = append(cbtHookMap[tid], ctx)
 	cbtHookMu.Unlock()
 
 	defer func() {
 		cbtHookMu.Lock()
-		delete(cbtHookMap, tid)
+		stack := cbtHookMap[tid]
+		for i := len(stack) - 1; i >= 0; i-- {
+			if stack[i] == ctx {
+				stack = append(stack[:i], stack[i+1:]...)
+				break
+			}
+		}
+		if len(stack) == 0 {
+			delete(cbtHookMap, tid)
+		} else {
+			cbtHookMap[tid] = stack
+		}
 		cbtHookMu.Unlock()
 	}()
 
