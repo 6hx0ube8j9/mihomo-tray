@@ -6,7 +6,7 @@ import (
 
 	"github.com/tailscale/walk"
 
-	"mihomo-tray/internal/fs"
+	"mihomo-tray/internal/browser"
 	"mihomo-tray/internal/sys"
 )
 
@@ -40,7 +40,7 @@ func RunOpenBrowserExeDialog(owner walk.Form, currentPath string) (string, bool)
 	selected, ok, err := sys.OpenFileDialog(sys.FileDialogOptions{
 		OwnerHWND:  ownerWindowHandle(owner),
 		Title:      "选择文件",
-		InitialDir: fs.ResolveNearestDir(currentPath),
+		InitialDir: browser.ResolveNearestDir(currentPath),
 		Filters: []sys.FileFilter{
 			{Name: "可执行文件 (*.exe)", Spec: "*.exe"},
 			{Name: "所有文件 (*.*)", Spec: "*.*"},
