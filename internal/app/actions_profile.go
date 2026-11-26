@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/domain"
@@ -148,6 +150,62 @@ func (a *Application) handleUpdateRemoteProfile(ctx context.Context, cmd domain.
 		}
 		return true, nil
 	})
+}
+
+func (a *Application) handleUpdateAllRemoteProfiles(ctx context.Context, _ domain.UICommand) {
+	if !a.State.TryBeginProfileBatchUpdate() {
+		go a.notifyError("更新全部", ErrProfileUpdating)
+		return
+	}
+
+	a.Presenter.ForcePushUIState()
+
+	go func() {
+		ended := false
+		endBatch := func() {
+			if !ended {
+				ended = true
+				a.State.EndProfileBatchUpdate()
+				a.Presenter.ForcePushUIState()
+			}
+		}
+
+		defer func() {
+			endBatch()
+			if r := recover(); r != nil {
+				a.reportPanic("更新全部", r)
+			}
+		}()
+
+		res := a.ProfileHub.UpdateAllRemote(ctx, a.Presenter.ForcePushUIState)
+		endBatch()
+
+		if a.State.IsExiting() || ctx.Err() != nil || res.Total == 0 {
+			return
+		}
+
+		if res.ActiveUpdated != "" && a.Cfg.GetActivePath() == res.ActiveUpdated {
+			a.applyActiveProfileUpdate(ctx, res.ActiveUpdated, "应用订阅更新")
+		}
+
+		switch {
+		case len(res.Failures) == 0 && res.Succeeded > 0:
+			a.showNotice("更新全部", fmt.Sprintf("已更新 %d 个订阅配置", res.Succeeded))
+		case len(res.Failures) == 0 && res.Skipped > 0:
+			a.notifyError("更新全部", ErrProfileUpdating)
+		case len(res.Failures) == 1 && res.Succeeded == 0:
+			a.notifyError("更新全部", res.Failures[0].Err)
+		case len(res.Failures) > 0:
+			for _, f := range res.Failures {
+				slog.Error("批量更新订阅失败", "path", f.Path, "err", f.Err)
+			}
+			if res.Succeeded > 0 {
+				a.showError("更新全部", fmt.Sprintf("成功 %d 个，失败 %d 个，详情请查看日志", res.Succeeded, len(res.Failures)))
+			} else {
+				a.showError("更新全部", fmt.Sprintf("%d 个订阅更新失败，详情请查看日志", len(res.Failures)))
+			}
+		}
+	}()
 }
 
 func (a *Application) handleSwitchProfile(ctx context.Context, cmd domain.UICommand) {
