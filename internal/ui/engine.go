@@ -286,10 +286,6 @@ func (e *Engine) ShowError(title, message string) {
 	e.showModalAsync("error", title, message, walk.MsgBoxOK|walk.MsgBoxIconError)
 }
 
-func (e *Engine) ShowInfo(title, message string) {
-	e.showModalAsync("info", title, message, walk.MsgBoxOK|walk.MsgBoxIconInformation)
-}
-
 func (e *Engine) showModalAsync(prefix, title, message string, style walk.MsgBoxStyle) {
 	if e.ctx.Err() != nil {
 		return
