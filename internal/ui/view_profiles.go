@@ -16,6 +16,9 @@ type ProfileView struct {
 	model      *ProfileModel
 	portsLabel *walk.Label
 
+	btnEditPort       *walk.PushButton
+	btnEditController *walk.PushButton
+
 	actionSwitch   *walk.Action
 	actionEditText *walk.Action
 	actionEditInfo *walk.Action
@@ -57,8 +60,16 @@ func (v *ProfileView) Declarative() []Widget {
 			Children: []Widget{
 				PushButton{Text: "添加远程订阅", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestAddRemote, "") }},
 				PushButton{Text: "导入本地配置", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestAddLocal, "") }},
-				PushButton{Text: "更改代理端口", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestEditPort, "") }},
-				PushButton{Text: "Web 面板设置", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestEditController, "") }},
+				PushButton{
+					AssignTo:  &v.btnEditPort,
+					Text:      "更改代理端口",
+					OnClicked: func() { v.engine.SendCommand(domain.ActionRequestEditPort, "") },
+				},
+				PushButton{
+					AssignTo:  &v.btnEditController,
+					Text:      "Web 面板设置",
+					OnClicked: func() { v.engine.SendCommand(domain.ActionRequestEditController, "") },
+				},
 				HSpacer{},
 				Label{
 					AssignTo: &v.portsLabel,
@@ -158,10 +169,8 @@ func (v *ProfileView) renderTableItems(items []domain.UIProfileItem) {
 
 func (v *ProfileView) fastUpdateTable(items []domain.UIProfileItem) {
 	for i := range items {
-		old := v.model.Items[i]
-		cur := items[i]
-		if old.IsActive != cur.IsActive || old.Interval != cur.Interval || old.LastUpdate != cur.LastUpdate || old.Name != cur.Name {
-			v.model.Items[i] = cur
+		if v.model.Items[i] != items[i] {
+			v.model.Items[i] = items[i]
 			v.model.PublishRowChanged(i)
 		}
 	}
@@ -202,6 +211,13 @@ func (v *ProfileView) isStructurallyEqual(oldItems, newItems []domain.UIProfileI
 }
 
 func (v *ProfileView) updateActionState() {
+	if v.btnEditPort != nil {
+		v.btnEditPort.SetEnabled(!v.isBusy)
+	}
+	if v.btnEditController != nil {
+		v.btnEditController.SetEnabled(!v.isBusy)
+	}
+
 	if v.tableView == nil || v.actionSwitch == nil {
 		return
 	}
@@ -242,6 +258,9 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	item := m.Items[row]
 	switch col {
 	case 0:
+		if item.IsPending {
+			return "切换中..."
+		}
 		if item.IsActive {
 			return "✔ 使用中"
 		}
