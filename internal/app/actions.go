@@ -93,6 +93,8 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		a.handleEditProfileInfo(ctx, cmd)
 	case domain.ActionUpdateRemoteProfile:
 		a.handleUpdateRemoteProfile(ctx, cmd)
+	case domain.ActionUpdateAllRemoteProfiles:
+		a.handleUpdateAllRemoteProfiles(ctx, cmd)
 	case domain.ActionSwitchProfile:
 		a.handleSwitchProfile(ctx, cmd)
 	case domain.ActionRemoveProfile:
