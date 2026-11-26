@@ -55,6 +55,17 @@ func (d *KernelDeployer) WriteMinimalConfig() error {
 	return d.commitRuntimeYAML(prep)
 }
 
+func (d *KernelDeployer) PrecheckProfile(ctx context.Context, targetRelPath string, timeout time.Duration) error {
+	prep, err := d.prepareYAML(targetRelPath)
+	if err != nil {
+		return err
+	}
+	if targetRelPath == "" {
+		return nil
+	}
+	return d.validator.ValidateFull(ctx, core.GetKernelPath(d.cfg.BaseDir()), d.cfg.BaseDir(), prep.YAML, timeout)
+}
+
 func (d *KernelDeployer) ReloadConfig(ctx context.Context) error {
 	if !d.IsKernelRunning() {
 		return errKernelNotReady
@@ -122,7 +133,7 @@ func (d *KernelDeployer) DeployAndApply(ctx context.Context, targetRelPath, acti
 			return nil
 		}
 
-        var apiErr *core.APIError
+		var apiErr *core.APIError
 		if errors.As(reloadErr, &apiErr) ||
 			errors.Is(reloadErr, context.Canceled) ||
 			errors.Is(reloadErr, context.DeadlineExceeded) ||
