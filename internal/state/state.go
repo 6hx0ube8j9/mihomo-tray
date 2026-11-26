@@ -45,6 +45,8 @@ type RuntimeState struct {
 	currentAction  KernelAction
 	pendingProfile string
 
+	updatingProfiles atomic.Bool
+
 	tunAlive    atomic.Bool
 	tunReqTime  atomic.Int64
 	tunLostTime atomic.Int64
@@ -106,6 +108,23 @@ func (r *RuntimeState) ActionVisualState() (isBusy bool, pendingProfile string) 
 	pendingProfile = r.pendingProfile
 	r.actionMu.RUnlock()
 	return isBusy, pendingProfile
+}
+
+// ---------------- 订阅批量更新状态 ----------------
+
+func (r *RuntimeState) TryBeginProfileBatchUpdate() bool {
+	if r.IsExiting() {
+		return false
+	}
+	return r.updatingProfiles.CompareAndSwap(false, true)
+}
+
+func (r *RuntimeState) EndProfileBatchUpdate() {
+	r.updatingProfiles.Store(false)
+}
+
+func (r *RuntimeState) IsProfileBatchUpdating() bool {
+	return r.updatingProfiles.Load()
 }
 
 // ---------------- 生命周期与阶段控制 ----------------
