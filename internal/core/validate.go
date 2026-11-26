@@ -84,13 +84,6 @@ func (v *Validator) MarkValid(yamlBytes []byte) {
 	v.mu.Unlock()
 }
 
-func (v *Validator) Invalidate() {
-	v.mu.Lock()
-	v.hasValidHash = false
-	v.lastValidHash = [sha256.Size]byte{}
-	v.mu.Unlock()
-}
-
 func (v *Validator) Validate(ctx context.Context, exePath, workDir string, yamlBytes []byte) error {
 	return v.validate(ctx, exePath, workDir, yamlBytes, foregroundValidationTimeout, true, true)
 }
@@ -342,9 +335,21 @@ func extractLogMsg(output string) string {
 	if _, after, ok := strings.Cut(output, "msg="); ok {
 		after = strings.TrimSpace(after)
 		if strings.HasPrefix(after, `"`) {
-			if msg, _, ok := strings.Cut(after[1:], `"`); ok {
-				return msg
+			escaped := false
+			for i := 1; i < len(after); i++ {
+				if escaped {
+					escaped = false
+					continue
+				}
+				if after[i] == '\\' {
+					escaped = true
+					continue
+				}
+				if after[i] == '"' {
+					return strings.ReplaceAll(after[1:i], `\"`, `"`)
+				}
 			}
+			return strings.Trim(after, `"`)
 		}
 		msg, _, _ := strings.Cut(after, "\n")
 		msg = strings.TrimRight(msg, "\r")
