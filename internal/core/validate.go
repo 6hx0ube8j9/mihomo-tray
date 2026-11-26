@@ -274,6 +274,8 @@ func (v *Validator) Validate(ctx context.Context, exePath, workDir string, yamlB
 		return ctx.Err()
 
 	case <-shortCircuitCh:
+		proc.terminate()
+		<-proc.done
 		return nil
 
 	case err := <-errCh:
