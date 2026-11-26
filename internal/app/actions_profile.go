@@ -2,8 +2,6 @@ package app
 
 import (
 	"context"
-	"strconv"
-	"strings"
 
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/domain"
@@ -19,7 +17,7 @@ func (a *Application) applyAndSyncRuntime(ctx context.Context, targetRelPath, ac
 	}
 
 	a.ProxyGuard.Sync()
-	a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
+	a.ForceSyncAPI()
 	return nil
 }
 
@@ -32,13 +30,27 @@ func (a *Application) applyActiveProfileUpdate(ctx context.Context, targetRelPat
 	})
 }
 
+func (a *Application) runRemoteProfileUpdate(ctx context.Context, targetPath, actionDesc string, updateFn func() (bool, error)) {
+	a.asyncRunError("更新订阅", func() error {
+		needReload, err := updateFn()
+		if err != nil {
+			return err
+		}
+		a.Presenter.PushUIState()
+		if needReload && a.Cfg.GetActivePath() == targetPath {
+			a.applyActiveProfileUpdate(ctx, targetPath, actionDesc)
+		}
+		return nil
+	})
+}
+
 func (a *Application) handleProfileAdded(ctx context.Context, targetRelPath string) {
 	if targetRelPath == "" {
 		return
 	}
 
 	if a.Cfg.GetActivePath() == "" {
-		a.runExclusiveAction(state.ActionSwitchProfile, "激活配置", func() error {
+		a.runExclusiveProfileAction(state.ActionSwitchProfile, "激活配置", targetRelPath, func() error {
 			if a.Cfg.GetActivePath() != "" {
 				return nil
 			}
@@ -118,16 +130,8 @@ func (a *Application) handleEditProfileInfo(ctx context.Context, cmd domain.UICo
 			return
 		}
 
-		a.asyncRunError("更新订阅", func() error {
-			urlChanged, err := a.ProfileHub.EditRemote(ctx, profile.Path, name, url, interval)
-			if err != nil {
-				return err
-			}
-			a.Presenter.PushUIState()
-			if urlChanged && a.Cfg.GetActivePath() == profile.Path {
-				a.applyActiveProfileUpdate(ctx, profile.Path, "应用订阅地址变更")
-			}
-			return nil
+		a.runRemoteProfileUpdate(ctx, profile.Path, "应用订阅地址变更", func() (bool, error) {
+			return a.ProfileHub.EditRemote(ctx, profile.Path, name, url, interval)
 		})
 	}(p)
 }
@@ -138,49 +142,33 @@ func (a *Application) handleUpdateRemoteProfile(ctx context.Context, cmd domain.
 		return
 	}
 
-	a.asyncRunError("更新订阅", func() error {
+	a.runRemoteProfileUpdate(ctx, p.Path, "应用订阅更新", func() (bool, error) {
 		if err := a.ProfileHub.UpdateRemote(ctx, p.Path); err != nil {
-			return err
+			return false, err
 		}
-		a.Presenter.PushUIState()
-		if a.Cfg.GetActivePath() == p.Path {
-			a.applyActiveProfileUpdate(ctx, p.Path, "应用订阅更新")
-		}
-		return nil
+		return true, nil
 	})
 }
 
-func (a *Application) handleSetProfileInterval(_ context.Context, cmd domain.UICommand) {
-	parts := strings.SplitN(cmd.Payload, "|", 2)
-	if len(parts) != 2 {
-		return
-	}
-	interval, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return
-	}
-
-	if p, ok := a.Cfg.GetProfileByPath(parts[0]); ok {
-		p.Interval = interval
-		p.AutoUpdate = interval > 0
-		a.Cfg.UpsertProfile(p)
-		a.Presenter.PushUIState()
-	}
-}
-
 func (a *Application) handleSwitchProfile(ctx context.Context, cmd domain.UICommand) {
-	a.runExclusiveAction(state.ActionSwitchProfile, "切换配置", func() error {
-		target := cmd.Payload
-		if target == "" {
-			return config.ErrProfilePathEmpty
-		}
+	target := cmd.Payload
+	if target == "" {
+		a.Presenter.ForcePushUIState()
+		go a.notifyError("切换配置", config.ErrProfilePathEmpty)
+		return
+	}
+	if a.Cfg.GetActivePath() == target {
+		a.Presenter.ForcePushUIState()
+		return
+	}
+
+	a.runExclusiveProfileAction(state.ActionSwitchProfile, "切换配置", target, func() error {
 		if a.Cfg.GetActivePath() == target {
 			return nil
 		}
 		if err := a.Cfg.ValidatePhysicalFile(target); err != nil {
 			return err
 		}
-
 		return a.applyAndSyncRuntime(ctx, target, "切换配置")
 	})
 }
