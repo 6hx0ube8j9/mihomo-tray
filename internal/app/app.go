@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	pollActiveInterval = 3 * time.Second
-	pollIdleInterval   = 10 * time.Second
-	pollIdleThreshold  = 30 * time.Second
+	pollActiveInterval        = 3 * time.Second
+	pollIdleInterval          = 10 * time.Second
+	pollIdleThreshold         = 30 * time.Second
+	backgroundPrecheckTimeout = 3 * time.Minute
 )
 
 type Application struct {
@@ -183,7 +184,40 @@ func (a *Application) FallbackToEmpty(ctx context.Context, reason string) {
 }
 
 func (a *Application) silentReloadActiveProfile(ctx context.Context, targetRelPath string) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("后台重载异常", "path", targetRelPath, "err", r)
+		}
+	}()
+
 	if a.State.IsExiting() || ctx.Err() != nil {
+		return
+	}
+	if a.Cfg.GetActivePath() != targetRelPath {
+		return
+	}
+	if !a.KernelDeployer.IsKernelRunning() {
+		slog.Info("内核未就绪，跳过后台重载", "path", targetRelPath)
+		return
+	}
+	if a.State.IsActionBusy() {
+		slog.Info("跳过后台重载，系统繁忙", "path", targetRelPath)
+		return
+	}
+
+	if err := a.KernelDeployer.PrecheckProfile(ctx, targetRelPath, backgroundPrecheckTimeout); err != nil {
+		if errors.Is(err, core.ErrValidationPreempted) || errors.Is(err, context.Canceled) || ctx.Err() != nil {
+			return
+		}
+		slog.Error("后台订阅预检失败", "path", targetRelPath, "err", err)
+		return
+	}
+
+	if a.State.IsExiting() || ctx.Err() != nil || a.Cfg.GetActivePath() != targetRelPath {
+		return
+	}
+	if !a.KernelDeployer.IsKernelRunning() {
+		slog.Info("内核未就绪，跳过后台重载", "path", targetRelPath)
 		return
 	}
 
@@ -196,9 +230,6 @@ func (a *Application) silentReloadActiveProfile(ctx context.Context, targetRelPa
 	defer func() {
 		a.State.EndAction()
 		a.Presenter.ForcePushUIState()
-		if r := recover(); r != nil {
-			slog.Error("后台重载异常", "path", targetRelPath, "err", r)
-		}
 	}()
 
 	if a.Cfg.GetActivePath() != targetRelPath {
