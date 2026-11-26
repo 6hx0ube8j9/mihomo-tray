@@ -1,6 +1,7 @@
 package state
 
 import (
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -38,8 +39,11 @@ func (a KernelAction) String() string {
 }
 
 type RuntimeState struct {
-	phase         atomic.Int32
-	currentAction atomic.Int32
+	phase atomic.Int32
+
+	actionMu       sync.RWMutex
+	currentAction  KernelAction
+	pendingProfile string
 
 	tunAlive    atomic.Bool
 	tunReqTime  atomic.Int64
@@ -63,18 +67,45 @@ func (r *RuntimeState) IsActionBusy() bool {
 }
 
 func (r *RuntimeState) TryBeginAction(action KernelAction) bool {
-	if r.IsExiting() {
+	return r.TryBeginProfileAction(action, "")
+}
+
+func (r *RuntimeState) TryBeginProfileAction(action KernelAction, pendingPath string) bool {
+	if r.IsExiting() || action == ActionNone {
 		return false
 	}
-	return r.currentAction.CompareAndSwap(int32(ActionNone), int32(action))
+
+	r.actionMu.Lock()
+	defer r.actionMu.Unlock()
+
+	if r.currentAction != ActionNone || r.IsExiting() {
+		return false
+	}
+	r.currentAction = action
+	r.pendingProfile = pendingPath
+	return true
 }
 
 func (r *RuntimeState) EndAction() {
-	r.currentAction.Store(int32(ActionNone))
+	r.actionMu.Lock()
+	r.pendingProfile = ""
+	r.currentAction = ActionNone
+	r.actionMu.Unlock()
 }
 
 func (r *RuntimeState) CurrentAction() KernelAction {
-	return KernelAction(r.currentAction.Load())
+	r.actionMu.RLock()
+	action := r.currentAction
+	r.actionMu.RUnlock()
+	return action
+}
+
+func (r *RuntimeState) ActionVisualState() (isBusy bool, pendingProfile string) {
+	r.actionMu.RLock()
+	isBusy = r.currentAction != ActionNone
+	pendingProfile = r.pendingProfile
+	r.actionMu.RUnlock()
+	return isBusy, pendingProfile
 }
 
 // ---------------- 生命周期与阶段控制 ----------------
