@@ -140,6 +140,14 @@ func (t *KernelTuner) ApplyPortConfig(ctx context.Context, mixed, socks, httpPor
 		return false, errInvalidPort
 	}
 
+	if !t.st.TryBeginAction(state.ActionSyncAPI) {
+		return false, errSystemBusy
+	}
+	defer func() {
+		t.st.EndAction()
+		t.triggerForceSync()
+	}()
+
 	cMixed, cSocks, cHttp := t.GetPortSnapshot()
 	if mixed == cMixed && socks == cSocks && httpPort == cHttp {
 		return false, nil
@@ -159,13 +167,16 @@ func (t *KernelTuner) ApplyPortConfig(ctx context.Context, mixed, socks, httpPor
 		return true, nil
 	}
 
-	err := t.syncAPI(ctx, func(reqCtx context.Context) error {
-		return t.api.UpdatePorts(reqCtx, mixed, socks, httpPort)
-	}, commit)
-	if err != nil {
-		return false, err
+	reqCtx, cancel := context.WithTimeout(ctx, apiSyncTimeout)
+	defer cancel()
+
+	if err := t.api.UpdatePorts(reqCtx, mixed, socks, httpPort); err != nil {
+		if ctx.Err() != nil || (!errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled)) {
+			return false, err
+		}
 	}
 
+	commit()
 	return true, nil
 }
 
