@@ -34,17 +34,18 @@ func (p *Presenter) calculateUIStateLocked() domain.UIState {
 	isBusy, pendingPath := p.st.ActionVisualState()
 
 	s := domain.UIState{
-		IsBusy:      isBusy,
-		IsTun:       cfg.Config.Tun.Enable,
-		IsProxy:     cfg.IsSystemProxyEnabled(),
-		Mode:        cfg.Config.Mode,
-		AutoStart:   cfg.IsAutostartEnabled(),
-		RunAsAdmin:  cfg.General.RunAsAdmin,
-		WebOpenMode: cfg.EffectiveWebOpenMode(),
-		RemoteWebUI: cfg.IsRemoteWebUIEnabled(),
-		AllowLan:    cfg.EffectiveAllowLan(),
-		IsAdmin:     p.platform.IsAdmin(),
-		SystemTheme: p.st.GetSystemTheme(),
+		IsBusy:             isBusy,
+		IsUpdatingProfiles: p.st.IsProfileBatchUpdating(),
+		IsTun:              cfg.Config.Tun.Enable,
+		IsProxy:            cfg.IsSystemProxyEnabled(),
+		Mode:               cfg.Config.Mode,
+		AutoStart:          cfg.IsAutostartEnabled(),
+		RunAsAdmin:         cfg.General.RunAsAdmin,
+		WebOpenMode:        cfg.EffectiveWebOpenMode(),
+		RemoteWebUI:        cfg.IsRemoteWebUIEnabled(),
+		AllowLan:           cfg.EffectiveAllowLan(),
+		IsAdmin:            p.platform.IsAdmin(),
+		SystemTheme:        p.st.GetSystemTheme(),
 
 		MixedPort: cfg.EffectiveMixedPort(),
 		SocksPort: cfg.EffectiveSocksPort(),
@@ -156,6 +157,7 @@ func (p *Presenter) GetSnapshot() domain.UIState {
 
 func (p *Presenter) hasStateChanged(curr, last *domain.UIState) bool {
 	if curr.IconState != last.IconState || curr.IsBusy != last.IsBusy ||
+		curr.IsUpdatingProfiles != last.IsUpdatingProfiles ||
 		curr.IsTun != last.IsTun || curr.IsProxy != last.IsProxy ||
 		curr.Mode != last.Mode || curr.AllowLan != last.AllowLan ||
 		curr.AutoStart != last.AutoStart || curr.RunAsAdmin != last.RunAsAdmin ||
