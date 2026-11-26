@@ -80,7 +80,8 @@ func makeClipboardBuffer(text string) (uintptr, error) {
 	defer procGlobalUnlock.Call(hMem)
 
 	_, _, _ = procRtlMoveMemory.Call(ptr, uintptr(unsafe.Pointer(&u16[0])), size)
-	return hMem, nil
+	runtime.KeepAlive(u16)
+	return hMem, nil	
 }
 
 func openClipboardWithRetry(attempts int, interval time.Duration) error {
