@@ -13,7 +13,15 @@ import (
 // ============================================================================
 
 func (a *Application) runExclusiveAction(action state.KernelAction, title string, task func() error) {
-	if !a.State.TryBeginAction(action) {
+	a.runExclusive(action, title, "", task)
+}
+
+func (a *Application) runExclusiveProfileAction(action state.KernelAction, title, pendingProfile string, task func() error) {
+	a.runExclusive(action, title, pendingProfile, task)
+}
+
+func (a *Application) runExclusive(action state.KernelAction, title, pendingProfile string, task func() error) {
+	if !a.State.TryBeginProfileAction(action, pendingProfile) {
 		slog.Info("操作已忽略，当前系统繁忙", "action", title, "holding", a.State.CurrentAction().String())
 		a.Presenter.ForcePushUIState()
 		go a.notifyError(title, errSystemBusy)
@@ -85,8 +93,6 @@ func (a *Application) handleUICommand(ctx context.Context, cmd domain.UICommand)
 		a.handleEditProfileInfo(ctx, cmd)
 	case domain.ActionUpdateRemoteProfile:
 		a.handleUpdateRemoteProfile(ctx, cmd)
-	case domain.ActionSetProfileInterval:
-		a.handleSetProfileInterval(ctx, cmd)
 	case domain.ActionSwitchProfile:
 		a.handleSwitchProfile(ctx, cmd)
 	case domain.ActionRemoveProfile:
