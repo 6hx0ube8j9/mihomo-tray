@@ -22,24 +22,58 @@ var (
 	ErrProfileEmpty         = errors.New("配置文件内容为空")
 )
 
+var windowsReservedNames = map[string]struct{}{
+	"CON": {}, "PRN": {}, "AUX": {}, "NUL": {},
+	"COM1": {}, "COM2": {}, "COM3": {}, "COM4": {}, "COM5": {}, "COM6": {}, "COM7": {}, "COM8": {}, "COM9": {},
+	"LPT1": {}, "LPT2": {}, "LPT3": {}, "LPT4": {}, "LPT5": {}, "LPT6": {}, "LPT7": {}, "LPT8": {}, "LPT9": {},
+}
+
+func sanitizeProfileFileStem(raw string) string {
+	var sb strings.Builder
+	sb.Grow(len(raw))
+	for _, r := range strings.TrimSpace(raw) {
+		switch {
+		case r < 0x20:
+			sb.WriteByte('_')
+		case strings.ContainsRune(`<>:"/\|?*`, r):
+			sb.WriteByte('_')
+		default:
+			sb.WriteRune(r)
+		}
+	}
+
+	stem := strings.TrimRight(strings.TrimSpace(sb.String()), " .")
+	if stem == "" {
+		stem = fmt.Sprintf("%d", time.Now().Unix())
+	}
+
+	baseUpper := strings.ToUpper(stem)
+	if dot := strings.IndexByte(baseUpper, '.'); dot >= 0 {
+		baseUpper = baseUpper[:dot]
+	}
+	if _, reserved := windowsReservedNames[baseUpper]; reserved {
+		stem = "_" + stem
+	}
+	return stem
+}
+
 func (m *Manager) AllocateRemoteProfilePath(rawName string) (displayName string, relPath string, err error) {
 	if err := m.CheckProfileLimit(); err != nil {
 		return "", "", err
 	}
 
-	if strings.TrimSpace(rawName) == "" {
-		rawName = fmt.Sprintf("%d", time.Now().Unix())
+	displayName = strings.TrimSpace(rawName)
+	if displayName == "" {
+		displayName = fmt.Sprintf("%d", time.Now().Unix())
 	}
-	safeName := strings.ReplaceAll(rawName, "/", "_")
-	safeName = strings.ReplaceAll(safeName, "\\", "_")
 
-	fileName := safeName + profileFileExt
+	fileName := sanitizeProfileFileStem(displayName) + profileFileExt
 	targetRelPath := filepath.ToSlash(filepath.Join(domain.ProfilesDir, fileName))
 
 	if _, exists := m.GetProfileByPath(targetRelPath); exists {
 		return "", "", ErrProfileNameConflict
 	}
-	return safeName, targetRelPath, nil
+	return displayName, targetRelPath, nil
 }
 
 func (m *Manager) CheckProfileLimit() error {
@@ -79,7 +113,7 @@ func (m *Manager) SafeCopyUntrustedConfig(srcPath string) (string, bool, error) 
 
 	profilesDirAbs := m.ProfilesDirAbs()
 	baseName := strings.TrimSuffix(filepath.Base(absSrc), filepath.Ext(absSrc))
-	finalRelPath := resolveUniqueProfileRelPath(profilesDirAbs, baseName)
+	finalRelPath := resolveUniqueProfileRelPath(profilesDirAbs, sanitizeProfileFileStem(baseName))
 	dstAbs := m.GetProfileAbsPath(finalRelPath)
 
 	if err := fs.CopyFileWithLimit(absSrc, dstAbs, domain.MaxProfileBytes); err != nil {
