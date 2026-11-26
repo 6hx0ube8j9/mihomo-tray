@@ -42,8 +42,15 @@ func (a *Application) handleRequestEditController(ctx context.Context, _ domain.
 				return nil
 			}
 
+			var prevAddr string
+			var prevSecret *string
 			a.Cfg.Update(func(c *domain.TrayConfig) {
 				if coreChanged {
+					prevAddr = c.Config.ExternalController
+					if c.Config.Secret != nil {
+						s := *c.Config.Secret
+						prevSecret = &s
+					}
 					c.Config.ExternalController = next.Addr
 					sec := next.Secret
 					c.Config.Secret = &sec
@@ -64,6 +71,10 @@ func (a *Application) handleRequestEditController(ctx context.Context, _ domain.
 
 			if coreChanged {
 				if err := a.KernelDeployer.RestartKernel(ctx); err != nil {
+					a.Cfg.Update(func(c *domain.TrayConfig) {
+						c.Config.ExternalController = prevAddr
+						c.Config.Secret = prevSecret
+					})
 					return err
 				}
 			}
