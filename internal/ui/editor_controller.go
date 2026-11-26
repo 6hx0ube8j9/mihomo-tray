@@ -6,10 +6,11 @@ import (
 	"github.com/tailscale/walk"
 	. "github.com/tailscale/walk/declarative"
 
+	"mihomo-tray/internal/browser"
 	"mihomo-tray/internal/domain"
-	"mihomo-tray/internal/fs"
 	"mihomo-tray/internal/netutil"
 	"mihomo-tray/internal/random"
+	"mihomo-tray/internal/sys"
 )
 
 type webOpenModeOption struct {
@@ -54,7 +55,7 @@ func smallActionBtn(text string, onClick func()) PushButton {
 func copyLineEditBtn(edit **walk.LineEdit) PushButton {
 	return smallActionBtn("复制", func() {
 		if *edit != nil {
-			_ = walk.Clipboard().SetText((*edit).Text())
+			_ = sys.WriteToClipboard((*edit).Text())
 		}
 	})
 }
@@ -117,7 +118,6 @@ func (f *controllerEditorForm) onReady(dlg *walk.Dialog) {
 }
 
 func (f *controllerEditorForm) widgets() []Widget {
-
 	return []Widget{
 		GroupBox{
 			Title:  "控制器连接",
@@ -279,10 +279,10 @@ func (f *controllerEditorForm) onAccept(dlg *walk.Dialog) (bool, error) {
 		if cPath == "" {
 			return fail(f.pathEdit, "请输入自定义浏览器路径")
 		}
-		if !fs.IsBrowserExecutable(cPath) {
+		if !browser.IsExecutable(cPath) {
 			return fail(f.pathEdit, "浏览器路径无效或文件不存在")
 		}
-		if mode == domain.WebOpenModeApp && !fs.IsChromiumBrowser(cPath) {
+		if mode == domain.WebOpenModeApp && !browser.IsChromium(cPath) {
 			if !RunConfirmDialog(dlg, "提示", "应用模式仅支持 Chromium 浏览器，是否继续保存？") {
 				f.pathEdit.SetFocus()
 				return false, nil
