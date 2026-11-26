@@ -111,10 +111,10 @@ func (a *Application) Bootstrap(ctx context.Context) {
 
 	if err := a.ProfileHub.EnsureActiveValid(ctx); err != nil {
 		slog.Error("启动配置失效，已回退空配置", "err", err)
-		a.FallbackToEmpty(ctx, "活跃配置失效")
+		a.FallbackToEmpty(ctx, "")
 	} else if err := a.KernelDeployer.PrepareBootConfig(); err != nil {
 		slog.Error("启动配置解析失败，已回退空配置", "err", err)
-		a.FallbackToEmpty(ctx, "配置解析失败")
+		a.FallbackToEmpty(ctx, "")
 	}
 
 	if a.Cfg.GetConfig().Config.Tun.Enable {
@@ -161,7 +161,9 @@ func (a *Application) SafeShutdown(cancel context.CancelFunc) {
 }
 
 func (a *Application) FallbackToEmpty(ctx context.Context, reason string) {
-	slog.Info("已回退空配置", "reason", reason)
+	if reason != "" {
+		slog.Info("已回退空配置", "reason", reason)
+	}
 
 	a.Cfg.Update(func(c *domain.TrayConfig) {
 		c.Profiles.Active = ""
@@ -249,7 +251,7 @@ func (a *Application) silentReloadActiveProfile(ctx context.Context, targetRelPa
 	}
 
 	a.ProxyGuard.Sync()
-	a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
+	a.ForceSyncAPI()
 }
 
 func (a *Application) eventLoop(ctx context.Context) {
