@@ -15,6 +15,8 @@ import (
 func (a *Application) runExclusiveAction(action state.KernelAction, title string, task func() error) {
 	if !a.State.TryBeginAction(action) {
 		slog.Info("操作已忽略，当前系统繁忙", "action", title, "holding", a.State.CurrentAction().String())
+		a.Presenter.ForcePushUIState()
+		go a.notifyError(title, errSystemBusy)
 		return
 	}
 
