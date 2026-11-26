@@ -60,12 +60,12 @@ func (e *Engine) ShowProfileInfoEditor(title, defaultName, defaultUrl string, de
 
 			if inputName == "" {
 				nameEdit.SetFocus()
-				RunErrorDialog(dlg, "输入错误", "配置名称不能为空。")
+				RunErrorDialog(dlg, "输入错误", "配置名称不能为空")
 				return false, nil
 			}
 			if isRemote && !netutil.IsValidHTTPURL(inputUrl) {
 				urlEdit.SetFocus()
-				RunErrorDialog(dlg, "输入错误", "请输入有效的 HTTP/HTTPS 订阅链接。")
+				RunErrorDialog(dlg, "输入错误", "请输入有效的 HTTP/HTTPS 订阅链接")
 				return false, nil
 			}
 
