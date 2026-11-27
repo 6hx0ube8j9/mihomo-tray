@@ -3,9 +3,15 @@ package app
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
+)
+
+const (
+	pendingRevealDelay = 500 * time.Millisecond
+	pendingMinDisplay  = 300 * time.Millisecond
 )
 
 // ============================================================================
@@ -21,17 +27,30 @@ func (a *Application) runExclusiveProfileAction(action state.KernelAction, title
 }
 
 func (a *Application) runExclusive(action state.KernelAction, title, pendingProfile string, task func() error) {
-	if !a.State.TryBeginProfileAction(action, pendingProfile) {
+	gen, ok := a.State.TryBeginProfileAction(action, pendingProfile)
+	if !ok {
 		slog.Info("操作已忽略，当前系统繁忙", "action", title, "holding", a.State.CurrentAction().String())
 		a.Presenter.ForcePushUIState()
 		go a.notifyError(title, errSystemBusy)
 		return
 	}
 
+	var pendingTimer *time.Timer
+	if pendingProfile != "" {
+		pendingTimer = time.AfterFunc(pendingRevealDelay, func() {
+			if a.State.RevealPending(gen) {
+				a.Presenter.ForcePushUIState()
+			}
+		})
+	}
+
 	a.Presenter.ForcePushUIState()
 
 	go func() {
 		defer func() {
+			if pendingTimer != nil {
+				pendingTimer.Stop()
+			}
 			a.State.EndAction()
 			a.Presenter.ForcePushUIState()
 
@@ -40,8 +59,21 @@ func (a *Application) runExclusive(action state.KernelAction, title, pendingProf
 			}
 		}()
 
-		if err := task(); err != nil {
+		err := task()
+		if pendingTimer != nil {
+			pendingTimer.Stop()
+		}
+		if err != nil {
 			a.notifyError(title, err)
+			return
+		}
+
+		if pendingTimer != nil {
+			if revealedAt, shown := a.State.SealPending(gen); shown && !a.State.IsExiting() {
+				if remain := pendingMinDisplay - time.Since(revealedAt); remain > 0 {
+					time.Sleep(remain)
+				}
+			}
 		}
 	}()
 }
