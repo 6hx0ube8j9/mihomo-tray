@@ -57,7 +57,7 @@ func (p *Presenter) calculateUIStateLocked() domain.UIState {
 		displayActive = pendingPath
 	}
 
-    syncStatuses := p.state.SnapshotProfileSyncStatuses()
+	syncStatuses := p.st.SnapshotProfileSyncStatuses()
 	profiles := cfg.Profiles.Items
 	s.ProfileItems = make([]domain.UIProfileItem, 0, len(profiles))
 	for _, prof := range profiles {
