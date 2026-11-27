@@ -16,9 +16,6 @@ type ProfileView struct {
 	model      *ProfileModel
 	portsLabel *walk.Label
 
-	btnEditPort       *walk.PushButton
-	btnEditController *walk.PushButton
-
 	actionSwitch       *walk.Action
 	actionEditText     *walk.Action
 	actionEditInfo     *walk.Action
@@ -62,16 +59,8 @@ func (v *ProfileView) Declarative() []Widget {
 			Children: []Widget{
 				PushButton{Text: "添加远程订阅", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestAddRemote, "") }},
 				PushButton{Text: "导入本地配置", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestAddLocal, "") }},
-				PushButton{
-					AssignTo:  &v.btnEditPort,
-					Text:      "更改代理端口",
-					OnClicked: func() { v.engine.SendCommand(domain.ActionRequestEditPort, "") },
-				},
-				PushButton{
-					AssignTo:  &v.btnEditController,
-					Text:      "Web 面板设置",
-					OnClicked: func() { v.engine.SendCommand(domain.ActionRequestEditController, "") },
-				},
+				PushButton{Text: "更改代理端口", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestEditPort, "") }},
+				PushButton{Text: "Web 面板设置", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestEditController, "") }},
 				HSpacer{},
 				Label{
 					AssignTo: &v.portsLabel,
@@ -221,13 +210,6 @@ func (v *ProfileView) isStructurallyEqual(oldItems, newItems []domain.UIProfileI
 }
 
 func (v *ProfileView) updateActionState() {
-	if v.btnEditPort != nil {
-		v.btnEditPort.SetEnabled(!v.isBusy)
-	}
-	if v.btnEditController != nil {
-		v.btnEditController.SetEnabled(!v.isBusy)
-	}
-
 	hasRemote := false
 	for _, item := range v.model.Items {
 		if item.IsRemote {
@@ -244,7 +226,7 @@ func (v *ProfileView) updateActionState() {
 		if v.btnUpdateAll.Text() != btnText {
 			_ = v.btnUpdateAll.SetText(btnText)
 		}
-		v.btnUpdateAll.SetEnabled(hasRemote && !v.isBusy && !v.isUpdatingProfiles)
+		v.btnUpdateAll.SetEnabled(hasRemote && !v.isUpdatingProfiles)
 	}
 
 	if v.tableView == nil || v.actionSwitch == nil {
@@ -255,19 +237,19 @@ func (v *ProfileView) updateActionState() {
 
 	var canSwitch, canUpdate, canMoveUp, canMoveDown bool
 
-	if hasSelection && !v.isBusy {
+	if hasSelection {
 		item := v.model.Items[idx]
-		canSwitch = !item.IsActive
+		canSwitch = !item.IsActive && !v.isBusy
 		canUpdate = item.IsRemote && !v.isUpdatingProfiles
 		canMoveUp = idx > 0
 		canMoveDown = idx < len(v.model.Items)-1
 	}
 
 	safelySetEnabled(v.actionSwitch, canSwitch)
-	safelySetEnabled(v.actionEditText, hasSelection && !v.isBusy)
-	safelySetEnabled(v.actionEditInfo, hasSelection && !v.isBusy)
+	safelySetEnabled(v.actionEditText, hasSelection)
+	safelySetEnabled(v.actionEditInfo, hasSelection)
 	safelySetEnabled(v.actionUpdate, canUpdate)
-	safelySetEnabled(v.actionDelete, hasSelection && !v.isBusy)
+	safelySetEnabled(v.actionDelete, hasSelection)
 	safelySetEnabled(v.actionMoveUp, canMoveUp)
 	safelySetEnabled(v.actionMoveDown, canMoveDown)
 
@@ -288,7 +270,7 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	switch col {
 	case 0:
 		if item.IsPending {
-			return "切换中..."
+			return "正在切换..."
 		}
 		if item.IsActive {
 			return "✔ 使用中"
