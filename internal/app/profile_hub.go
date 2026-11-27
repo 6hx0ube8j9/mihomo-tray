@@ -66,15 +66,21 @@ func (h *ProfileHub) getActiveProxyPort() string {
 }
 
 func normalizeAutoUpdate(autoUpdate bool, interval int) (bool, int) {
-	if interval < 0 {
-		interval = 0
-	} else if interval > domain.MaxUpdateInterval {
+	if interval < 1 {
+		return false, domain.DefaultUpdateInterval
+	}
+	if interval > domain.MaxUpdateInterval {
 		interval = domain.MaxUpdateInterval
 	}
-	if interval == 0 {
-		autoUpdate = false
-	}
 	return autoUpdate, interval
+}
+
+func logProfileFetchSuccess(msg, path string, usedDirectFallback bool) {
+	if usedDirectFallback {
+		slog.Info(msg, "path", path, "via", "direct")
+		return
+	}
+	slog.Info(msg, "path", path)
 }
 
 func (h *ProfileHub) EnsureActiveValid(ctx context.Context) error {
@@ -102,11 +108,12 @@ func (h *ProfileHub) EnsureActiveValid(ctx context.Context) error {
 	fCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	if err := h.fetchAndCommit(fCtx, activePath, p.URL, &p, true); err != nil {
+	usedDirect, err := h.fetchAndCommit(fCtx, activePath, p.URL, &p, true)
+	if err != nil {
 		return fmt.Errorf("远程拉取恢复失败: %w", err)
 	}
 
-	slog.Info("活跃配置已拉取恢复", "path", activePath)
+	logProfileFetchSuccess("活跃配置已拉取恢复", activePath, usedDirect)
 	return nil
 }
 
@@ -155,11 +162,12 @@ func (h *ProfileHub) AddRemote(ctx context.Context, rawName, url string, autoUpd
 		Interval:   interval,
 	}
 
-	if err := h.fetchAndCommit(ctx, targetRelPath, newItem.URL, &newItem, false); err != nil {
+	usedDirect, err := h.fetchAndCommit(ctx, targetRelPath, newItem.URL, &newItem, false)
+	if err != nil {
 		return "", err
 	}
 
-	slog.Info("添加远程订阅成功", "path", targetRelPath)
+	logProfileFetchSuccess("添加远程订阅成功", targetRelPath, usedDirect)
 	return targetRelPath, nil
 }
 
@@ -177,11 +185,12 @@ func (h *ProfileHub) UpdateRemote(ctx context.Context, targetRelPath string) err
 		return errors.New("订阅链接为空")
 	}
 
-	if err := h.fetchAndCommit(ctx, targetRelPath, p.URL, &p, true); err != nil {
+	usedDirect, err := h.fetchAndCommit(ctx, targetRelPath, p.URL, &p, true)
+	if err != nil {
 		return err
 	}
 
-	slog.Info("更新远程订阅成功", "path", targetRelPath)
+	logProfileFetchSuccess("更新远程订阅成功", targetRelPath, usedDirect)
 	return nil
 }
 
@@ -285,9 +294,11 @@ func (h *ProfileHub) EditRemote(ctx context.Context, oldPath, newName, newURL st
 	p.Interval = newInterval
 
 	if urlChanged {
-		if err := h.fetchAndCommit(ctx, p.Path, cleanURL, &p, true); err != nil {
+		usedDirect, err := h.fetchAndCommit(ctx, p.Path, cleanURL, &p, true)
+		if err != nil {
 			return false, err
 		}
+		logProfileFetchSuccess("更新订阅地址成功", p.Path, usedDirect)
 		return true, nil
 	}
 
@@ -331,20 +342,20 @@ func (h *ProfileHub) ValidateSource(sourcePath string) error {
 	return h.validateBytes(content)
 }
 
-func (h *ProfileHub) fetchAndCommit(ctx context.Context, targetRelPath, url string, item *domain.ProfileItem, requireExists bool) error {
-	res, err := h.cfg.FetchRemoteProfile(ctx, url, h.getActiveProxyPort())
+func (h *ProfileHub) fetchAndCommit(ctx context.Context, targetRelPath, url string, item *domain.ProfileItem, requireExists bool) (bool, error) {
+	res, err := h.cfg.FetchRemoteProfile(ctx, targetRelPath, url, h.getActiveProxyPort())
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer os.Remove(res.TempPath)
 
 	tempBytes, err := os.ReadFile(res.TempPath)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if err := h.validateBytes(tempBytes); err != nil {
-		return err
+		return false, err
 	}
 
 	item.Upload = res.Upload
@@ -353,7 +364,10 @@ func (h *ProfileHub) fetchAndCommit(ctx context.Context, targetRelPath, url stri
 	item.Expire = res.Expire
 	item.LastUpdate = time.Now().Unix()
 
-	return h.cfg.CommitRemoteProfile(res.TempPath, targetRelPath, *item, requireExists)
+	if err := h.cfg.CommitRemoteProfile(res.TempPath, targetRelPath, *item, requireExists); err != nil {
+		return false, err
+	}
+	return res.UsedDirectFallback, nil
 }
 
 func (h *ProfileHub) validateBytes(content []byte) error {
