@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/tailscale/walk"
@@ -89,9 +88,6 @@ func (e *Engine) ShowProfileInfoEditor(title string, current domain.ProfileInfo)
 						OnCheckedChanged: func() {
 							enabled := isRemote && autoUpdateCB != nil && autoUpdateCB.Checked()
 							if intervalEdit != nil {
-								if !enabled && isRemote && int(intervalEdit.Value()) < 1 {
-									_ = intervalEdit.SetValue(float64(displayInterval))
-								}
 								intervalEdit.SetEnabled(enabled)
 							}
 							if unitLabel != nil {
@@ -126,20 +122,9 @@ func (e *Engine) ShowProfileInfoEditor(title string, current domain.ProfileInfo)
 				return true, nil
 			}
 
-			inputAutoUpdate := autoUpdateCB.Checked()
-			inputInterval := int(intervalEdit.Value())
-			if inputInterval < 1 || inputInterval > domain.MaxUpdateInterval {
-				if inputAutoUpdate {
-					intervalEdit.SetFocus()
-					RunErrorDialog(dlg, "输入错误", fmt.Sprintf("更新间隔必须为 1 到 %d 之间的正整数", domain.MaxUpdateInterval))
-					return false, nil
-				}
-				inputInterval = displayInterval
-			}
-
 			next.URL = inputURL
-			next.AutoUpdate = inputAutoUpdate
-			next.Interval = inputInterval
+			next.AutoUpdate = autoUpdateCB.Checked()
+			next.Interval = int(intervalEdit.Value())
 			return true, nil
 		},
 	})
