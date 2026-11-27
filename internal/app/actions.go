@@ -78,7 +78,7 @@ func (a *Application) runExclusive(action state.KernelAction, title, pendingProf
 	}()
 }
 
-func (a *Application) asyncRunError(title string, task func() error) {
+func (a *Application) asyncRunError(title string, task func() error, logAttrs ...any) {
 	go func() {
 		defer a.Presenter.ForcePushUIState()
 
@@ -89,7 +89,7 @@ func (a *Application) asyncRunError(title string, task func() error) {
 		}()
 
 		if err := task(); err != nil {
-			a.notifyError(title, err)
+			a.notifyError(title, err, logAttrs...)
 		}
 	}()
 }
