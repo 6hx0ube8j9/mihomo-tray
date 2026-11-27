@@ -158,11 +158,11 @@ func (c TrayConfig) EffectiveSocksPort() int {
 }
 
 func (c TrayConfig) EffectiveSystemProxyPort() (int, bool) {
-	if c.Config.MixedPort != nil && *c.Config.MixedPort > 0 {
-		return *c.Config.MixedPort, true
+	if port := c.EffectiveMixedPort(); port > 0 {
+		return port, true
 	}
-	if c.Config.Port != nil && *c.Config.Port > 0 {
-		return *c.Config.Port, true
+	if port := c.EffectivePort(); port > 0 {
+		return port, true
 	}
 	return 0, false
 }
@@ -190,24 +190,26 @@ func (c TrayConfig) EffectiveAllowLan() bool {
 }
 
 func (c TrayConfig) EffectiveExternalController() string {
-	if c.Config.ExternalController == "" {
-		return DefaultExternalController
+	if addr := strings.TrimSpace(c.Config.ExternalController); addr != "" {
+		return addr
 	}
-	return c.Config.ExternalController
+	return DefaultExternalController
 }
 
 func (c TrayConfig) EffectiveRemoteWebUIURL() string {
-	if c.General.RemoteWebUIURL != nil && *c.General.RemoteWebUIURL != "" {
-		return *c.General.RemoteWebUIURL
+	if c.General.RemoteWebUIURL != nil {
+		if u := strings.TrimSpace(*c.General.RemoteWebUIURL); u != "" {
+			return u
+		}
 	}
 	return DefaultRemoteWebUIURL
 }
 
 func (c TrayConfig) EffectiveWebOpenMode() string {
-	if c.General.WebOpenMode != nil && IsValidWebOpenMode(*c.General.WebOpenMode) {
-		return *c.General.WebOpenMode
+	if c.General.WebOpenMode == nil {
+		return DefaultWebOpenMode
 	}
-	return DefaultWebOpenMode
+	return NormalizeWebOpenMode(*c.General.WebOpenMode)
 }
 
 func (c TrayConfig) IsSystemProxyEnabled() bool {
@@ -251,7 +253,15 @@ func TruncateMiddle(name string) string {
 	return string(r[:8]) + "..." + string(r[len(r)-6:])
 }
 
-func (p *ProfileItem) FormatLastUpdateText() string {
+func (p ProfileItem) IsRemote() bool {
+	return strings.TrimSpace(p.URL) != ""
+}
+
+func (p ProfileItem) IsAutoUpdateEnabled() bool {
+	return p.IsRemote() && p.AutoUpdate && p.Interval > 0
+}
+
+func (p ProfileItem) FormatLastUpdateText() string {
 	if p.LastUpdate <= 0 {
 		return "从未更新"
 	}
@@ -270,8 +280,8 @@ func (p *ProfileItem) FormatLastUpdateText() string {
 	return fmt.Sprintf("%d 分钟前", int(diff/time.Minute))
 }
 
-func (p *ProfileItem) IsUpdateDue() bool {
-	if p.URL == "" || p.Interval <= 0 {
+func (p ProfileItem) IsUpdateDue() bool {
+	if !p.IsAutoUpdateEnabled() {
 		return false
 	}
 	targetDuration := time.Duration(p.Interval) * 24 * time.Hour
