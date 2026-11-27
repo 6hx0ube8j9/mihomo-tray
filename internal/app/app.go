@@ -186,6 +186,7 @@ func (a *Application) FallbackToEmpty(ctx context.Context, reason string) {
 	}
 
 	a.ProxyGuard.Sync()
+	a.WebUIService.ReloadIfActive()
 	a.Presenter.PushUIState()
 }
 
@@ -256,6 +257,7 @@ func (a *Application) silentReloadActiveProfile(ctx context.Context, targetRelPa
 
 	a.ProxyGuard.Sync()
 	a.ForceSyncAPI()
+	a.WebUIService.ReloadIfActive()
 }
 
 func (a *Application) eventLoop(ctx context.Context) {
