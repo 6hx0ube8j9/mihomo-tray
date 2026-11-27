@@ -57,21 +57,31 @@ func (p *Presenter) calculateUIStateLocked() domain.UIState {
 		displayActive = pendingPath
 	}
 
+    syncStatuses := p.state.SnapshotProfileSyncStatuses()
 	profiles := cfg.Profiles.Items
 	s.ProfileItems = make([]domain.UIProfileItem, 0, len(profiles))
 	for _, prof := range profiles {
+		syncStatus := syncStatuses[prof.Path]
 		item := domain.UIProfileItem{
 			Name:       domain.TruncateMiddle(prof.Name),
 			Path:       prof.Path,
 			IsActive:   prof.Path == displayActive && displayActive != "",
 			IsPending:  pendingPath != "" && prof.Path == pendingPath,
 			IsRemote:   prof.IsRemote(),
+			IsUpdating: syncStatus == state.ProfileSyncUpdating,
 			AutoUpdate: prof.IsAutoUpdateEnabled(),
 			Interval:   prof.Interval,
 		}
 
 		if item.IsRemote {
-			item.LastUpdate = prof.FormatLastUpdateText()
+			switch syncStatus {
+			case state.ProfileSyncUpdating:
+				item.LastUpdate = "更新中..."
+			case state.ProfileSyncFailed:
+				item.LastUpdate = "更新失败"
+			default:
+				item.LastUpdate = prof.FormatLastUpdateText()
+			}
 		}
 		s.ProfileItems = append(s.ProfileItems, item)
 	}
