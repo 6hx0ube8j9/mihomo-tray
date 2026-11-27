@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log/slog"
 
 	"mihomo-tray/internal/config"
@@ -31,20 +31,6 @@ func (a *Application) applyActiveProfileUpdate(ctx context.Context, targetRelPat
 		}
 		return a.applyAndSyncRuntime(ctx, targetRelPath, actionDesc)
 	})
-}
-
-func (a *Application) runRemoteProfileUpdate(ctx context.Context, targetPath, actionDesc string, updateFn func() (bool, error)) {
-	a.asyncRunError("更新订阅", func() error {
-		needReload, err := updateFn()
-		if err != nil {
-			return err
-		}
-		a.Presenter.PushUIState()
-		if needReload && a.Cfg.GetActivePath() == targetPath {
-			a.applyActiveProfileUpdate(ctx, targetPath, actionDesc)
-		}
-		return nil
-	}, "path", targetPath)
 }
 
 func (a *Application) handleProfileAdded(ctx context.Context, targetRelPath string) {
@@ -143,29 +129,52 @@ func (a *Application) handleEditProfileInfo(ctx context.Context, cmd domain.UICo
 			return
 		}
 
-		a.runRemoteProfileUpdate(ctx, profile.Path, "应用订阅地址变更", func() (bool, error) {
-			return a.ProfileHub.EditRemote(ctx, profile.Path, next.Name, next.URL, next.AutoUpdate, next.Interval)
-		})
+		a.asyncRunError("编辑配置", func() error {
+			urlChanged, err := a.ProfileHub.EditRemote(ctx, profile.Path, next.Name, next.URL, next.AutoUpdate, next.Interval)
+			if err != nil {
+				return err
+			}
+			a.Presenter.ForcePushUIState()
+			if urlChanged && a.Cfg.GetActivePath() == profile.Path {
+				a.applyActiveProfileUpdate(ctx, profile.Path, "应用订阅地址变更")
+			}
+			return nil
+		}, "path", profile.Path)
 	}(p)
 }
 
 func (a *Application) handleUpdateRemoteProfile(ctx context.Context, cmd domain.UICommand) {
 	p, ok := a.Cfg.GetProfileByPath(cmd.Payload)
-	if !ok {
+	if !ok || !p.IsRemote() {
 		return
 	}
 
-	a.runRemoteProfileUpdate(ctx, p.Path, "应用订阅更新", func() (bool, error) {
-		if err := a.ProfileHub.UpdateRemote(ctx, p.Path); err != nil {
-			return false, err
+	go func(targetPath string) {
+		defer func() {
+			if r := recover(); r != nil {
+				a.reportPanic("更新订阅", r)
+			}
+		}()
+
+		err := a.ProfileHub.UpdateRemote(ctx, targetPath)
+		if err != nil {
+			if !a.State.IsExiting() && ctx.Err() == nil &&
+				!errors.Is(err, context.Canceled) &&
+				!errors.Is(err, ErrProfileUpdating) &&
+				!errors.Is(err, config.ErrProfileNotFound) {
+				slog.Error("更新订阅失败", "path", targetPath, "err", err)
+			}
+			return
 		}
-		return true, nil
-	})
+
+		if !a.State.IsExiting() && ctx.Err() == nil && a.Cfg.GetActivePath() == targetPath {
+			a.applyActiveProfileUpdate(ctx, targetPath, "应用订阅更新")
+		}
+	}(p.Path)
 }
 
 func (a *Application) handleUpdateAllRemoteProfiles(ctx context.Context, _ domain.UICommand) {
 	if !a.State.TryBeginProfileBatchUpdate() {
-		go a.notifyError("更新全部", ErrProfileUpdating)
 		return
 	}
 
@@ -188,34 +197,19 @@ func (a *Application) handleUpdateAllRemoteProfiles(ctx context.Context, _ domai
 			}
 		}()
 
-		res := a.ProfileHub.UpdateAllRemote(ctx, a.Presenter.ForcePushUIState)
+		res := a.ProfileHub.UpdateAllRemote(ctx)
 		endBatch()
 
 		if a.State.IsExiting() || ctx.Err() != nil || res.Total == 0 {
 			return
 		}
 
-		if res.ActiveUpdated != "" && a.Cfg.GetActivePath() == res.ActiveUpdated {
-			a.applyActiveProfileUpdate(ctx, res.ActiveUpdated, "应用订阅更新")
+		for _, f := range res.Failures {
+			slog.Error("批量更新订阅失败", "path", f.Path, "err", f.Err)
 		}
 
-		switch {
-		case len(res.Failures) == 0 && res.Succeeded > 0:
-			a.showNotice("更新全部", fmt.Sprintf("已更新 %d 个订阅配置", res.Succeeded))
-		case len(res.Failures) == 0 && res.Skipped > 0:
-			a.notifyError("更新全部", ErrProfileUpdating)
-		case len(res.Failures) > 0:
-			for _, f := range res.Failures {
-				slog.Error("批量更新订阅失败", "path", f.Path, "err", f.Err)
-			}
-			switch {
-			case len(res.Failures) == 1 && res.Succeeded == 0:
-				a.showError("更新全部", userFacingMessage(res.Failures[0].Err))
-			case res.Succeeded > 0:
-				a.showError("更新全部", fmt.Sprintf("成功 %d 个，失败 %d 个，详情请查看日志", res.Succeeded, len(res.Failures)))
-			default:
-				a.showError("更新全部", fmt.Sprintf("%d 个订阅更新失败，详情请查看日志", len(res.Failures)))
-			}
+		if res.ActiveUpdated != "" && a.Cfg.GetActivePath() == res.ActiveUpdated {
+			a.applyActiveProfileUpdate(ctx, res.ActiveUpdated, "应用订阅更新")
 		}
 	}()
 }
