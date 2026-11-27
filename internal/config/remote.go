@@ -21,12 +21,13 @@ import (
 const debugLogFullURL = false
 
 const (
-	RemoteFetchTimeout     = 20 * time.Second
-	proxyFetchTimeout      = 15 * time.Second
-	remoteRetryInterval    = 1 * time.Second
-	proxyMaxAttempts       = 2
-	directMaxAttempts      = 3
-	directFallbackAttempts = 2
+	RemoteFetchTimeout       = 20 * time.Second
+	proxyFetchTimeout        = 8 * time.Second
+	proxyTLSHandshakeTimeout = 5 * time.Second
+	remoteRetryInterval      = 1 * time.Second
+	proxyMaxAttempts         = 2
+	directMaxAttempts        = 3
+	directFallbackAttempts   = 2
 )
 
 var ErrRemoteHTML = errors.New("订阅返回内容为 HTML 网页")
@@ -46,17 +47,23 @@ type nonFallbackError struct {
 func (e *nonFallbackError) Error() string { return e.err.Error() }
 func (e *nonFallbackError) Unwrap() error { return e.err }
 
+type fetchOptions struct {
+	proxyFunc     func(*http.Request) (*url.URL, error)
+	timeout       time.Duration
+	tlsTimeout    time.Duration
+	maxAttempts   int
+	stopOnTimeout bool
+}
+
 func sanitizeURL(rawURL string) string {
 	if debugLogFullURL {
 		return rawURL
 	}
 	u, err := url.Parse(rawURL)
-	if err != nil {
+	if err != nil || u.Scheme == "" || u.Host == "" {
 		return "[无效URL]"
 	}
-	u.RawQuery = ""
-	u.User = nil
-	return u.String()
+	return u.Scheme + "://" + u.Host
 }
 
 func sanitizeNetError(err error) error {
@@ -104,7 +111,13 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 
 	if proxyPort != "" {
 		if proxyURL, err := url.Parse("http://127.0.0.1:" + proxyPort); err == nil {
-			res, proxyErr := m.fetchWithProxy(ctx, subURL, http.ProxyURL(proxyURL), proxyFetchTimeout, proxyMaxAttempts, true)
+			res, proxyErr := m.fetchWithOptions(ctx, subURL, fetchOptions{
+				proxyFunc:     http.ProxyURL(proxyURL),
+				timeout:       proxyFetchTimeout,
+				tlsTimeout:    proxyTLSHandshakeTimeout,
+				maxAttempts:   proxyMaxAttempts,
+				stopOnTimeout: true,
+			})
 			if proxyErr == nil {
 				return res, nil
 			}
@@ -114,7 +127,11 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 
 			slog.Warn("代理拉取订阅失败，尝试直连", "url", sanitizeURL(subURL), "err", proxyErr)
 
-			directRes, directErr := m.fetchWithProxy(ctx, subURL, nil, RemoteFetchTimeout, directFallbackAttempts, false)
+			directRes, directErr := m.fetchWithOptions(ctx, subURL, fetchOptions{
+				proxyFunc:   nil,
+				timeout:     RemoteFetchTimeout,
+				maxAttempts: directFallbackAttempts,
+			})
 			if directErr == nil {
 				slog.Info("订阅已通过直连拉取成功", "url", sanitizeURL(subURL))
 				return directRes, nil
@@ -128,27 +145,27 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 		slog.Warn("代理端口无效，改用直连", "port", proxyPort)
 	}
 
-	return m.fetchWithProxy(ctx, subURL, http.ProxyFromEnvironment, RemoteFetchTimeout, directMaxAttempts, false)
+	return m.fetchWithOptions(ctx, subURL, fetchOptions{
+		proxyFunc:   http.ProxyFromEnvironment,
+		timeout:     RemoteFetchTimeout,
+		maxAttempts: directMaxAttempts,
+	})
 }
 
-func (m *Manager) fetchWithProxy(
-	ctx context.Context,
-	subURL string,
-	proxyFunc func(*http.Request) (*url.URL, error),
-	timeout time.Duration,
-	maxAttempts int,
-	stopOnTimeout bool,
-) (*domain.FetchResult, error) {
-	if maxAttempts < 1 {
-		maxAttempts = 1
+func (m *Manager) fetchWithOptions(ctx context.Context, subURL string, opts fetchOptions) (*domain.FetchResult, error) {
+	if opts.maxAttempts < 1 {
+		opts.maxAttempts = 1
 	}
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	defer transport.CloseIdleConnections()
-	transport.Proxy = proxyFunc
+	transport.Proxy = opts.proxyFunc
+	if opts.tlsTimeout > 0 {
+		transport.TLSHandshakeTimeout = opts.tlsTimeout
+	}
 
 	client := &http.Client{
-		Timeout:   timeout,
+		Timeout:   opts.timeout,
 		Transport: transport,
 	}
 
@@ -156,7 +173,7 @@ func (m *Manager) fetchWithProxy(
 	var reqErr error
 	attempts := 0
 
-	for i := 0; i < maxAttempts; i++ {
+	for i := 0; i < opts.maxAttempts; i++ {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -182,14 +199,14 @@ func (m *Manager) fetchWithProxy(
 			break
 		}
 
-		if stopOnTimeout && reqErr != nil && isTimeoutError(reqErr) {
+		if opts.stopOnTimeout && reqErr != nil && isTimeoutError(reqErr) {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
 			}
 			break
 		}
 
-		if i < maxAttempts-1 {
+		if i < opts.maxAttempts-1 {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
 			}
