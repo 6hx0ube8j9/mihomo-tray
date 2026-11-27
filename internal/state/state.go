@@ -43,7 +43,10 @@ type RuntimeState struct {
 
 	actionMu       sync.RWMutex
 	currentAction  KernelAction
+	actionGen      uint64
 	pendingProfile string
+	pendingVisible bool
+	revealedAt     time.Time
 
 	updatingProfiles atomic.Bool
 
@@ -69,28 +72,64 @@ func (r *RuntimeState) IsActionBusy() bool {
 }
 
 func (r *RuntimeState) TryBeginAction(action KernelAction) bool {
-	return r.TryBeginProfileAction(action, "")
+	_, ok := r.TryBeginProfileAction(action, "")
+	return ok
 }
 
-func (r *RuntimeState) TryBeginProfileAction(action KernelAction, pendingPath string) bool {
+func (r *RuntimeState) TryBeginProfileAction(action KernelAction, pendingPath string) (uint64, bool) {
 	if r.IsExiting() || action == ActionNone {
-		return false
+		return 0, false
 	}
 
 	r.actionMu.Lock()
 	defer r.actionMu.Unlock()
 
 	if r.currentAction != ActionNone || r.IsExiting() {
-		return false
+		return 0, false
 	}
+	r.actionGen++
 	r.currentAction = action
 	r.pendingProfile = pendingPath
+	r.pendingVisible = false
+	r.revealedAt = time.Time{}
+	return r.actionGen, true
+}
+
+func (r *RuntimeState) RevealPending(gen uint64) bool {
+	if r.IsExiting() {
+		return false
+	}
+
+	r.actionMu.Lock()
+	defer r.actionMu.Unlock()
+
+	if r.currentAction == ActionNone || r.actionGen != gen || r.pendingProfile == "" || r.pendingVisible {
+		return false
+	}
+	r.pendingVisible = true
+	r.revealedAt = time.Now()
 	return true
+}
+
+func (r *RuntimeState) SealPending(gen uint64) (time.Time, bool) {
+	r.actionMu.Lock()
+	defer r.actionMu.Unlock()
+
+	if r.actionGen != gen {
+		return time.Time{}, false
+	}
+	if r.pendingVisible {
+		return r.revealedAt, true
+	}
+	r.pendingProfile = ""
+	return time.Time{}, false
 }
 
 func (r *RuntimeState) EndAction() {
 	r.actionMu.Lock()
 	r.pendingProfile = ""
+	r.pendingVisible = false
+	r.revealedAt = time.Time{}
 	r.currentAction = ActionNone
 	r.actionMu.Unlock()
 }
@@ -105,7 +144,9 @@ func (r *RuntimeState) CurrentAction() KernelAction {
 func (r *RuntimeState) ActionVisualState() (isBusy bool, pendingProfile string) {
 	r.actionMu.RLock()
 	isBusy = r.currentAction != ActionNone
-	pendingProfile = r.pendingProfile
+	if r.pendingVisible {
+		pendingProfile = r.pendingProfile
+	}
 	r.actionMu.RUnlock()
 	return isBusy, pendingProfile
 }
