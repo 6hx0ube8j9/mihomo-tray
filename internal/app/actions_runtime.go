@@ -28,7 +28,7 @@ func (a *Application) syncDiskConfigAndPrivilege() (needReopenWebUI bool) {
 }
 
 func (a *Application) handleReloadConfig(ctx context.Context, _ domain.UICommand) {
-	a.runExclusiveAction(state.ActionReload, "重载配置", func() error {
+	a.runExclusiveProfileAction(state.ActionReload, "重载配置", a.Cfg.GetActivePath(), func() error {
 		needReopen := a.syncDiskConfigAndPrivilege()
 
 		if err := a.KernelDeployer.ReloadConfig(ctx); err != nil {
