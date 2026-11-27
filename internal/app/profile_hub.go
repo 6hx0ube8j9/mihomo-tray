@@ -65,6 +65,18 @@ func (h *ProfileHub) getActiveProxyPort() string {
 	return ""
 }
 
+func normalizeAutoUpdate(autoUpdate bool, interval int) (bool, int) {
+	if interval < 0 {
+		interval = 0
+	} else if interval > domain.MaxUpdateInterval {
+		interval = domain.MaxUpdateInterval
+	}
+	if interval == 0 {
+		autoUpdate = false
+	}
+	return autoUpdate, interval
+}
+
 func (h *ProfileHub) EnsureActiveValid(ctx context.Context) error {
 	activePath := h.cfg.GetActivePath()
 	if activePath == "" {
@@ -82,7 +94,7 @@ func (h *ProfileHub) EnsureActiveValid(ctx context.Context) error {
 	defer h.releaseLock(activePath)
 
 	p, ok := h.cfg.GetProfileByPath(activePath)
-	if !ok || p.URL == "" {
+	if !ok || !p.IsRemote() {
 		return valErr
 	}
 
@@ -117,7 +129,7 @@ func (h *ProfileHub) ImportLocal(sourcePath string) (targetRelPath string, err e
 	return targetRelPath, nil
 }
 
-func (h *ProfileHub) AddRemote(ctx context.Context, rawName, url string, interval int) (targetRelPath string, err error) {
+func (h *ProfileHub) AddRemote(ctx context.Context, rawName, url string, autoUpdate bool, interval int) (targetRelPath string, err error) {
 	cleanURL := strings.TrimSpace(url)
 	if cleanURL == "" {
 		return "", errors.New("订阅链接为空")
@@ -133,11 +145,13 @@ func (h *ProfileHub) AddRemote(ctx context.Context, rawName, url string, interva
 	}
 	defer h.releaseLock(targetRelPath)
 
+	autoUpdate, interval = normalizeAutoUpdate(autoUpdate, interval)
+
 	newItem := domain.ProfileItem{
 		Name:       safeName,
 		Path:       targetRelPath,
 		URL:        cleanURL,
-		AutoUpdate: interval > 0,
+		AutoUpdate: autoUpdate,
 		Interval:   interval,
 	}
 
@@ -159,7 +173,7 @@ func (h *ProfileHub) UpdateRemote(ctx context.Context, targetRelPath string) err
 	if !ok {
 		return config.ErrProfileNotFound
 	}
-	if p.URL == "" {
+	if !p.IsRemote() {
 		return errors.New("订阅链接为空")
 	}
 
@@ -174,7 +188,7 @@ func (h *ProfileHub) UpdateRemote(ctx context.Context, targetRelPath string) err
 func (h *ProfileHub) UpdateAllRemote(ctx context.Context, onEachSuccess func()) BatchUpdateResult {
 	var targets []string
 	for _, p := range h.cfg.GetProfiles() {
-		if strings.TrimSpace(p.URL) != "" {
+		if p.IsRemote() {
 			targets = append(targets, p.Path)
 		}
 	}
@@ -242,7 +256,7 @@ dispatchLoop:
 	return res
 }
 
-func (h *ProfileHub) EditRemote(ctx context.Context, oldPath, newName, newURL string, newInterval int) (urlChanged bool, err error) {
+func (h *ProfileHub) EditRemote(ctx context.Context, oldPath, newName, newURL string, newAutoUpdate bool, newInterval int) (urlChanged bool, err error) {
 	cleanURL := strings.TrimSpace(newURL)
 	if cleanURL == "" {
 		return false, errors.New("订阅链接为空")
@@ -258,15 +272,17 @@ func (h *ProfileHub) EditRemote(ctx context.Context, oldPath, newName, newURL st
 		return false, config.ErrProfileNotFound
 	}
 
-	if newName == p.Name && cleanURL == p.URL && newInterval == p.Interval {
+	newAutoUpdate, newInterval = normalizeAutoUpdate(newAutoUpdate, newInterval)
+
+	if newName == p.Name && cleanURL == p.URL && newAutoUpdate == p.AutoUpdate && newInterval == p.Interval {
 		return false, nil
 	}
 
 	urlChanged = (cleanURL != p.URL)
 	p.Name = newName
 	p.URL = cleanURL
+	p.AutoUpdate = newAutoUpdate
 	p.Interval = newInterval
-	p.AutoUpdate = newInterval > 0
 
 	if urlChanged {
 		if err := h.fetchAndCommit(ctx, p.Path, cleanURL, &p, true); err != nil {
