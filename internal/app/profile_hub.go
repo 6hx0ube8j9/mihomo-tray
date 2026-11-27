@@ -72,6 +72,39 @@ func (h *ProfileHub) setSyncStatus(path string, status state.ProfileSyncStatus) 
 	}
 }
 
+func (h *ProfileHub) markUpdateFailed(targetRelPath string) {
+	h.cfg.TryUpdate(func(cfg *domain.TrayConfig) bool {
+		for i := range cfg.Profiles.Items {
+			if cfg.Profiles.Items[i].Path == targetRelPath {
+				if cfg.Profiles.Items[i].UpdateFailed {
+					return false
+				}
+				cfg.Profiles.Items[i].UpdateFailed = true
+				return true
+			}
+		}
+		return false
+	})
+}
+
+func (h *ProfileHub) DeferNextUpdate(targetRelPath string, nextUnix int64) {
+	updated := h.cfg.TryUpdate(func(cfg *domain.TrayConfig) bool {
+		for i := range cfg.Profiles.Items {
+			if cfg.Profiles.Items[i].Path == targetRelPath {
+				if !cfg.Profiles.Items[i].UpdateFailed {
+					return false
+				}
+				cfg.Profiles.Items[i].NextUpdate = nextUnix
+				return true
+			}
+		}
+		return false
+	})
+	if updated && h.onStateChange != nil {
+		h.onStateChange()
+	}
+}
+
 func (h *ProfileHub) getActiveProxyPort() string {
 	if h.proxyPort != nil {
 		return h.proxyPort()
@@ -200,18 +233,15 @@ func (h *ProfileHub) UpdateRemote(ctx context.Context, targetRelPath string) err
 		return errors.New("订阅链接为空")
 	}
 
-	finalStatus := state.ProfileSyncIdle
 	h.setSyncStatus(targetRelPath, state.ProfileSyncUpdating)
-	defer func() {
-		h.setSyncStatus(targetRelPath, finalStatus)
-	}()
+	defer h.setSyncStatus(targetRelPath, state.ProfileSyncIdle)
 
 	usedDirect, err := h.fetchAndCommit(ctx, targetRelPath, p.URL, &p, true)
 	if err != nil {
 		if !errors.Is(err, context.Canceled) && ctx.Err() == nil &&
 			!errors.Is(err, config.ErrProfileNotFound) &&
 			(h.st == nil || !h.st.IsExiting()) {
-			finalStatus = state.ProfileSyncFailed
+			h.markUpdateFailed(targetRelPath)
 		}
 		return err
 	}
@@ -310,6 +340,8 @@ func (h *ProfileHub) EditRemote(ctx context.Context, oldPath, newName, newURL st
 	}
 
 	urlChanged = (cleanURL != p.URL)
+	scheduleChanged := (newAutoUpdate != p.AutoUpdate || newInterval != p.Interval)
+
 	p.Name = newName
 	p.URL = cleanURL
 	p.AutoUpdate = newAutoUpdate
@@ -325,6 +357,9 @@ func (h *ProfileHub) EditRemote(ctx context.Context, oldPath, newName, newURL st
 		return true, nil
 	}
 
+	if scheduleChanged {
+		p.NextUpdate = 0
+	}
 	h.cfg.UpsertProfile(p)
 	return false, nil
 }
@@ -389,6 +424,8 @@ func (h *ProfileHub) fetchAndCommit(ctx context.Context, targetRelPath, url stri
 	item.Total = res.Total
 	item.Expire = res.Expire
 	item.LastUpdate = time.Now().Unix()
+	item.UpdateFailed = false
+	item.NextUpdate = 0
 
 	if err := h.cfg.CommitRemoteProfile(res.TempPath, targetRelPath, *item, requireExists); err != nil {
 		return false, err
