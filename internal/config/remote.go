@@ -17,7 +17,8 @@ import (
 	"mihomo-tray/internal/fs"
 )
 
-// debugLogFullURL controls whether to log unredacted subscription URLs with sensitive tokens for debugging.
+// debugLogFullURL controls whether to emit DEBUG logs with full unredacted subscription URLs.
+// Requires tray_log_level="debug" to take effect.
 const debugLogFullURL = false
 
 const (
@@ -48,6 +49,8 @@ func (e *nonFallbackError) Error() string { return e.err.Error() }
 func (e *nonFallbackError) Unwrap() error { return e.err }
 
 type fetchOptions struct {
+	profilePath   string
+	via           string
 	proxyFunc     func(*http.Request) (*url.URL, error)
 	timeout       time.Duration
 	tlsTimeout    time.Duration
@@ -55,24 +58,13 @@ type fetchOptions struct {
 	stopOnTimeout bool
 }
 
-func sanitizeURL(rawURL string) string {
-	if debugLogFullURL {
-		return rawURL
-	}
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return "[无效URL]"
-	}
-	return u.Scheme + "://" + u.Host
-}
-
-func sanitizeNetError(err error) error {
+func unwrapNetError(err error) error {
 	var urlErr *url.Error
 	if errors.As(err, &urlErr) {
 		if urlErr.Err != nil {
-			return fmt.Errorf("%s %s: %w", urlErr.Op, sanitizeURL(urlErr.URL), urlErr.Err)
+			return urlErr.Err
 		}
-		return fmt.Errorf("%s %s", urlErr.Op, sanitizeURL(urlErr.URL))
+		return errors.New("网络请求失败")
 	}
 	return err
 }
@@ -105,13 +97,15 @@ func shouldFallbackToDirect(ctx context.Context, err error) bool {
 	return true
 }
 
-func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPort string) (*domain.FetchResult, error) {
+func (m *Manager) FetchRemoteProfile(ctx context.Context, targetRelPath, subURL, proxyPort string) (*domain.FetchResult, error) {
 	subURL = strings.TrimSpace(subURL)
 	proxyPort = strings.TrimSpace(proxyPort)
 
 	if proxyPort != "" {
 		if proxyURL, err := url.Parse("http://127.0.0.1:" + proxyPort); err == nil {
 			res, proxyErr := m.fetchWithOptions(ctx, subURL, fetchOptions{
+				profilePath:   targetRelPath,
+				via:           "proxy",
 				proxyFunc:     http.ProxyURL(proxyURL),
 				timeout:       proxyFetchTimeout,
 				tlsTimeout:    proxyTLSHandshakeTimeout,
@@ -125,27 +119,34 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 				return nil, proxyErr
 			}
 
-			slog.Warn("代理拉取订阅失败，尝试直连", "url", sanitizeURL(subURL), "err", proxyErr)
+			slog.Warn("代理拉取失败，尝试直连", "path", targetRelPath, "err", proxyErr)
 
 			directRes, directErr := m.fetchWithOptions(ctx, subURL, fetchOptions{
+				profilePath: targetRelPath,
+				via:         "direct",
 				proxyFunc:   nil,
 				timeout:     RemoteFetchTimeout,
 				maxAttempts: directFallbackAttempts,
 			})
 			if directErr == nil {
-				slog.Info("订阅已通过直连拉取成功", "url", sanitizeURL(subURL))
+				directRes.UsedDirectFallback = true
 				return directRes, nil
 			}
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
 
-			return nil, fmt.Errorf("代理与直连拉取均失败 (代理: %v): %w", proxyErr, directErr)
+			if proxyErr.Error() == directErr.Error() {
+				return nil, fmt.Errorf("代理与直连均失败: %w", directErr)
+			}
+			return nil, fmt.Errorf("代理与直连均失败 (代理: %v): %w", proxyErr, directErr)
 		}
-		slog.Warn("代理端口无效，改用直连", "port", proxyPort)
+		slog.Warn("代理端口无效，改用直连", "path", targetRelPath, "port", proxyPort)
 	}
 
 	return m.fetchWithOptions(ctx, subURL, fetchOptions{
+		profilePath: targetRelPath,
+		via:         "direct",
 		proxyFunc:   http.ProxyFromEnvironment,
 		timeout:     RemoteFetchTimeout,
 		maxAttempts: directMaxAttempts,
@@ -155,6 +156,10 @@ func (m *Manager) FetchRemoteProfile(ctx context.Context, subURL string, proxyPo
 func (m *Manager) fetchWithOptions(ctx context.Context, subURL string, opts fetchOptions) (*domain.FetchResult, error) {
 	if opts.maxAttempts < 1 {
 		opts.maxAttempts = 1
+	}
+
+	if debugLogFullURL {
+		slog.Debug("发起订阅请求", "path", opts.profilePath, "via", opts.via, "url", subURL)
 	}
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
@@ -181,7 +186,7 @@ func (m *Manager) fetchWithOptions(ctx context.Context, subURL string, opts fetc
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, subURL, nil)
 		if err != nil {
-			return nil, &nonFallbackError{err: fmt.Errorf("无效的订阅链接: %w", sanitizeNetError(err))}
+			return nil, &nonFallbackError{err: fmt.Errorf("无效的订阅链接: %w", unwrapNetError(err))}
 		}
 
 		req.Header.Set("User-Agent", domain.DefaultUserAgent)
@@ -222,7 +227,11 @@ func (m *Manager) fetchWithOptions(ctx context.Context, subURL string, opts fetc
 	}
 
 	if reqErr != nil {
-		return nil, fmt.Errorf("请求订阅失败 (尝试%d次): %w", attempts, sanitizeNetError(reqErr))
+		cleanErr := unwrapNetError(reqErr)
+		if attempts > 1 {
+			return nil, fmt.Errorf("请求订阅失败 (尝试%d次): %w", attempts, cleanErr)
+		}
+		return nil, cleanErr
 	}
 	defer resp.Body.Close()
 
