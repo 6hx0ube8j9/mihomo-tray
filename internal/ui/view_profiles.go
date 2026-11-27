@@ -289,7 +289,7 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 		if !item.IsRemote {
 			return "-"
 		}
-		if item.Interval > 0 {
+		if item.AutoUpdate && item.Interval > 0 {
 			return fmt.Sprintf("%d 天", item.Interval)
 		}
 		return "停止更新"
