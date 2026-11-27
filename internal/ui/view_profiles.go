@@ -270,7 +270,7 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 	switch col {
 	case 0:
 		if item.IsPending {
-			return "正在切换..."
+			return "正在加载..."
 		}
 		if item.IsActive {
 			return "✔ 使用中"
