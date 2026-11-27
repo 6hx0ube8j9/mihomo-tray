@@ -103,7 +103,7 @@ func (a *Application) notifyError(action string, err error) {
 		return
 	}
 
-	if !errors.Is(err, errSystemBusy) {
+	if !errors.Is(err, errSystemBusy) && !errors.Is(err, ErrProfileUpdating) {
 		slog.Error(action+"失败", "err", err)
 	}
 
