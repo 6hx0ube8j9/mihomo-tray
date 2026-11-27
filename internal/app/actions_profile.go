@@ -25,7 +25,7 @@ func (a *Application) applyAndSyncRuntime(ctx context.Context, targetRelPath, ac
 }
 
 func (a *Application) applyActiveProfileUpdate(ctx context.Context, targetRelPath, actionDesc string) {
-	a.runExclusiveAction(state.ActionReload, "应用订阅更新", func() error {
+	a.runExclusiveProfileAction(state.ActionReload, "应用订阅更新", targetRelPath, func() error {
 		if a.Cfg.GetActivePath() != targetRelPath {
 			return nil
 		}
@@ -129,12 +129,11 @@ func (a *Application) handleEditProfileInfo(ctx context.Context, cmd domain.UICo
 			return
 		}
 
-		a.asyncRunError("编辑配置", func() error {
+        a.asyncRunError("编辑配置", func() error {
 			urlChanged, err := a.ProfileHub.EditRemote(ctx, profile.Path, next.Name, next.URL, next.AutoUpdate, next.Interval)
 			if err != nil {
 				return err
 			}
-			a.Presenter.ForcePushUIState()
 			if urlChanged && a.Cfg.GetActivePath() == profile.Path {
 				a.applyActiveProfileUpdate(ctx, profile.Path, "应用订阅地址变更")
 			}
