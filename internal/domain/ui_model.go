@@ -85,6 +85,7 @@ type UIProfileItem struct {
 	IsActive   bool
 	IsPending  bool
 	IsRemote   bool
+	IsUpdating bool
 	AutoUpdate bool
 	Interval   int
 	LastUpdate string
