@@ -9,7 +9,7 @@ type UIPort interface {
 
 	ShowProfileManager(state domain.UIState)
 	OpenYAMLFileDialog() (string, bool)
-	ShowProfileInfoEditor(title, defaultName, defaultURL string, defaultInterval int, isRemote bool) (name, url string, interval int, ok bool)
+	ShowProfileInfoEditor(title string, current domain.ProfileInfo) (next domain.ProfileInfo, ok bool)
 	ShowPortEditor(cMixed, cSocks, cHttp int) (nMixed, nSocks, nHttp int, ok bool)
 	ShowControllerEditor(current domain.ControllerSettings) (next domain.ControllerSettings, ok bool)
 
