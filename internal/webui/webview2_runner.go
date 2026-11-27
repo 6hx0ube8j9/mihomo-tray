@@ -97,6 +97,21 @@ func (a *webviewAdapter) SetDarkMode(isDark bool) {
 	}
 }
 
+func (a *webviewAdapter) Reload() error {
+	if a.destroyed.Load() || a.w == nil {
+		return nil
+	}
+	if a.hwnd != 0 && sys.IsWindowHung(a.hwnd) {
+		return fmt.Errorf("WebView2 窗口无响应 (hwnd=%d)", a.hwnd)
+	}
+	a.w.Dispatch(func() {
+		if !a.destroyed.Load() && a.w != nil {
+			a.w.Eval("window.location.reload()")
+		}
+	})
+	return nil
+}
+
 func (m *Manager) cleanupWebView2() {
 	m.wvMu.Lock()
 	wv := m.wv
