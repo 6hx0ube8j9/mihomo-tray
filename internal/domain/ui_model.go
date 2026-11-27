@@ -27,6 +27,15 @@ type ControllerSettings struct {
 	CustomBrowserPath    string
 }
 
+// ProfileInfo 封装配置信息编辑弹窗的双向表单数据
+type ProfileInfo struct {
+	Name       string
+	URL        string
+	IsRemote   bool
+	AutoUpdate bool
+	Interval   int
+}
+
 // ================= UI Action Protocol =================
 const (
 	// 配置管理操作
@@ -76,6 +85,7 @@ type UIProfileItem struct {
 	IsActive   bool
 	IsPending  bool
 	IsRemote   bool
+	AutoUpdate bool
 	Interval   int
 	LastUpdate string
 }
