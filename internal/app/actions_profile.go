@@ -20,6 +20,7 @@ func (a *Application) applyAndSyncRuntime(ctx context.Context, targetRelPath, ac
 
 	a.ProxyGuard.Sync()
 	a.ForceSyncAPI()
+	a.WebUIService.ReloadIfActive()
 	return nil
 }
 
@@ -193,15 +194,16 @@ func (a *Application) handleUpdateAllRemoteProfiles(ctx context.Context, _ domai
 			a.showNotice("更新全部", fmt.Sprintf("已更新 %d 个订阅配置", res.Succeeded))
 		case len(res.Failures) == 0 && res.Skipped > 0:
 			a.notifyError("更新全部", ErrProfileUpdating)
-		case len(res.Failures) == 1 && res.Succeeded == 0:
-			a.notifyError("更新全部", res.Failures[0].Err)
 		case len(res.Failures) > 0:
 			for _, f := range res.Failures {
 				slog.Error("批量更新订阅失败", "path", f.Path, "err", f.Err)
 			}
-			if res.Succeeded > 0 {
+			switch {
+			case len(res.Failures) == 1 && res.Succeeded == 0:
+				a.showError("更新全部", userFacingMessage(res.Failures[0].Err))
+			case res.Succeeded > 0:
 				a.showError("更新全部", fmt.Sprintf("成功 %d 个，失败 %d 个，详情请查看日志", res.Succeeded, len(res.Failures)))
-			} else {
+			default:
 				a.showError("更新全部", fmt.Sprintf("%d 个订阅更新失败，详情请查看日志", len(res.Failures)))
 			}
 		}
@@ -258,13 +260,13 @@ func (a *Application) handleRemoveProfile(ctx context.Context, cmd domain.UIComm
 
 func (a *Application) handleMoveProfileUp(_ context.Context, cmd domain.UICommand) {
 	if a.Cfg.MoveProfile(cmd.Payload, -1) {
-		a.Presenter.PushUIState()
+		a.Presenter.ForcePushUIState()
 	}
 }
 
 func (a *Application) handleMoveProfileDown(_ context.Context, cmd domain.UICommand) {
 	if a.Cfg.MoveProfile(cmd.Payload, 1) {
-		a.Presenter.PushUIState()
+		a.Presenter.ForcePushUIState()
 	}
 }
 
