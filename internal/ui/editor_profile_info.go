@@ -22,8 +22,10 @@ func (e *Engine) ShowProfileInfoEditor(title string, current domain.ProfileInfo)
 		minVal = 1.0
 		initAutoUpdate = current.AutoUpdate && current.Interval > 0
 		displayInterval = current.Interval
-		if displayInterval <= 0 {
+		if displayInterval < 1 {
 			displayInterval = domain.DefaultUpdateInterval
+		} else if displayInterval > domain.MaxUpdateInterval {
+			displayInterval = domain.MaxUpdateInterval
 		}
 	}
 
@@ -42,7 +44,7 @@ func (e *Engine) ShowProfileInfoEditor(title string, current domain.ProfileInfo)
 		AcceptBtnText: "确定",
 		Widgets: []Widget{
 			Composite{
-				Layout: Grid{Columns: 2, MarginsZero: true},
+				Layout: Grid{Columns: 2, MarginsZero: true, Spacing: 8},
 				Children: []Widget{
 					formLabel("配置名称", true),
 					LineEdit{AssignTo: &nameEdit, Text: current.Name},
@@ -50,33 +52,19 @@ func (e *Engine) ShowProfileInfoEditor(title string, current domain.ProfileInfo)
 					formLabel("订阅链接", isRemote),
 					LineEdit{AssignTo: &urlEdit, Text: current.URL, Enabled: isRemote},
 
-					formLabel("更新频率", isRemote),
+					formLabel("更新间隔", isRemote),
 					Composite{
-						Layout:  HBox{MarginsZero: true, Spacing: 8},
+						Layout:  HBox{MarginsZero: true, Spacing: 6},
 						Enabled: isRemote,
 						Children: []Widget{
-							CheckBox{
-								AssignTo: &autoUpdateCB,
-								Text:     "自动更新",
-								Checked:  initAutoUpdate,
-								Enabled:  isRemote,
-								OnCheckedChanged: func() {
-									enabled := isRemote && autoUpdateCB != nil && autoUpdateCB.Checked()
-									if intervalEdit != nil {
-										intervalEdit.SetEnabled(enabled)
-									}
-									if unitLabel != nil {
-										unitLabel.SetEnabled(enabled)
-									}
-								},
-							},
 							NumberEdit{
 								AssignTo: &intervalEdit,
 								Value:    float64(displayInterval),
 								MinValue: minVal,
 								MaxValue: float64(domain.MaxUpdateInterval),
 								Decimals: 0,
-								MinSize:  Size{Width: 64},
+								MinSize:  Size{Width: 100},
+								MaxSize:  Size{Width: 100},
 								Enabled:  isRemote && initAutoUpdate,
 							},
 							Label{
@@ -87,6 +75,31 @@ func (e *Engine) ShowProfileInfoEditor(title string, current domain.ProfileInfo)
 							HSpacer{},
 						},
 					},
+				},
+			},
+			Composite{
+				Layout:  HBox{MarginsZero: true},
+				Enabled: isRemote,
+				Children: []Widget{
+					CheckBox{
+						AssignTo: &autoUpdateCB,
+						Text:     "自动更新",
+						Checked:  initAutoUpdate,
+						Enabled:  isRemote,
+						OnCheckedChanged: func() {
+							enabled := isRemote && autoUpdateCB != nil && autoUpdateCB.Checked()
+							if intervalEdit != nil {
+								if !enabled && isRemote && int(intervalEdit.Value()) < 1 {
+									_ = intervalEdit.SetValue(float64(displayInterval))
+								}
+								intervalEdit.SetEnabled(enabled)
+							}
+							if unitLabel != nil {
+								unitLabel.SetEnabled(enabled)
+							}
+						},
+					},
+					HSpacer{},
 				},
 			},
 		},
@@ -115,10 +128,13 @@ func (e *Engine) ShowProfileInfoEditor(title string, current domain.ProfileInfo)
 
 			inputAutoUpdate := autoUpdateCB.Checked()
 			inputInterval := int(intervalEdit.Value())
-			if inputAutoUpdate && (inputInterval < 1 || inputInterval > domain.MaxUpdateInterval) {
-				intervalEdit.SetFocus()
-				RunErrorDialog(dlg, "输入错误", fmt.Sprintf("更新周期必须在 1 到 %d 天之间", domain.MaxUpdateInterval))
-				return false, nil
+			if inputInterval < 1 || inputInterval > domain.MaxUpdateInterval {
+				if inputAutoUpdate {
+					intervalEdit.SetFocus()
+					RunErrorDialog(dlg, "输入错误", fmt.Sprintf("更新间隔必须为 1 到 %d 之间的正整数", domain.MaxUpdateInterval))
+					return false, nil
+				}
+				inputInterval = displayInterval
 			}
 
 			next.URL = inputURL
