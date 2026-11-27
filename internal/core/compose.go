@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -106,10 +107,8 @@ func ComposeRuntimeYAML(cfg domain.TrayConfig, sourceYAML []byte) (*ComposeResul
 	var topNodes []*yaml.Node
 
 	putTop := func(key string, val any) {
-		k, _ := popKey(rootMap, key)
-		if k == nil {
-			k = &yaml.Node{Kind: yaml.ScalarNode, Value: key}
-		}
+		deleteKeys(rootMap, key)
+		k := &yaml.Node{Kind: yaml.ScalarNode, Value: key}
 		var newVal yaml.Node
 		if err := newVal.Encode(val); err != nil {
 			return
@@ -246,39 +245,63 @@ func buildCORSNode(allowPrivateNetwork *bool, allowOrigins []string) *yaml.Node 
 }
 
 func patchTunNode(rootMap *yaml.Node, enable bool) (tunDevice string, extraTop []*yaml.Node) {
-	tunIdx, tunV := findKey(rootMap, "tun")
-	if tunIdx > 0 && tunV.Kind == yaml.MappingNode {
-		tunDevice = getString(tunV, "device")
+	lastIdx := -1
+	for i := 0; i < len(rootMap.Content); i += 2 {
+		if rootMap.Content[i].Value == "tun" {
+			lastIdx = i
+		}
+	}
+
+	if lastIdx >= 0 && rootMap.Content[lastIdx+1].Kind == yaml.MappingNode {
+		tunV := rootMap.Content[lastIdx+1]
+		out := rootMap.Content[:0]
+		for i := 0; i < len(rootMap.Content); i += 2 {
+			if rootMap.Content[i].Value == "tun" && i != lastIdx {
+				continue
+			}
+			out = append(out, rootMap.Content[i], rootMap.Content[i+1])
+		}
+		clear(rootMap.Content[len(out):])
+		rootMap.Content = out
+
+		tunDevice = strings.TrimSpace(getString(tunV, "device"))
 		if tunDevice == "" {
 			tunDevice = domain.DefaultTunDevice
 		}
 
-		enableIdx, _ := findKey(tunV, "enable")
-		if enableIdx > 0 {
-			var newVal yaml.Node
-			_ = newVal.Encode(enable)
-			tunV.Content[enableIdx] = &newVal
-		} else {
-			ek := &yaml.Node{Kind: yaml.ScalarNode, Value: "enable"}
-			var ev yaml.Node
-			_ = ev.Encode(enable)
-			tunV.Content = append([]*yaml.Node{ek, &ev}, tunV.Content...)
-		}
+		deleteKeys(tunV, "enable")
+		ek := &yaml.Node{Kind: yaml.ScalarNode, Value: "enable"}
+		var ev yaml.Node
+		_ = ev.Encode(enable)
+		tunV.Content = append([]*yaml.Node{ek, &ev}, tunV.Content...)
 		return tunDevice, nil
 	}
 
-	if tunIdx > 0 {
-		deleteKeys(rootMap, "tun")
-	}
+	deleteKeys(rootMap, "tun")
 
 	tunK := &yaml.Node{Kind: yaml.ScalarNode, Value: "tun"}
-	tunV = &yaml.Node{Kind: yaml.MappingNode}
+	tunV := &yaml.Node{Kind: yaml.MappingNode}
 	ek := &yaml.Node{Kind: yaml.ScalarNode, Value: "enable"}
 	var ev yaml.Node
 	_ = ev.Encode(enable)
 	tunV.Content = []*yaml.Node{ek, &ev}
 
 	return domain.DefaultTunDevice, []*yaml.Node{tunK, tunV}
+}
+
+func deleteKeys(node *yaml.Node, keys ...string) {
+	if node == nil || node.Kind != yaml.MappingNode || len(keys) == 0 {
+		return
+	}
+	out := node.Content[:0]
+	for i := 0; i < len(node.Content); i += 2 {
+		if slices.Contains(keys, node.Content[i].Value) {
+			continue
+		}
+		out = append(out, node.Content[i], node.Content[i+1])
+	}
+	clear(node.Content[len(out):])
+	node.Content = out
 }
 
 func clearComments(node *yaml.Node) {
@@ -313,12 +336,6 @@ func popKey(node *yaml.Node, key string) (*yaml.Node, *yaml.Node) {
 		return k, v
 	}
 	return nil, nil
-}
-
-func deleteKeys(node *yaml.Node, keys ...string) {
-	for _, key := range keys {
-		popKey(node, key)
-	}
 }
 
 func getString(node *yaml.Node, key string) string {
