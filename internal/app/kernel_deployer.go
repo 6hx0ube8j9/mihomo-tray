@@ -87,7 +87,12 @@ func (d *KernelDeployer) ReloadConfig(ctx context.Context) error {
 		return err
 	}
 
-	slog.Info("重载配置成功", "path", activePath)
+	if activePath != "" {
+		slog.Info("重载配置成功", "path", activePath)
+	} else {
+		slog.Info("重载配置成功")
+	}
+	
 	return nil
 }
 
@@ -129,7 +134,7 @@ func (d *KernelDeployer) DeployAndApply(ctx context.Context, targetRelPath, acti
 			if onCommitted != nil {
 				onCommitted()
 			}
-			slog.Info("配置应用成功", "action", actionDesc, "path", targetRelPath)
+			logProfileApplied(actionDesc, targetRelPath)
 			return nil
 		}
 
@@ -157,8 +162,16 @@ func (d *KernelDeployer) DeployAndApply(ctx context.Context, targetRelPath, acti
 		onCommitted()
 	}
 	d.restartProcess()
-	slog.Info("配置应用成功", "action", actionDesc, "path", targetRelPath)
+	logProfileApplied(actionDesc, targetRelPath)
 	return nil
+}
+
+func logProfileApplied(actionDesc, path string) {
+	if path != "" {
+		slog.Info("配置应用成功", "action", actionDesc, "path", path)
+		return
+	}
+	slog.Info("配置应用成功", "action", actionDesc)
 }
 
 func (d *KernelDeployer) restartProcess() {
