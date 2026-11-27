@@ -26,10 +26,16 @@ func applyGeneralDefaults(gen *domain.GeneralConfig, isTainted *bool) {
 	setIfNil(&gen.CustomBrowserEnabled, domain.DefaultCustomBrowserEnabled, isTainted)
 	setIfNil(&gen.SystemProxy, domain.DefaultSystemProxy, isTainted)
 
-	if gen.WebOpenMode == nil || !domain.IsValidWebOpenMode(*gen.WebOpenMode) {
+	if gen.WebOpenMode == nil {
 		mode := domain.DefaultWebOpenMode
 		gen.WebOpenMode = &mode
 		*isTainted = true
+	} else {
+		normalized := domain.NormalizeWebOpenMode(*gen.WebOpenMode)
+		if normalized != *gen.WebOpenMode {
+			gen.WebOpenMode = &normalized
+			*isTainted = true
+		}
 	}
 
 	sanitizeTrimmedString(&gen.CustomBrowserPath, "", isTainted)
@@ -39,14 +45,22 @@ func applyGeneralDefaults(gen *domain.GeneralConfig, isTainted *bool) {
 		*isTainted = true
 	}
 
-	if !isValidTrayLogLevel(gen.TrayLogLevel) {
+	if normalizedLevel, ok := normalizeTrayLogLevel(gen.TrayLogLevel); ok {
+		if gen.TrayLogLevel != normalizedLevel {
+			gen.TrayLogLevel = normalizedLevel
+			*isTainted = true
+		}
+	} else {
 		gen.TrayLogLevel = domain.DefaultTrayLogLevel
 		*isTainted = true
 	}
 
-	if gen.RemoteWebUIURL == nil || !netutil.IsValidHTTPURL(*gen.RemoteWebUIURL) {
+	if gen.RemoteWebUIURL == nil || !netutil.IsValidHTTPURL(strings.TrimSpace(*gen.RemoteWebUIURL)) {
 		url := domain.DefaultRemoteWebUIURL
 		gen.RemoteWebUIURL = &url
+		*isTainted = true
+	} else if trimmed := strings.TrimSpace(*gen.RemoteWebUIURL); trimmed != *gen.RemoteWebUIURL {
+		gen.RemoteWebUIURL = &trimmed
 		*isTainted = true
 	}
 }
@@ -66,7 +80,12 @@ func applyKernelDefaults(kcfg *domain.KernelConfig, isTainted *bool) {
 	sanitizeGeoURL(&kcfg.GeoXURL.GeoIP, domain.DefaultGeoXURLGeoIP, isTainted)
 	sanitizeGeoURL(&kcfg.GeoXURL.GeoSite, domain.DefaultGeoXURLGeoSite, isTainted)
 
-	if !isValidMode(kcfg.Mode) {
+	if normalizedMode, ok := normalizeMode(kcfg.Mode); ok {
+		if kcfg.Mode != normalizedMode {
+			kcfg.Mode = normalizedMode
+			*isTainted = true
+		}
+	} else {
 		kcfg.Mode = domain.DefaultMode
 		*isTainted = true
 	}
@@ -81,11 +100,15 @@ func applyKernelDefaults(kcfg *domain.KernelConfig, isTainted *bool) {
 		*isTainted = true
 	}
 
-	if !netutil.IsValidHostPort(kcfg.ExternalController) {
-		if kcfg.ExternalController != "" {
-			slog.Warn("控制面板监听地址非法，已恢复默认", "invalid", kcfg.ExternalController)
+	trimmedCtrl := strings.TrimSpace(kcfg.ExternalController)
+	if !netutil.IsValidHostPort(trimmedCtrl) {
+		if trimmedCtrl != "" {
+			slog.Warn("控制面板监听地址非法，已恢复默认", "invalid", trimmedCtrl)
 		}
 		kcfg.ExternalController = domain.DefaultExternalController
+		*isTainted = true
+	} else if trimmedCtrl != kcfg.ExternalController {
+		kcfg.ExternalController = trimmedCtrl
 		*isTainted = true
 	}
 
@@ -93,10 +116,7 @@ func applyKernelDefaults(kcfg *domain.KernelConfig, isTainted *bool) {
 	setIfEmpty(&kcfg.ExternalUIName, domain.DefaultExternalUIName, isTainted)
 	setIfNil(&kcfg.ExternalUIURL, domain.DefaultExternalUIURL, isTainted)
 
-	if kcfg.ExternalControllerPipe != domain.IPCNamedPipe {
-		kcfg.ExternalControllerPipe = domain.IPCNamedPipe
-		*isTainted = true
-	}
+	kcfg.ExternalControllerPipe = domain.IPCNamedPipe
 
 	setIfNil(&kcfg.ExternalControllerCors.AllowPrivateNetwork, domain.DefaultAllowPrivateNetwork, isTainted)
 	if kcfg.ExternalControllerCors.AllowOrigins == nil {
@@ -108,22 +128,39 @@ func applyKernelDefaults(kcfg *domain.KernelConfig, isTainted *bool) {
 		s := random.String(domain.DefaultSecretLength)
 		kcfg.Secret = &s
 		*isTainted = true
-	} else if netutil.IsPublicAddress(kcfg.ExternalController) && strings.TrimSpace(*kcfg.Secret) == "" {
-		s := random.String(domain.DefaultSecretLength)
-		kcfg.Secret = &s
-		*isTainted = true
-		slog.Warn("外网监听未设置密码，已自动生成随机密码")
+	} else {
+		trimmedSecret := strings.TrimSpace(*kcfg.Secret)
+		if !domain.IsValidSecret(trimmedSecret) {
+			s := random.String(domain.DefaultSecretLength)
+			kcfg.Secret = &s
+			*isTainted = true
+			slog.Warn("接口访问密码包含非法字符，已自动重新生成")
+		} else if netutil.IsPublicAddress(kcfg.ExternalController) && trimmedSecret == "" {
+			s := random.String(domain.DefaultSecretLength)
+			kcfg.Secret = &s
+			*isTainted = true
+			slog.Warn("外网监听未设置密码，已自动生成随机密码")
+		} else if trimmedSecret != *kcfg.Secret {
+			kcfg.Secret = &trimmedSecret
+			*isTainted = true
+		}
 	}
 }
 
 func applyProfileDefaults(prof *domain.ProfileManager, isTainted *bool) {
-	var validItems []domain.ProfileItem
+	if prof.Items == nil {
+		prof.Items = []domain.ProfileItem{}
+		*isTainted = true
+	}
+
+	validItems := make([]domain.ProfileItem, 0, len(prof.Items))
 	activeFound := false
 	for _, item := range prof.Items {
 		if filepath.Dir(filepath.ToSlash(item.Path)) != domain.ProfilesDir {
 			*isTainted = true
 			continue
 		}
+		sanitizeProfileItem(&item, isTainted)
 		validItems = append(validItems, item)
 		if prof.Active == item.Path {
 			activeFound = true
@@ -134,6 +171,52 @@ func applyProfileDefaults(prof *domain.ProfileManager, isTainted *bool) {
 	if !activeFound && prof.Active != "" {
 		prof.Active = ""
 		*isTainted = true
+	}
+}
+
+func sanitizeProfileItem(item *domain.ProfileItem, tainted *bool) {
+	trimmedName := strings.TrimSpace(item.Name)
+	if trimmedName == "" {
+		base := filepath.Base(item.Path)
+		trimmedName = strings.TrimSuffix(base, filepath.Ext(base))
+	}
+	if trimmedName != item.Name {
+		item.Name = trimmedName
+		*tainted = true
+	}
+
+	trimmedURL := strings.TrimSpace(item.URL)
+	if trimmedURL != item.URL {
+		item.URL = trimmedURL
+		*tainted = true
+	}
+
+	if item.URL == "" {
+		if item.AutoUpdate || item.Interval != 0 || item.LastUpdate != 0 ||
+			item.Upload != 0 || item.Download != 0 || item.Total != 0 || item.Expire != 0 {
+			item.AutoUpdate = false
+			item.Interval = 0
+			item.LastUpdate = 0
+			item.Upload = 0
+			item.Download = 0
+			item.Total = 0
+			item.Expire = 0
+			*tainted = true
+		}
+		return
+	}
+
+	if item.Interval < 0 {
+		item.Interval = 0
+		*tainted = true
+	} else if item.Interval > domain.MaxUpdateInterval {
+		item.Interval = domain.MaxUpdateInterval
+		*tainted = true
+	}
+
+	if item.AutoUpdate && item.Interval == 0 {
+		item.AutoUpdate = false
+		*tainted = true
 	}
 }
 
@@ -194,30 +277,48 @@ func sanitizeTrimmedString(ptr **string, def string, tainted *bool) {
 	}
 }
 
-func isValidMode(mode string) bool {
-	switch strings.ToLower(mode) {
-	case "rule", "global", "direct":
-		return true
+func normalizeMode(mode string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case domain.ModeRule:
+		return domain.ModeRule, true
+	case domain.ModeGlobal:
+		return domain.ModeGlobal, true
+	case domain.ModeDirect:
+		return domain.ModeDirect, true
 	default:
-		return false
+		return "", false
 	}
 }
 
-func isValidTrayLogLevel(level string) bool {
-	switch strings.ToLower(level) {
-	case "debug", "info", "warn", "warning", "error", "silent":
-		return true
+func normalizeTrayLogLevel(level string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "debug":
+		return "debug", true
+	case "info":
+		return "info", true
+	case "warn", "warning":
+		return "warn", true
+	case "error":
+		return "error", true
+	case "silent":
+		return "silent", true
 	default:
-		return false
+		return "", false
 	}
 }
 
 func normalizeKernelLogLevel(level string) (string, bool) {
-	switch strings.ToLower(level) {
-	case "debug", "info", "error", "silent":
-		return strings.ToLower(level), true
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "debug":
+		return "debug", true
+	case "info":
+		return "info", true
 	case "warn", "warning":
 		return "warning", true
+	case "error":
+		return "error", true
+	case "silent":
+		return "silent", true
 	default:
 		return "", false
 	}
