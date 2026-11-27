@@ -93,7 +93,7 @@ func (a *Application) reportPanic(action string, r any) {
 	a.showError(action, "程序发生内部异常，详情请查看日志")
 }
 
-func (a *Application) notifyError(action string, err error) {
+func (a *Application) notifyError(action string, err error, logAttrs ...any) {
 	if err == nil || a.State.IsExiting() || errors.Is(err, context.Canceled) {
 		return
 	}
@@ -104,7 +104,10 @@ func (a *Application) notifyError(action string, err error) {
 	}
 
 	if !errors.Is(err, errSystemBusy) && !errors.Is(err, ErrProfileUpdating) {
-		slog.Error(action+"失败", "err", err)
+		args := make([]any, 0, len(logAttrs)+2)
+		args = append(args, logAttrs...)
+		args = append(args, "err", err)
+		slog.Error(action+"失败", args...)
 	}
 
 	a.showError(action, userFacingMessage(err))
