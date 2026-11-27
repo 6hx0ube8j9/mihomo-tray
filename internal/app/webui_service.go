@@ -29,6 +29,7 @@ func NewWebUIService(cfg *config.Manager, st *state.RuntimeState, coreMgr *webui
 		coreMgr: coreMgr,
 	}
 }
+
 func (s *WebUIService) Open(forceSync func(), onReady func()) error {
 	if s.st.GetPhase() != domain.PhaseRunning {
 		if onReady != nil {
@@ -62,12 +63,49 @@ func (s *WebUIService) Open(forceSync func(), onReady func()) error {
 	return s.coreMgr.Launch(wcfg, onReady)
 }
 
+func (s *WebUIService) ReloadIfActive() {
+	if !s.coreMgr.IsActive() {
+		return
+	}
+
+	reloadNow := func() {
+		if !s.coreMgr.IsActive() {
+			return
+		}
+		if err := s.coreMgr.Reload(); err != nil {
+			slog.Warn("刷新 Web 面板失败", "err", err)
+		}
+	}
+
+	if s.st.GetPhase() == domain.PhaseRunning {
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("刷新 Web 面板异常", "err", r)
+				}
+			}()
+			reloadNow()
+		}()
+		return
+	}
+
+	s.scheduleAfterKernelReady("刷新 Web 面板", reloadNow)
+}
+
 func (s *WebUIService) ReopenIfActive(forceSync func()) {
 	if !s.coreMgr.IsActive() {
 		return
 	}
 	s.coreMgr.Cleanup()
 
+	s.scheduleAfterKernelReady("恢复 Web 面板", func() {
+		if err := s.Open(forceSync, nil); err != nil {
+			slog.Warn("恢复 Web 面板失败", "err", err)
+		}
+	})
+}
+
+func (s *WebUIService) scheduleAfterKernelReady(actionName string, onReady func()) {
 	s.reopenMu.Lock()
 	if s.reopenCancel != nil {
 		s.reopenCancel()
@@ -81,7 +119,7 @@ func (s *WebUIService) ReopenIfActive(forceSync func()) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				slog.Error("恢复 Web 面板异常", "err", r)
+				slog.Error(actionName+"异常", "err", r)
 			}
 			cancel()
 			s.reopenMu.Lock()
@@ -90,6 +128,14 @@ func (s *WebUIService) ReopenIfActive(forceSync func()) {
 			}
 			s.reopenMu.Unlock()
 		}()
+
+		if s.st.IsExiting() {
+			return
+		}
+		if s.st.GetPhase() == domain.PhaseRunning {
+			onReady()
+			return
+		}
 
 		ticker := time.NewTicker(200 * time.Millisecond)
 		defer ticker.Stop()
@@ -103,14 +149,12 @@ func (s *WebUIService) ReopenIfActive(forceSync func()) {
 					return
 				}
 				if s.st.GetPhase() == domain.PhaseRunning {
-					if err := s.Open(forceSync, nil); err != nil {
-						slog.Warn("恢复 Web 面板失败", "err", err)
-					}
+					onReady()
 					return
 				}
 			}
 		}
-		slog.Warn("等待内核就绪超时，未恢复 Web 面板")
+		slog.Warn("等待内核就绪超时，未"+actionName)
 	}()
 }
 
