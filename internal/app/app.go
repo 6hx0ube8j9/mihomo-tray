@@ -83,8 +83,9 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 
 	app.KernelDeployer = NewKernelDeployer(cm, st, kernel, api)
 	app.Platform = NewPlatform(cm.ExePath(), cm.BaseDir())
+	app.Presenter = NewPresenter(cm, st, app.Platform, app.UIStateNotifyCh)
 
-	app.ProfileHub = NewProfileHub(cm, func() string {
+	app.ProfileHub = NewProfileHub(cm, st, app.Presenter.ForcePushUIState, func() string {
 		if !app.KernelDeployer.IsKernelRunning() || app.Cfg.GetActivePath() == "" {
 			return ""
 		}
@@ -96,8 +97,7 @@ func NewApplication(cm *config.Manager, st *state.RuntimeState) *Application {
 		return port
 	})
 
-	app.Presenter = NewPresenter(cm, st, app.Platform, app.UIStateNotifyCh)
-	app.ProfileUpdater = NewProfileUpdater(cm, st, app.ProfileHub, app.Presenter.PushUIState, app.silentReloadActiveProfile)
+	app.ProfileUpdater = NewProfileUpdater(cm, st, app.ProfileHub, app.silentReloadActiveProfile)
 	app.Probe = NewKernelProbe(cm, st, api, app.Platform)
 	app.KernelTuner = NewKernelTuner(cm, st, api, app.Platform, app.ForceSyncAPI)
 	app.WebUIService = NewWebUIService(cm, st, app.WebUI)
