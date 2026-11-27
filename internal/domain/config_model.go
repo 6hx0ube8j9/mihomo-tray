@@ -76,7 +76,7 @@ type ProfileItem struct {
 	Name       string `json:"name"`
 	Path       string `json:"path"`
 	URL        string `json:"url,omitempty"`
-	AutoUpdate bool   `json:"auto_update,omitempty"`
+	AutoUpdate bool   `json:"auto_update"`
 	Interval   int    `json:"interval,omitempty"`
 	LastUpdate int64  `json:"last_update,omitempty"`
 	Upload     int64  `json:"upload,omitempty"`
