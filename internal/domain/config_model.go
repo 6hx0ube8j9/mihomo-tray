@@ -73,16 +73,18 @@ type ProfileManager struct {
 }
 
 type ProfileItem struct {
-	Name       string `json:"name"`
-	Path       string `json:"path"`
-	URL        string `json:"url,omitempty"`
-	AutoUpdate bool   `json:"auto_update"`
-	Interval   int    `json:"interval,omitempty"`
-	LastUpdate int64  `json:"last_update,omitempty"`
-	Upload     int64  `json:"upload,omitempty"`
-	Download   int64  `json:"download,omitempty"`
-	Total      int64  `json:"total,omitempty"`
-	Expire     int64  `json:"expire,omitempty"`
+	Name         string `json:"name"`
+	Path         string `json:"path"`
+	URL          string `json:"url,omitempty"`
+	AutoUpdate   bool   `json:"auto_update"`
+	Interval     int    `json:"interval,omitempty"`
+	LastUpdate   int64  `json:"last_update,omitempty"`
+	UpdateFailed bool   `json:"update_failed,omitempty"`
+	NextUpdate   int64  `json:"next_update,omitempty"`
+	Upload       int64  `json:"upload,omitempty"`
+	Download     int64  `json:"download,omitempty"`
+	Total        int64  `json:"total,omitempty"`
+	Expire       int64  `json:"expire,omitempty"`
 }
 
 type FetchResult struct {
@@ -285,8 +287,13 @@ func (p ProfileItem) IsUpdateDue() bool {
 	if !p.IsAutoUpdateEnabled() {
 		return false
 	}
-	targetDuration := time.Duration(p.Interval) * 24 * time.Hour
-	return time.Since(time.Unix(p.LastUpdate, 0)) >= targetDuration
+	if p.NextUpdate > 0 {
+		return time.Now().Unix() >= p.NextUpdate
+	}
+	if p.LastUpdate <= 0 {
+		return true
+	}
+	return time.Since(time.Unix(p.LastUpdate, 0)) >= time.Duration(p.Interval)*24*time.Hour
 }
 
 // IsValidSecret reports whether s contains only printable ASCII characters without spaces (33-126).
