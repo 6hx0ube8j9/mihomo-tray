@@ -61,12 +61,13 @@ func (p *Presenter) calculateUIStateLocked() domain.UIState {
 	s.ProfileItems = make([]domain.UIProfileItem, 0, len(profiles))
 	for _, prof := range profiles {
 		item := domain.UIProfileItem{
-			Name:      domain.TruncateMiddle(prof.Name),
-			Path:      prof.Path,
-			IsActive:  prof.Path == displayActive && displayActive != "",
-			IsPending: pendingPath != "" && prof.Path == pendingPath,
-			IsRemote:  prof.URL != "",
-			Interval:  prof.Interval,
+			Name:       domain.TruncateMiddle(prof.Name),
+			Path:       prof.Path,
+			IsActive:   prof.Path == displayActive && displayActive != "",
+			IsPending:  pendingPath != "" && prof.Path == pendingPath,
+			IsRemote:   prof.IsRemote(),
+			AutoUpdate: prof.IsAutoUpdateEnabled(),
+			Interval:   prof.Interval,
 		}
 
 		if item.IsRemote {
