@@ -13,6 +13,14 @@ const (
 	TunLostAlarmDelay  = 6 * time.Second
 )
 
+type ProfileSyncStatus uint8
+
+const (
+	ProfileSyncIdle ProfileSyncStatus = iota
+	ProfileSyncUpdating
+	ProfileSyncFailed
+)
+
 type KernelAction int32
 
 const (
@@ -50,6 +58,9 @@ type RuntimeState struct {
 
 	updatingProfiles atomic.Bool
 
+	profileSyncMu     sync.RWMutex
+	profileSyncStatus map[string]ProfileSyncStatus
+
 	tunAlive    atomic.Bool
 	tunReqTime  atomic.Int64
 	tunLostTime atomic.Int64
@@ -59,7 +70,9 @@ type RuntimeState struct {
 }
 
 func NewRuntimeState() *RuntimeState {
-	rs := &RuntimeState{}
+	rs := &RuntimeState{
+		profileSyncStatus: make(map[string]ProfileSyncStatus),
+	}
 	rs.phase.Store(int32(domain.PhaseInitializing))
 	rs.systemTheme.Store(domain.ThemeLight)
 	return rs
@@ -166,6 +179,38 @@ func (r *RuntimeState) EndProfileBatchUpdate() {
 
 func (r *RuntimeState) IsProfileBatchUpdating() bool {
 	return r.updatingProfiles.Load()
+}
+
+// ---------------- 订阅单条同步状态 ----------------
+
+func (r *RuntimeState) SetProfileSyncStatus(path string, status ProfileSyncStatus) {
+	if path == "" {
+		return
+	}
+	r.profileSyncMu.Lock()
+	if status == ProfileSyncIdle {
+		delete(r.profileSyncStatus, path)
+	} else {
+		if r.profileSyncStatus == nil {
+			r.profileSyncStatus = make(map[string]ProfileSyncStatus)
+		}
+		r.profileSyncStatus[path] = status
+	}
+	r.profileSyncMu.Unlock()
+}
+
+func (r *RuntimeState) SnapshotProfileSyncStatuses() map[string]ProfileSyncStatus {
+	r.profileSyncMu.RLock()
+	defer r.profileSyncMu.RUnlock()
+
+	if len(r.profileSyncStatus) == 0 {
+		return nil
+	}
+	out := make(map[string]ProfileSyncStatus, len(r.profileSyncStatus))
+	for k, v := range r.profileSyncStatus {
+		out[k] = v
+	}
+	return out
 }
 
 // ---------------- 生命周期与阶段控制 ----------------
