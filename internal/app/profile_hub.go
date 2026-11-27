@@ -14,6 +14,7 @@ import (
 	"mihomo-tray/internal/config"
 	"mihomo-tray/internal/core"
 	"mihomo-tray/internal/domain"
+	"mihomo-tray/internal/state"
 )
 
 const maxConcurrentProfileUpdates = 3
@@ -37,15 +38,19 @@ type BatchUpdateResult struct {
 }
 
 type ProfileHub struct {
-	cfg       *config.Manager
-	proxyPort func() string
-	locks     sync.Map
+	cfg           *config.Manager
+	st            *state.RuntimeState
+	onStateChange func()
+	proxyPort     func() string
+	locks         sync.Map
 }
 
-func NewProfileHub(cfg *config.Manager, proxyPort func() string) *ProfileHub {
+func NewProfileHub(cfg *config.Manager, st *state.RuntimeState, onStateChange func(), proxyPort func() string) *ProfileHub {
 	return &ProfileHub{
-		cfg:       cfg,
-		proxyPort: proxyPort,
+		cfg:           cfg,
+		st:            st,
+		onStateChange: onStateChange,
+		proxyPort:     proxyPort,
 	}
 }
 
@@ -56,6 +61,15 @@ func (h *ProfileHub) tryAcquireLock(path string) bool {
 
 func (h *ProfileHub) releaseLock(path string) {
 	h.locks.Delete(path)
+}
+
+func (h *ProfileHub) setSyncStatus(path string, status state.ProfileSyncStatus) {
+	if h.st != nil {
+		h.st.SetProfileSyncStatus(path, status)
+	}
+	if h.onStateChange != nil {
+		h.onStateChange()
+	}
 }
 
 func (h *ProfileHub) getActiveProxyPort() string {
@@ -179,14 +193,26 @@ func (h *ProfileHub) UpdateRemote(ctx context.Context, targetRelPath string) err
 
 	p, ok := h.cfg.GetProfileByPath(targetRelPath)
 	if !ok {
+		h.setSyncStatus(targetRelPath, state.ProfileSyncIdle)
 		return config.ErrProfileNotFound
 	}
 	if !p.IsRemote() {
 		return errors.New("订阅链接为空")
 	}
 
+	finalStatus := state.ProfileSyncIdle
+	h.setSyncStatus(targetRelPath, state.ProfileSyncUpdating)
+	defer func() {
+		h.setSyncStatus(targetRelPath, finalStatus)
+	}()
+
 	usedDirect, err := h.fetchAndCommit(ctx, targetRelPath, p.URL, &p, true)
 	if err != nil {
+		if !errors.Is(err, context.Canceled) && ctx.Err() == nil &&
+			!errors.Is(err, config.ErrProfileNotFound) &&
+			(h.st == nil || !h.st.IsExiting()) {
+			finalStatus = state.ProfileSyncFailed
+		}
 		return err
 	}
 
@@ -194,7 +220,7 @@ func (h *ProfileHub) UpdateRemote(ctx context.Context, targetRelPath string) err
 	return nil
 }
 
-func (h *ProfileHub) UpdateAllRemote(ctx context.Context, onEachSuccess func()) BatchUpdateResult {
+func (h *ProfileHub) UpdateAllRemote(ctx context.Context) BatchUpdateResult {
 	var targets []string
 	for _, p := range h.cfg.GetProfiles() {
 		if p.IsRemote() {
@@ -240,10 +266,6 @@ dispatchLoop:
 					res.ActiveUpdated = relPath
 				}
 				mu.Unlock()
-
-				if onEachSuccess != nil {
-					onEachSuccess()
-				}
 				return
 			}
 
@@ -298,6 +320,7 @@ func (h *ProfileHub) EditRemote(ctx context.Context, oldPath, newName, newURL st
 		if err != nil {
 			return false, err
 		}
+		h.setSyncStatus(p.Path, state.ProfileSyncIdle)
 		logProfileFetchSuccess("更新订阅地址成功", p.Path, usedDirect)
 		return true, nil
 	}
@@ -317,6 +340,9 @@ func (h *ProfileHub) Delete(targetPath string) (wasActive bool, err error) {
 
 	wasActive = (targetPath == h.cfg.GetActivePath())
 	err = h.cfg.DeleteProfile(targetPath)
+	if err == nil {
+		h.setSyncStatus(targetPath, state.ProfileSyncIdle)
+	}
 	return wasActive, err
 }
 
