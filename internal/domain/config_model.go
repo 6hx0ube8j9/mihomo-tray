@@ -86,11 +86,12 @@ type ProfileItem struct {
 }
 
 type FetchResult struct {
-	TempPath string
-	Upload   int64
-	Download int64
-	Total    int64
-	Expire   int64
+	TempPath           string
+	Upload             int64
+	Download           int64
+	Total              int64
+	Expire             int64
+	UsedDirectFallback bool
 }
 
 func clonePtr[T any](p *T) *T {
