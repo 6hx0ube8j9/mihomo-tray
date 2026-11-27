@@ -82,7 +82,7 @@ func (a *Application) handleRequestAddRemote(ctx context.Context, _ domain.UICom
 		}
 		next, ok := a.ui.ShowProfileInfoEditor("添加远程订阅", domain.ProfileInfo{
 			IsRemote:   true,
-			AutoUpdate: true,
+			AutoUpdate: false,
 			Interval:   domain.DefaultUpdateInterval,
 		})
 		if !ok {
