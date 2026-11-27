@@ -74,11 +74,11 @@ func (v *ProfileView) Declarative() []Widget {
 				TableView{
 					AssignTo: &v.tableView,
 					Columns: []TableViewColumn{
-						{Title: "状态", Width: 90, Alignment: AlignCenter},
+						{Title: "状态", Width: 85, Alignment: AlignCenter},
 						{Title: "名称", Width: 130},
 						{Title: "文件名", Width: 130},
 						{Title: "类型", Width: 70, Alignment: AlignCenter},
-						{Title: "更新频率", Width: 80, Alignment: AlignCenter},
+						{Title: "更新频率", Width: 85, Alignment: AlignCenter},
 						{Title: "上次更新", Width: 120, Alignment: AlignCenter},
 					},
 					Model:                 v.model,
@@ -219,7 +219,7 @@ func (v *ProfileView) updateActionState() {
 	}
 
 	if v.btnUpdateAll != nil {
-		btnText := "更新全部"
+		btnText := "全部更新"
 		if v.isUpdatingProfiles {
 			btnText = "更新中..."
 		}
