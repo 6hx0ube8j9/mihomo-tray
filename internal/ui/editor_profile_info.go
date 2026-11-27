@@ -43,7 +43,7 @@ func (e *Engine) ShowProfileInfoEditor(title string, current domain.ProfileInfo)
 		AcceptBtnText: "确定",
 		Widgets: []Widget{
 			Composite{
-				Layout: Grid{Columns: 2, MarginsZero: true, Spacing: 8},
+				Layout: Grid{Columns: 2, MarginsZero: true},
 				Children: []Widget{
 					formLabel("配置名称", true),
 					LineEdit{AssignTo: &nameEdit, Text: current.Name},
@@ -62,8 +62,8 @@ func (e *Engine) ShowProfileInfoEditor(title string, current domain.ProfileInfo)
 								MinValue: minVal,
 								MaxValue: float64(domain.MaxUpdateInterval),
 								Decimals: 0,
-								MinSize:  Size{Width: 100},
-								MaxSize:  Size{Width: 100},
+								MinSize:  Size{Width: 56},
+								MaxSize:  Size{Width: 56},
 								Enabled:  isRemote && initAutoUpdate,
 							},
 							Label{
@@ -71,31 +71,25 @@ func (e *Engine) ShowProfileInfoEditor(title string, current domain.ProfileInfo)
 								Text:     "天",
 								Enabled:  isRemote && initAutoUpdate,
 							},
+							HSpacer{Size: 12},
+							CheckBox{
+								AssignTo: &autoUpdateCB,
+								Text:     "自动更新",
+								Checked:  initAutoUpdate,
+								Enabled:  isRemote,
+								OnCheckedChanged: func() {
+									enabled := isRemote && autoUpdateCB != nil && autoUpdateCB.Checked()
+									if intervalEdit != nil {
+										intervalEdit.SetEnabled(enabled)
+									}
+									if unitLabel != nil {
+										unitLabel.SetEnabled(enabled)
+									}
+								},
+							},
 							HSpacer{},
 						},
 					},
-				},
-			},
-			Composite{
-				Layout:  HBox{MarginsZero: true},
-				Enabled: isRemote,
-				Children: []Widget{
-					CheckBox{
-						AssignTo: &autoUpdateCB,
-						Text:     "自动更新",
-						Checked:  initAutoUpdate,
-						Enabled:  isRemote,
-						OnCheckedChanged: func() {
-							enabled := isRemote && autoUpdateCB != nil && autoUpdateCB.Checked()
-							if intervalEdit != nil {
-								intervalEdit.SetEnabled(enabled)
-							}
-							if unitLabel != nil {
-								unitLabel.SetEnabled(enabled)
-							}
-						},
-					},
-					HSpacer{},
 				},
 			},
 		},
