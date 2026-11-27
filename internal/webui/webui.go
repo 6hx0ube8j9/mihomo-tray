@@ -31,6 +31,7 @@ var (
 type webviewSession interface {
 	Destroy()
 	SetDarkMode(isDark bool)
+	Reload() error
 }
 
 type Config struct {
@@ -404,6 +405,30 @@ func (m *Manager) UpdateTheme(isDark bool) {
 	if m.wv != nil {
 		m.wv.SetDarkMode(isDark)
 	}
+}
+
+func (m *Manager) Reload() error {
+	m.wvMu.RLock()
+	wv := m.wv
+	m.wvMu.RUnlock()
+	if wv != nil {
+		return wv.Reload()
+	}
+
+	pid := m.isolatedPID.Load()
+	if pid == 0 {
+		return nil
+	}
+
+	m.stateMu.Lock()
+	debugPort := m.debugPort
+	exeName := m.isolatedExeName
+	m.stateMu.Unlock()
+
+	if debugPort == "" || !m.isChromiumProcessAlive(pid, exeName, debugPort) {
+		return nil
+	}
+	return reloadCDPPageTargets(debugPort)
 }
 
 func (m *Manager) IsActive() bool {
