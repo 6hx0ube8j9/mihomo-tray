@@ -70,7 +70,6 @@ func (e *Engine) ShowProfileInfoEditor(title string, current domain.ProfileInfo)
 								Text:     "天",
 								Enabled:  initAutoUpdate,
 							},
-							HSpacer{Size: 12},
 							CheckBox{
 								AssignTo: &autoUpdateCB,
 								Text:     "自动更新",
