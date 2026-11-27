@@ -53,7 +53,7 @@ func (e *Engine) ShowProfileInfoEditor(title string, current domain.ProfileInfo)
 
 					formLabel("更新间隔", isRemote),
 					Composite{
-						Layout:  HBox{MarginsZero: true, Spacing: 6},
+						Layout:  HBox{MarginsZero: true},
 						Enabled: isRemote,
 						Children: []Widget{
 							NumberEdit{
@@ -62,23 +62,21 @@ func (e *Engine) ShowProfileInfoEditor(title string, current domain.ProfileInfo)
 								MinValue: minVal,
 								MaxValue: float64(domain.MaxUpdateInterval),
 								Decimals: 0,
-								MinSize:  Size{Width: 56},
-								MaxSize:  Size{Width: 56},
-								Enabled:  isRemote && initAutoUpdate,
+								MaxSize:  Size{Width: 44},
+								Enabled:  initAutoUpdate,
 							},
 							Label{
 								AssignTo: &unitLabel,
 								Text:     "天",
-								Enabled:  isRemote && initAutoUpdate,
+								Enabled:  initAutoUpdate,
 							},
 							HSpacer{Size: 12},
 							CheckBox{
 								AssignTo: &autoUpdateCB,
 								Text:     "自动更新",
 								Checked:  initAutoUpdate,
-								Enabled:  isRemote,
 								OnCheckedChanged: func() {
-									enabled := isRemote && autoUpdateCB != nil && autoUpdateCB.Checked()
+									enabled := autoUpdateCB != nil && autoUpdateCB.Checked()
 									if intervalEdit != nil {
 										intervalEdit.SetEnabled(enabled)
 									}
