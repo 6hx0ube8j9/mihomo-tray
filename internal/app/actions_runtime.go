@@ -13,35 +13,52 @@ import (
 // 系统与生命周期指令分发 (Domain: Sys & Lifecycle Actions)
 // ============================================================================
 
-func (a *Application) syncDiskConfigAndPrivilege() {
+func (a *Application) syncDiskConfigAndPrivilege() (needReopenWebUI bool) {
+	prevCfg := a.Cfg.GetConfig()
+	prevCtrl := prevCfg.ControllerSettings()
+	prevUI := prevCfg.Config.ExternalUIName
+
 	_ = a.Cfg.ReloadFromDisk()
-	logger.SyncLogLevel(a.Cfg.GetConfig().General.TrayLogLevel)
+
+	nextCfg := a.Cfg.GetConfig()
+	logger.SyncLogLevel(nextCfg.General.TrayLogLevel)
 	a.KernelTuner.ReconcilePrivilege()
+
+	return prevCtrl != nextCfg.ControllerSettings() || prevUI != nextCfg.Config.ExternalUIName
 }
 
 func (a *Application) handleReloadConfig(ctx context.Context, _ domain.UICommand) {
 	a.runExclusiveAction(state.ActionReload, "重载配置", func() error {
-		a.syncDiskConfigAndPrivilege()
+		needReopen := a.syncDiskConfigAndPrivilege()
 
 		if err := a.KernelDeployer.ReloadConfig(ctx); err != nil {
 			return err
 		}
 
 		a.ProxyGuard.Sync()
-		a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
+		if needReopen {
+			a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
+		} else {
+			a.ForceSyncAPI()
+			a.WebUIService.ReloadIfActive()
+		}
 		return nil
 	})
 }
 
 func (a *Application) handleRestartKernel(ctx context.Context, _ domain.UICommand) {
 	a.runExclusiveAction(state.ActionRestart, "重启内核", func() error {
-		a.syncDiskConfigAndPrivilege()
+		needReopen := a.syncDiskConfigAndPrivilege()
 
 		if err := a.KernelDeployer.RestartKernel(ctx); err != nil {
 			return err
 		}
 
-		a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
+		if needReopen {
+			a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
+		} else {
+			a.WebUIService.ReloadIfActive()
+		}
 		return nil
 	})
 }
