@@ -348,11 +348,13 @@ func (h *ProfileHub) EditRemote(ctx context.Context, oldPath, newName, newURL st
 	p.Interval = newInterval
 
 	if urlChanged {
+		h.setSyncStatus(p.Path, state.ProfileSyncUpdating)
+		defer h.setSyncStatus(p.Path, state.ProfileSyncIdle)
+
 		usedDirect, err := h.fetchAndCommit(ctx, p.Path, cleanURL, &p, true)
 		if err != nil {
 			return false, err
 		}
-		h.setSyncStatus(p.Path, state.ProfileSyncIdle)
 		logProfileFetchSuccess("更新订阅地址成功", p.Path, usedDirect)
 		return true, nil
 	}
