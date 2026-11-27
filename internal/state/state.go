@@ -18,7 +18,6 @@ type ProfileSyncStatus uint8
 const (
 	ProfileSyncIdle ProfileSyncStatus = iota
 	ProfileSyncUpdating
-	ProfileSyncFailed
 )
 
 type KernelAction int32
