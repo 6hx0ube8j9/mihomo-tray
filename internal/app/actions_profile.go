@@ -94,12 +94,16 @@ func (a *Application) handleRequestAddRemote(ctx context.Context, _ domain.UICom
 		if a.ui == nil {
 			return
 		}
-		name, url, interval, ok := a.ui.ShowProfileInfoEditor("添加远程订阅", "", "", domain.DefaultUpdateInterval, true)
+		next, ok := a.ui.ShowProfileInfoEditor("添加远程订阅", domain.ProfileInfo{
+			IsRemote:   true,
+			AutoUpdate: true,
+			Interval:   domain.DefaultUpdateInterval,
+		})
 		if !ok {
 			return
 		}
 
-		targetRelPath, err := a.ProfileHub.AddRemote(ctx, name, url, interval)
+		targetRelPath, err := a.ProfileHub.AddRemote(ctx, next.Name, next.URL, next.AutoUpdate, next.Interval)
 		if err != nil {
 			a.notifyError("添加订阅", err)
 			return
@@ -118,23 +122,29 @@ func (a *Application) handleEditProfileInfo(ctx context.Context, cmd domain.UICo
 		if a.ui == nil {
 			return
 		}
-		isRemote := profile.URL != ""
-		name, url, interval, ok := a.ui.ShowProfileInfoEditor("编辑信息", profile.Name, profile.URL, profile.Interval, isRemote)
+		isRemote := profile.IsRemote()
+		next, ok := a.ui.ShowProfileInfoEditor("编辑信息", domain.ProfileInfo{
+			Name:       profile.Name,
+			URL:        profile.URL,
+			IsRemote:   isRemote,
+			AutoUpdate: profile.AutoUpdate,
+			Interval:   profile.Interval,
+		})
 		if !ok {
 			return
 		}
 
 		if !isRemote {
-			if profile.Name != name {
-				profile.Name = name
+			if profile.Name != next.Name {
+				profile.Name = next.Name
 				a.Cfg.UpsertProfile(profile)
+				a.Presenter.ForcePushUIState()
 			}
-			a.Presenter.PushUIState()
 			return
 		}
 
 		a.runRemoteProfileUpdate(ctx, profile.Path, "应用订阅地址变更", func() (bool, error) {
-			return a.ProfileHub.EditRemote(ctx, profile.Path, name, url, interval)
+			return a.ProfileHub.EditRemote(ctx, profile.Path, next.Name, next.URL, next.AutoUpdate, next.Interval)
 		})
 	}(p)
 }
