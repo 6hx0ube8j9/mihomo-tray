@@ -92,7 +92,7 @@ func (v *ProfileView) Declarative() []Widget {
 					ContextMenuItems: []MenuItem{
 						Action{AssignTo: &v.actionSwitch, Text: "切换配置", OnTriggered: func() { sendWithSelected(domain.ActionSwitchProfile) }},
 						Action{AssignTo: &v.actionEditText, Text: "打开文本", OnTriggered: func() { sendWithSelected(domain.ActionOpenConfigFile) }},
-						Action{AssignTo: &v.actionEditInfo, Text: "编辑信息", OnTriggered: func() { sendWithSelected(domain.ActionEditProfileInfo) }},
+						Action{AssignTo: &v.actionEditInfo, Text: "编辑配置", OnTriggered: func() { sendWithSelected(domain.ActionEditProfileInfo) }},
 						Action{AssignTo: &v.actionUpdate, Text: "立即更新", OnTriggered: func() { sendWithSelected(domain.ActionUpdateRemoteProfile) }},
 						Separator{},
 						Action{AssignTo: &v.actionMoveUp, Text: "向上移动", OnTriggered: func() { sendWithSelected(domain.ActionMoveProfileUp) }},
