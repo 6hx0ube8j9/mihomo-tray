@@ -61,7 +61,7 @@ func (a *Application) handleRequestEditController(ctx context.Context, _ domain.
 
 		if !coreChanged {
 			a.Cfg.Update(applyAppPrefs)
-			a.Presenter.PushUIState()
+			a.Presenter.ForcePushUIState()
 			a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
 			return
 		}
@@ -109,7 +109,7 @@ func (a *Application) handleSetWebOpenMode(_ context.Context, cmd domain.UIComma
 		return
 	}
 
-	a.Presenter.PushUIState()
+	a.Presenter.ForcePushUIState()
 	a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
 }
 
@@ -126,7 +126,7 @@ func (a *Application) handleToggleRemoteWebUI(_ context.Context, cmd domain.UICo
 		return
 	}
 
-	a.Presenter.PushUIState()
+	a.Presenter.ForcePushUIState()
 	a.WebUIService.ReopenIfActive(a.ForceSyncAPI)
 }
 
