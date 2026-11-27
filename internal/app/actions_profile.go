@@ -123,7 +123,7 @@ func (a *Application) handleEditProfileInfo(ctx context.Context, cmd domain.UICo
 			return
 		}
 		isRemote := profile.IsRemote()
-		next, ok := a.ui.ShowProfileInfoEditor("编辑信息", domain.ProfileInfo{
+		next, ok := a.ui.ShowProfileInfoEditor("编辑配置", domain.ProfileInfo{
 			Name:       profile.Name,
 			URL:        profile.URL,
 			IsRemote:   isRemote,
