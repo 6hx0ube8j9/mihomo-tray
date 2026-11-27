@@ -44,7 +44,7 @@ func (a *Application) runRemoteProfileUpdate(ctx context.Context, targetPath, ac
 			a.applyActiveProfileUpdate(ctx, targetPath, actionDesc)
 		}
 		return nil
-	})
+	}, "path", targetPath)
 }
 
 func (a *Application) handleProfileAdded(ctx context.Context, targetRelPath string) {
