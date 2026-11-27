@@ -74,10 +74,10 @@ func (p *Presenter) calculateUIStateLocked() domain.UIState {
 		}
 
 		if item.IsRemote {
-			switch syncStatus {
-			case state.ProfileSyncUpdating:
+			switch {
+			case item.IsUpdating:
 				item.LastUpdate = "更新中..."
-			case state.ProfileSyncFailed:
+			case prof.UpdateFailed:
 				item.LastUpdate = "更新失败"
 			default:
 				item.LastUpdate = prof.FormatLastUpdateText()
