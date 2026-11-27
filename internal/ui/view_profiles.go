@@ -53,6 +53,22 @@ func (v *ProfileView) Declarative() []Widget {
 		}
 	}
 
+	triggerSwitchOrReload := func() {
+		if v.tableView == nil || v.isBusy {
+			return
+		}
+		idx := v.tableView.CurrentIndex()
+		if idx < 0 || idx >= len(v.model.Items) {
+			return
+		}
+		item := v.model.Items[idx]
+		if item.IsActive {
+			v.engine.SendCommand(domain.ActionReloadConfig, "")
+			return
+		}
+		v.engine.SendCommand(domain.ActionSwitchProfile, item.Path)
+	}
+
 	return []Widget{
 		Composite{
 			Layout: HBox{MarginsZero: true, Spacing: 12},
@@ -83,14 +99,9 @@ func (v *ProfileView) Declarative() []Widget {
 					},
 					Model:                 v.model,
 					OnCurrentIndexChanged: v.updateActionState,
-					OnItemActivated: func() {
-						if v.isBusy {
-							return
-						}
-						sendWithSelected(domain.ActionSwitchProfile)
-					},
+					OnItemActivated:       triggerSwitchOrReload,
 					ContextMenuItems: []MenuItem{
-						Action{AssignTo: &v.actionSwitch, Text: "切换配置", OnTriggered: func() { sendWithSelected(domain.ActionSwitchProfile) }},
+						Action{AssignTo: &v.actionSwitch, Text: "切换配置", OnTriggered: triggerSwitchOrReload},
 						Action{AssignTo: &v.actionEditText, Text: "打开文本", OnTriggered: func() { sendWithSelected(domain.ActionOpenConfigFile) }},
 						Action{AssignTo: &v.actionEditInfo, Text: "编辑配置", OnTriggered: func() { sendWithSelected(domain.ActionEditProfileInfo) }},
 						Action{AssignTo: &v.actionUpdate, Text: "立即更新", OnTriggered: func() { sendWithSelected(domain.ActionUpdateRemoteProfile) }},
@@ -219,7 +230,7 @@ func (v *ProfileView) updateActionState() {
 	}
 
 	if v.btnUpdateAll != nil {
-		btnText := "全部更新"
+		btnText := "更新全部"
 		if v.isUpdatingProfiles {
 			btnText = "更新中..."
 		}
@@ -235,21 +246,28 @@ func (v *ProfileView) updateActionState() {
 	idx := v.tableView.CurrentIndex()
 	hasSelection := idx >= 0 && idx < len(v.model.Items)
 
-	var canSwitch, canUpdate, canMoveUp, canMoveDown bool
+	switchText := "切换配置"
+	var canSwitch, canEditInfo, canUpdate, canDelete, canMoveUp, canMoveDown bool
 
 	if hasSelection {
 		item := v.model.Items[idx]
-		canSwitch = !item.IsActive && !v.isBusy
+		if item.IsActive {
+			switchText = "重载配置"
+		}
+		canSwitch = !v.isBusy
+		canEditInfo = !item.IsUpdating
 		canUpdate = item.IsRemote && !v.isUpdatingProfiles && !item.IsUpdating
+		canDelete = !v.isBusy && !item.IsUpdating
 		canMoveUp = idx > 0
 		canMoveDown = idx < len(v.model.Items)-1
 	}
 
+	safelySetText(v.actionSwitch, switchText)
 	safelySetEnabled(v.actionSwitch, canSwitch)
 	safelySetEnabled(v.actionEditText, hasSelection)
-	safelySetEnabled(v.actionEditInfo, hasSelection)
+	safelySetEnabled(v.actionEditInfo, canEditInfo)
 	safelySetEnabled(v.actionUpdate, canUpdate)
-	safelySetEnabled(v.actionDelete, hasSelection)
+	safelySetEnabled(v.actionDelete, canDelete)
 	safelySetEnabled(v.actionMoveUp, canMoveUp)
 	safelySetEnabled(v.actionMoveDown, canMoveDown)
 
