@@ -240,7 +240,7 @@ func (v *ProfileView) updateActionState() {
 	if hasSelection {
 		item := v.model.Items[idx]
 		canSwitch = !item.IsActive && !v.isBusy
-		canUpdate = item.IsRemote && !v.isUpdatingProfiles
+		canUpdate = item.IsRemote && !v.isUpdatingProfiles && !item.IsUpdating
 		canMoveUp = idx > 0
 		canMoveDown = idx < len(v.model.Items)-1
 	}
