@@ -161,8 +161,8 @@ func ResolvePath(raw, baseDir string) string {
 	return filepath.Clean(s)
 }
 
-// ToPortablePath converts paths inside baseDir to a relative ".\..." form while preserving
-// external absolute paths, environment variable paths, and manually entered relative paths.
+// ToPortablePath converts a path inside baseDir into ".\..." form for portable storage.
+// Paths outside baseDir are returned unchanged (trimmed).
 func ToPortablePath(raw, baseDir string) string {
 	trimmed := trimQuotesAndSpace(raw)
 	if trimmed == "" {
@@ -233,9 +233,9 @@ func isRelativePath(p string) bool {
 		!strings.HasPrefix(p, string(filepath.Separator))
 }
 
-func relInsideBaseDir(resolvedPath, baseDir string) (string, bool) {
+func relInsideBaseDir(targetPath, baseDir string) (string, bool) {
 	base := strings.TrimSpace(baseDir)
-	if base == "" || resolvedPath == "" {
+	if base == "" || targetPath == "" {
 		return "", false
 	}
 
@@ -243,19 +243,27 @@ func relInsideBaseDir(resolvedPath, baseDir string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	absTarget, err := filepath.Abs(filepath.FromSlash(resolvedPath))
+	absTarget, err := filepath.Abs(filepath.FromSlash(targetPath))
 	if err != nil {
 		return "", false
 	}
 
-	rel, err := filepath.Rel(absBase, absTarget)
-	if err != nil {
-		return "", false
+	cleanBase := filepath.Clean(absBase)
+	cleanTarget := filepath.Clean(absTarget)
+
+	prefix := cleanBase
+	if !strings.HasSuffix(prefix, string(filepath.Separator)) {
+		prefix += string(filepath.Separator)
 	}
-	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+
+	if len(cleanTarget) <= len(prefix) || !strings.EqualFold(cleanTarget[:len(prefix)], prefix) {
 		return "", false
 	}
 
+	rel := cleanTarget[len(prefix):]
+	if rel == "" {
+		return "", false
+	}
 	return "." + string(filepath.Separator) + rel, true
 }
 
