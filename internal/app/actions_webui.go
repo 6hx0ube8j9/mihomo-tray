@@ -2,12 +2,11 @@ package app
 
 import (
 	"context"
-	"strings"
 
+	"mihomo-tray/internal/browser"
 	"mihomo-tray/internal/domain"
 	"mihomo-tray/internal/state"
 )
-
 // ============================================================================
 // Web 面板管理指令分发 (Domain: Panel Actions)
 // ============================================================================
@@ -31,7 +30,7 @@ func (a *Application) handleRequestEditController(ctx context.Context, _ domain.
 		}
 
 		next.WebOpenMode = domain.NormalizeWebOpenMode(next.WebOpenMode)
-		next.CustomBrowserPath = strings.TrimSpace(next.CustomBrowserPath)
+		next.CustomBrowserPath = browser.ToPortablePath(next.CustomBrowserPath, a.Cfg.BaseDir())
 
 		applyAppPrefs := func(c *domain.TrayConfig) {
 			online := next.RemoteWebUI
