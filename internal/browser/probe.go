@@ -146,8 +146,37 @@ func standardCandidatesList() []chromiumCandidate {
 	return standardCandidates
 }
 
-func ResolvePath(raw string) string {
-	s := trimQuotesAndSpace(raw)
+func ResolvePath(raw, baseDir string) string {
+	s := expandEnvVars(trimQuotesAndSpace(raw))
+	if s == "" {
+		return ""
+	}
+
+	s = filepath.FromSlash(s)
+	if isRelativePath(s) {
+		if base := strings.TrimSpace(baseDir); base != "" {
+			return filepath.Clean(filepath.Join(filepath.FromSlash(base), s))
+		}
+	}
+	return filepath.Clean(s)
+}
+
+// ToPortablePath converts paths inside baseDir to a relative ".\..." form while preserving
+// external absolute paths, environment variable paths, and manually entered relative paths.
+func ToPortablePath(raw, baseDir string) string {
+	trimmed := trimQuotesAndSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+
+	resolved := ResolvePath(trimmed, baseDir)
+	if portable, ok := relInsideBaseDir(resolved, baseDir); ok {
+		return portable
+	}
+	return trimmed
+}
+
+func expandEnvVars(s string) string {
 	if s == "" || strings.IndexByte(s, '%') == -1 {
 		return s
 	}
@@ -195,8 +224,43 @@ func ResolvePath(raw string) string {
 	return trimQuotesAndSpace(sb.String())
 }
 
-func ResolveNearestDir(rawPath string) string {
-	resolved := ResolvePath(rawPath)
+func isRelativePath(p string) bool {
+	if p == "" {
+		return false
+	}
+	return !filepath.IsAbs(p) &&
+		filepath.VolumeName(p) == "" &&
+		!strings.HasPrefix(p, string(filepath.Separator))
+}
+
+func relInsideBaseDir(resolvedPath, baseDir string) (string, bool) {
+	base := strings.TrimSpace(baseDir)
+	if base == "" || resolvedPath == "" {
+		return "", false
+	}
+
+	absBase, err := filepath.Abs(filepath.FromSlash(base))
+	if err != nil {
+		return "", false
+	}
+	absTarget, err := filepath.Abs(filepath.FromSlash(resolvedPath))
+	if err != nil {
+		return "", false
+	}
+
+	rel, err := filepath.Rel(absBase, absTarget)
+	if err != nil {
+		return "", false
+	}
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+
+	return "." + string(filepath.Separator) + rel, true
+}
+
+func ResolveNearestDir(rawPath, baseDir string) string {
+	resolved := ResolvePath(rawPath, baseDir)
 	if resolved == "" {
 		return ""
 	}
@@ -224,13 +288,13 @@ func ResolveNearestDir(rawPath string) string {
 	return ""
 }
 
-func IsExecutable(exePath string) bool {
-	_, ok := statExecutable(ResolvePath(exePath))
+func IsExecutable(exePath, baseDir string) bool {
+	_, ok := statExecutable(ResolvePath(exePath, baseDir))
 	return ok
 }
 
-func IsChromium(exePath string) bool {
-	resolved := ResolvePath(exePath)
+func IsChromium(exePath, baseDir string) bool {
+	resolved := ResolvePath(exePath, baseDir)
 	fi, ok := statExecutable(resolved)
 	if !ok {
 		return false
@@ -279,9 +343,11 @@ func DetectChromium() (path, dataDir string) {
 }
 
 // ResolveDataDir returns a stable profile directory name for exePath:
-// known standard browsers map to their short tag, while custom paths derive a prefix+hash name.
-func ResolveDataDir(exePath string) string {
-	resolved := ResolvePath(exePath)
+// known standard browsers map to their short tag, portable/relative paths hash the relative path
+// so cache survives drive-letter changes, and external custom paths derive a prefix+hash name.
+func ResolveDataDir(exePath, baseDir string) string {
+	trimmed := trimQuotesAndSpace(exePath)
+	resolved := ResolvePath(trimmed, baseDir)
 	if resolved == "" {
 		return ""
 	}
@@ -291,8 +357,17 @@ func ResolveDataDir(exePath string) string {
 		return tag
 	}
 
+	hashKey := cleanPath
+	if portable, ok := relInsideBaseDir(cleanPath, baseDir); ok {
+		hashKey = portable
+	} else if !strings.Contains(trimmed, "%") {
+		if slashNormalized := filepath.FromSlash(trimmed); isRelativePath(slashNormalized) {
+			hashKey = filepath.Clean(slashNormalized)
+		}
+	}
+
 	prefix := sanitizePrefix(cleanPath)
-	sum := sha256.Sum256([]byte(strings.ToLower(cleanPath)))
+	sum := sha256.Sum256([]byte(strings.ToLower(hashKey)))
 
 	var hexBuf [16]byte
 	hex.Encode(hexBuf[:], sum[:8])
