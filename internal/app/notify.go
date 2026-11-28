@@ -63,14 +63,14 @@ func userFacingMessage(err error) string {
 	if errors.As(err, &httpErr) {
 		return httpErr.Error()
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return timeoutErrorMessage
-	}
 
 	for _, target := range userVisibleErrors {
 		if errors.Is(err, target) {
 			return target.Error()
 		}
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return timeoutErrorMessage
 	}
 
 	return defaultErrorMessage
@@ -98,12 +98,9 @@ func (a *Application) notifyError(action string, err error, logAttrs ...any) {
 		return
 	}
 
-	if errors.Is(err, errKernelNotReady) {
-		a.showError("操作失败", errKernelNotReady.Error())
-		return
-	}
-
-	if !errors.Is(err, errSystemBusy) && !errors.Is(err, ErrProfileUpdating) {
+	if !errors.Is(err, errKernelNotReady) &&
+		!errors.Is(err, errSystemBusy) &&
+		!errors.Is(err, ErrProfileUpdating) {
 		args := make([]any, 0, len(logAttrs)+2)
 		args = append(args, logAttrs...)
 		args = append(args, "err", err)
