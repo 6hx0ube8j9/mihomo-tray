@@ -16,7 +16,7 @@ import (
 
 const (
 	maxCrashWindow      = 30 * time.Minute
-	readyTimeout        = 30 * time.Minute
+	readyTimeout        = 60 * time.Second
 	readyPollInterval   = 200 * time.Millisecond
 	slowPollInterval    = 2 * time.Second
 	quickCrashThreshold = 5 * time.Second
@@ -35,6 +35,7 @@ type sessionResult struct {
 	runDuration  time.Duration
 	wasReady     bool
 	isCrash      bool
+	timedOut     bool
 	startErr     error
 	crashLog     string
 	isAppExiting bool
@@ -132,10 +133,11 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 			return
 		}
 
-		var exitEvent domain.KernelEvent
+		var exitEvent domain.KernelEventType
+		var haltErr error
 		halted := false
 		if res.isCrash {
-			halted = km.handleSessionCrash(res, &backoff)
+			halted, haltErr = km.handleSessionCrash(res, &backoff)
 			if halted {
 				exitEvent = domain.EventKernelHalted
 			} else {
@@ -149,7 +151,7 @@ func (km *KernelManager) RunDaemon(ctx context.Context, eventCh chan<- domain.Ke
 		select {
 		case <-ctx.Done():
 			return
-		case eventCh <- exitEvent:
+		case eventCh <- domain.KernelEvent{Type: exitEvent, Err: haltErr}:
 		}
 
 		if halted {
@@ -185,21 +187,20 @@ func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.K
 	readyErr := km.WaitForReady(readyCtx)
 	cancelReady()
 
+	timedOut := false
 	switch readyErr {
 	case nil:
 		select {
 		case <-ctx.Done():
 			km.runner.Kill()
 			return sessionResult{isAppExiting: true}
-		case eventCh <- domain.EventKernelReady:
+		case eventCh <- domain.KernelEvent{Type: domain.EventKernelReady}:
 		}
 	case context.DeadlineExceeded:
-		if km.writeCrashLog(strings.TrimSpace(errBuf.String())) {
-			slog.Error("内核就绪超时，详细信息请查看 core.log")
-		} else {
-			slog.Error("内核就绪超时")
+		if !km.runner.IsKilledByUs() && !km.isExiting() && ctx.Err() == nil {
+			timedOut = true
+			km.runner.Kill()
 		}
-		km.runner.Kill()
 	}
 
 	waitErr := km.runner.Wait(ctx)
@@ -207,12 +208,13 @@ func (km *KernelManager) runSession(ctx context.Context, eventCh chan<- domain.K
 
 	isShutdown := sys.IsSystemShuttingDown()
 	isAppExiting := ctx.Err() != nil || km.isExiting() || isShutdown
-	isCrash := (waitErr != nil || readyErr != nil) && !km.runner.IsKilledByUs() && !isAppExiting
+	isCrash := !isAppExiting && (timedOut || ((waitErr != nil || readyErr != nil) && !km.runner.IsKilledByUs()))
 
 	return sessionResult{
 		runDuration:  runDuration,
 		wasReady:     readyErr == nil,
 		isCrash:      isCrash,
+		timedOut:     timedOut,
 		crashLog:     strings.TrimSpace(errBuf.String()),
 		isAppExiting: isAppExiting,
 	}
@@ -275,24 +277,22 @@ func (km *KernelManager) writeCrashLog(crashLog string) bool {
 	return written
 }
 
-func (km *KernelManager) handleSessionCrash(res sessionResult, backoff *crashBackoff) (halted bool) {
+func (km *KernelManager) handleSessionCrash(res sessionResult, backoff *crashBackoff) (halted bool, haltErr error) {
 	if res.startErr != nil {
 		isFirst := backoff.count == 0
 		if backoff.recordCrash(res.runDuration) {
 			slog.Error("内核连续启动失败，已暂停", "err", res.startErr)
 			backoff.reset()
 			km.HaltDaemon()
-			return true
+			return true, res.startErr
 		}
 		if isFirst {
 			slog.Error("启动内核进程失败", "err", res.startErr)
 		}
 		backoff.advanceDelay()
-		return false
+		return false, nil
 	}
 
-	upper := strings.ToUpper(res.crashLog)
-	isFatal := strings.Contains(upper, "FATA") || strings.Contains(upper, "PANIC")
 	hasCoreLog := km.writeCrashLog(res.crashLog)
 
 	logCrash := func(msg string) {
@@ -302,28 +302,47 @@ func (km *KernelManager) handleSessionCrash(res sessionResult, backoff *crashBac
 		slog.Error(msg)
 	}
 
+	if res.timedOut {
+		logCrash("内核启动超时，已暂停")
+		backoff.reset()
+		km.HaltDaemon()
+		if errMsg := extractLastFatalError(res.crashLog); errMsg != "" {
+			return true, &ConfigError{Msg: errMsg}
+		}
+		return true, context.DeadlineExceeded
+	}
+
+	upper := strings.ToUpper(res.crashLog)
+	isFatal := strings.Contains(upper, "FATA") || strings.Contains(upper, "PANIC")
+
 	if isFatal {
 		logCrash("内核致命错误，已暂停")
 		backoff.reset()
 		km.HaltDaemon()
-		return true
+		if errMsg := extractLastFatalError(res.crashLog); errMsg != "" {
+			return true, &ConfigError{Msg: errMsg}
+		}
+		return true, errors.New("内核致命错误")
 	}
 
 	if res.wasReady && res.runDuration >= quickCrashThreshold {
 		logCrash("内核异常退出，正在重启")
 		backoff.reset()
-		return false
+		return false, nil
 	}
 
 	if backoff.recordCrash(res.runDuration) {
 		logCrash("内核连续异常退出，已暂停")
 		backoff.reset()
 		km.HaltDaemon()
-		return true
+		if errMsg := extractLastFatalError(res.crashLog); errMsg != "" {
+			return true, &ConfigError{Msg: errMsg}
+		}
+		return true, errors.New("内核连续异常退出")
 	}
 
 	backoff.advanceDelay()
-	return false
+	return false, nil
 }
 
 func (km *KernelManager) isExiting() bool {
