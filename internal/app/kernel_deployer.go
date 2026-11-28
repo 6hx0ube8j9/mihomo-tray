@@ -67,14 +67,28 @@ func (d *KernelDeployer) PrecheckProfile(ctx context.Context, targetRelPath stri
 }
 
 func (d *KernelDeployer) ReloadConfig(ctx context.Context) error {
-	if !d.IsKernelRunning() {
-		return errKernelNotReady
-	}
-
 	activePath := d.cfg.GetActivePath()
 	prep, err := d.prepareYAML(activePath)
 	if err != nil {
 		return err
+	}
+
+	if !d.IsKernelRunning() {
+		if activePath != "" {
+			if err := d.validatePrepared(ctx, prep); err != nil {
+				return err
+			}
+		}
+		if err := d.commitRuntimeYAML(prep); err != nil {
+			return err
+		}
+		d.restartProcess()
+		if activePath != "" {
+			slog.Info("重载配置并启动内核", "path", activePath)
+		} else {
+			slog.Info("重载配置并启动内核")
+		}
+		return nil
 	}
 
 	d.validator.Stop()
@@ -92,7 +106,7 @@ func (d *KernelDeployer) ReloadConfig(ctx context.Context) error {
 	} else {
 		slog.Info("重载配置成功")
 	}
-	
+
 	return nil
 }
 
