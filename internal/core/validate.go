@@ -364,3 +364,17 @@ func extractLogMsg(output string) string {
 
 	return ""
 }
+
+func extractLastFatalError(logText string) string {
+	var lastMsg string
+	for _, line := range strings.Split(logText, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if msg, ok := extractFatalError(line); ok {
+			lastMsg = msg
+		}
+	}
+	return lastMsg
+}
