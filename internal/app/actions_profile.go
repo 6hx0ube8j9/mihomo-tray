@@ -221,7 +221,7 @@ func (a *Application) handleSwitchProfile(ctx context.Context, cmd domain.UIComm
 		return
 	}
 	if a.Cfg.GetActivePath() == target {
-		a.Presenter.ForcePushUIState()
+		a.handleReloadConfig(ctx, cmd)
 		return
 	}
 
