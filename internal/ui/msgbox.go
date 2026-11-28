@@ -13,6 +13,8 @@ import (
 	"mihomo-tray/internal/sys"
 )
 
+const dialogWindowClass = "#32770"
+
 type cbtHookContext struct {
 	hHook       uintptr
 	targetHWND  win.HWND
@@ -33,7 +35,7 @@ func ensureCBTHookCallback() {
 	})
 }
 
-func cbtHookProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
+func cbtHookProc(nCode, wParam, lParam uintptr) uintptr {
 	tid := win.GetCurrentThreadId()
 
 	cbtHookMu.Lock()
@@ -43,14 +45,17 @@ func cbtHookProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 	}
 	cbtHookMu.Unlock()
 
-	if ctx != nil && nCode == hcbtActivate && !ctx.centered {
-		ctx.centered = true
+	if ctx != nil && int32(nCode) == hcbtActivate && !ctx.centered {
 		msgBoxHwnd := win.HWND(wParam)
+		if msgBoxHwnd != 0 &&
+			msgBoxHwnd != ctx.targetHWND &&
+			sys.GetWindowClassName(uintptr(msgBoxHwnd)) == dialogWindowClass {
+			ctx.centered = true
+			sys.CenterWindowOnOwner(uintptr(msgBoxHwnd), uintptr(ctx.targetHWND))
 
-		sys.CenterWindowOnOwner(uintptr(msgBoxHwnd), uintptr(ctx.targetHWND))
-
-		if ctx.onActivated != nil {
-			ctx.onActivated(msgBoxHwnd)
+			if ctx.onActivated != nil {
+				ctx.onActivated(msgBoxHwnd)
+			}
 		}
 	}
 
@@ -58,7 +63,7 @@ func cbtHookProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 	if ctx != nil {
 		hHook = ctx.hHook
 	}
-	ret, _, _ := procCallNextHookEx.Call(hHook, uintptr(nCode), wParam, lParam)
+	ret, _, _ := procCallNextHookEx.Call(hHook, nCode, wParam, lParam)
 	return ret
 }
 
@@ -71,11 +76,15 @@ func ShowNativeMsgBox(owner walk.Form, title, message string, style walk.MsgBoxS
 	var targetHWND win.HWND
 	var effectiveOwner walk.Form
 
-	if owner != nil && owner.Visible() && !win.IsIconic(owner.Handle()) {
-		hActive := win.GetForegroundWindow()
-		if hActive == owner.Handle() || win.IsChild(owner.Handle(), hActive) {
-			targetHWND = owner.Handle()
-			effectiveOwner = owner
+	if owner != nil {
+		ownerHWND := owner.Handle()
+		if ownerHWND != 0 && win.IsWindowVisible(ownerHWND) && !win.IsIconic(ownerHWND) {
+			targetHWND = ownerHWND
+
+			hActive := win.GetForegroundWindow()
+			if hActive == ownerHWND || win.IsChild(ownerHWND, hActive) {
+				effectiveOwner = owner
+			}
 		}
 	}
 
