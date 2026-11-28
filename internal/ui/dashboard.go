@@ -32,14 +32,22 @@ func (d *Dashboard) Show() {
 		if d.window == nil {
 			return
 		}
-	} else if !d.window.Visible() {
-		d.ProfileView.RefreshData(d.lastState)
+		d.window.Show()
+		sys.ActivateWindow(uintptr(d.window.Handle()))
+		return
 	}
 
+	hwnd := uintptr(d.window.Handle())
 	if !d.window.Visible() {
+		d.ProfileView.RefreshData(d.lastState)
+		sys.EnsureWindowOnScreen(hwnd)
 		d.window.Show()
+		sys.ActivateWindow(hwnd)
+		return
 	}
-	sys.ActivateWindow(uintptr(d.window.Handle()))
+
+	sys.ActivateWindow(hwnd)
+	sys.EnsureWindowOnScreen(hwnd)
 }
 
 func (d *Dashboard) createWindow() {
