@@ -297,6 +297,9 @@ func (e *Engine) showModalAsync(prefix, title, message string, style walk.MsgBox
 
 	go e.RunOnUI(func() {
 		key := prefix + "|" + title + "|" + message
+		if prefix == "error" {
+			key = prefix + "|" + message
+		}
 		if !e.modalMgr.TryAcquire(key) {
 			return
 		}
