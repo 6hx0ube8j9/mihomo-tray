@@ -38,7 +38,7 @@ type Engine struct {
 }
 
 func NewEngine(ctx context.Context, cancel context.CancelFunc, baseDir string, cmdCh chan<- domain.UICommand, notifyCh <-chan struct{}, getState func() domain.UIState) *Engine {
-	return &Engine{
+	e := &Engine{
 		ctx:           ctx,
 		cancel:        cancel,
 		baseDir:       baseDir,
@@ -47,6 +47,8 @@ func NewEngine(ctx context.Context, cancel context.CancelFunc, baseDir string, c
 		getState:      getState,
 		ReadyCh:       make(chan struct{}),
 	}
+	e.preferScreenAnchor.Store(true)
+	return e
 }
 
 func (e *Engine) SetOnShutdown(fn func()) {
