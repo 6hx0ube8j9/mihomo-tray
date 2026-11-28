@@ -61,6 +61,7 @@ func copyLineEditBtn(edit **walk.LineEdit) PushButton {
 }
 
 type controllerEditorForm struct {
+	baseDir        string
 	current        domain.ControllerSettings
 	result         domain.ControllerSettings
 	activeDlg      *walk.Dialog
@@ -79,6 +80,7 @@ type controllerEditorForm struct {
 
 func (e *Engine) ShowControllerEditor(current domain.ControllerSettings) (domain.ControllerSettings, bool) {
 	form := &controllerEditorForm{
+		baseDir:        e.baseDir,
 		current:        current,
 		result:         current,
 		isInitializing: true,
@@ -220,11 +222,11 @@ func (f *controllerEditorForm) focusIfCheckedEmpty(check *walk.CheckBox, edit *w
 }
 
 func (f *controllerEditorForm) browseBrowserExe() {
-	selectedPath, ok := RunOpenBrowserExeDialog(f.activeDlg, f.pathEdit.Text())
+	selectedPath, ok := RunOpenBrowserExeDialog(f.activeDlg, f.pathEdit.Text(), f.baseDir)
 	if !ok || selectedPath == "" {
 		return
 	}
-	f.pathEdit.SetText(selectedPath)
+	f.pathEdit.SetText(browser.ToPortablePath(selectedPath, f.baseDir))
 	f.customBrowserCheck.SetChecked(true)
 }
 
@@ -250,7 +252,7 @@ func (f *controllerEditorForm) onAccept(dlg *walk.Dialog) (bool, error) {
 	rURL := strings.TrimSpace(f.remoteURLEdit.Text())
 	mode := f.selectedMode()
 	isCustom := f.customBrowserCheck.Checked()
-	cPath := strings.TrimSpace(f.pathEdit.Text())
+	cPath := browser.ToPortablePath(f.pathEdit.Text(), f.baseDir)
 
 	if !f.onlineCheck.Checked() && rURL == "" {
 		rURL = domain.DefaultRemoteWebUIURL
@@ -279,10 +281,10 @@ func (f *controllerEditorForm) onAccept(dlg *walk.Dialog) (bool, error) {
 		if cPath == "" {
 			return fail(f.pathEdit, "请输入自定义浏览器路径")
 		}
-		if !browser.IsExecutable(cPath) {
+		if !browser.IsExecutable(cPath, f.baseDir) {
 			return fail(f.pathEdit, "浏览器路径无效或文件不存在")
 		}
-		if mode == domain.WebOpenModeApp && !browser.IsChromium(cPath) {
+		if mode == domain.WebOpenModeApp && !browser.IsChromium(cPath, f.baseDir) {
 			if !RunConfirmDialog(dlg, "提示", "应用模式仅支持 Chromium 浏览器，是否继续保存？") {
 				f.pathEdit.SetFocus()
 				return false, nil
