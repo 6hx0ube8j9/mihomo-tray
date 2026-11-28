@@ -46,6 +46,9 @@ func (m *Manager) cleanupChromium() {
 	if safeDebugPort != "" {
 		targetPID = sys.FindTCPListenerPID(safeDebugPort)
 		if targetPID != 0 {
+			if actualExe := sys.ProcessExeName(targetPID); actualExe != "" {
+				exeName = actualExe
+			}
 			closeAllCDPTargets(safeDebugPort)
 		}
 	}
@@ -154,13 +157,17 @@ func (m *Manager) startBrowserProcess(cfg Config, cacheRoot, browserPath, dataDi
 	realPID := m.isolatedPID.Swap(0)
 	m.hwnd.Store(0)
 	m.stateMu.Lock()
+	realExeName := m.isolatedExeName
 	if m.debugPort == debugPort {
 		m.debugPort = ""
 		m.isolatedExeName = ""
 	}
 	m.stateMu.Unlock()
 
-	if realPID != 0 && realPID != mainPID && sys.IsPidRunning(realPID, exeName) {
+	if realExeName == "" {
+		realExeName = exeName
+	}
+	if realPID != 0 && realPID != mainPID && sys.IsPidRunning(realPID, realExeName) {
 		sys.HardKill(realPID)
 	}
 	if sys.IsPidRunning(mainPID, exeName) {
@@ -204,7 +211,7 @@ func (m *Manager) waitForWindow(debugPort, appHostPort, targetTitle string, main
 			if !pidResolved {
 				if livePID := sys.FindTCPListenerPID(debugPort); livePID != 0 {
 					browserPID = livePID
-					m.isolatedPID.Store(livePID)
+					m.syncIsolatedProcess(debugPort, livePID)
 					pidResolved = true
 				}
 			}
