@@ -13,7 +13,7 @@ import (
 
 const (
 	defaultErrorMessage = "操作未能完成，详情请查看日志"
-	timeoutErrorMessage = "操作超时，缺少依赖文件或其他问题。"
+	timeoutErrorMessage = "操作超时，请稍后重试"
 )
 
 var (
