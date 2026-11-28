@@ -17,6 +17,7 @@ import (
 type Engine struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
+	baseDir       string
 	commandCh     chan<- domain.UICommand
 	stateNotifyCh <-chan struct{}
 	getState      func() domain.UIState
@@ -34,10 +35,11 @@ type Engine struct {
 	disposeOnce sync.Once
 }
 
-func NewEngine(ctx context.Context, cancel context.CancelFunc, cmdCh chan<- domain.UICommand, notifyCh <-chan struct{}, getState func() domain.UIState) *Engine {
+func NewEngine(ctx context.Context, cancel context.CancelFunc, baseDir string, cmdCh chan<- domain.UICommand, notifyCh <-chan struct{}, getState func() domain.UIState) *Engine {
 	return &Engine{
 		ctx:           ctx,
 		cancel:        cancel,
+		baseDir:       baseDir,
 		commandCh:     cmdCh,
 		stateNotifyCh: notifyCh,
 		getState:      getState,
