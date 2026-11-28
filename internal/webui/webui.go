@@ -199,7 +199,7 @@ func (m *Manager) Launch(cfg Config, onReady func()) error {
 
 	switch mode {
 	case domain.WebOpenModeBrowser:
-		return m.launchBrowserMode(cfg.CustomBrowserEnabled, customPath, finalURL, launchGen)
+		return m.launchBrowserMode(cfg.BaseDir, cfg.CustomBrowserEnabled, customPath, finalURL, launchGen)
 	case domain.WebOpenModeWebView:
 		return m.launchWebViewMode(cfg, finalURL, launchGen)
 	case domain.WebOpenModeApp:
@@ -209,7 +209,7 @@ func (m *Manager) Launch(cfg Config, onReady func()) error {
 	}
 }
 
-func (m *Manager) launchBrowserMode(customEnabled bool, customPath, finalURL string, launchGen uint64) error {
+func (m *Manager) launchBrowserMode(baseDir string, customEnabled bool, customPath, finalURL string, launchGen uint64) error {
 	if m.IsActive() {
 		m.cleanupSessions()
 	}
@@ -221,8 +221,8 @@ func (m *Manager) launchBrowserMode(customEnabled bool, customPath, finalURL str
 		return m.openSystemBrowser(finalURL)
 	}
 
-	resolvedPath := browser.ResolvePath(customPath)
-	if !browser.IsExecutable(resolvedPath) {
+	resolvedPath := browser.ResolvePath(customPath, baseDir)
+	if !browser.IsExecutable(resolvedPath, baseDir) {
 		return fmt.Errorf("%w: %s", ErrInvalidBrowserPath, customPath)
 	}
 
@@ -249,7 +249,7 @@ func (m *Manager) launchAppMode(cfg Config, customEnabled bool, customPath, fina
 		return fmt.Errorf("App 模式缓存目录不可写: %w", err)
 	}
 
-	browserPath, dirName, err := resolveAppBrowser(customEnabled, customPath)
+	browserPath, dirName, err := resolveAppBrowser(cfg.BaseDir, customEnabled, customPath)
 	if err != nil {
 		return err
 	}
@@ -302,14 +302,14 @@ func (m *Manager) launchAutoMode(cfg Config, finalURL, appHostPort string, launc
 	return m.openSystemBrowser(finalURL)
 }
 
-func resolveAppBrowser(customEnabled bool, customPath string) (browserPath, dirName string, err error) {
+func resolveAppBrowser(baseDir string, customEnabled bool, customPath string) (browserPath, dirName string, err error) {
 	if customEnabled {
-		resolvedPath := browser.ResolvePath(customPath)
-		if !browser.IsExecutable(resolvedPath) {
+		resolvedPath := browser.ResolvePath(customPath, baseDir)
+		if !browser.IsExecutable(resolvedPath, baseDir) {
 			return "", "", fmt.Errorf("%w: %s", ErrInvalidBrowserPath, customPath)
 		}
-		if browser.IsChromium(resolvedPath) {
-			return resolvedPath, browser.ResolveDataDir(resolvedPath), nil
+		if browser.IsChromium(resolvedPath, baseDir) {
+			return resolvedPath, browser.ResolveDataDir(customPath, baseDir), nil
 		}
 		slog.Warn("自定义浏览器不支持 App 模式，改用自动检测", "path", customPath)
 	}
