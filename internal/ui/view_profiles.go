@@ -252,7 +252,7 @@ func (v *ProfileView) updateActionState() {
 	if hasSelection {
 		item := v.model.Items[idx]
 		if item.IsActive {
-			switchText = "重载配置"
+			switchText = "重新加载"
 		}
 		canSwitch = !v.isBusy
 		canEditInfo = !item.IsUpdating
