@@ -436,9 +436,7 @@ var enumWindowsCallback = windows.NewCallback(func(hwnd uintptr, lParam uintptr)
 		return 1
 	}
 
-	var clsBuf [256]uint16
-	_, _, _ = procGetClassName.Call(hwnd, uintptr(unsafe.Pointer(&clsBuf[0])), 256)
-	clsName := windows.UTF16ToString(clsBuf[:])
+	clsName := GetWindowClassName(hwnd)
 
 	var titleBuf [512]uint16
 	_, _, _ = procGetWindowText.Call(hwnd, uintptr(unsafe.Pointer(&titleBuf[0])), 512)
@@ -500,4 +498,16 @@ func IsWindowHung(hwnd uintptr) bool {
 func GetForegroundWindow() uintptr {
 	hwnd, _, _ := procGetForegroundWindow.Call()
 	return hwnd
+}
+
+func GetWindowClassName(hwnd uintptr) string {
+	if hwnd == 0 {
+		return ""
+	}
+	var clsBuf [256]uint16
+	n, _, _ := procGetClassName.Call(hwnd, uintptr(unsafe.Pointer(&clsBuf[0])), uintptr(len(clsBuf)))
+	if n == 0 {
+		return ""
+	}
+	return windows.UTF16ToString(clsBuf[:n])
 }
