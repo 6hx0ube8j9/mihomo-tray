@@ -41,7 +41,7 @@ func main() {
 		application.SafeShutdown(cancel)
 	}()
 
-	uiEngine := ui.NewEngine(ctx, cancel, application.UICommandCh, application.UIStateNotifyCh, application.Presenter.GetSnapshot)
+	uiEngine := ui.NewEngine(ctx, cancel, baseDir, application.UICommandCh, application.UIStateNotifyCh, application.Presenter.GetSnapshot)
 	application.SetUIPort(uiEngine)
 
 	uiEngine.SetOnShutdown(func() {
