@@ -462,11 +462,28 @@ func (m *Manager) IsActive() bool {
 	return isNativeActive || isChromiumActive
 }
 
+func (m *Manager) syncIsolatedProcess(debugPort string, livePID uint32) {
+	if livePID == 0 {
+		return
+	}
+	actualExe := sys.ProcessExeName(livePID)
+
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	if debugPort != "" && m.debugPort != debugPort {
+		return
+	}
+	m.isolatedPID.Store(livePID)
+	if actualExe != "" {
+		m.isolatedExeName = actualExe
+	}
+}
+
 func (m *Manager) isChromiumProcessAlive(pid uint32, exeName, debugPort string) bool {
 	if debugPort != "" {
 		if livePID := sys.FindTCPListenerPID(debugPort); livePID != 0 {
 			if livePID != pid {
-				m.isolatedPID.Store(livePID)
+				m.syncIsolatedProcess(debugPort, livePID)
 			}
 			return true
 		}
