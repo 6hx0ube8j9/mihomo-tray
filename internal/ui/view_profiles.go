@@ -94,7 +94,7 @@ func (v *ProfileView) Declarative() []Widget {
 						{Title: "名称", Width: 130},
 						{Title: "文件名", Width: 130},
 						{Title: "类型", Width: 70, Alignment: AlignCenter},
-						{Title: "更新频率", Width: 85, Alignment: AlignCenter},
+						{Title: "更新间隔", Width: 85, Alignment: AlignCenter},
 						{Title: "上次更新", Width: 120, Alignment: AlignCenter},
 					},
 					Model:                 v.model,
@@ -310,7 +310,7 @@ func (m *ProfileModel) Value(row, col int) interface{} {
 		if item.AutoUpdate && item.Interval > 0 {
 			return fmt.Sprintf("%d 天", item.Interval)
 		}
-		return "未开启"
+		return "手动"
 	case 5:
 		if !item.IsRemote {
 			return "-"
