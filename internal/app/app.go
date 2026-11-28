@@ -339,7 +339,7 @@ func (a *Application) eventLoop(ctx context.Context) {
 			a.handleUICommand(ctx, cmd)
 
 		case event := <-a.kernelEventCh:
-			switch event {
+			switch event.Type {
 			case domain.EventKernelReady:
 				slog.Info("内核已就绪")
 				a.State.SetPhase(domain.PhaseRunning)
@@ -366,6 +366,9 @@ func (a *Application) eventLoop(ctx context.Context) {
 				slog.Warn("内核已暂停")
 				a.State.SetPhase(domain.PhaseInitializing)
 				a.ProxyGuard.Sync()
+				if event.Err != nil && !a.State.IsExiting() && !errors.Is(event.Err, context.Canceled) {
+					a.showError("启动内核", userFacingMessage(event.Err))
+				}
 			}
 			a.Presenter.PushUIState()
 
