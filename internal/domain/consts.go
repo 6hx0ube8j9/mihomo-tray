@@ -83,14 +83,19 @@ const (
 	PhaseExiting
 )
 
-type KernelEvent int
+type KernelEventType int
 
 const (
-	EventKernelReady KernelEvent = iota
+	EventKernelReady KernelEventType = iota
 	EventKernelStopped
 	EventKernelCrashed
 	EventKernelHalted
 )
+
+type KernelEvent struct {
+	Type KernelEventType
+	Err  error
+}
 
 // ================= 默认配置策略 =================
 const (
