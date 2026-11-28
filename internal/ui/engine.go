@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/tailscale/walk"
@@ -23,9 +24,10 @@ type Engine struct {
 	getState      func() domain.UIState
 	ReadyCh       chan struct{}
 
-	uiThreadID uint32
-	app        *walk.Application
-	mw         *walk.MainWindow
+	uiThreadID         uint32
+	app                *walk.Application
+	mw                 *walk.MainWindow
+	preferScreenAnchor atomic.Bool
 
 	Tray      *Tray
 	Dashboard *Dashboard
@@ -231,11 +233,21 @@ func (e *Engine) disposeAll() {
 	})
 }
 
-func (e *Engine) SendCommand(action, payload string) {
+func (e *Engine) SendTrayCommand(action, payload string) {
+	e.preferScreenAnchor.Store(true)
+	e.sendCommand(domain.UICommand{Action: action, Payload: payload})
+}
+
+func (e *Engine) SendDashboardCommand(action, payload string) {
+	e.preferScreenAnchor.Store(false)
+	e.sendCommand(domain.UICommand{Action: action, Payload: payload})
+}
+
+func (e *Engine) sendCommand(cmd domain.UICommand) {
 	select {
-	case e.commandCh <- domain.UICommand{Action: action, Payload: payload}:
+	case e.commandCh <- cmd:
 	default:
-		slog.Warn("指令队列已满，忽略操作", "action", action)
+		slog.Warn("指令队列已满，忽略操作", "action", cmd.Action)
 	}
 }
 
@@ -246,6 +258,7 @@ func (e *Engine) Exit() {
 }
 
 func (e *Engine) ShowProfileManager(state domain.UIState) {
+	e.preferScreenAnchor.Store(false)
 	e.RunOnUI(func() {
 		if e.Dashboard != nil {
 			e.Dashboard.UpdateState(state)
@@ -363,6 +376,9 @@ func (e *Engine) ShowNotification(title, message string) {
 }
 
 func (e *Engine) activeOwner() walk.Form {
+	if e.preferScreenAnchor.Load() {
+		return nil
+	}
 	if e.Dashboard != nil && e.Dashboard.window != nil {
 		hwnd := e.Dashboard.window.Handle()
 		if hwnd != 0 && win.IsWindowVisible(hwnd) && !win.IsIconic(hwnd) {
