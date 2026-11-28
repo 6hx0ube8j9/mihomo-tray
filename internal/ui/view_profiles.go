@@ -49,7 +49,7 @@ func (v *ProfileView) Declarative() []Widget {
 		}
 		idx := v.tableView.CurrentIndex()
 		if idx >= 0 && idx < len(v.model.Items) {
-			v.engine.SendCommand(action, v.model.Items[idx].Path)
+			v.engine.SendDashboardCommand(action, v.model.Items[idx].Path)
 		}
 	}
 
@@ -63,20 +63,20 @@ func (v *ProfileView) Declarative() []Widget {
 		}
 		item := v.model.Items[idx]
 		if item.IsActive {
-			v.engine.SendCommand(domain.ActionReloadConfig, "")
+			v.engine.SendDashboardCommand(domain.ActionReloadConfig, "")
 			return
 		}
-		v.engine.SendCommand(domain.ActionSwitchProfile, item.Path)
+		v.engine.SendDashboardCommand(domain.ActionSwitchProfile, item.Path)
 	}
 
 	return []Widget{
 		Composite{
 			Layout: HBox{MarginsZero: true, Spacing: 12},
 			Children: []Widget{
-				PushButton{Text: "添加远程订阅", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestAddRemote, "") }},
-				PushButton{Text: "导入本地配置", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestAddLocal, "") }},
-				PushButton{Text: "更改代理端口", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestEditPort, "") }},
-				PushButton{Text: "Web 面板设置", OnClicked: func() { v.engine.SendCommand(domain.ActionRequestEditController, "") }},
+				PushButton{Text: "添加远程订阅", OnClicked: func() { v.engine.SendDashboardCommand(domain.ActionRequestAddRemote, "") }},
+				PushButton{Text: "导入本地配置", OnClicked: func() { v.engine.SendDashboardCommand(domain.ActionRequestAddLocal, "") }},
+				PushButton{Text: "更改代理端口", OnClicked: func() { v.engine.SendDashboardCommand(domain.ActionRequestEditPort, "") }},
+				PushButton{Text: "Web 面板设置", OnClicked: func() { v.engine.SendDashboardCommand(domain.ActionRequestEditController, "") }},
 				HSpacer{},
 				Label{
 					AssignTo: &v.portsLabel,
@@ -134,7 +134,7 @@ func (v *ProfileView) Declarative() []Widget {
 							Text:      "更新全部",
 							Enabled:   false,
 							MinSize:   Size{Width: 90},
-							OnClicked: func() { v.engine.SendCommand(domain.ActionUpdateAllRemoteProfiles, "") },
+							OnClicked: func() { v.engine.SendDashboardCommand(domain.ActionUpdateAllRemoteProfiles, "") },
 						},
 						VSpacer{},
 					},
