@@ -343,6 +343,69 @@ func CenterWindowOnOwner(hwnd, ownerHwnd uintptr) {
 	_, _, _ = procSetWindowPos.Call(hwnd, 0, uintptr(int32(x)), uintptr(int32(y)), 0, 0, flags)
 }
 
+// EnsureWindowOnScreen repositions hwnd into the nearest monitor's work area when its
+// title bar is unreachable or the window exceeds the work area, leaving normal placements untouched.
+func EnsureWindowOnScreen(hwnd uintptr) {
+	if hwnd == 0 || IsWindowMinimized(hwnd) {
+		return
+	}
+
+	r, ok := queryWindowRect(hwnd)
+	if !ok {
+		return
+	}
+
+	winW := int(r.Right - r.Left)
+	winH := int(r.Bottom - r.Top)
+	if winW <= 0 || winH <= 0 {
+		return
+	}
+
+	workW, workH, workLeft, workTop := windowWorkArea(hwnd)
+	if workW <= 0 || workH <= 0 {
+		return
+	}
+
+	workRight := workLeft + workW
+	workBottom := workTop + workH
+	overlapX := min(int(r.Right), workRight) - max(int(r.Left), workLeft)
+	overlapY := min(int(r.Bottom), workBottom) - max(int(r.Top), workTop)
+
+	const (
+		minVisibleX      = 120
+		minVisibleTitleY = 40
+		topBorderSlop    = 8
+	)
+
+	if winW <= workW && winH <= workH &&
+		overlapX >= min(winW, minVisibleX) &&
+		int(r.Top) >= workTop-topBorderSlop &&
+		int(r.Top) <= workBottom-minVisibleTitleY {
+		return
+	}
+
+	flags := uintptr(swpNoZOrder | swpNoActivate | swpNoSize)
+	if winW > workW {
+		winW = workW
+		flags &^= swpNoSize
+	}
+	if winH > workH {
+		winH = workH
+		flags &^= swpNoSize
+	}
+
+	var x, y int
+	if overlapX <= 0 || overlapY <= 0 {
+		x = clampCoord(workLeft+(workW-winW)/2, workLeft, workRight-winW)
+		y = clampCoord(workTop+(workH-winH)/2, workTop, workBottom-winH)
+	} else {
+		x = clampCoord(int(r.Left), workLeft, workRight-winW)
+		y = clampCoord(int(r.Top), workTop, workBottom-winH)
+	}
+
+	_, _, _ = procSetWindowPos.Call(hwnd, 0, uintptr(int32(x)), uintptr(int32(y)), uintptr(int32(winW)), uintptr(int32(winH)), flags)
+}
+
 // -------------------- Focus & Visibility --------------------
 
 // ActivateWindow restores a minimized window and gives it foreground focus.
