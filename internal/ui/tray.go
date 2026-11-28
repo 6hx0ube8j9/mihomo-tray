@@ -65,7 +65,7 @@ func NewTray(e *Engine) *Tray {
 
 	ni.MouseUp().Attach(func(x, y int, button walk.MouseButton) {
 		if button == walk.LeftButton {
-			t.engine.SendCommand(domain.ActionOpenWebUI, "")
+			t.engine.SendTrayCommand(domain.ActionOpenWebUI, "")
 		}
 	})
 
@@ -136,7 +136,7 @@ func (t *Tray) buildMenuSkeleton() {
 	actions := t.ni.ContextMenu().Actions()
 	actions.Clear()
 
-	t.addAction("进入 Web 面板", func() { t.engine.SendCommand(domain.ActionOpenWebUI, "") })
+	t.addAction("进入 Web 面板", func() { t.engine.SendTrayCommand(domain.ActionOpenWebUI, "") })
 	t.addSeparator()
 
 	t.actProxy = t.addCheckableAction("系统代理", false, func() {
@@ -149,23 +149,23 @@ func (t *Tray) buildMenuSkeleton() {
 	modeMenu, modeMenuAction := t.addSubMenu("路由模式")
 	t.actModeMenu = modeMenuAction
 	t.actModeRule = t.addRadioSubAction(modeMenu, "规则", false, func() {
-		t.engine.SendCommand(domain.ActionSwitchMode, domain.ModeRule)
+		t.engine.SendTrayCommand(domain.ActionSwitchMode, domain.ModeRule)
 	})
 	t.actModeDirect = t.addRadioSubAction(modeMenu, "直连", false, func() {
-		t.engine.SendCommand(domain.ActionSwitchMode, domain.ModeDirect)
+		t.engine.SendTrayCommand(domain.ActionSwitchMode, domain.ModeDirect)
 	})
 	t.actModeGlobal = t.addRadioSubAction(modeMenu, "全局", false, func() {
-		t.engine.SendCommand(domain.ActionSwitchMode, domain.ModeGlobal)
+		t.engine.SendTrayCommand(domain.ActionSwitchMode, domain.ModeGlobal)
 	})
 
 	t.addSeparator()
 
 	t.menuSwitchProfile, _ = t.addSubMenu("切换配置文件")
-	t.addAction("管理/添加配置", func() { t.engine.SendCommand(domain.ActionOpenProfileManager, "") })
+	t.addAction("管理/添加配置", func() { t.engine.SendTrayCommand(domain.ActionOpenProfileManager, "") })
 
 	t.addSeparator()
-	t.addAction("编辑当前文本", func() { t.engine.SendCommand(domain.ActionEditCurrentConfig, "") })
-	t.addAction("打开程序目录", func() { t.engine.SendCommand(domain.ActionOpenBaseDir, "") })
+	t.addAction("编辑当前文本", func() { t.engine.SendTrayCommand(domain.ActionEditCurrentConfig, "") })
+	t.addAction("打开程序目录", func() { t.engine.SendTrayCommand(domain.ActionOpenBaseDir, "") })
 	t.addSeparator()
 
 	adminMenu, adminMenuAction := t.addSubMenu("运行权限")
@@ -179,28 +179,28 @@ func (t *Tray) buildMenuSkeleton() {
 
 	webModeMenu, _ := t.addSubMenu("Web 打开方式")
 	t.actWebModeAuto = t.addRadioSubAction(webModeMenu, "自动选择 (Auto)", true, func() {
-		t.engine.SendCommand(domain.ActionSetWebOpenMode, domain.WebOpenModeAuto)
+		t.engine.SendTrayCommand(domain.ActionSetWebOpenMode, domain.WebOpenModeAuto)
 	})
 	t.actWebModeApp = t.addRadioSubAction(webModeMenu, "应用模式 (App)", false, func() {
-		t.engine.SendCommand(domain.ActionSetWebOpenMode, domain.WebOpenModeApp)
+		t.engine.SendTrayCommand(domain.ActionSetWebOpenMode, domain.WebOpenModeApp)
 	})
 	t.actWebModeBrowser = t.addRadioSubAction(webModeMenu, "浏览器 (Browser)", false, func() {
-		t.engine.SendCommand(domain.ActionSetWebOpenMode, domain.WebOpenModeBrowser)
+		t.engine.SendTrayCommand(domain.ActionSetWebOpenMode, domain.WebOpenModeBrowser)
 	})
 	t.actWebModeWebView = t.addRadioSubAction(webModeMenu, "内置窗口 (WebView)", false, func() {
-		t.engine.SendCommand(domain.ActionSetWebOpenMode, domain.WebOpenModeWebView)
+		t.engine.SendTrayCommand(domain.ActionSetWebOpenMode, domain.WebOpenModeWebView)
 	})
 
 	moreMenu, _ := t.addSubMenu("更多设置")
 	t.addActionTo(moreMenu, fmt.Sprintf("打开应用配置: %s", domain.TrayConfigName), func() {
-		t.engine.SendCommand(domain.ActionOpenAppConfig, "")
+		t.engine.SendTrayCommand(domain.ActionOpenAppConfig, "")
 	})
 	t.addSeparatorTo(moreMenu)
 	t.addActionTo(moreMenu, "复制接口访问密码", func() {
-		t.engine.SendCommand(domain.ActionCopyWebUIPassword, "")
+		t.engine.SendTrayCommand(domain.ActionCopyWebUIPassword, "")
 	})
 	t.addActionTo(moreMenu, "清除 Web 面板缓存", func() {
-		t.engine.SendCommand(domain.ActionClearWebUICache, "")
+		t.engine.SendTrayCommand(domain.ActionClearWebUICache, "")
 	})
 
 	t.addSeparatorTo(moreMenu)
@@ -212,15 +212,15 @@ func (t *Tray) buildMenuSkeleton() {
 	})
 	t.addSeparatorTo(moreMenu)
 	t.actReload = t.addActionTo(moreMenu, "重载当前配置", func() {
-		t.engine.SendCommand(domain.ActionReloadConfig, "")
+		t.engine.SendTrayCommand(domain.ActionReloadConfig, "")
 	})
 	t.actRestart = t.addActionTo(moreMenu, "重启内核", func() {
-		t.engine.SendCommand(domain.ActionRestartKernel, "")
+		t.engine.SendTrayCommand(domain.ActionRestartKernel, "")
 	})
 
 	t.addSeparator()
 	t.addAction("退出程序", func() {
-		t.engine.SendCommand(domain.ActionExitApp, "")
+		t.engine.SendTrayCommand(domain.ActionExitApp, "")
 	})
 }
 
@@ -249,7 +249,7 @@ func (t *Tray) rebuildProfilesMenu(state domain.UIState) {
 			suffix = " (订阅)"
 		}
 		act := t.addRadioSubAction(t.menuSwitchProfile, item.Name+suffix, item.IsActive, func() {
-			t.engine.SendCommand(domain.ActionSwitchProfile, targetPath)
+			t.engine.SendTrayCommand(domain.ActionSwitchProfile, targetPath)
 		})
 		safelySetEnabled(act, !state.IsBusy)
 	}
@@ -308,7 +308,7 @@ func (t *Tray) Dispose() {
 }
 
 func (t *Tray) toggle(action string, nextVal bool) {
-	t.engine.SendCommand(action, strconv.FormatBool(nextVal))
+	t.engine.SendTrayCommand(action, strconv.FormatBool(nextVal))
 }
 
 func getModeName(mode string) string {
