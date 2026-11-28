@@ -36,11 +36,11 @@ func RunOpenYAMLFileDialog(owner walk.Form) (string, bool) {
 	return filepath.Clean(filepath.FromSlash(selected)), true
 }
 
-func RunOpenBrowserExeDialog(owner walk.Form, currentPath string) (string, bool) {
+func RunOpenBrowserExeDialog(owner walk.Form, currentPath, baseDir string) (string, bool) {
 	selected, ok, err := sys.OpenFileDialog(sys.FileDialogOptions{
 		OwnerHWND:  ownerWindowHandle(owner),
 		Title:      "选择文件",
-		InitialDir: browser.ResolveNearestDir(currentPath),
+		InitialDir: browser.ResolveNearestDir(currentPath, baseDir),
 		Filters: []sys.FileFilter{
 			{Name: "可执行文件 (*.exe)", Spec: "*.exe"},
 			{Name: "所有文件 (*.*)", Spec: "*.*"},
