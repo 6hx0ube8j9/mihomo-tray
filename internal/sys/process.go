@@ -113,13 +113,39 @@ func assignProcessToJob(hJob windows.Handle, pid int) {
 	}
 }
 
-func matchProcessImagePath(h windows.Handle, buf []uint16, cleanAbsTarget string) bool {
+func queryProcessImagePath(h windows.Handle, buf []uint16) (string, bool) {
 	size := uint32(len(buf))
-	if err := windows.QueryFullProcessImageName(h, 0, &buf[0], &size); err != nil {
+	if err := windows.QueryFullProcessImageName(h, 0, &buf[0], &size); err != nil || size == 0 {
+		return "", false
+	}
+	return windows.UTF16ToString(buf[:size]), true
+}
+
+func matchProcessImagePath(h windows.Handle, buf []uint16, cleanAbsTarget string) bool {
+	fullPath, ok := queryProcessImagePath(h, buf)
+	if !ok {
 		return false
 	}
-	fullPath := filepath.Clean(windows.UTF16ToString(buf[:size]))
-	return strings.EqualFold(fullPath, cleanAbsTarget)
+	return strings.EqualFold(filepath.Clean(fullPath), cleanAbsTarget)
+}
+
+func ProcessExeName(pid uint32) string {
+	if pid == 0 {
+		return ""
+	}
+
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		return ""
+	}
+	defer windows.CloseHandle(h)
+
+	var buf [1024]uint16
+	fullPath, ok := queryProcessImagePath(h, buf[:])
+	if !ok {
+		return ""
+	}
+	return filepath.Base(fullPath)
 }
 
 func KillOtherProcessesByPath(exePath string, excludePid uint32) {
@@ -195,15 +221,12 @@ func IsPidRunning(pid uint32, expectedExeName string) bool {
 		return true
 	}
 
-	buf := make([]uint16, windows.MAX_PATH)
-	size := uint32(len(buf))
-	if err := windows.QueryFullProcessImageName(h, 0, &buf[0], &size); err == nil {
-		fullPath := windows.UTF16ToString(buf[:size])
-		baseName := filepath.Base(fullPath)
-		return strings.EqualFold(baseName, expectedExeName)
+	var buf [1024]uint16
+	fullPath, ok := queryProcessImagePath(h, buf[:])
+	if !ok {
+		return false
 	}
-
-	return false
+	return strings.EqualFold(filepath.Base(fullPath), expectedExeName)
 }
 
 func SendCtrlBreak(pid uint32) error {
